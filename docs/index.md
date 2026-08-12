@@ -20,6 +20,8 @@ This is the canonical index for living `wasmppt` documentation.
   Worker protocol, Cloudflare/R2 streaming, cache and memory budgets.
 - [Lazy slide resolution](rendering.md) — theme/master/layout inheritance,
   geometry and diagnostics, dependency invalidation, and binary display lists.
+- [Browser Canvas renderer](canvas.md) — Worker-owned lazy resolution, Canvas
+  execution, fonts, virtualization, resource budgets, and stage telemetry.
 - [Documentation guide](metadoc.md) — how documentation is organized, written,
   linked, and linted.
 

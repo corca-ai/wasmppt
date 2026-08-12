@@ -29,13 +29,32 @@ export type WorkerRequest =
       readonly type: 'cancel'
       readonly targetId: number
     }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'open-presentation'
+      readonly presentation: ArrayBuffer
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'resolve-slide'
+      readonly presentationHandle: number
+      readonly slideIndex: number
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'release-presentation'
+      readonly presentationHandle: number
+    }
 
 export type WorkerResponse =
   | {
       readonly version: typeof WORKER_PROTOCOL_VERSION
       readonly id: number
       readonly type: 'progress'
-      readonly phase: 'prepare' | 'generate' | 'stream'
+      readonly phase: 'prepare' | 'generate' | 'stream' | 'open' | 'resolve'
       readonly completed: number
       readonly total: number
     }
@@ -72,6 +91,25 @@ export type WorkerResponse =
   | {
       readonly version: typeof WORKER_PROTOCOL_VERSION
       readonly id: number
+      readonly type: 'presentation-opened'
+      readonly presentationHandle: number
+      readonly slideCount: number
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'slide-resolved'
+      readonly slideIndex: number
+      readonly displayList: ArrayBuffer
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'presentation-released'
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
       readonly type: 'error'
       readonly name: string
       readonly message: string
@@ -85,6 +123,10 @@ export interface WorkerEngine {
   output_chunk(handle: number, offset: number, length: number): Uint8Array
   release_template(handle: number): boolean
   release_output(handle: number): boolean
+  open_presentation(presentation: Uint8Array): number
+  presentation_slide_count(handle: number): number
+  resolve_presentation_slide(handle: number, slideIndex: number): Uint8Array
+  release_presentation(handle: number): boolean
 }
 
 export interface RuntimeCapabilities {

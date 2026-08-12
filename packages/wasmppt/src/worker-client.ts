@@ -25,11 +25,22 @@ export interface GenerateOptions {
   readonly onProgress?: (phase: 'generate' | 'stream', completed: number, total: number) => void
 }
 
+export interface OpenedBrowserPresentation {
+  readonly handle: number
+  readonly slideCount: number
+}
+
+export interface ResolveSlideOptions {
+  readonly signal?: AbortSignal
+  readonly onProgress?: (phase: 'open' | 'resolve', completed: number, total: number) => void
+}
+
 type Pending =
   | {
-      readonly kind: 'prepare' | 'release'
+      readonly kind: 'prepare' | 'release' | 'open' | 'resolve' | 'release-presentation'
       readonly resolve: (value: WorkerResponse) => void
       readonly reject: (error: Error) => void
+      readonly onProgress?: ResolveSlideOptions['onProgress']
     }
   | {
       readonly kind: 'generate'
@@ -68,6 +79,61 @@ export class WasmpptWorkerClient {
     const response = await result
     if (response.type !== 'prepared') throw new Error('invalid prepare response')
     return { handle: response.templateHandle, residentBytes: response.residentBytes }
+  }
+
+  async openPresentation(
+    presentation: ArrayBuffer,
+    options: ResolveSlideOptions = {},
+  ): Promise<OpenedBrowserPresentation> {
+    this.#assertOpen()
+    const id = this.#allocateId()
+    const result = this.#unaryRequest(id, 'open', options.signal, options.onProgress)
+    this.#worker.postMessage(
+      { version: WORKER_PROTOCOL_VERSION, id, type: 'open-presentation', presentation },
+      [presentation],
+    )
+    const response = await result
+    if (response.type !== 'presentation-opened') throw new Error('invalid open response')
+    return { handle: response.presentationHandle, slideCount: response.slideCount }
+  }
+
+  async resolveSlide(
+    presentationHandle: number,
+    slideIndex: number,
+    options: ResolveSlideOptions = {},
+  ): Promise<ArrayBuffer> {
+    this.#assertOpen()
+    if (!Number.isSafeInteger(slideIndex) || slideIndex < 0) {
+      throw new RangeError('slideIndex must be a non-negative safe integer')
+    }
+    const id = this.#allocateId()
+    const result = this.#unaryRequest(id, 'resolve', options.signal, options.onProgress)
+    this.#worker.postMessage({
+      version: WORKER_PROTOCOL_VERSION,
+      id,
+      type: 'resolve-slide',
+      presentationHandle,
+      slideIndex,
+    })
+    const response = await result
+    if (response.type !== 'slide-resolved') throw new Error('invalid resolve response')
+    return response.displayList
+  }
+
+  async releasePresentation(presentationHandle: number): Promise<void> {
+    this.#assertOpen()
+    const id = this.#allocateId()
+    const result = this.#unaryRequest(id, 'release-presentation')
+    this.#worker.postMessage({
+      version: WORKER_PROTOCOL_VERSION,
+      id,
+      type: 'release-presentation',
+      presentationHandle,
+    })
+    const response = await result
+    if (response.type !== 'presentation-released') {
+      throw new Error('invalid release-presentation response')
+    }
   }
 
   generateStream(
@@ -172,7 +238,10 @@ export class WasmpptWorkerClient {
     const pending = this.#pending.get(value.id)
     if (pending === undefined) return
     if (value.type === 'progress') {
-      if (pending.kind === 'generate' && value.phase !== 'prepare') {
+      if (pending.kind === 'generate' && (value.phase === 'generate' || value.phase === 'stream')) {
+        pending.onProgress?.(value.phase, value.completed, value.total)
+      } else if ((pending.kind === 'open' || pending.kind === 'resolve') &&
+        (value.phase === 'open' || value.phase === 'resolve')) {
         pending.onProgress?.(value.phase, value.completed, value.total)
       }
       return
@@ -219,6 +288,38 @@ export class WasmpptWorkerClient {
     const id = this.#nextId
     this.#nextId = this.#nextId >= Number.MAX_SAFE_INTEGER ? 1 : this.#nextId + 1
     return id
+  }
+
+  #unaryRequest(
+    id: number,
+    kind: Exclude<Pending, { readonly kind: 'generate' }>['kind'],
+    signal?: AbortSignal,
+    onProgress?: ResolveSlideOptions['onProgress'],
+  ): Promise<WorkerResponse> {
+    if (signal?.aborted === true) return Promise.reject(abortError())
+    return new Promise<WorkerResponse>((resolve, reject) => {
+      const abort = (): void => {
+        this.#worker.postMessage({
+          version: WORKER_PROTOCOL_VERSION,
+          id: this.#allocateId(),
+          type: 'cancel',
+          targetId: id,
+        })
+      }
+      signal?.addEventListener('abort', abort, { once: true })
+      this.#pending.set(id, {
+        kind,
+        resolve: (response) => {
+          signal?.removeEventListener('abort', abort)
+          resolve(response)
+        },
+        reject: (error) => {
+          signal?.removeEventListener('abort', abort)
+          reject(error)
+        },
+        onProgress,
+      })
+    })
   }
 
   #assertOpen(): void {

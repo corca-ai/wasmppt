@@ -56,6 +56,44 @@ test('termination rejects every pending request and stream', async () => {
   assert.equal(worker.terminated, true)
 })
 
+test('presentation bytes and resolved display lists cross the Worker boundary once', async () => {
+  const worker = new FakeWorker()
+  const client = new WasmpptWorkerClient(worker)
+  const presentation = new ArrayBuffer(32)
+  const opening = client.openPresentation(presentation)
+  const openRequest = worker.messages[0]
+  assert.equal(openRequest.type, 'open-presentation')
+  assert.deepEqual(worker.transfers[0], [presentation])
+  worker.respond({
+    version: WORKER_PROTOCOL_VERSION,
+    id: openRequest.id,
+    type: 'presentation-opened',
+    presentationHandle: 11,
+    slideCount: 5,
+  })
+  assert.deepEqual(await opening, { handle: 11, slideCount: 5 })
+
+  const resolving = client.resolveSlide(11, 2)
+  const resolveRequest = worker.messages[1]
+  assert.deepEqual(resolveRequest, {
+    version: WORKER_PROTOCOL_VERSION,
+    id: resolveRequest.id,
+    type: 'resolve-slide',
+    presentationHandle: 11,
+    slideIndex: 2,
+  })
+  const displayList = new ArrayBuffer(40)
+  worker.respond({
+    version: WORKER_PROTOCOL_VERSION,
+    id: resolveRequest.id,
+    type: 'slide-resolved',
+    slideIndex: 2,
+    displayList,
+  })
+  assert.equal(await resolving, displayList)
+  client.terminate()
+})
+
 test('a Worker crash rejects all outstanding promises', async () => {
   const worker = new FakeWorker()
   const client = new WasmpptWorkerClient(worker)

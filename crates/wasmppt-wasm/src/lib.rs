@@ -59,6 +59,7 @@ impl EngineCapabilities {
 pub struct WasmpptEngine {
     next_handle: u32,
     templates: HashMap<u32, PreparedTemplate>,
+    presentations: HashMap<u32, PresentationDocument>,
     outputs: HashMap<u32, Vec<u8>>,
 }
 
@@ -67,6 +68,7 @@ impl Default for WasmpptEngine {
         Self {
             next_handle: 1,
             templates: HashMap::new(),
+            presentations: HashMap::new(),
             outputs: HashMap::new(),
         }
     }
@@ -104,6 +106,32 @@ impl WasmpptEngine {
 
     pub fn prepared_weight(&self, handle: u32) -> Result<u64, JsError> {
         Ok(self.template(handle)?.estimated_resident_bytes())
+    }
+
+    /// Index a presentation once and retain its compressed package behind an opaque handle.
+    pub fn open_presentation(&mut self, presentation: &[u8]) -> Result<u32, JsError> {
+        let deck = PresentationDocument::open(presentation.to_vec()).map_err(js_error)?;
+        let handle = self.allocate_handle()?;
+        self.presentations.insert(handle, deck);
+        Ok(handle)
+    }
+
+    pub fn presentation_slide_count(&self, handle: u32) -> Result<u32, JsError> {
+        u32::try_from(self.presentation(handle)?.slide_count())
+            .map_err(|_| JsError::new("slide count exceeds the Wasm 32-bit address space"))
+    }
+
+    /// Resolve exactly one requested slide to the compact display-list wire format.
+    pub fn resolve_presentation_slide(
+        &self,
+        presentation_handle: u32,
+        slide_index: u32,
+    ) -> Result<Vec<u8>, JsError> {
+        let resolved = self
+            .presentation(presentation_handle)?
+            .resolve_slide(slide_index as usize)
+            .map_err(js_error)?;
+        Ok(DisplayList::from_slide(&resolved.slide).encode())
     }
 
     /// Generate into an engine-owned output buffer and return an opaque handle.
@@ -169,6 +197,10 @@ impl WasmpptEngine {
         self.templates.remove(&handle).is_some()
     }
 
+    pub fn release_presentation(&mut self, handle: u32) -> bool {
+        self.presentations.remove(&handle).is_some()
+    }
+
     pub fn release_output(&mut self, handle: u32) -> bool {
         self.outputs.remove(&handle).is_some()
     }
@@ -179,7 +211,10 @@ impl WasmpptEngine {
         for _ in 0..u32::MAX {
             let handle = self.next_handle;
             self.next_handle = self.next_handle.wrapping_add(1).max(1);
-            if !self.templates.contains_key(&handle) && !self.outputs.contains_key(&handle) {
+            if !self.templates.contains_key(&handle)
+                && !self.presentations.contains_key(&handle)
+                && !self.outputs.contains_key(&handle)
+            {
                 return Ok(handle);
             }
         }
@@ -197,6 +232,12 @@ impl WasmpptEngine {
             .get(&handle)
             .map(Vec::as_slice)
             .ok_or_else(|| JsError::new("unknown output handle"))
+    }
+
+    fn presentation(&self, handle: u32) -> Result<&PresentationDocument, JsError> {
+        self.presentations
+            .get(&handle)
+            .ok_or_else(|| JsError::new("unknown presentation handle"))
     }
 }
 

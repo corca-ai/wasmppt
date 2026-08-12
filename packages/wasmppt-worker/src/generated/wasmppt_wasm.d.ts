@@ -31,6 +31,10 @@ export class WasmpptEngine {
     generate_text(template_handle: number, ids: Array<any>, values: Array<any>): number;
     constructor();
     /**
+     * Index a presentation once and retain its compressed package behind an opaque handle.
+     */
+    open_presentation(presentation: Uint8Array): number;
+    /**
      * Copy one bounded chunk into a JavaScript `Uint8Array`.
      */
     output_chunk(output_handle: number, offset: number, length: number): Uint8Array;
@@ -40,8 +44,14 @@ export class WasmpptEngine {
      */
     prepare(template: Uint8Array): number;
     prepared_weight(handle: number): bigint;
+    presentation_slide_count(handle: number): number;
     release_output(handle: number): boolean;
+    release_presentation(handle: number): boolean;
     release_template(handle: number): boolean;
+    /**
+     * Resolve exactly one requested slide to the compact display-list wire format.
+     */
+    resolve_presentation_slide(presentation_handle: number, slide_index: number): Uint8Array;
 }
 
 /**
@@ -73,12 +83,16 @@ export interface InitOutput {
     readonly wasmpptengine_capabilities: (a: number) => number;
     readonly wasmpptengine_generate_text: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmpptengine_new: () => number;
+    readonly wasmpptengine_open_presentation: (a: number, b: number, c: number, d: number) => void;
     readonly wasmpptengine_output_chunk: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmpptengine_output_len: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_prepare: (a: number, b: number, c: number, d: number) => void;
     readonly wasmpptengine_prepared_weight: (a: number, b: number, c: number) => void;
+    readonly wasmpptengine_presentation_slide_count: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_release_output: (a: number, b: number) => number;
+    readonly wasmpptengine_release_presentation: (a: number, b: number) => number;
     readonly wasmpptengine_release_template: (a: number, b: number) => number;
+    readonly wasmpptengine_resolve_presentation_slide: (a: number, b: number, c: number, d: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;

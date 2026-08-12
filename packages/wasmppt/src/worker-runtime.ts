@@ -86,6 +86,48 @@ export function installWorkerRuntime(scope: WorkerRuntimeScope, engine: WorkerEn
           engine.release_template(message.templateHandle)
           post(scope, { id: message.id, type: 'released' })
           return
+        case 'open-presentation': {
+          progress(scope, message.id, 'open', 0, 1)
+          const handle = engine.open_presentation(new Uint8Array(message.presentation))
+          if (cancelled.delete(message.id)) {
+            engine.release_presentation(handle)
+            post(scope, { id: message.id, type: 'cancelled' })
+            return
+          }
+          progress(scope, message.id, 'open', 1, 1)
+          post(scope, {
+            id: message.id,
+            type: 'presentation-opened',
+            presentationHandle: handle,
+            slideCount: engine.presentation_slide_count(handle),
+          })
+          return
+        }
+        case 'resolve-slide': {
+          progress(scope, message.id, 'resolve', 0, 1)
+          const displayList = exactBuffer(
+            engine.resolve_presentation_slide(message.presentationHandle, message.slideIndex),
+          )
+          if (cancelled.delete(message.id)) {
+            post(scope, { id: message.id, type: 'cancelled' })
+            return
+          }
+          progress(scope, message.id, 'resolve', 1, 1)
+          scope.postMessage(
+            response({
+              id: message.id,
+              type: 'slide-resolved',
+              slideIndex: message.slideIndex,
+              displayList,
+            }),
+            [displayList],
+          )
+          return
+        }
+        case 'release-presentation':
+          engine.release_presentation(message.presentationHandle)
+          post(scope, { id: message.id, type: 'presentation-released' })
+          return
       }
     } catch (error) {
       const normalized = normalizeError(error)
@@ -103,6 +145,9 @@ function isWorkerRequest(value: unknown): value is WorkerRequest {
     (candidate.type === 'prepare' ||
       candidate.type === 'generate' ||
       candidate.type === 'release' ||
+      candidate.type === 'open-presentation' ||
+      candidate.type === 'resolve-slide' ||
+      candidate.type === 'release-presentation' ||
       candidate.type === 'cancel')
   )
 }
@@ -122,7 +167,7 @@ function post(scope: WorkerRuntimeScope, message: ResponseWithoutVersion): void 
 function progress(
   scope: WorkerRuntimeScope,
   id: number,
-  phase: 'prepare' | 'generate' | 'stream',
+  phase: 'prepare' | 'generate' | 'stream' | 'open' | 'resolve',
   completed: number,
   total: number,
 ): void {

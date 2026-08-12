@@ -13,6 +13,7 @@ const generatedDirectory = join(workspaceDirectory, 'packages/wasmppt-worker/src
 const routes = new Map([
   ['/dist/worker-client.js', [join(packageDirectory, 'dist/worker-client.js'), 'text/javascript']],
   ['/dist/protocol.js', [join(packageDirectory, 'dist/protocol.js'), 'text/javascript']],
+  ['/dist/canvas.js', [join(packageDirectory, 'dist/canvas.js'), 'text/javascript']],
   [
     '/dist/worker-runtime.js',
     [join(packageDirectory, 'dist/worker-runtime.js'), 'text/javascript'],
@@ -36,19 +37,11 @@ const routes = new Map([
 ])
 
 const workerSource = `
-import init, { WasmpptEngine, display_list_signature } from '/wasm/wasmppt_wasm.js';
+import init, { WasmpptEngine } from '/wasm/wasmppt_wasm.js';
 import { installWorkerRuntime } from '/dist/worker-runtime.js';
 try {
   await init({ module_or_path: new URL('/wasm/wasmppt_wasm_bg.wasm', self.location.href) });
   installWorkerRuntime(self, new WasmpptEngine());
-  self.addEventListener('message', (event) => {
-    if (event.data?.type === 'host-display-signature') {
-      self.postMessage({
-        type: 'host-display-signature-result',
-        signature: display_list_signature(new Uint8Array(event.data.presentation), event.data.slideIndex),
-      });
-    }
-  });
   self.postMessage({ type: 'host-ready' });
 } catch (error) {
   self.postMessage({ type: 'host-init-error', message: error instanceof Error ? error.stack : String(error) });
@@ -105,6 +98,13 @@ try {
   await page.goto(`http://127.0.0.1:${address.port}/`)
   const result = await page.evaluate(async () => {
     const { WasmpptWorkerClient } = await import('/dist/worker-client.js')
+    const {
+      CanvasDisplayListRenderer,
+      FontResolver,
+      VirtualizedCanvasViewer,
+      decodeDisplayList,
+      wrapText,
+    } = await import('/dist/canvas.js')
     const worker = new Worker('/worker.js', { type: 'module' })
     await new Promise((resolvePromise, reject) => {
       const timer = setTimeout(() => reject(new Error('browser Worker initialization timed out')), 10_000)
@@ -130,35 +130,150 @@ try {
     const output = new Uint8Array(await client.generate(prepared.handle))
     await client.release(prepared.handle)
     const renderFixture = await fetch('/render-fixture.pptx').then((response) => response.arrayBuffer())
-    const displaySignature = await new Promise((resolvePromise, reject) => {
-      const timer = setTimeout(() => reject(new Error('display signature timed out')), 10_000)
-      worker.addEventListener('message', (event) => {
-        if (event.data?.type === 'host-display-signature-result') {
-          clearTimeout(timer)
-          resolvePromise(event.data.signature)
-        }
-      })
-      worker.postMessage(
-        { type: 'host-display-signature', presentation: renderFixture, slideIndex: 0 },
-        [renderFixture],
-      )
+    const opened = await client.openPresentation(renderFixture)
+    const displayBytes = await client.resolveSlide(opened.handle, 0)
+    const scene = decodeDisplayList(displayBytes)
+    const canvas = document.createElement('canvas')
+    canvas.width = 640
+    canvas.height = 360
+    document.body.append(canvas)
+    const context = canvas.getContext('2d', { alpha: false })
+    const renderer = new CanvasDisplayListRenderer(4096)
+    const koreanLines = wrapText('가나다라마바사', 3, (value) => [...value].length)
+    const telemetry = await renderer.render(scene, context, {
+      fontResolver: new FontResolver({
+        theme: { latin: 'Arial', eastAsian: 'Arial', complexScript: 'Arial' },
+      }),
+      imageResolver: async () => {
+        const source = new OffscreenCanvas(16, 16)
+        const imageContext = source.getContext('2d')
+        imageContext.fillStyle = '#ff00ff'
+        imageContext.fillRect(0, 0, 8, 16)
+        imageContext.fillStyle = '#00ffff'
+        imageContext.fillRect(8, 0, 8, 16)
+        const bitmap = source.transferToImageBitmap()
+        return { source: bitmap, residentBytes: 16 * 16 * 4, close: () => bitmap.close() }
+      },
     })
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+    let pixelHash = 0x811c9dc5
+    for (const byte of pixels) pixelHash = Math.imul(pixelHash ^ byte, 0x01000193) >>> 0
+    const pixelAt = (x, y) => [...pixels.slice((y * canvas.width + x) * 4, (y * canvas.width + x) * 4 + 4)]
+    let darkGroupPixels = 0
+    for (let y = 45; y < 115; y += 1) {
+      for (let x = 95; x < 610; x += 1) {
+        const offset = (y * canvas.width + x) * 4
+        if (pixels[offset] < 50 && pixels[offset + 1] < 50 && pixels[offset + 2] < 50) {
+          darkGroupPixels += 1
+        }
+      }
+    }
+    const viewerRoot = document.createElement('div')
+    document.body.append(viewerRoot)
+    const viewer = new VirtualizedCanvasViewer(
+      { resolveSlide: async () => displayBytes.slice(0) },
+      opened.handle,
+      viewerRoot,
+      new CanvasDisplayListRenderer(0),
+      { sceneCacheBytes: displayBytes.byteLength * 2, prefetchNeighbors: 0 },
+    )
+    await viewer.setVisibleSlides([0, 1])
+    const mountedAtPeak = viewer.mountedSlideCount
+    await viewer.setVisibleSlides([1])
+    const mountedAfterScroll = viewer.mountedSlideCount
+    const cachedSceneBytes = viewer.cachedSceneBytes
+    viewer.dispose()
+    const mountedAfterDispose = viewerRoot.querySelectorAll('canvas').length
+    let staleAbortCount = 0
+    const staleRoot = document.createElement('div')
+    document.body.append(staleRoot)
+    const staleViewer = new VirtualizedCanvasViewer(
+      {
+        resolveSlide: (_handle, index, options) => new Promise((resolvePromise, reject) => {
+          const abort = () => {
+            clearTimeout(timer)
+            staleAbortCount += 1
+            reject(new DOMException('cancelled', 'AbortError'))
+          }
+          const timer = setTimeout(() => {
+            options.signal?.removeEventListener('abort', abort)
+            resolvePromise(displayBytes.slice(0))
+          }, index === 0 ? 50 : 0)
+          options.signal?.addEventListener('abort', abort, { once: true })
+        }),
+      },
+      opened.handle,
+      staleRoot,
+      new CanvasDisplayListRenderer(0),
+      { prefetchNeighbors: 0 },
+    )
+    const staleRender = staleViewer.setVisibleSlides([0]).catch((error) => error.name)
+    await Promise.resolve()
+    await staleViewer.setVisibleSlides([1])
+    const staleResult = await staleRender
+    const staleMountedSlides = [...staleRoot.querySelectorAll('canvas')].map(
+      (element) => element.dataset.slideIndex,
+    )
+    staleViewer.dispose()
+    await client.releasePresentation(opened.handle)
+    renderer.clear()
     client.terminate()
     return {
       transferredByteLength,
       residentBytes: prepared.residentBytes,
       zipSignature: [...output.subarray(0, 2)],
       outputBytes: output.byteLength,
-      displaySignature,
+      slideCount: opened.slideCount,
+      commandCount: scene.commands.length,
+      pixelHash: pixelHash.toString(16).padStart(8, '0'),
+      pixelSamples: {
+        background: pixelAt(620, 340),
+        imageLeft: pixelAt(280, 80),
+        imageRight: pixelAt(340, 80),
+        groupFill: pixelAt(120, 70),
+      },
+      darkGroupPixels,
+      mountedAtPeak,
+      mountedAfterScroll,
+      mountedAfterDispose,
+      cachedSceneBytes,
+      displayByteLength: displayBytes.byteLength,
+      staleAbortCount,
+      staleResult,
+      staleMountedSlides,
+      decodedImageBytesAfterClear: renderer.decodedImageBytes,
+      koreanLines,
+      telemetry,
     }
   })
   assert.equal(result.transferredByteLength, 0, 'template ArrayBuffer was cloned, not transferred')
   assert(result.residentBytes > 0)
   assert.deepEqual(result.zipSignature, [0x50, 0x4b])
   assert(result.outputBytes > 0)
-  assert.equal(result.displaySignature, 'a53592cdd09d0945')
+  assert.equal(result.slideCount, 2)
+  assert.equal(result.commandCount, 9)
+  assert.equal(result.decodedImageBytesAfterClear, 0)
+  assert.deepEqual(result.koreanLines, ['가나다', '라마바', '사'])
+  assert(result.telemetry.displayExecutionMs >= 0)
+  assert(result.telemetry.fontMeasurementMs >= 0)
+  assert(result.telemetry.mediaDecodeMs >= 0)
+  assert.match(result.pixelHash, /^[0-9a-f]{8}$/)
+  assert.deepEqual(result.pixelSamples.background, [255, 255, 255, 255])
+  assert.deepEqual(result.pixelSamples.imageLeft, [255, 0, 255, 255])
+  assert.deepEqual(result.pixelSamples.imageRight, [0, 255, 255, 255])
+  assert.deepEqual(result.pixelSamples.groupFill, [91, 132, 173, 255])
+  assert(result.darkGroupPixels > 100)
+  assert.equal(result.mountedAtPeak, 2)
+  assert.equal(result.mountedAfterScroll, 1)
+  assert.equal(result.mountedAfterDispose, 0)
+  assert(result.cachedSceneBytes <= result.displayByteLength * 2)
+  assert.equal(result.staleAbortCount, 1)
+  assert.equal(result.staleResult, 'AbortError')
+  assert.deepEqual(result.staleMountedSlides, ['1'])
   assert.deepEqual(errors, [])
-  console.log(`browser host fixture ok: ${result.outputBytes} output bytes`)
+  console.log(
+    `browser host fixture ok: ${result.outputBytes} output bytes, canvas ${result.pixelHash} ${JSON.stringify(result.pixelSamples)}`,
+  )
 } finally {
   await browser?.close()
   await new Promise((resolvePromise) => server.close(resolvePromise))

@@ -4,6 +4,7 @@ export const packageName = '@corca-ai/wasmppt' as const
 export * from './protocol.js'
 export * from './worker-client.js'
 export * from './worker-runtime.js'
+export * from './canvas.js'
 
 /** Browser-owned locations for separately emitted engine and worker assets. */
 export interface BrowserEngineAssets {

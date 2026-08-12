@@ -65,7 +65,7 @@ test('termination rejects every pending request and stream', async () => {
   assert.equal(worker.terminated, true)
 })
 
-test('presentation bytes and resolved display lists cross the Worker boundary once', async () => {
+test('presentation, display lists, and lazy resources cross the Worker boundary once', async () => {
   const worker = new FakeWorker()
   const client = new WasmpptWorkerClient(worker)
   const presentation = new ArrayBuffer(32)
@@ -100,6 +100,25 @@ test('presentation bytes and resolved display lists cross the Worker boundary on
     displayList,
   })
   assert.equal(await resolving, displayList)
+
+  const readingResource = client.presentationResource(11, 'ppt/media/photo.png')
+  const resourceRequest = worker.messages[2]
+  assert.deepEqual(resourceRequest, {
+    version: WORKER_PROTOCOL_VERSION,
+    id: resourceRequest.id,
+    type: 'presentation-resource',
+    presentationHandle: 11,
+    partName: 'ppt/media/photo.png',
+  })
+  const resource = new ArrayBuffer(24)
+  worker.respond({
+    version: WORKER_PROTOCOL_VERSION,
+    id: resourceRequest.id,
+    type: 'presentation-resource',
+    partName: 'ppt/media/photo.png',
+    bytes: resource,
+  })
+  assert.equal(await readingResource, resource)
   client.terminate()
 })
 

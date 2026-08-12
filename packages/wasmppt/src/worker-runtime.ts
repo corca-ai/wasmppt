@@ -141,6 +141,25 @@ export function installWorkerRuntime(scope: WorkerRuntimeScope, engine: WorkerEn
           )
           return
         }
+        case 'presentation-resource': {
+          const bytes = exactBuffer(
+            engine.presentation_resource(message.presentationHandle, message.partName),
+          )
+          if (cancelled.delete(message.id)) {
+            post(scope, { id: message.id, type: 'cancelled' })
+            return
+          }
+          scope.postMessage(
+            response({
+              id: message.id,
+              type: 'presentation-resource',
+              partName: message.partName,
+              bytes,
+            }),
+            [bytes],
+          )
+          return
+        }
         case 'release-presentation':
           engine.release_presentation(message.presentationHandle)
           post(scope, { id: message.id, type: 'presentation-released' })
@@ -164,6 +183,7 @@ function isWorkerRequest(value: unknown): value is WorkerRequest {
       candidate.type === 'release' ||
       candidate.type === 'open-presentation' ||
       candidate.type === 'resolve-slide' ||
+      candidate.type === 'presentation-resource' ||
       candidate.type === 'release-presentation' ||
       candidate.type === 'cancel')
   )

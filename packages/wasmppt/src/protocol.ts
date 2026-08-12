@@ -77,6 +77,13 @@ export type WorkerRequest =
   | {
       readonly version: typeof WORKER_PROTOCOL_VERSION
       readonly id: number
+      readonly type: 'presentation-resource'
+      readonly presentationHandle: number
+      readonly partName: string
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
       readonly type: 'release-presentation'
       readonly presentationHandle: number
     }
@@ -140,6 +147,13 @@ export type WorkerResponse =
   | {
       readonly version: typeof WORKER_PROTOCOL_VERSION
       readonly id: number
+      readonly type: 'presentation-resource'
+      readonly partName: string
+      readonly bytes: ArrayBuffer
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
       readonly type: 'presentation-released'
     }
   | {
@@ -172,6 +186,7 @@ export interface WorkerEngine {
   open_presentation(presentation: Uint8Array): number
   presentation_slide_count(handle: number): number
   resolve_presentation_slide(handle: number, slideIndex: number): Uint8Array
+  presentation_resource(handle: number, partName: string): Uint8Array
   release_presentation(handle: number): boolean
 }
 

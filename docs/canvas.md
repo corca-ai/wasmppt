@@ -6,7 +6,9 @@ The browser adapter keeps package indexing and lazy slide resolution inside an E
 Web Worker. The main thread receives only a transferable WPDL display list for the requested
 slide. `WasmpptWorkerClient.openPresentation` returns an opaque handle and slide count;
 `resolveSlide` resolves one slide from that retained document; `releasePresentation` releases
-the compressed package and its relationship graph.
+the compressed package and its relationship graph. `presentationResource` inflates one resource
+part named by a resolved display list, allowing image decoding to stay lazy instead of copying all
+media when the deck is opened.
 
 ## Rendering pipeline
 

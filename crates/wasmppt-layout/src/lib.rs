@@ -359,6 +359,18 @@ impl PresentationDocument {
         resolve_slide_parts(&self.archive, &self.graph, slide, self.slide_size)
     }
 
+    /// Inflate one explicitly requested package part for a render-host resource resolver.
+    ///
+    /// Callers discover resource names from a resolved display list; the presentation remains
+    /// indexed and no unrelated media is decoded eagerly.
+    pub fn read_part(&self, part_name: &str) -> Result<Vec<u8>, LayoutError> {
+        let entry = self
+            .archive
+            .entry(part_name)
+            .ok_or_else(|| LayoutError::new(format!("presentation part not found: {part_name}")))?;
+        self.archive.read_entry(entry).map_err(package_error)
+    }
+
     /// Slides whose proven relationship graph reaches the changed part.
     pub fn invalidated_slides(&self, changed_part_name: &str) -> Vec<usize> {
         let Some(changed) = self

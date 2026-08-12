@@ -42,22 +42,54 @@ try {
   page.on('pageerror', (error) => errors.push(error.message))
   page.on('console', (message) => console.log(`browser console: ${message.text()}`))
   await page.goto(`http://127.0.0.1:${address.port}/`)
-  await page.getByText('WebAssembly ready', { exact: false }).waitFor()
-  await page.getByRole('button', { name: 'Compile template' }).click()
-  await page.getByText('Template compiled', { exact: false }).waitFor()
+
+  assert.equal(await page.getByRole('button', { name: /compile/i }).count(), 0)
+  assert.equal(await page.getByRole('button', { name: /generate/i }).count(), 0)
+  await page.getByText(/^PPTX ready · 2 slides$/).waitFor()
+  assert.equal(await page.locator('#preview canvas').count(), 2)
+  assert.equal(await page.locator('#download').getAttribute('aria-disabled'), 'false')
   assert.equal(await page.locator('[data-binding="title"]').inputValue(), 'wasmppt quarterly report')
+
+  const firstDownloadUrl = await page.locator('#download').getAttribute('href')
+  await page.locator('[data-binding="title"]').fill('Automatically refreshed title')
+  await page.waitForFunction((previous) => {
+    const link = document.querySelector('#download')
+    return link?.getAttribute('aria-disabled') === 'false' && link.getAttribute('href') !== previous
+  }, firstDownloadUrl)
+  await page.getByText(/^PPTX ready · 2 slides$/).waitFor()
+  await assertDownload(page, 2_000)
+
+  await page.evaluate(async () => {
+    const bytes = await fetch('./fixtures/minimal.potx').then((response) => response.arrayBuffer())
+    const transfer = new DataTransfer()
+    transfer.items.add(new File([bytes], 'dropped-minimal.potx', { type: 'application/octet-stream' }))
+    document.querySelector('#drop-zone').dispatchEvent(new DragEvent('drop', {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer: transfer,
+    }))
+  })
+  await page.getByText(/dropped-minimal\.potx/).waitFor()
+  await page.getByText(/^PPTX ready · 1 slide$/).waitFor()
+  assert.equal(await page.locator('#preview canvas').count(), 1)
+  assert.equal(await page.locator('#download').getAttribute('aria-disabled'), 'false')
+  assert.equal((await page.locator('#diagnostics').textContent()).includes('no repeated table row'), false)
+  await assertDownload(page, 1_000)
+
+  assert.deepEqual(errors, [])
+  console.log('Pages dogfood auto-generated, rendered, and downloaded bundled and dropped templates')
+} finally {
+  await browser?.close()
+  await new Promise((resolvePromise) => server.close(resolvePromise))
+}
+
+async function assertDownload(page, minimumBytes) {
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Generate PPTX' }).click()
+  await page.getByRole('link', { name: 'Download PPTX' }).click()
   const download = await downloadPromise
   const path = await download.path()
   assert(path !== null)
   const bytes = await readFile(path)
   assert.deepEqual([...bytes.subarray(0, 2)], [0x50, 0x4b])
-  assert((await stat(path)).size > 1000)
-  await page.getByText('PPTX generated locally', { exact: false }).waitFor()
-  assert.deepEqual(errors, [])
-  console.log(`Pages dogfood generated ${bytes.byteLength} bytes`)
-} finally {
-  await browser?.close()
-  await new Promise((resolvePromise) => server.close(resolvePromise))
+  assert((await stat(path)).size > minimumBytes)
 }

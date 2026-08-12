@@ -48,7 +48,7 @@ export interface ResolveSlideOptions {
 
 type Pending =
   | {
-      readonly kind: 'prepare' | 'release' | 'open' | 'resolve' | 'release-presentation'
+      readonly kind: 'prepare' | 'release' | 'open' | 'resolve' | 'resource' | 'release-presentation'
       readonly resolve: (value: WorkerResponse) => void
       readonly reject: (error: Error) => void
       readonly onProgress?: ResolveSlideOptions['onProgress']
@@ -142,6 +142,27 @@ export class WasmpptWorkerClient {
     const response = await result
     if (response.type !== 'slide-resolved') throw new Error('invalid resolve response')
     return response.displayList
+  }
+
+  async presentationResource(
+    presentationHandle: number,
+    partName: string,
+    options: ResolveSlideOptions = {},
+  ): Promise<ArrayBuffer> {
+    this.#assertOpen()
+    if (partName.length === 0) throw new TypeError('partName must not be empty')
+    const id = this.#allocateId()
+    const result = this.#unaryRequest(id, 'resource', options.signal, options.onProgress)
+    this.#worker.postMessage({
+      version: WORKER_PROTOCOL_VERSION,
+      id,
+      type: 'presentation-resource',
+      presentationHandle,
+      partName,
+    })
+    const response = await result
+    if (response.type !== 'presentation-resource') throw new Error('invalid presentation-resource response')
+    return response.bytes
   }
 
   async releasePresentation(presentationHandle: number): Promise<void> {

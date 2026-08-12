@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Generate PPTX files locally in your browser with wasmppt.">
+    <meta name="description" content="Drop a PowerPoint template, preview it, and download the generated PPTX locally.">
     <link rel="icon" href="data:,">
     <title>wasmppt playground</title>
     <link rel="stylesheet" href="./style.css">
@@ -12,45 +12,45 @@
     <main>
       <header>
         <a class="eyebrow" href="https://github.com/corca-ai/wasmppt">corca-ai / wasmppt</a>
-        <h1>PowerPoint generation,<br><em>inside your browser.</em></h1>
-        <p>Compile a POTX or POTM once, inject structured data, and stream a macro-free PPTX. Files never leave this page.</p>
+        <h1>Drop a template.<br><em>See the result.</em></h1>
+        <p>Everything happens in your browser. Your template and images never leave this page.</p>
       </header>
 
-      <section class="card controls" aria-labelledby="template-heading">
+      <section class="card template-card" aria-labelledby="template-heading">
         <div class="step"><span>01</span><h2 id="template-heading">Choose a template</h2></div>
-        <label class="drop-zone">
-          <strong>Use your own POTX or POTM</strong>
-          <span>or keep the bundled report template</span>
-          <input id="template" type="file" accept=".potx,.potm,.pptx">
+        <label id="drop-zone" class="drop-zone">
+          <span class="drop-icon" aria-hidden="true">↓</span>
+          <strong>Drop a POTX or POTM here</strong>
+          <span>or click to choose a file</span>
+          <input id="template" class="file-input" type="file" accept=".potx,.potm,.pptx">
         </label>
-        <button id="prepare" type="button">Compile template</button>
+        <div class="selected-file">
+          <span id="file-name">Bundled report template</span>
+          <button id="use-sample" class="text-button" type="button">Use sample</button>
+        </div>
       </section>
 
-      <section class="card" aria-labelledby="bindings-heading">
-        <div class="step"><span>02</span><h2 id="bindings-heading">Fill bindings</h2></div>
-        <div id="bindings" class="bindings"><p class="muted">Compile a template to discover its bindings.</p></div>
-        <details>
-          <summary>Tables, slide copies, and charts</summary>
-          <p class="hint">Advanced values use the Generation API v1 object shape.</p>
-          <textarea id="advanced" rows="11" spellcheck="false">{
-  "tables": {
-    "metrics": [
-      { "label": "Latency p95", "value": "12 ms" },
-      { "label": "Throughput", "value": "4,200 slides/s" }
-    ]
-  },
-  "slides": { "ppt/slides/slide2.xml": 1 },
-  "charts": {}
-}</textarea>
-        </details>
-        <button id="generate" type="button" disabled>Generate PPTX</button>
+      <section class="card bindings-card" aria-labelledby="bindings-heading">
+        <div class="step"><span>02</span><h2 id="bindings-heading">Edit content</h2></div>
+        <div id="bindings" class="bindings"><p class="muted">Loading the sample template…</p></div>
+        <p class="hint">The preview refreshes automatically when content changes.</p>
+      </section>
+
+      <section class="preview-card" aria-labelledby="preview-heading">
+        <div class="preview-header">
+          <div class="step"><span>03</span><h2 id="preview-heading">Preview</h2></div>
+          <a id="download" class="download-button is-disabled" aria-disabled="true">Download PPTX</a>
+        </div>
+        <div id="preview" class="preview-grid">
+          <p class="preview-placeholder">Your generated slides will appear here.</p>
+        </div>
       </section>
 
       <aside class="status" aria-live="polite">
         <div><span class="pulse"></span><strong id="status">Loading WebAssembly…</strong></div>
         <dl>
-          <div><dt>Compile</dt><dd id="compile-time">—</dd></div>
-          <div><dt>Generate</dt><dd id="generate-time">—</dd></div>
+          <div><dt>Template</dt><dd id="compile-time">—</dd></div>
+          <div><dt>Refresh</dt><dd id="generate-time">—</dd></div>
           <div><dt>Output</dt><dd id="output-size">—</dd></div>
         </dl>
         <pre id="diagnostics"></pre>

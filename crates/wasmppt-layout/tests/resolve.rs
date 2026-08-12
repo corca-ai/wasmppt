@@ -40,6 +40,11 @@ fn opening_is_lazy_and_one_slide_touches_only_its_dependency_branch() {
             .visited_parts
             .contains(&"ppt/media/image1.png".to_owned())
     );
+    assert_eq!(
+        deck.read_part("ppt/media/image1.png").unwrap(),
+        b"fixture image bytes"
+    );
+    assert!(deck.read_part("ppt/media/missing.png").is_err());
 }
 
 #[test]

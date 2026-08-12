@@ -224,6 +224,17 @@ impl WasmpptEngine {
         Ok(DisplayList::from_resolve(&resolved).encode())
     }
 
+    /// Read one display-list resource without eagerly decoding unrelated media.
+    pub fn presentation_resource(
+        &self,
+        presentation_handle: u32,
+        part_name: &str,
+    ) -> Result<Vec<u8>, JsError> {
+        self.presentation(presentation_handle)?
+            .read_part(part_name)
+            .map_err(js_error)
+    }
+
     /// Text-only compatibility entry point returning a pull cursor handle.
     pub fn generate_text(
         &mut self,

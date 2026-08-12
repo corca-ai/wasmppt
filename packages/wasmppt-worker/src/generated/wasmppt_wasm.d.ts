@@ -57,6 +57,10 @@ export class WasmpptEngine {
     prepared_diagnostics(handle: number): Array<any>;
     prepared_plan(handle: number): Uint8Array;
     prepared_weight(handle: number): bigint;
+    /**
+     * Read one display-list resource without eagerly decoding unrelated media.
+     */
+    presentation_resource(presentation_handle: number, part_name: string): Uint8Array;
     presentation_slide_count(handle: number): number;
     release_generation(handle: number): boolean;
     release_presentation(handle: number): boolean;
@@ -110,6 +114,7 @@ export interface InitOutput {
     readonly wasmpptengine_prepared_diagnostics: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_prepared_plan: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_prepared_weight: (a: number, b: number, c: number) => void;
+    readonly wasmpptengine_presentation_resource: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmpptengine_presentation_slide_count: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_release_generation: (a: number, b: number) => number;
     readonly wasmpptengine_release_presentation: (a: number, b: number) => number;

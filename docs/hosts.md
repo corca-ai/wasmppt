@@ -24,7 +24,8 @@ filesystem adapter does not duplicate ZIP or OOXML logic.
 - querying discovered bindings, diagnostics, and the binary plan;
 - querying a conservative prepared-template byte weight;
 - generating from a versioned structured binary payload;
-- pulling ZIP output by bounded `Uint8Array` chunks; and
+- pulling ZIP output by bounded `Uint8Array` chunks;
+- reading one display-list resource part lazily for browser image decoding; and
 - explicitly releasing template, presentation, and generation-cursor handles.
 
 The scalar artifact is always correct. SIMD and threads are reported as optional runtime

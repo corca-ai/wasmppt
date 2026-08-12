@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use wasmppt_layout::{
     ChartKind, ElementKind, Fill, PresentationDocument, PreservedFeature, ResolveDiagnosticCode,
-    RgbaColor,
+    RgbaColor, TextAutofit,
 };
 use wasmppt_opc::ZipArchive;
 use wasmppt_template::{InjectionData, PreparedTemplate, TemplateCompiler};
@@ -278,6 +278,16 @@ fn virtual_overlay_resolution_matches_the_exported_pptx_without_materializing_pr
     let session = prepared.start_live_session(data).unwrap();
     let direct = PresentationDocument::open_source(session.overlay()).unwrap();
     let direct_slide = direct.resolve_slide(0).unwrap();
+    let title = direct_slide
+        .slide
+        .elements
+        .iter()
+        .find(|element| element.name == "Report title")
+        .unwrap();
+    assert_eq!(
+        title.text_frame.as_ref().unwrap().autofit,
+        TextAutofit::ShrinkText
+    );
 
     let mut cursor = session.generation_cursor();
     let mut exported = Vec::new();

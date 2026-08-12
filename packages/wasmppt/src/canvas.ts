@@ -680,8 +680,7 @@ export async function buildRichTextLayout(
   const measurementLookup = new Map(
     measureRequests.map((request, index) => [`${request.font}\0${request.text}`, measured[index]!]),
   )
-  let resolvedIndex = 0
-  const lines: Array<{
+  type LayoutLine = {
     readonly runs: Array<Omit<RichTextLayoutRun, 'x' | 'baseline'>>
     readonly height: number
     readonly alignment: SceneTextStyle['alignment']
@@ -689,121 +688,156 @@ export async function buildRichTextLayout(
     readonly after: number
     readonly left: number
     readonly direction: 'ltr' | 'rtl'
-  }> = []
-  for (const paragraph of command.frame.paragraphs) {
-    const lineRuns: Array<Omit<RichTextLayoutRun, 'x' | 'baseline'>> = []
-    let lineWidth = 0
-    let lineHeight = 0
-    let firstLine = true
-    const paragraphBefore = spacingPixels(paragraph.spaceBefore)
-    const left = toPixels(paragraph.marginLeft + paragraph.indent)
-    const available = Math.max(0, innerWidth - left)
-    const inputs = paragraph.bullet === undefined || paragraph.runs[0] === undefined
-      ? paragraph.runs
-      : [{ ...paragraph.runs[0]!, text: `${paragraph.bullet} ` }, ...paragraph.runs]
-    for (const run of inputs) {
-      const font = paragraph.bullet !== undefined && run === inputs[0]
-        ? resolved[resolvedIndex] ?? await resolver.resolve(run.text)
-        : resolved[resolvedIndex++]!
-      const tokens = command.frame.wrap ? lineBreakTokens(run.text) : [run.text]
-      for (const rawToken of tokens) {
-        if (rawToken === '\n') {
-          lines.push({
-            runs: lineRuns.splice(0),
-            height: applyLineSpacing(lineHeight || 1, paragraph.lineSpacing),
-            alignment: paragraph.alignment,
-            before: firstLine ? paragraphBefore : 0,
-            after: 0,
-            left,
-            direction: paragraph.direction,
-          })
-          firstLine = false
-          lineWidth = 0
-          lineHeight = 0
-          continue
-        }
-        const spacing = pointsToCssPixels(run.style.characterSpacing / 100)
-        const rawWidth = rawToken === '\t'
-          ? nextTabWidth(lineWidth, paragraph.tabs)
-          : (measurementLookup.get(`${font.css}\0${rawToken}`) ?? 0) +
-            characterGapCount(rawToken) * spacing
-        const measureToken = (value: string): number => {
-          context.font = font.css
-          return context.measureText(value).width + characterGapCount(value) * spacing
-        }
-        const fragments = command.frame.wrap && !isSoftWhitespace(rawToken) &&
-            rawToken !== '\t' && rawWidth > available
-          ? splitTokenToFit(rawToken, available, measureToken)
-          : [rawToken]
-        for (const token of fragments) {
-          const width = token === rawToken ? rawWidth : measureToken(token)
-          const softWhitespace = isSoftWhitespace(token)
-          if (command.frame.wrap && softWhitespace && lineRuns.length === 0) continue
-          if (command.frame.wrap && lineRuns.length > 0 && lineWidth + width > available) {
-            while (lineRuns.length > 0 && isSoftWhitespace(lineRuns[lineRuns.length - 1]!.text)) {
-              lineWidth -= lineRuns.pop()!.width
+  }
+  type ScaledLayout = {
+    readonly lines: readonly LayoutLine[]
+    readonly contentWidth: number
+    readonly contentHeight: number
+  }
+  const baseTokenWidth = (
+    font: ResolvedFont,
+    token: string,
+    characterSpacing: number,
+  ): number => {
+    const key = `${font.css}\0${token}`
+    let width = measurementLookup.get(key)
+    if (width === undefined) {
+      context.font = font.css
+      width = context.measureText(token).width
+      measurementLookup.set(key, width)
+    }
+    return width + characterGapCount(token) * characterSpacing
+  }
+  const layoutAtScale = (scale: number): ScaledLayout => {
+    let resolvedIndex = 0
+    const lines: LayoutLine[] = []
+    for (const paragraph of command.frame.paragraphs) {
+      const lineRuns: Array<Omit<RichTextLayoutRun, 'x' | 'baseline'>> = []
+      let lineWidth = 0
+      let lineHeight = 0
+      let firstLine = true
+      const paragraphBefore = spacingPixels(paragraph.spaceBefore) * scale
+      const left = toPixels(paragraph.marginLeft + paragraph.indent)
+      const available = Math.max(0, innerWidth - left)
+      const inputs = paragraph.bullet === undefined || paragraph.runs[0] === undefined
+        ? paragraph.runs
+        : [{ ...paragraph.runs[0]!, text: `${paragraph.bullet} ` }, ...paragraph.runs]
+      const finishLine = (after: number): void => {
+        lines.push({
+          runs: lineRuns.splice(0),
+          height: applyScaledLineSpacing(lineHeight || scale, paragraph.lineSpacing, scale),
+          alignment: paragraph.alignment,
+          before: firstLine ? paragraphBefore : 0,
+          after,
+          left,
+          direction: paragraph.direction,
+        })
+        firstLine = false
+        lineWidth = 0
+        lineHeight = 0
+      }
+      for (const run of inputs) {
+        const isBullet = paragraph.bullet !== undefined && run === inputs[0]
+        const font = isBullet ? resolved[resolvedIndex]! : resolved[resolvedIndex++]!
+        const baseSpacing = pointsToCssPixels(run.style.characterSpacing / 100)
+        const spacing = baseSpacing * scale
+        const tokens = command.frame.wrap ? lineBreakTokens(run.text) : [run.text]
+        for (const rawToken of tokens) {
+          if (rawToken === '\n') {
+            finishLine(0)
+            continue
+          }
+          const measureToken = (value: string): number =>
+            baseTokenWidth(font, value, baseSpacing) * scale
+          const rawWidth = rawToken === '\t'
+            ? nextTabWidth(lineWidth / scale, paragraph.tabs) * scale
+            : measureToken(rawToken)
+          const fragments = command.frame.wrap && !isSoftWhitespace(rawToken) &&
+              rawToken !== '\t' && rawWidth > available
+            ? splitTokenToFit(rawToken, available, measureToken)
+            : [rawToken]
+          for (const token of fragments) {
+            const width = token === rawToken ? rawWidth : measureToken(token)
+            const softWhitespace = isSoftWhitespace(token)
+            if (command.frame.wrap && softWhitespace && lineRuns.length === 0) continue
+            if (command.frame.wrap && lineRuns.length > 0 && lineWidth + width > available) {
+              while (lineRuns.length > 0 && isSoftWhitespace(lineRuns[lineRuns.length - 1]!.text)) {
+                lineWidth -= lineRuns.pop()!.width
+              }
+              lineHeight = lineRuns.reduce(
+                (height, existing) => Math.max(height, existing.fontSize * 1.2),
+                0,
+              )
+              finishLine(0)
+              if (softWhitespace) continue
             }
-            lineHeight = lineRuns.reduce(
-              (height, existing) => Math.max(height, existing.fontSize * 1.2),
-              0,
-            )
-            lines.push({
-              runs: lineRuns.splice(0),
-              height: applyLineSpacing(lineHeight || 1, paragraph.lineSpacing),
-              alignment: paragraph.alignment,
-              before: firstLine ? paragraphBefore : 0,
-              after: 0,
-              left,
+            const fontSize = pointsToCssPixels(run.style.fontSize / 100) * scale
+            lineRuns.push({
+              text: token === '\t' ? '' : token,
+              width,
+              font: scale === 1 ? font : { ...font, css: scaleCssFont(font.css, scale) },
+              color: run.style.color,
+              underline: run.style.underline,
+              strike: run.style.strike,
+              characterSpacing: spacing,
+              fontSize,
+              baselineShift: run.style.baseline / 100_000,
               direction: paragraph.direction,
             })
-            firstLine = false
-            lineWidth = 0
-            lineHeight = 0
-            if (softWhitespace) continue
+            lineWidth += width
+            lineHeight = Math.max(lineHeight, fontSize * 1.2)
           }
-          lineRuns.push({
-            text: token === '\t' ? '' : token,
-            width,
-            font,
-            color: run.style.color,
-            underline: run.style.underline,
-            strike: run.style.strike,
-            characterSpacing: spacing,
-            fontSize: pointsToCssPixels(run.style.fontSize / 100),
-            baselineShift: run.style.baseline / 100_000,
-            direction: paragraph.direction,
-          })
-          lineWidth += width
-          lineHeight = Math.max(lineHeight, pointsToCssPixels(run.style.fontSize / 100) * 1.2)
+        }
+      }
+      finishLine(spacingPixels(paragraph.spaceAfter) * scale)
+    }
+    return {
+      lines,
+      contentWidth: lines.reduce(
+        (maximum, line) => Math.max(
+          maximum,
+          line.left + line.runs.reduce((sum, run) => sum + run.width, 0),
+        ),
+        0,
+      ),
+      contentHeight: lines.reduce(
+        (sum, line) => sum + line.before + line.height + line.after,
+        0,
+      ),
+    }
+  }
+  const fits = (layout: ScaledLayout): boolean =>
+    layout.contentWidth <= innerWidth && layout.contentHeight <= innerHeight
+  let scaledLayout = layoutAtScale(1)
+  if (command.frame.autofit === 'shrink-text' && !fits(scaledLayout)) {
+    let lowerScale = 0.1
+    let upperScale = 1
+    let best = layoutAtScale(lowerScale)
+    if (fits(best)) {
+      for (let iteration = 0; iteration < 12; iteration += 1) {
+        const candidateScale = (lowerScale + upperScale) / 2
+        const candidate = layoutAtScale(candidateScale)
+        if (fits(candidate)) {
+          lowerScale = candidateScale
+          best = candidate
+        } else {
+          upperScale = candidateScale
         }
       }
     }
-    lines.push({
-      runs: lineRuns,
-      height: applyLineSpacing(lineHeight || 1, paragraph.lineSpacing),
-      alignment: paragraph.alignment,
-      before: firstLine ? paragraphBefore : 0,
-      after: spacingPixels(paragraph.spaceAfter),
-      left,
-      direction: paragraph.direction,
-    })
+    scaledLayout = best
   }
-  const rawHeight = lines.reduce((sum, line) => sum + line.before + line.height + line.after, 0)
-  const shrink = command.frame.autofit === 'shrink-text' && rawHeight > innerHeight
-    ? Math.max(0.1, innerHeight / rawHeight)
-    : 1
-  const contentHeight = rawHeight * shrink
+  const { lines, contentWidth, contentHeight } = scaledLayout
   let y = innerY
   if (command.frame.verticalAlignment === 'center') y += Math.max(0, (innerHeight - contentHeight) / 2)
   if (command.frame.verticalAlignment === 'bottom') y += Math.max(0, innerHeight - contentHeight)
   const output: RichTextLayoutRun[] = []
-  let contentWidth = 0
   for (const line of lines) {
-    y += line.before * shrink
+    y += line.before
     const visualRuns = line.direction === 'rtl'
       ? Array.from(line.runs, (_, index) => line.runs[line.runs.length - index - 1]!)
       : line.runs
-    const width = visualRuns.reduce((sum, run) => sum + run.width, 0) * shrink
+    const width = visualRuns.reduce((sum, run) => sum + run.width, 0)
     let x = innerX + line.left
     if (line.alignment === 'center') x += Math.max(0, (innerWidth - line.left - width) / 2)
     if (line.alignment === 'right' || (line.alignment === 'left' && line.direction === 'rtl')) {
@@ -813,16 +847,11 @@ export async function buildRichTextLayout(
       output.push({
         ...run,
         x,
-        baseline: y + line.height * 0.82 * shrink - run.fontSize * run.baselineShift * shrink,
-        width: run.width * shrink,
-        characterSpacing: run.characterSpacing * shrink,
-        fontSize: run.fontSize * shrink,
-        font: shrink === 1 ? run.font : { ...run.font, css: scaleCssFont(run.font.css, shrink) },
+        baseline: y + line.height * 0.82 - run.fontSize * run.baselineShift,
       })
-      x += run.width * shrink
+      x += run.width
     }
-    y += (line.height + line.after) * shrink
-    contentWidth = Math.max(contentWidth, width + line.left)
+    y += line.height + line.after
   }
   return Object.freeze({
     runs: Object.freeze(output),
@@ -882,9 +911,9 @@ function spacingPixels(value: number | undefined): number {
   return pointsToCssPixels(value / 100)
 }
 
-function applyLineSpacing(height: number, value: number | undefined): number {
+function applyScaledLineSpacing(height: number, value: number | undefined, scale: number): number {
   if (value === undefined) return height
-  return value >= 10_000 ? height * value / 100_000 : pointsToCssPixels(value / 100)
+  return value >= 10_000 ? height * value / 100_000 : pointsToCssPixels(value / 100) * scale
 }
 
 function scaleCssFont(css: string, scale: number): string {

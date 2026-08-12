@@ -103,6 +103,62 @@ test('rich-text layout wraps Latin titles inside the text frame', async () => {
   assert.equal(longWord.contentWidth, 5)
 })
 
+test('shrink-text autofit reflows at the largest font scale that fits', async () => {
+  const style = {
+    fontSize: 1_200,
+    color: { red: 0, green: 0, blue: 0, alpha: 255 },
+    bold: false,
+    italic: false,
+    underline: false,
+    strike: false,
+    characterSpacing: 0,
+    baseline: 0,
+    alignment: 'left',
+    verticalAlignment: 'top',
+    marginLeft: 0,
+    marginTop: 0,
+    marginRight: 0,
+    marginBottom: 0,
+  }
+  const command = {
+    kind: 'draw-rich-text',
+    bounds: { x: 0, y: 0, width: 952_500, height: 190_500 },
+    frame: {
+      paragraphs: [{
+        runs: [{ text: 'alpha beta gamma delta epsilon', style }],
+        alignment: 'left',
+        level: 0,
+        marginLeft: 0,
+        indent: 0,
+        direction: 'ltr',
+        tabs: [],
+      }],
+      verticalAlignment: 'top',
+      marginLeft: 0,
+      marginTop: 0,
+      marginRight: 0,
+      marginBottom: 0,
+      wrap: true,
+      autofit: 'shrink-text',
+      flow: 'horizontal',
+    },
+  }
+  let measurementCount = 0
+  const context = {
+    font: '',
+    measureText(value) {
+      measurementCount += 1
+      return { width: codePointLength(value) * 10 }
+    },
+  }
+  const plan = await buildRichTextLayout(context, command)
+  assert.equal(new Set(plan.runs.map((run) => run.baseline)).size, 2)
+  assert(plan.runs[0].fontSize > 8)
+  assert(plan.contentHeight <= 20)
+  assert(plan.contentWidth <= 100)
+  assert.equal(measurementCount, 6)
+})
+
 test('font resolver uses an exact supplied CJK font and documents fallback', async () => {
   const loaded = []
   const resolver = new FontResolver({

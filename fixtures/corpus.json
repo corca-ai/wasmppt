@@ -13,7 +13,7 @@
     {
       "id": "dogfood-report-potx",
       "path": "fixtures/dogfood/report.potx",
-      "sha256": "a5b518c1f8e6a7e8cd7627ba103ddf30a5582ccd2432e64dbee28b576ff67516",
+      "sha256": "b00d3fdf394292120485fe5b068f091d50fec168a3d5aa0e0a07d923038eea18",
       "provenance": "generated-in-repository",
       "generator": "cargo run -p wasmppt-native --example write_dogfood_fixture -- fixtures/dogfood/report.potx",
       "license": "Apache-2.0",
@@ -22,7 +22,7 @@
     {
       "id": "dogfood-garden-potx",
       "path": "fixtures/dogfood/garden.potx",
-      "sha256": "83984d6909926ea49663c4d3d3eef0773dab6a924d4f5879c58484f16207a4b3",
+      "sha256": "2079489b0eb80d34ce34610a7502bcf49aa51a9c9d5fc3bd5d6597886ce7ebda",
       "provenance": "generated-in-repository",
       "generator": "cargo run -p wasmppt-native --example write_garden_fixture -- fixtures/dogfood/garden.potx",
       "license": "Apache-2.0",

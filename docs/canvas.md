@@ -47,6 +47,13 @@ wraps at whitespace first and falls back to character boundaries when one token 
 frame width; newlines remain deterministic. Tests cover an exact supplied-font host, documented
 missing-font fallback, Korean and Latin wrapping, and mixed-order batched measurement.
 
+For `a:normAutofit`, the shared rich-text planner reflows at each candidate font scale and uses a
+bounded binary search for the largest scale whose measured width and height fit the text frame.
+Base-font token measurements are reused across candidates, so AutoFit adds layout work without
+repeating browser font measurements. `a:spAutoFit` remains represented but shape resizing is not
+yet projected by the browser backends. Authored `fontScale` and `lnSpcReduction` hints are not yet
+transported to the display list; the planner currently derives its scale from measured content.
+
 ## Lazy viewer and resource ownership
 
 `VirtualizedCanvasViewer.setVisibleSlides` mounts canvases only for the visible indices. A new

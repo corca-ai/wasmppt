@@ -13,13 +13,22 @@
     "build": "npm run build --workspaces --if-present",
     "build:pages": "npm run build --workspace @corca-ai/wasmppt && node scripts/build-pages.mjs",
     "build:wasm-hosts": "sh scripts/build-wasm-hosts.sh",
-    "check": "npm run check --workspaces --if-present && npm run check:core-boundary",
+    "check": "npm run check --workspaces --if-present && npm run check:core-boundary && npm run check:contracts",
+    "check:contracts": "node scripts/check-contract-sync.mjs",
     "check:core-boundary": "node scripts/check-core-boundary.mjs",
+    "hooks:install": "sh scripts/install-git-hooks.sh",
+    "lint": "npm run lint:js && npm run lint:markdown && npm run lint:shell",
     "lint:docs": "awiki lint -root docs",
+    "lint:js": "oxlint --deny-warnings packages scripts benchmarks examples --ignore-pattern '**/dist/**' --ignore-pattern '**/generated/**'",
+    "lint:markdown": "markdownlint-cli2",
+    "lint:shell": "shellcheck scripts/*.sh .githooks/pre-commit",
+    "precommit": "git diff --cached --check && cargo fmt --all --check && npm run lint && npm run check && node --test scripts/*.test.mjs && npm run lint:docs",
     "test:pages": "node packages/wasmppt/test/pages-smoke.mjs",
     "test": "node --test scripts/*.test.mjs && npm run test --workspaces --if-present"
   },
   "devDependencies": {
+    "markdownlint-cli2": "0.23.2",
+    "oxlint": "1.78.0",
     "typescript": "7.0.2"
   }
 }

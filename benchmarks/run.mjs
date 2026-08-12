@@ -94,7 +94,7 @@ function measuredProcess(command, args) {
 }
 
 function percentile(samples, quantile) {
-  const sorted = [...samples].sort((left, right) => left - right)
+  const sorted = samples.toSorted((left, right) => left - right)
   return sorted[Math.max(0, Math.ceil(sorted.length * quantile) - 1)]
 }
 
@@ -105,9 +105,9 @@ function throughput(name, slides, ns) {
 
 function sha256(bytes) { return createHash('sha256').update(bytes).digest('hex') }
 
-function enforceNativeBudget(report, allBudgets) {
+function enforceNativeBudget(benchmarkReport, allBudgets) {
   const budget = allBudgets.native
-  const result = report.results.find((entry) => `${entry.scenario}-${entry.slides}` === budget.fixture)
+  const result = benchmarkReport.results.find((entry) => `${entry.scenario}-${entry.slides}` === budget.fixture)
   assert(result, `missing budget fixture ${budget.fixture}`)
   for (const [name, maximum] of Object.entries(budget.maximumP95Ns)) {
     assert(result.summary[name].p95Ns <= maximum, `${name} p95 ${result.summary[name].p95Ns}ns exceeds ${maximum}ns`)
@@ -115,5 +115,5 @@ function enforceNativeBudget(report, allBudgets) {
   assert(result.peakResidentBytes <= budget.maximumPeakResidentBytes)
   assert(result.zip.rawCopiedEntries >= budget.minimumRawCopiedEntries)
   assert(result.zip.inflatedEntries <= budget.maximumInflatedEntries)
-  assert(report.artifacts.scalarWasmBytes <= allBudgets.browserScalarWasm.maximumBinaryBytes)
+  assert(benchmarkReport.artifacts.scalarWasmBytes <= allBudgets.browserScalarWasm.maximumBinaryBytes)
 }

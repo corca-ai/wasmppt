@@ -35,7 +35,7 @@ for (let iteration = 0; iteration < iterations; iteration += 1) {
 }
 assert.deepEqual([...bytes.subarray(0, 2)], [0x50, 0x4b])
 await writeFile(outputPath, bytes)
-const sorted = [...samplesMs].sort((left, right) => left - right)
+const sorted = samplesMs.toSorted((left, right) => left - right)
 console.log(JSON.stringify({
   schema: 1,
   generatedAt: new Date().toISOString(),

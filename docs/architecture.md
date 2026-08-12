@@ -1,7 +1,7 @@
 # System Architecture
 
-Status: accepted direction. The repository and package boundaries are implemented;
-subsystem behavior described below remains planned until its tracking issue closes.
+Status: implemented pre-alpha baseline. Public APIs remain unstable, and the deliberate
+limits documented by each subsystem still apply.
 
 This document defines the durable architecture for `wasmppt`. Execution work and
 acceptance criteria live in [GitHub Issues](https://github.com/corca-ai/wasmppt/issues).
@@ -79,7 +79,7 @@ Microsoft also provides a useful [PresentationML structure overview](https://lea
 
 ## Repository and crate boundaries
 
-The intended workspace is:
+The current workspace is:
 
 ```text
 crates/
@@ -100,11 +100,12 @@ packages/
   wasmppt-worker/     Cloudflare Workers adapter
 
 examples/
-  browser-viewer/
-  cloudflare-worker/
+  browser-dogfood/
 
-benches/
-corpus/
+benchmarks/             reproducible workloads, competitors, and release budgets
+capabilities/           machine-readable PresentationML support matrix
+fixtures/               generated and pinned compatibility/render inputs
+tools/                  external validation adapters
 ```
 
 Core crates MUST compile and test without `wasm-bindgen`, `web-sys`, `js-sys`, a DOM,
@@ -184,16 +185,17 @@ tokens are a convenience fallback because PowerPoint may split visible text acro
 multiple `a:r` runs.
 
 The compiler resolves bindings to concrete part IDs, token ranges, style sources, and
-relationship actions. Initial binding kinds are:
+relationship actions. The implemented generation inputs are:
 
 - text replacement with explicit run-style policy;
 - image replacement with crop and relationship policy;
-- repeated table rows;
-- repeated or conditionally included slides;
-- simple property bindings such as hyperlinks and speaker notes.
+- repeated rows identified by `table_id.field` text bindings;
+- deterministic slide exclusion and cloning by slide part name; and
+- complete category and series replacement for a supported chart part, including its cache
+  and related embedded workbook.
 
-Charts and SmartArt are later capabilities because they can require coordinated edits to
-embedded workbooks, caches, diagrams, and fallback images.
+Hyperlinks and speaker notes are preserved but do not have writable bindings. SmartArt editing
+remains unsupported because it requires coordinated diagram and fallback-image updates.
 
 ### TemplatePlan
 
@@ -284,17 +286,17 @@ JSON object graph.
   route in hosts without Canvas, but it adds font, image-decoding, binary-size, and memory
   costs.
 
-Cloudflare Workers do not provide a browser DOM or Canvas. The Worker adapter therefore
-supports package generation and serialized scene/SVG/HTML output; it does not pretend to
-offer browser Canvas rendering.
+Cloudflare Workers do not provide a browser DOM or Canvas. The current Worker adapter exposes
+streaming package generation only. Display-list resolution and Canvas or DOM/SVG projection
+belong to the browser package; the Worker adapter does not pretend to offer browser rendering.
 
 ### Fonts and text
 
-Pixel fidelity requires the intended fonts. `FontResolver` handles theme major/minor
-fonts across Latin, East Asian, and complex-script slots, exact supplied web fonts,
-substitution policy, and missing-glyph diagnostics. Browser-font measurement is batched
-to reduce Wasm/JavaScript crossings. A deterministic font-bytes shaping path may be added
-later, but is not required for the first renderer.
+Pixel fidelity requires the intended fonts. `FontResolver` handles Latin, East Asian, and
+complex-script theme slots, exact supplied web fonts, substitution policy, and an observable
+exact-versus-fallback result. Browser-font measurement is batched to reduce Wasm/JavaScript
+crossings. A deterministic font-bytes shaping path may be added later, but is not required for
+the first renderer.
 
 ## Runtime adapters
 
@@ -425,9 +427,9 @@ preferred; third-party decks and fonts are not committed without an affirmative 
 - A full presentation editor UI.
 - Thread-dependent correctness or performance.
 
-## Delivery slices
+## Implemented delivery slices
 
-The architecture is delivered vertically so every stage produces a usable artifact:
+The pre-alpha baseline was delivered vertically so every stage produced a usable artifact:
 
 1. package inspection, raw-copy writer, limits, and deterministic ZIP output;
 2. compiled `.potm`/`.potx` bindings and macro-free `.pptx` generation;
@@ -436,7 +438,7 @@ The architecture is delivered vertically so every stage produces a usable artifa
 5. tables, charts, advanced geometry, and higher-fidelity text;
 6. published compatibility and performance evidence for release claims.
 
-The authoritative task breakdown and progress live in GitHub Issues, not this document.
+Further task breakdown and progress live in GitHub Issues, not this document.
 
 ## Documentation
 

@@ -248,24 +248,15 @@ async function renderGraphicCommands(
       parent.append(path)
     } else if (command.kind === 'fill-gradient-preset') {
       const path = document.createElementNS(SVG_NAMESPACE, 'path')
-      const gradient = document.createElementNS(SVG_NAMESPACE, 'linearGradient')
-      gradient.id = `wasmppt-gradient-${semantic.shapeId}-${state.definitions.childElementCount}`
-      const radians = command.angle / 60_000 * Math.PI / 180
-      setAttributes(gradient, {
-        x1: `${50 - Math.cos(radians) * 50}%`,
-        y1: `${50 - Math.sin(radians) * 50}%`,
-        x2: `${50 + Math.cos(radians) * 50}%`,
-        y2: `${50 + Math.sin(radians) * 50}%`,
-      })
-      for (const value of command.stops) {
-        const stop = document.createElementNS(SVG_NAMESPACE, 'stop')
-        setAttributes(stop, { offset: `${value.position / 1_000}%`, 'stop-color': cssColor(value.color) })
-        gradient.append(stop)
-      }
-      state.definitions.append(gradient)
+      const gradientId = appendLinearGradient(
+        state.definitions,
+        `wasmppt-gradient-${semantic.shapeId}-${state.definitions.childElementCount}`,
+        command.angle,
+        command.stops,
+      )
       path.setAttribute('d', presetPath(command.geometry, command.transform.bounds.width, command.transform.bounds.height))
       path.setAttribute('transform', shapeSvgTransform(command.transform))
-      setAttributes(path, { fill: `url(#${gradient.id})`, stroke: 'none' })
+      setAttributes(path, { fill: `url(#${gradientId})`, stroke: 'none' })
       parent.append(path)
     } else if (command.kind === 'draw-custom-path') {
       const path = document.createElementNS(SVG_NAMESPACE, 'path')
@@ -275,20 +266,13 @@ async function renderGraphicCommands(
       let customFill = 'none'
       if (command.fill.kind === 'solid') customFill = cssColor(command.fill.color)
       else if (command.fill.kind === 'linear-gradient') {
-        const gradient = document.createElementNS(SVG_NAMESPACE, 'linearGradient')
-        gradient.id = `wasmppt-custom-gradient-${semantic.shapeId}-${state.definitions.childElementCount}`
-        const radians = command.fill.angle / 60_000 * Math.PI / 180
-        setAttributes(gradient, {
-          x1: `${50 - Math.cos(radians) * 50}%`, y1: `${50 - Math.sin(radians) * 50}%`,
-          x2: `${50 + Math.cos(radians) * 50}%`, y2: `${50 + Math.sin(radians) * 50}%`,
-        })
-        for (const value of command.fill.stops) {
-          const stop = document.createElementNS(SVG_NAMESPACE, 'stop')
-          setAttributes(stop, { offset: `${value.position / 1_000}%`, 'stop-color': cssColor(value.color) })
-          gradient.append(stop)
-        }
-        state.definitions.append(gradient)
-        customFill = `url(#${gradient.id})`
+        const gradientId = appendLinearGradient(
+          state.definitions,
+          `wasmppt-custom-gradient-${semantic.shapeId}-${state.definitions.childElementCount}`,
+          command.fill.angle,
+          command.fill.stops,
+        )
+        customFill = `url(#${gradientId})`
       }
       setAttributes(path, {
         fill: customFill,
@@ -351,6 +335,36 @@ async function renderGraphicCommands(
   }
 }
 
+function appendLinearGradient(
+  definitions: SVGDefsElement,
+  id: string,
+  angle: number,
+  stops: readonly {
+    readonly position: number
+    readonly color: { readonly red: number; readonly green: number; readonly blue: number; readonly alpha: number }
+  }[],
+): string {
+  const gradient = document.createElementNS(SVG_NAMESPACE, 'linearGradient')
+  gradient.id = id
+  const radians = angle / 60_000 * Math.PI / 180
+  setAttributes(gradient, {
+    x1: `${50 - Math.cos(radians) * 50}%`,
+    y1: `${50 - Math.sin(radians) * 50}%`,
+    x2: `${50 + Math.cos(radians) * 50}%`,
+    y2: `${50 + Math.sin(radians) * 50}%`,
+  })
+  for (const value of stops) {
+    const stop = document.createElementNS(SVG_NAMESPACE, 'stop')
+    setAttributes(stop, {
+      offset: `${value.position / 1_000}%`,
+      'stop-color': cssColor(value.color),
+    })
+    gradient.append(stop)
+  }
+  definitions.append(gradient)
+  return id
+}
+
 function appendLineEndMarker(
   definitions: SVGDefsElement,
   id: string,
@@ -362,7 +376,7 @@ function appendLineEndMarker(
   const shape = kind === 'oval'
     ? document.createElementNS(SVG_NAMESPACE, 'ellipse')
     : document.createElementNS(SVG_NAMESPACE, 'path')
-  if (shape instanceof SVGEllipseElement) setAttributes(shape, { cx: 4, cy: 4, rx: 3, ry: 2.5 })
+  if (kind === 'oval') setAttributes(shape, { cx: 4, cy: 4, rx: 3, ry: 2.5 })
   else shape.setAttribute('d', kind === 'diamond' ? 'M0 4 4 0 8 4 4 8Z' : 'M0 0 8 4 0 8 2 4Z')
   shape.setAttribute('fill', cssColor(color))
   marker.append(shape)

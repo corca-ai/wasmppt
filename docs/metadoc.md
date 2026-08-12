@@ -56,15 +56,19 @@ document in the same change when a term or boundary changes.
 
 ## Linting
 
-Run this command from the repository root before submitting a documentation change:
+Run these commands from the repository root before submitting a documentation change:
 
 ```sh
+npm run lint:markdown
+npm run check:contracts
 awiki lint -root docs
 ```
 
-The scan is intentionally non-recursive. It validates the flat graph of living documents;
-exceptional subdirectories govern their own contents through their local `README.md`.
-The command must exit successfully.
+Markdownlint validates Markdown structure and `awiki` validates the flat graph of living
+documents. The `awiki` scan is intentionally non-recursive; exceptional subdirectories govern
+their own contents through their local `README.md`. The contract synchronization check also
+guards WPDL version claims in rendering documents against the Rust encoder, TypeScript decoder,
+and capability matrix. All three commands must exit successfully.
 
 ## Writing rules
 

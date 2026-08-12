@@ -50,7 +50,7 @@ export function coreBoundaryViolations(
           path.push(packagesById.get(current)?.name ?? current)
           current = parent.get(current)
         }
-        violations.push(path.reverse().join(' -> '))
+        violations.push(path.toReversed().join(' -> '))
         continue
       }
 

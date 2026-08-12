@@ -11,11 +11,16 @@ verification commands. For the durable subsystem design, see [System architectur
 - Rust edition: 2024
 - Wasm target: `wasm32-unknown-unknown`
 - Node.js: 24 or newer
-- Documentation linter: `awiki`
+- Documentation linters: `awiki` and `markdownlint-cli2`
+- Source linters: Clippy, `oxlint`, and ShellCheck
 
 `rust-toolchain.toml` installs the development toolchain, `rustfmt`, Clippy, and the Wasm
 target. CI separately checks the workspace with the MSRV so using a newer local compiler
 does not silently raise the compatibility floor.
+
+`npm ci` installs the pinned JavaScript and Markdown linters. Install `awiki` and ShellCheck
+separately before using the local pre-commit gate. CI also pins Actionlint and Typos to validate
+workflow semantics and spelling without adding those slower tools to every local commit.
 
 ## Rust entry points
 
@@ -75,7 +80,9 @@ cargo +1.85.1 check --workspace --all-targets --all-features --locked \
 cargo +1.88.0 check -p wasmppt-metafile -p wasmppt-metafile-wasm --all-targets --locked
 cargo deny check
 npm ci
+npm run lint
 npm run check
+npm run check:contracts
 npm run build
 npm run build:wasm-hosts
 npm test --workspace @corca-ai/wasmppt-worker
@@ -85,6 +92,20 @@ npm run test:pages
 node benchmarks/run.mjs --ci
 awiki lint -root docs
 ```
+
+Enable the repository-owned pre-commit hook once per clone:
+
+```sh
+npm run hooks:install
+```
+
+The hook runs `npm run precommit`: staged whitespace checks, Rust formatting,
+JavaScript/TypeScript linting, Markdown and shell linting, package type checks, architectural and
+cross-file contract checks, repository tool tests, and the `awiki` documentation graph check. It
+deliberately omits native compilation, browser integration, and performance suites; run the
+complete commands above before submitting a high-risk change. The hook is version-controlled
+under `.githooks/` and the installer sets the clone-local `core.hooksPath`, so no hook
+implementation is copied into `.git`.
 
 Build and report the raw Wasm artifact size with:
 
@@ -96,8 +117,11 @@ node scripts/report-wasm-size.mjs \
   target/wasm32-unknown-unknown/wasm-release/wasmppt_metafile_wasm.wasm
 ```
 
-CI runs the same gates, including runtime compatibility, security, visual, and performance
-contracts on their real host adapters. One dedicated job builds the scalar `wasm-release`
+CI runs the same gates, including Actionlint workflow validation, Typos spell checking, runtime
+compatibility, security, visual, and performance contracts on their real host adapters. The
+contract synchronization check prevents WPDL version, decoder compatibility, fixture signature,
+visual corpus, and browser budget declarations from drifting independently. One dedicated job
+builds the scalar `wasm-release`
 module and matching `wasm-bindgen` host files. The host-adapter and performance jobs depend
 on that job and download its revision-bound artifact, so both exercise identical Wasm bytes
 without compiling the release module twice. The artifact comes from the same workflow run;

@@ -5,10 +5,10 @@ use wasmppt_layout::{
     GradientStop, GroupTransform, LineEnd, OuterShadow, PathCommand, PreservedFeature,
     PresetGeometry, ResolveDiagnosticCode, ResolveOutput, ResolvedChart, ResolvedSlide,
     ResolvedTable, ResolvedTextFrame, ResolvedTextStyle, RgbaColor, Stroke, TextAlignment,
-    TextAutofit, TextVerticalAlignment, Transform,
+    TextAutofit, TextDirection, TextFlow, TextTabAlignment, TextVerticalAlignment, Transform,
 };
 
-pub const DISPLAY_LIST_VERSION: u16 = 4;
+pub const DISPLAY_LIST_VERSION: u16 = 5;
 const MAGIC: &[u8; 4] = b"WPDL";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -85,6 +85,18 @@ pub enum DisplayCommand {
         transform: Transform,
         angle: i32,
         stops: Vec<GradientStop>,
+    },
+    FillRadialGradientPreset {
+        geometry: PresetGeometry,
+        transform: Transform,
+        stops: Vec<GradientStop>,
+    },
+    FillPatternPreset {
+        geometry: PresetGeometry,
+        transform: Transform,
+        preset: String,
+        foreground: RgbaColor,
+        background: RgbaColor,
     },
     DrawCustomPath {
         path: CustomPath,
@@ -186,6 +198,25 @@ impl DisplayList {
                                     stops: stops.clone(),
                                 });
                             }
+                            Fill::RadialGradient { stops } => {
+                                list.commands
+                                    .push(DisplayCommand::FillRadialGradientPreset {
+                                        geometry: *geometry,
+                                        transform: element.transform,
+                                        stops: stops.clone(),
+                                    });
+                            }
+                            Fill::Pattern {
+                                preset,
+                                foreground,
+                                background,
+                            } => list.commands.push(DisplayCommand::FillPatternPreset {
+                                geometry: *geometry,
+                                transform: element.transform,
+                                preset: preset.clone(),
+                                foreground: *foreground,
+                                background: *background,
+                            }),
                             Fill::None => {}
                         }
                         if let Some(stroke) = &element.stroke {
@@ -1280,6 +1311,11 @@ fn encode_command(output: &mut Vec<u8>, command: &DisplayCommand) {
                 TextAutofit::ShrinkText => 1,
                 TextAutofit::ResizeShape => 2,
             });
+            output.push(match frame.flow {
+                TextFlow::Horizontal => 0,
+                TextFlow::Vertical => 1,
+                TextFlow::Vertical270 => 2,
+            });
             push_u32(output, frame.paragraphs.len() as u32);
             for paragraph in &frame.paragraphs {
                 output.push(text_alignment_code(paragraph.alignment));
@@ -1293,6 +1329,20 @@ fn encode_command(output: &mut Vec<u8>, command: &DisplayCommand) {
                 push_i32(output, paragraph.line_spacing.unwrap_or(i32::MIN));
                 push_i32(output, paragraph.space_before.unwrap_or(i32::MIN));
                 push_i32(output, paragraph.space_after.unwrap_or(i32::MIN));
+                output.push(match paragraph.direction {
+                    TextDirection::LeftToRight => 0,
+                    TextDirection::RightToLeft => 1,
+                });
+                push_u32(output, paragraph.tabs.len() as u32);
+                for tab in &paragraph.tabs {
+                    push_i64(output, tab.position);
+                    output.push(match tab.alignment {
+                        TextTabAlignment::Left => 0,
+                        TextTabAlignment::Center => 1,
+                        TextTabAlignment::Right => 2,
+                        TextTabAlignment::Decimal => 3,
+                    });
+                }
                 push_u32(output, paragraph.runs.len() as u32);
                 for run in &paragraph.runs {
                     push_blob(output, run.text.as_bytes());
@@ -1350,6 +1400,36 @@ fn encode_command(output: &mut Vec<u8>, command: &DisplayCommand) {
                         push_i64(output, point.y);
                     }
                     PathCommand::Close => output.push(3),
+                    PathCommand::QuadraticTo { control, end } => {
+                        output.push(4);
+                        push_i64(output, control.x);
+                        push_i64(output, control.y);
+                        push_i64(output, end.x);
+                        push_i64(output, end.y);
+                    }
+                    PathCommand::CubicTo {
+                        control1,
+                        control2,
+                        end,
+                    } => {
+                        output.push(5);
+                        for point in [control1, control2, end] {
+                            push_i64(output, point.x);
+                            push_i64(output, point.y);
+                        }
+                    }
+                    PathCommand::ArcTo {
+                        width_radius,
+                        height_radius,
+                        start_angle,
+                        sweep_angle,
+                    } => {
+                        output.push(6);
+                        push_i64(output, *width_radius);
+                        push_i64(output, *height_radius);
+                        push_i32(output, *start_angle);
+                        push_i32(output, *sweep_angle);
+                    }
                 }
             }
             encode_fill(output, fill);
@@ -1371,6 +1451,30 @@ fn encode_command(output: &mut Vec<u8>, command: &DisplayCommand) {
             push_i64(output, shadow.distance);
             push_i32(output, shadow.direction);
         }
+        DisplayCommand::FillRadialGradientPreset {
+            geometry,
+            transform,
+            stops,
+        } => {
+            output.push(13);
+            output.push(geometry_code(*geometry));
+            encode_transform(output, *transform);
+            encode_gradient_stops(output, stops);
+        }
+        DisplayCommand::FillPatternPreset {
+            geometry,
+            transform,
+            preset,
+            foreground,
+            background,
+        } => {
+            output.push(14);
+            output.push(geometry_code(*geometry));
+            encode_transform(output, *transform);
+            push_blob(output, preset.as_bytes());
+            encode_color(output, *foreground);
+            encode_color(output, *background);
+        }
     }
 }
 
@@ -1385,6 +1489,20 @@ fn encode_fill(output: &mut Vec<u8>, fill: &Fill) {
             output.push(2);
             push_i32(output, *angle);
             encode_gradient_stops(output, stops);
+        }
+        Fill::RadialGradient { stops } => {
+            output.push(3);
+            encode_gradient_stops(output, stops);
+        }
+        Fill::Pattern {
+            preset,
+            foreground,
+            background,
+        } => {
+            output.push(4);
+            push_blob(output, preset.as_bytes());
+            encode_color(output, *foreground);
+            encode_color(output, *background);
         }
     }
 }
@@ -1434,6 +1552,10 @@ fn encode_text_style(output: &mut Vec<u8>, style: &ResolvedTextStyle) {
     push_i64(output, style.margin_top);
     push_i64(output, style.margin_right);
     push_i64(output, style.margin_bottom);
+    output.push(u8::from(style.underline));
+    output.push(u8::from(style.strike));
+    push_i32(output, style.character_spacing);
+    push_i32(output, style.baseline);
 }
 
 fn text_alignment_code(alignment: TextAlignment) -> u8 {
@@ -1490,6 +1612,16 @@ fn geometry_code(geometry: PresetGeometry) -> u8 {
         PresetGeometry::Diamond => 7,
         PresetGeometry::Parallelogram => 8,
         PresetGeometry::Hexagon => 9,
+        PresetGeometry::Pentagon => 10,
+        PresetGeometry::Octagon => 11,
+        PresetGeometry::Star5 => 12,
+        PresetGeometry::Plus => 13,
+        PresetGeometry::Chevron => 14,
+        PresetGeometry::RightArrow => 15,
+        PresetGeometry::LeftArrow => 16,
+        PresetGeometry::UpArrow => 17,
+        PresetGeometry::DownArrow => 18,
+        PresetGeometry::Trapezoid => 19,
         _ => 255,
     }
 }

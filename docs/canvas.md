@@ -18,10 +18,11 @@ indices, and group-stack balance before execution. `CanvasDisplayListRenderer` t
 the common display-list semantics on Canvas 2D:
 
 - preset paths, fills, strokes, rotation, flips, and nested group transforms;
-- linear gradients, bounded custom paths, outer shadows, connectors, and line ends;
+- linear/radial gradients, patterns, curved bounded custom paths, outer shadows, connectors, and line ends;
 - relationship-addressed images with PowerPoint source cropping;
-- shared WPDL v4 paragraph/run layout for mixed styles, script-specific theme fonts,
-  bullets, indentation, spacing, wrapping, autofit, alignment and text-frame anchoring;
+- shared WPDL v5 paragraph/run layout for mixed styles, script-specific theme fonts,
+  RTL, tabs, vertical flow, decoration, baseline/character spacing, bullets, indentation,
+  wrapping, autofit, alignment and text-frame anchoring;
 - deterministic cache eviction and disposal for decoded images.
 
 Canvas 2D and `OffscreenCanvasRenderingContext2D` expose the same core drawing and text
@@ -70,8 +71,8 @@ baselines and per-slide tolerance reports belong to the compatibility-gate slice
 
 ## Current boundary
 
-The renderer supports WPDL v4 while retaining v1-v3 decoding. PowerPoint-exact shaping,
-curved custom paths, pattern fills, effect DAGs, and native SmartArt drawing remain incomplete.
+The renderer supports WPDL v5 while retaining v1-v4 decoding. Optional font-byte shaping,
+general effect DAGs, and native SmartArt drawing remain incomplete.
 PNG/JPEG metadata is inspected before decode, byte and pixel limits are enforced, and browser
 decode applies EXIF orientation. EMF/WMF supports common GDI records through the lazy
 SVG converter; malformed or unsupported record streams fall back to an unavailable-image region.

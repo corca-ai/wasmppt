@@ -133,6 +133,15 @@ fn resolve(input: &Path, slide_index: usize) -> Result<(), String> {
             diagnostic.code, diagnostic.part_name, diagnostic.shape_id, diagnostic.message
         );
     }
+    for element in &resolved.slide.elements {
+        println!(
+            "shape {} {:?} {:?}: {}",
+            element.id, element.name, element.source, element.text
+        );
+        for property in &element.provenance {
+            println!("  {} <- {:?}", property.property, property.source);
+        }
+    }
     Ok(())
 }
 

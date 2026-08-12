@@ -61,6 +61,14 @@ pub enum Fill {
         angle: i32,
         stops: Vec<GradientStop>,
     },
+    RadialGradient {
+        stops: Vec<GradientStop>,
+    },
+    Pattern {
+        preset: String,
+        foreground: RgbaColor,
+        background: RgbaColor,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -92,6 +100,21 @@ pub struct Stroke {
 pub enum PathCommand {
     MoveTo(EmuPoint),
     LineTo(EmuPoint),
+    QuadraticTo {
+        control: EmuPoint,
+        end: EmuPoint,
+    },
+    CubicTo {
+        control1: EmuPoint,
+        control2: EmuPoint,
+        end: EmuPoint,
+    },
+    ArcTo {
+        width_radius: Emu,
+        height_radius: Emu,
+        start_angle: i32,
+        sweep_angle: i32,
+    },
     Close,
 }
 
@@ -127,6 +150,36 @@ pub enum TextVerticalAlignment {
     Bottom,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TextDirection {
+    #[default]
+    LeftToRight,
+    RightToLeft,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TextFlow {
+    #[default]
+    Horizontal,
+    Vertical,
+    Vertical270,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TextTabAlignment {
+    #[default]
+    Left,
+    Center,
+    Right,
+    Decimal,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ResolvedTextTab {
+    pub position: Emu,
+    pub alignment: TextTabAlignment,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedTextStyle {
     /// DrawingML font size in hundredths of a point.
@@ -135,6 +188,12 @@ pub struct ResolvedTextStyle {
     pub font_family: Option<String>,
     pub bold: bool,
     pub italic: bool,
+    pub underline: bool,
+    pub strike: bool,
+    /// DrawingML character spacing in hundredths of a point.
+    pub character_spacing: i32,
+    /// DrawingML baseline shift in thousandths of a percent.
+    pub baseline: i32,
     pub alignment: TextAlignment,
     pub vertical_alignment: TextVerticalAlignment,
     pub margin_left: Emu,
@@ -171,6 +230,8 @@ pub struct ResolvedParagraph {
     pub line_spacing: Option<i32>,
     pub space_before: Option<i32>,
     pub space_after: Option<i32>,
+    pub direction: TextDirection,
+    pub tabs: Vec<ResolvedTextTab>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -183,6 +244,7 @@ pub struct ResolvedTextFrame {
     pub margin_bottom: Emu,
     pub wrap: bool,
     pub autofit: TextAutofit,
+    pub flow: TextFlow,
 }
 
 impl Default for ResolvedTextStyle {
@@ -198,6 +260,10 @@ impl Default for ResolvedTextStyle {
             font_family: None,
             bold: false,
             italic: false,
+            underline: false,
+            strike: false,
+            character_spacing: 0,
+            baseline: 0,
             alignment: TextAlignment::Left,
             vertical_alignment: TextVerticalAlignment::Top,
             margin_left: 91_440,
@@ -220,6 +286,16 @@ pub enum PresetGeometry {
     Diamond,
     Parallelogram,
     Hexagon,
+    Pentagon,
+    Octagon,
+    Star5,
+    Plus,
+    Chevron,
+    RightArrow,
+    LeftArrow,
+    UpArrow,
+    DownArrow,
+    Trapezoid,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -241,6 +317,12 @@ pub enum SourceLevel {
     Master,
     Layout,
     Slide,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PropertyProvenance {
+    pub property: &'static str,
+    pub source: SourceLevel,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -356,6 +438,7 @@ pub struct ResolvedElement {
     pub id: u32,
     pub name: String,
     pub source: SourceLevel,
+    pub provenance: Vec<PropertyProvenance>,
     pub z_order: u32,
     pub placeholder: Option<Placeholder>,
     pub transform: Transform,

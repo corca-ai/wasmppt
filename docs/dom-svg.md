@@ -18,7 +18,9 @@ WPDL version 2 added two side tables without changing Canvas drawing commands:
 
 WPDL version 3 added effective text-frame styling and preserved-graphic placeholders. WPDL
 version 4 adds paragraph/run-preserving rich text, linear gradients, bounded move/line/close
-custom paths, outer shadows, and connector line ends. The decoder retains v1-v3 compatibility.
+custom paths, outer shadows, and connector line ends. WPDL version 5 adds RTL/tab/vertical
+text metadata, spacing and decorations, curved path segments, radial gradients, patterns,
+and expanded presets. The decoder retains v1-v4 compatibility.
 
 The resolver reads `cNvPr` description/title attributes and hyperlink relationships. External
 links are retained in the scene. The browser exposes clickable `http`, `https`, `mailto`, and
@@ -35,7 +37,7 @@ links are retained in the scene. The browser exposes clickable `http`, `https`, 
 - `data-selection-id`, source shape ID, reading order, and command range support editor and
   selection integrations.
 
-Preset and bounded custom geometry, solid and linear-gradient fills, strokes, outer shadows,
+Preset and bounded curved custom geometry, solid/linear/radial/pattern fills, strokes, outer shadows,
 connector line ends, group transforms, rotations, flips, and source-cropped images are projected
 from the display list. DOM text and Canvas use the same rich-text layout planner for mixed runs,
 font resolution, wrapping, margins, alignment, and vertical anchoring. The Canvas and SVG
@@ -55,7 +57,7 @@ change aborts stale work, and `dispose()` removes every mounted slide and cached
 
 ## Deliberate limits
 
-PowerPoint-exact shaping, curve segments in custom geometry, pattern fills, general effect DAGs,
-and native SmartArt rendering remain unsupported. Both rendering backends preserve the package
+Optional font-byte shaping, general effect DAGs, and native SmartArt rendering remain unsupported.
+Both rendering backends preserve the package
 source and surface the same explicit diagnostic and visible placeholder for unsupported graphics
 rather than silently dropping content.

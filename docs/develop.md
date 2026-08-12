@@ -138,8 +138,9 @@ The performance-contract job publishes native, browser, and workerd raw samples 
 budgets and correctness rules in the [performance contract](performance.md).
 
 `npm run build:pages` assembles the static dogfood application under `target/pages` from the
-checked-in Wasm host bindings, browser package, and dogfood POTX. `npm run test:pages` serves that
-directory and uses real Chrome to compile the bundled template and download a generated PPTX.
+checked-in Wasm host bindings, browser package, and two dogfood POTX templates. `npm run test:pages`
+serves that directory and uses real Chrome to apply one editor delta to both templates, render both
+previews, and download both generated PPTX files.
 CI reuses the single revision-bound Wasm artifact for this gate and deploys the exact tested static
 directory to GitHub Pages on `main`. See the [browser dogfood playground](playground.md).
 

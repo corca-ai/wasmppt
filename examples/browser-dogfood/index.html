@@ -3,56 +3,86 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Drop a PowerPoint template, preview it, and download the generated PPTX locally.">
+    <meta name="description" content="Write once and watch two PowerPoint templates render side by side in your browser.">
     <link rel="icon" href="data:,">
-    <title>wasmppt playground</title>
+    <title>wasmppt parallel template garden</title>
     <link rel="stylesheet" href="./style.css">
   </head>
   <body>
     <main>
-      <header>
+      <header class="hero">
         <a class="eyebrow" href="https://github.com/corca-ai/wasmppt">corca-ai / wasmppt</a>
-        <h1>Drop a template.<br><em>See the result.</em></h1>
-        <p>Everything happens in your browser. Your template and images never leave this page.</p>
+        <h1>Write once.<br><em>See two decks.</em></h1>
+        <p>
+          One shared story flows through two real PowerPoint templates at the same time.
+          Edit a field and compare both rendered PPTX designs instantly—entirely in your browser.
+        </p>
+        <div class="hero-chips" aria-label="Playground capabilities">
+          <span>2 POTX templates</span>
+          <span>1 shared input</span>
+          <span>0 uploads</span>
+        </div>
       </header>
 
-      <section class="card template-card" aria-labelledby="template-heading">
-        <div class="step"><span>01</span><h2 id="template-heading">Choose a template</h2></div>
-        <label id="drop-zone" class="drop-zone">
-          <span class="drop-icon" aria-hidden="true">↓</span>
-          <strong>Drop a POTX or POTM here</strong>
-          <span>or click to choose a file</span>
-          <input id="template" class="file-input" type="file" accept=".potx,.potm,.pptx">
-        </label>
-        <div class="selected-file">
-          <span id="file-name">Bundled report template</span>
-          <button id="use-sample" class="text-button" type="button">Use sample</button>
+      <section class="editor-card" aria-labelledby="editor-heading">
+        <div class="section-heading">
+          <div class="step"><span>01</span><h2 id="editor-heading">Write the shared content</h2></div>
+          <p>Every field updates both decks on the next animation frame.</p>
         </div>
+        <div id="bindings" class="bindings"><p class="muted">Preparing both templates…</p></div>
       </section>
 
-      <section class="card bindings-card" aria-labelledby="bindings-heading">
-        <div class="step"><span>02</span><h2 id="bindings-heading">Edit content</h2></div>
-        <div id="bindings" class="bindings"><p class="muted">Loading the sample template…</p></div>
-        <p class="hint">The preview refreshes automatically when content changes.</p>
-      </section>
-
-      <section class="preview-card" aria-labelledby="preview-heading">
-        <div class="preview-header">
-          <div class="step"><span>03</span><h2 id="preview-heading">Preview</h2></div>
-          <a id="download" class="download-button is-disabled" aria-disabled="true">Download PPTX</a>
+      <section class="garden" aria-labelledby="garden-heading">
+        <div class="section-heading garden-heading">
+          <div class="step"><span>02</span><h2 id="garden-heading">Parallel template garden</h2></div>
+          <p>Same content and revision semantics, two independent virtual packages.</p>
         </div>
-        <div id="preview" class="preview-grid">
-          <p class="preview-placeholder">Your generated slides will appear here.</p>
+
+        <div class="deck-grid">
+          <article class="deck-card" data-deck="atlas" aria-labelledby="atlas-heading">
+            <div class="deck-header">
+              <div>
+                <span class="deck-number">Template A</span>
+                <h3 id="atlas-heading">Atlas Report</h3>
+                <p>Quiet, spacious, and editorial.</p>
+              </div>
+              <a class="download-button is-disabled" data-download aria-disabled="true">Download A</a>
+            </div>
+            <div class="deck-preview" data-preview>
+              <p class="preview-placeholder">Rendering Atlas…</p>
+            </div>
+            <dl class="deck-stats">
+              <div><dt>Template</dt><dd data-compile-time>—</dd></div>
+              <div><dt>Refresh</dt><dd data-refresh-time>—</dd></div>
+              <div><dt>Output</dt><dd data-output-size>—</dd></div>
+            </dl>
+            <p class="deck-status" data-deck-status>Waiting for WebAssembly…</p>
+          </article>
+
+          <article class="deck-card deck-card-accent" data-deck="garden" aria-labelledby="garden-template-heading">
+            <div class="deck-header">
+              <div>
+                <span class="deck-number">Template B</span>
+                <h3 id="garden-template-heading">Signal Garden</h3>
+                <p>Bold, graphic, and high-contrast.</p>
+              </div>
+              <a class="download-button is-disabled" data-download aria-disabled="true">Download B</a>
+            </div>
+            <div class="deck-preview" data-preview>
+              <p class="preview-placeholder">Rendering Signal…</p>
+            </div>
+            <dl class="deck-stats">
+              <div><dt>Template</dt><dd data-compile-time>—</dd></div>
+              <div><dt>Refresh</dt><dd data-refresh-time>—</dd></div>
+              <div><dt>Output</dt><dd data-output-size>—</dd></div>
+            </dl>
+            <p class="deck-status" data-deck-status>Waiting for WebAssembly…</p>
+          </article>
         </div>
       </section>
 
       <aside class="status" aria-live="polite">
-        <div><span class="pulse"></span><strong id="status">Loading WebAssembly…</strong></div>
-        <dl>
-          <div><dt>Template</dt><dd id="compile-time">—</dd></div>
-          <div><dt>Refresh</dt><dd id="generate-time">—</dd></div>
-          <div><dt>Output</dt><dd id="output-size">—</dd></div>
-        </dl>
+        <div class="status-line"><span class="pulse"></span><strong id="status">Loading WebAssembly…</strong></div>
         <pre id="diagnostics"></pre>
       </aside>
     </main>

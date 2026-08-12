@@ -81,8 +81,14 @@ Releasing a session prevents an in-flight resource from repopulating its cache m
 ## Scheduling and rendering
 
 The dogfood editor accumulates input in a pending delta, schedules at most one update per animation
-frame, and permits only one Worker mutation at a time. Edits that arrive during that mutation are
-coalesced into the next revision. Revision checks reject stale results.
+frame, and permits only one coordinated mutation batch at a time. It applies that shared delta to
+two independent template sessions in parallel. Edits that arrive during the batch are coalesced
+into the next revision. Each session retains its own revision checks, invalidation set, caches, and
+PPTX export; stale results cannot cross from one template into the other.
+
+The general viewer virtualizes offscreen slides as described below. The four-slide parallel garden
+keeps both two-slide previews mounted so the comparison remains visually stable during scrolling;
+it still resolves only invalidated slides after each edit.
 
 Visible slides render before offscreen work. An `IntersectionObserver` maintains the visible set;
 offscreen canvases are unmounted, and a slide is resolved again only when its dependency

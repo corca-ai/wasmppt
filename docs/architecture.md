@@ -269,6 +269,10 @@ cover resources, decoded images, text measurements, and rich-text layouts. Mutab
 enter the Cloudflare isolate-global prepared-plan cache. See
 [live editing and incremental preview](live-editing.md) for the executable contract.
 
+A host MAY fan one editor delta out to several independent live sessions. Each template keeps its
+own revision, overlay, invalidation set, scene cache, and exact-revision export; the host owns the
+coordination policy and must not combine their mutable package state.
+
 ## Rendering pipeline
 
 ### Resolution

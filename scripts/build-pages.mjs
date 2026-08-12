@@ -27,5 +27,5 @@ for (const file of ['wasmppt_metafile_wasm.js', 'wasmppt_metafile_wasm_bg.wasm']
   )
 }
 await cp(resolve(root, 'fixtures/dogfood/report.potx'), resolve(output, 'fixtures/report.potx'))
-await cp(resolve(root, 'fixtures/host-adapters/minimal.potx'), resolve(output, 'fixtures/minimal.potx'))
+await cp(resolve(root, 'fixtures/dogfood/garden.potx'), resolve(output, 'fixtures/garden.potx'))
 console.log(`GitHub Pages artifact: ${output}`)

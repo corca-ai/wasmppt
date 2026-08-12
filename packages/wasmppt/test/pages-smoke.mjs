@@ -37,79 +37,90 @@ try {
   const address = server.address()
   assert(address !== null && typeof address === 'object')
   browser = await chromium.launch(process.env.CI ? { headless: true } : { channel: 'chrome', headless: true })
-  const page = await browser.newPage({ acceptDownloads: true })
+  const page = await browser.newPage({ acceptDownloads: true, viewport: { width: 1440, height: 1000 } })
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
   page.on('console', (message) => console.log(`browser console: ${message.text()}`))
   await page.goto(`http://127.0.0.1:${address.port}/`)
 
-  assert.equal(await page.getByRole('button', { name: /compile/i }).count(), 0)
-  assert.equal(await page.getByRole('button', { name: /generate/i }).count(), 0)
-  await page.getByText(/^PPTX ready · 2 slides$/).waitFor()
-  await page.locator('#preview figure').first().scrollIntoViewIfNeeded()
-  await page.locator('#preview canvas').first().waitFor()
-  assert((await page.locator('#preview canvas').count()) <= 2)
-  assert.equal(await page.locator('#download').getAttribute('aria-disabled'), 'false')
-  assert.equal(await page.locator('[data-binding="title"]').inputValue(), 'wasmppt quarterly report')
+  assert.equal(await page.locator('input[type="file"]').count(), 0)
+  assert.equal(await page.getByRole('button', { name: /compile|generate/i }).count(), 0)
+  assert.equal(await page.locator('[data-deck]').count(), 2)
+  await page.getByText(/^Both decks are live/).waitFor()
+  assert.equal(await page.locator('[data-binding]').count(), 4)
 
-  const firstDownloadUrl = await page.locator('#download').getAttribute('href')
-  await page.locator('[data-binding="title"]').fill('Automatically refreshed title')
+  const deckCards = page.locator('[data-deck]')
+  for (let index = 0; index < 2; index += 1) {
+    const deck = deckCards.nth(index)
+    await deck.scrollIntoViewIfNeeded()
+    await deck.locator('canvas').first().waitFor()
+    assert.equal(await deck.locator('[data-download]').getAttribute('aria-disabled'), 'false')
+    assert.equal(Number(await deck.getAttribute('data-render-revision')), 0)
+  }
+  const initialPixels = await canvasSignatures(page, 0)
+  assert.notEqual(initialPixels[0], initialPixels[1])
+
+  const title = page.locator('[data-binding="title"]')
+  assert.equal(await title.inputValue(), 'One story, two visual worlds')
+  const priorRevisions = await downloadRevisions(page)
+  await title.fill('A single edit blooms twice')
   await page.waitForFunction((previous) => {
-    const link = document.querySelector('#download')
-    return link?.getAttribute('aria-disabled') === 'false' && link.getAttribute('href') !== previous
-  }, firstDownloadUrl)
-  await page.getByText(/^PPTX ready · 2 slides$/).waitFor()
-  await page.locator('#preview figure').first().scrollIntoViewIfNeeded()
-  await page.locator('#preview canvas').first().waitFor()
-  await assertDownload(page, 2_000)
+    const decks = [...document.querySelectorAll('[data-deck]')]
+    return decks.every((deck, index) =>
+      Number(deck.dataset.renderRevision) > previous[index] &&
+      Number(deck.querySelector('[data-download]')?.dataset.revision) > previous[index],
+    )
+  }, priorRevisions)
+  const editedPixels = await canvasSignatures(page, 0)
+  assert.notEqual(editedPixels[0], initialPixels[0])
+  assert.notEqual(editedPixels[1], initialPixels[1])
 
-  const settledRevision = Number(await page.locator('#download').getAttribute('data-revision'))
-  await page.locator('[data-binding="title"]').fill('Download waits for this pending edit')
-  await assertDownload(page, 2_000)
-  assert(Number(await page.locator('#download').getAttribute('data-revision')) > settledRevision)
+  const metricPixels = await canvasSignatures(page, 1)
+  const metricRevisions = await downloadRevisions(page)
+  await page.locator('[data-binding="metrics.value"]').fill('42× faster')
+  await page.waitForFunction((previous) => [...document.querySelectorAll('[data-download]')]
+    .every((link, index) => Number(link.dataset.revision) > previous[index]), metricRevisions)
+  const editedMetricPixels = await canvasSignatures(page, 1)
+  assert.notEqual(editedMetricPixels[0], metricPixels[0])
+  assert.notEqual(editedMetricPixels[1], metricPixels[1])
 
-  const beforeBurst = Number(await page.locator('#download').getAttribute('data-revision'))
-  await page.locator('[data-binding="title"]').evaluate((input) => {
+  const beforeBurst = await downloadRevisions(page)
+  await title.evaluate((input) => {
     for (let index = 0; index < 20; index += 1) {
-      input.value = `coalesced burst ${index}`
+      input.value = `parallel burst ${index}`
       input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }))
     }
   })
-  await assertDownload(page, 2_000)
-  assert.equal(
-    Number(await page.locator('#download').getAttribute('data-revision')),
-    beforeBurst + 1,
-  )
+  await page.waitForFunction((previous) => [...document.querySelectorAll('[data-download]')]
+    .every((link, index) => Number(link.dataset.revision) > previous[index]), beforeBurst)
+  assert.deepEqual(await downloadRevisions(page), beforeBurst.map((revision) => revision + 1))
 
-  await page.evaluate(async () => {
-    const bytes = await fetch('./fixtures/minimal.potx').then((response) => response.arrayBuffer())
-    const transfer = new DataTransfer()
-    transfer.items.add(new File([bytes], 'dropped-minimal.potx', { type: 'application/octet-stream' }))
-    document.querySelector('#drop-zone').dispatchEvent(new DragEvent('drop', {
-      bubbles: true,
-      cancelable: true,
-      dataTransfer: transfer,
-    }))
-  })
-  await page.getByText(/dropped-minimal\.potx/).waitFor()
-  await page.getByText(/^PPTX ready · 1 slide$/).waitFor()
-  await page.locator('#preview figure').scrollIntoViewIfNeeded()
-  await page.locator('#preview canvas').waitFor()
-  assert.equal(await page.locator('#preview canvas').count(), 1)
-  assert.equal(await page.locator('#download').getAttribute('aria-disabled'), 'false')
+  await assertDownload(page, '[data-deck="atlas"] [data-download]', 2_000)
+  await assertDownload(page, '[data-deck="garden"] [data-download]', 2_000)
   assert.equal((await page.locator('#diagnostics').textContent()).includes('no repeated table row'), false)
-  await assertDownload(page, 1_000)
-
   assert.deepEqual(errors, [])
-  console.log('Pages dogfood auto-generated, rendered, and downloaded bundled and dropped templates')
+  console.log('Pages garden rendered two templates from one coalesced editor and downloaded both PPTX files')
 } finally {
   await browser?.close()
   await new Promise((resolvePromise) => server.close(resolvePromise))
 }
 
-async function assertDownload(page, minimumBytes) {
+async function canvasSignatures(page, slideIndex) {
+  return page.locator('[data-deck]').evaluateAll((decks, index) => decks.map((deck) => {
+    const canvas = deck.querySelectorAll('canvas')[index]
+    return canvas?.toDataURL() ?? ''
+  }), slideIndex)
+}
+
+async function downloadRevisions(page) {
+  return page.locator('[data-download]').evaluateAll((links) =>
+    links.map((link) => Number(link.dataset.revision)),
+  )
+}
+
+async function assertDownload(page, selector, minimumBytes) {
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('link', { name: 'Download PPTX' }).click()
+  await page.locator(selector).click()
   const download = await downloadPromise
   const path = await download.path()
   assert(path !== null)

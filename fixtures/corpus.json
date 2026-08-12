@@ -20,6 +20,15 @@
       "redistribution": "allowed"
     },
     {
+      "id": "dogfood-garden-potx",
+      "path": "fixtures/dogfood/garden.potx",
+      "sha256": "83984d6909926ea49663c4d3d3eef0773dab6a924d4f5879c58484f16207a4b3",
+      "provenance": "generated-in-repository",
+      "generator": "cargo run -p wasmppt-native --example write_garden_fixture -- fixtures/dogfood/garden.potx",
+      "license": "Apache-2.0",
+      "redistribution": "allowed"
+    },
+    {
       "id": "render-basic-pptx",
       "path": "fixtures/render/basic.pptx",
       "sha256": "593ace28888ccfc9a988526018483f2c531b51cef682fc4d1fc3e548dd2eaf85",

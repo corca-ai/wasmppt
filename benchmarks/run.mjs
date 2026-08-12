@@ -42,7 +42,11 @@ for (const [scenario, slides] of selected) {
 
 const wasmPath = resolve(root, 'packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm')
 const wasmBytes = (await stat(wasmPath)).size
-const trackedChanges = output('git', ['status', '--porcelain', '--untracked-files=no'])
+const trackedChanges = execFileSync(
+  'git',
+  ['status', '--porcelain', '--untracked-files=no'],
+  { cwd: root, encoding: 'utf8' },
+)
   .split('\n')
   .filter(Boolean)
 const generatedArtifactChanges = trackedChanges.filter((line) =>

@@ -26,6 +26,7 @@ does not silently raise the compatibility floor.
 | `wasmppt-template` | library | none | binding plans and injection |
 | `wasmppt-layout` | library | none | theme, layout, and slide resolution |
 | `wasmppt-display` | library | none | backend-neutral display lists |
+| `wasmppt-native` | library | native standard library | file source and sink capabilities |
 | `wasmppt-wasm` | `cdylib` and library | `wasm-bindgen` | narrow Wasm ABI |
 | `wasmppt-cli` | binary | native standard library | inspection and verification CLI |
 
@@ -41,11 +42,11 @@ accepted.
 
 | Import | Purpose |
 | --- | --- |
-| `@corca-ai/wasmppt` | browser package and future Web Worker adapter |
+| `@corca-ai/wasmppt` | browser package and versioned Web Worker adapter |
 | `@corca-ai/wasmppt-worker` | Cloudflare Workers adapter |
 
-Both packages are private scaffolds until their runtime APIs are implemented. They are
-separate so browser UI dependencies cannot inflate or constrain the Worker integration.
+They are separate so browser UI dependencies cannot inflate or constrain the Worker
+integration. See [Runtime host adapters](hosts.md) for their protocols and limits.
 
 ## Build profiles
 
@@ -71,6 +72,9 @@ cargo deny check
 npm ci
 npm run check
 npm run build
+npm run build:wasm-hosts
+npm test --workspace @corca-ai/wasmppt-worker
+npm run test:browser --workspace @corca-ai/wasmppt
 awiki lint -root docs
 ```
 

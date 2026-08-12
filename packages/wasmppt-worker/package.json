@@ -13,7 +13,16 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit"
+    "build": "tsc -p tsconfig.json && mkdir -p dist/generated && cp src/generated/wasmppt_wasm.js src/generated/wasmppt_wasm.d.ts src/generated/wasmppt_wasm_bg.wasm src/generated/wasmppt_wasm_bg.wasm.d.ts dist/generated/",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit && wrangler types --include-runtime false --check",
+    "test": "vitest run",
+    "types:worker": "wrangler types worker-configuration.d.ts --include-runtime false"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.21.1",
+    "@cloudflare/workers-types": "^5.20260812.1",
+    "@types/node": "^26.2.0",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.121.0"
   }
 }

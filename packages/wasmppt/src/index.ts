@@ -1,6 +1,10 @@
 /** Package identity exposed without loading the Wasm engine. */
 export const packageName = '@corca-ai/wasmppt' as const
 
+export * from './protocol.js'
+export * from './worker-client.js'
+export * from './worker-runtime.js'
+
 /** Browser-owned locations for separately emitted engine and worker assets. */
 export interface BrowserEngineAssets {
   readonly wasmUrl: string | URL

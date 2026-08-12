@@ -14,6 +14,11 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit"
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "test:browser": "npm run build && node test/browser-host.integration.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
   }
 }

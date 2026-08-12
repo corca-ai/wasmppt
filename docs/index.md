@@ -16,6 +16,8 @@ This is the canonical index for living `wasmppt` documentation.
   split-run tokens, manifests, diagnostics, serialization, and cache identity.
 - [High-speed template injection](injection.md) — prepared warm generation,
   text, images, tables, slides, macro stripping, streaming, and validation.
+- [Runtime host adapters](hosts.md) — native files, opaque Wasm handles, browser
+  Worker protocol, Cloudflare/R2 streaming, cache and memory budgets.
 - [Documentation guide](metadoc.md) — how documentation is organized, written,
   linked, and linted.
 

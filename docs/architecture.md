@@ -89,6 +89,7 @@ crates/
   wasmppt-template/   binding schema, TemplatePlan, injection, slide cloning
   wasmppt-layout/     theme/master/layout inheritance and text/geometry resolution
   wasmppt-display/    backend-neutral display list
+  wasmppt-native/     native file ReadAt and forward-only output capabilities
   wasmppt-wasm/       narrow wasm-bindgen boundary
   wasmppt-cli/        inspection, validation, corpus, and benchmark commands
 
@@ -105,7 +106,9 @@ corpus/
 ```
 
 Core crates MUST compile and test without `wasm-bindgen`, `web-sys`, `js-sys`, a DOM,
-or a JavaScript runtime. CI will enforce this import and dependency boundary.
+or a JavaScript runtime. CI will enforce this import and dependency boundary. See
+[Runtime host adapters](hosts.md) for the implemented host APIs and their executable
+shared-fixture contract.
 
 ## Package substrate
 

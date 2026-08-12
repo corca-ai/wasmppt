@@ -1,8 +1,10 @@
 /target/
 /pkg/
 /dist/
-/node_modules/
+node_modules/
+.wrangler/
 *.profraw
+*.cpuprofile
 *.wasm.map
 .DS_Store
 packages/*/dist/

@@ -3,6 +3,7 @@ members = [
     "crates/wasmppt-cli",
     "crates/wasmppt-display",
     "crates/wasmppt-layout",
+    "crates/wasmppt-native",
     "crates/wasmppt-opc",
     "crates/wasmppt-pml",
     "crates/wasmppt-template",
@@ -22,11 +23,13 @@ authors = ["wasmppt contributors"]
 [workspace.dependencies]
 crc32fast = "1.5.0"
 flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
+js-sys = "0.3.104"
 proptest = { version = "1.11.0", default-features = false, features = ["std"] }
 sha2 = { version = "0.10.9", default-features = false }
 wasm-bindgen = "0.2.127"
 wasmppt-display = { path = "crates/wasmppt-display", version = "0.0.0" }
 wasmppt-layout = { path = "crates/wasmppt-layout", version = "0.0.0" }
+wasmppt-native = { path = "crates/wasmppt-native", version = "0.0.0" }
 wasmppt-opc = { path = "crates/wasmppt-opc", version = "0.0.0" }
 wasmppt-pml = { path = "crates/wasmppt-pml", version = "0.0.0" }
 wasmppt-template = { path = "crates/wasmppt-template", version = "0.0.0" }

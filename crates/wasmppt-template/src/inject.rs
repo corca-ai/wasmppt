@@ -6,7 +6,7 @@ use std::{
 
 use sha2::{Digest, Sha256};
 use wasmppt_opc::{
-    CompressionMethod, Entry, EntryOptions, OutputSink, RewriteMode, VecSink, WriteStats,
+    CompressionMethod, Entry, EntryOptions, OutputSink, ReadAt, RewriteMode, VecSink, WriteStats,
     ZipArchive, ZipWriter,
 };
 use wasmppt_xml::{TokenKind, XmlDocument, decode_entities};
@@ -315,6 +315,20 @@ impl PreparedTemplate {
 
     pub fn plan(&self) -> &TemplatePlan {
         &self.plan
+    }
+
+    /// Conservative byte weight used by host-owned eviction policies.
+    ///
+    /// This is advisory: hosts must treat eviction as a performance decision,
+    /// never as part of generation correctness.
+    pub fn estimated_resident_bytes(&self) -> u64 {
+        let source = self.archive.source().len();
+        let cached = self
+            .cached_parts
+            .values()
+            .map(|bytes| bytes.len() as u64)
+            .sum::<u64>();
+        source.saturating_add(cached)
     }
 
     pub fn generate(&self, data: &InjectionData) -> Result<GenerateOutput, GenerateError> {

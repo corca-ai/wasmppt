@@ -28,7 +28,8 @@ pub struct Error {
 }
 
 impl Error {
-    pub(crate) fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+    /// Construct a capability or package error with a stable machine code.
+    pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),

@@ -1,6 +1,6 @@
 [package]
-name = "wasmppt-wasm"
-description = "Narrow WebAssembly bindings for the wasmppt Rust core"
+name = "wasmppt-native"
+description = "Native file adapters for the host-agnostic wasmppt core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,18 +9,10 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-[features]
-default = []
-
 [dependencies]
-js-sys.workspace = true
-wasm-bindgen.workspace = true
 wasmppt-opc.workspace = true
-wasmppt-display.workspace = true
-wasmppt-layout.workspace = true
+
+[dev-dependencies]
 wasmppt-template.workspace = true
 
 [lints]

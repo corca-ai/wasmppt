@@ -61,6 +61,33 @@ jobs:
       - name: Build JavaScript packages
         run: npm run build
 
+  host-adapters:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install JavaScript dependencies
+        run: npm ci
+      - name: Install matching wasm-bindgen generator
+        run: cargo install wasm-bindgen-cli --version 0.2.127 --locked
+      - name: Regenerate Wasm host artifacts
+        run: |
+          npm run build:wasm-hosts
+          git diff --exit-code -- packages/wasmppt-worker/src/generated
+      - name: Execute the shared native fixture
+        env:
+          WASMPPT_HOST_FIXTURE: fixtures/host-adapters/minimal.potx
+        run: cargo test --locked -p wasmppt-native --test file_adapters
+      - name: Execute the shared workerd fixture
+        run: npm test --workspace @corca-ai/wasmppt-worker
+      - name: Install browser runtime
+        run: npx playwright install --with-deps chromium
+      - name: Execute the shared browser Worker fixture
+        run: npm run test:browser --workspace @corca-ai/wasmppt
+
   documentation:
     runs-on: ubuntu-latest
     steps:

@@ -22,9 +22,18 @@ test('corpus provenance and redistribution policy are machine-checkable', async 
       assert.equal(typeof fixture.generator, 'string')
       const bytes = await readFile(new URL(fixture.path, root))
       assert.equal(createHash('sha256').update(bytes).digest('hex'), fixture.sha256)
+      if (fixture.id.startsWith('generated-compat-')) {
+        assert(['pull-request', 'scheduled'].includes(fixture.tier))
+        assert(fixture.featureTags.length >= 5)
+        assert.equal(typeof fixture.producer.name, 'string')
+        for (const dimension of ['open', 'preserve', 'edit', 'render']) {
+          assert.equal(fixture.expected[dimension], 'pass')
+        }
+      }
     } else {
       assert.equal(fixture.redistribution, 'fetch-only')
       assert.match(fixture.url, /^https:\/\/raw\.githubusercontent\.com\/apache\/poi\//)
     }
   }
+  assert(corpus.fixtures.filter((fixture) => fixture.path?.endsWith('.pptx')).length >= 50)
 })

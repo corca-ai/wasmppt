@@ -76,6 +76,1456 @@
       "provenance": "apache-poi-test-data-pinned-commit",
       "license": "Apache-2.0",
       "redistribution": "fetch-only"
+    },
+    {
+      "id": "generated-compat-01",
+      "path": "fixtures/compat/generated-01.pptx",
+      "sha256": "1d53b5bbe2a7bff16ebfaff712dffe388cd1b26b2dd320d70a569e3ccf26380c",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "pull-request",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-0"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-02",
+      "path": "fixtures/compat/generated-02.pptx",
+      "sha256": "cd7d60f5db00f4756e51fd9cf62000bd3c84cdb49fde9b3f823d5c1772a6efdd",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "pull-request",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-1"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-03",
+      "path": "fixtures/compat/generated-03.pptx",
+      "sha256": "491b84fe2523b89ba75e744532fa6711364adf15fe02297a17a0874dd0bfde4d",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "pull-request",
+      "featureTags": [
+        "text-multilingual",
+        "text-decoration",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-2"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-04",
+      "path": "fixtures/compat/generated-04.pptx",
+      "sha256": "649b217c9d258d39e0113c477dde9d747bc30e19d80e89ab09b5d503a5d0d244",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "pull-request",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "gradient",
+        "ltr",
+        "horizontal-text",
+        "preset-3"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-05",
+      "path": "fixtures/compat/generated-05.pptx",
+      "sha256": "adba3bd8a917fef30530728fbc1e5d4fdeb3958f857138cdceba0af678ed987c",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "pull-request",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "rtl",
+        "horizontal-text",
+        "preset-4"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-06",
+      "path": "fixtures/compat/generated-06.pptx",
+      "sha256": "daa7a21a6cd476238448e723445274e8e3d5d251d8a867d8393ae6a39a094ce6",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "pull-request",
+      "featureTags": [
+        "text-multilingual",
+        "text-decoration",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-5"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-07",
+      "path": "fixtures/compat/generated-07.pptx",
+      "sha256": "b87311afc0060d7133a9e747358ecf65311158b1d088234bd6679ce4c859d7cd",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "pull-request",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "vertical-text",
+        "preset-6"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-08",
+      "path": "fixtures/compat/generated-08.pptx",
+      "sha256": "25af68e516ac5ac375e8018510c85517cde7434e4ecedf2e4bf92dbb77767bc2",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "pull-request",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "gradient",
+        "ltr",
+        "horizontal-text",
+        "preset-7"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-09",
+      "path": "fixtures/compat/generated-09.pptx",
+      "sha256": "0df27e7b5c68aa5f9d31628a195e4b26863640e2ffbccfd7a8cf70d9e3330d59",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "pull-request",
+      "featureTags": [
+        "text-multilingual",
+        "text-decoration",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-8"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-10",
+      "path": "fixtures/compat/generated-10.pptx",
+      "sha256": "ad0a8d9dbefd43a80064b050a081e52eff150522900e161458074de3543f6f0c",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "pull-request",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "rtl",
+        "horizontal-text",
+        "preset-9"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-11",
+      "path": "fixtures/compat/generated-11.pptx",
+      "sha256": "626727a78def4511e81e08f42728aa6283d6836968e3e9e914eb78ef231501fd",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-0"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-12",
+      "path": "fixtures/compat/generated-12.pptx",
+      "sha256": "211920a9366c4a59976a496a2b52350d76e30228b74786df9a0210be4a0d570a",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-decoration",
+        "gradient",
+        "ltr",
+        "horizontal-text",
+        "preset-1"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-13",
+      "path": "fixtures/compat/generated-13.pptx",
+      "sha256": "c62ba0cf5c1a84d1ed93d0fa835a5d85042dc251ba7b558cc6c052313aaf8c65",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-2"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-14",
+      "path": "fixtures/compat/generated-14.pptx",
+      "sha256": "ff06c2e26b8e891c11ee34cd5cf55bbe59b942b040852ff6a00cc76ec67b3987",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "vertical-text",
+        "preset-3"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-15",
+      "path": "fixtures/compat/generated-15.pptx",
+      "sha256": "0d9d251f10efa0a77d0e521dff624ad17902700d27f01327da1c118167785e08",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-decoration",
+        "theme-fill",
+        "rtl",
+        "horizontal-text",
+        "preset-4"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-16",
+      "path": "fixtures/compat/generated-16.pptx",
+      "sha256": "af9f47bef68c7cc3e54faed595c5b05d6b26b21b4842469c016bca0efd91424b",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "gradient",
+        "ltr",
+        "horizontal-text",
+        "preset-5"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-17",
+      "path": "fixtures/compat/generated-17.pptx",
+      "sha256": "90b39b8ce9f7bcd51dd0e4329b4f504566e0e3827e949533ab2cb86c1a6636bd",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-6"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-18",
+      "path": "fixtures/compat/generated-18.pptx",
+      "sha256": "7026655ffdbcd73bc11262a01b47836af181ec214a096db9e14a853fddaa2b8b",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-decoration",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-7"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-19",
+      "path": "fixtures/compat/generated-19.pptx",
+      "sha256": "ddd07d2517443776ac02e68dbdbd2ceb3b7150c3ba626959b75bdec81fa34a86",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-8"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-20",
+      "path": "fixtures/compat/generated-20.pptx",
+      "sha256": "3586298680144bbf694d0fedb7af8fa22f629a24ebda34fa55c7da10234c8b19",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "gradient",
+        "rtl",
+        "horizontal-text",
+        "preset-9"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-21",
+      "path": "fixtures/compat/generated-21.pptx",
+      "sha256": "e3bc99f8a1e96d131be48fb07616e264b0c9049216a964ddd5ceca6d82e03bcf",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-decoration",
+        "theme-fill",
+        "ltr",
+        "vertical-text",
+        "preset-0"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-22",
+      "path": "fixtures/compat/generated-22.pptx",
+      "sha256": "3aa5d2da4f006c36cd5417aa890a08a1a2c3fadb06b75ba8dc163d99ae143801",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-1"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-23",
+      "path": "fixtures/compat/generated-23.pptx",
+      "sha256": "d0492c7ef19f96ec8aaf26e0aab9c5507ebbc6545d6cd572e082a19a911a8d2f",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-2"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-24",
+      "path": "fixtures/compat/generated-24.pptx",
+      "sha256": "9d80148596ea42e944c0aa2c90e049cd94dae887e77ac753514a5b43c829eda8",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-decoration",
+        "gradient",
+        "ltr",
+        "horizontal-text",
+        "preset-3"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-25",
+      "path": "fixtures/compat/generated-25.pptx",
+      "sha256": "70380d6de987c03feae9d8497ac86d26a4bc8314ec9d5b5ca269929ef96c79f1",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "rtl",
+        "horizontal-text",
+        "preset-4"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-26",
+      "path": "fixtures/compat/generated-26.pptx",
+      "sha256": "2a05e9548aec53ba47aaea68c6f92f9536953e5c145550a822ade7581d754f88",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-5"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-27",
+      "path": "fixtures/compat/generated-27.pptx",
+      "sha256": "4148b1780317c9de11f111af0025947602392f7994dbe03b3abb1c196b76e005",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-decoration",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-6"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-28",
+      "path": "fixtures/compat/generated-28.pptx",
+      "sha256": "1c606702ab61f3e5d648e1d4474100dfbd866e5b628b3c5219ee70cdfae90092",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "gradient",
+        "ltr",
+        "vertical-text",
+        "preset-7"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-29",
+      "path": "fixtures/compat/generated-29.pptx",
+      "sha256": "6a8d82cbdb183bcba8a54b5b096c732dccd84cae4b3d27e7445f8dc590dac73b",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-8"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-30",
+      "path": "fixtures/compat/generated-30.pptx",
+      "sha256": "abb4ada2380e90cacbea6a41fae305fc4abf4c7c591fc82560bf415b12b6ce79",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-decoration",
+        "theme-fill",
+        "rtl",
+        "horizontal-text",
+        "preset-9"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-31",
+      "path": "fixtures/compat/generated-31.pptx",
+      "sha256": "e4a7af3e71bda7d0b24ba5bb5d6b8150a096ae6a21c13faf3cb169645f508639",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-0"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-32",
+      "path": "fixtures/compat/generated-32.pptx",
+      "sha256": "a2722a195084e711e5d22637b9cdcfdf116b1a603ed45db1a51dbc964c0363e7",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "gradient",
+        "ltr",
+        "horizontal-text",
+        "preset-1"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-33",
+      "path": "fixtures/compat/generated-33.pptx",
+      "sha256": "2f0319fefe7c8938a7fca118cb64f6f8bd85659a0b35d0648270d38572426efe",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-decoration",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-2"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-34",
+      "path": "fixtures/compat/generated-34.pptx",
+      "sha256": "cbbf6e6265b5ac51d02fbb724cf66a82ab5d52be7efc584935d0e9e5d9d8f25f",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-3"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-35",
+      "path": "fixtures/compat/generated-35.pptx",
+      "sha256": "45b52424147e4f0f3ac5f483574792b2eb49f6bef3e47712e874b9215e52df86",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "rtl",
+        "vertical-text",
+        "preset-4"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-36",
+      "path": "fixtures/compat/generated-36.pptx",
+      "sha256": "cc7cd716a41078020db155f2a4dd2ec5c02a6a485ae32d1ccc43690b0c25752d",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-decoration",
+        "gradient",
+        "ltr",
+        "horizontal-text",
+        "preset-5"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-37",
+      "path": "fixtures/compat/generated-37.pptx",
+      "sha256": "39e47784fe8be0f4cc5a398085dea3b94c952d9e71b11fea27f22d7571738b4a",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-6"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-38",
+      "path": "fixtures/compat/generated-38.pptx",
+      "sha256": "7b419251d13144fe228580738d34a144f0119dcc43825fe136c769368c2b6924",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-7"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-39",
+      "path": "fixtures/compat/generated-39.pptx",
+      "sha256": "30eb8b2436bbb24fbdef88fc717bc150b33575c2e33534c55fc561d80fab1977",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-decoration",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-8"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-40",
+      "path": "fixtures/compat/generated-40.pptx",
+      "sha256": "ebebbbf3e703beef18be115afaa7a7f9d41de8b1fb5cc03ec339b34d65eb6ed0",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "gradient",
+        "rtl",
+        "horizontal-text",
+        "preset-9"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-41",
+      "path": "fixtures/compat/generated-41.pptx",
+      "sha256": "73bf5c3f8946a03f6a41af38b36425bd883a3978caaabcfb36ad0c4ad0da1272",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-0"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-42",
+      "path": "fixtures/compat/generated-42.pptx",
+      "sha256": "1bec00e4652964576cd6b71153b3c1fc77c367b92348959a347261d5844a0aca",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-decoration",
+        "theme-fill",
+        "ltr",
+        "vertical-text",
+        "preset-1"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-43",
+      "path": "fixtures/compat/generated-43.pptx",
+      "sha256": "efe58419e66e41f35d3012cd29f9d8853dee63b91dd3b996205c39b2b0c1eeaa",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-2"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-44",
+      "path": "fixtures/compat/generated-44.pptx",
+      "sha256": "77e1c6b9b5c25c48d7f9a86f3c858b1ed2f273528e364a3a189f84915ec5f110",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "gradient",
+        "ltr",
+        "horizontal-text",
+        "preset-3"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-45",
+      "path": "fixtures/compat/generated-45.pptx",
+      "sha256": "cefc54bdf9c2fe7741ea857c34ded3b1142e41906461b9c3327615f840c0dcb1",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-decoration",
+        "theme-fill",
+        "rtl",
+        "horizontal-text",
+        "preset-4"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-46",
+      "path": "fixtures/compat/generated-46.pptx",
+      "sha256": "7fc6a94fbfff4a9fc12dbe77d802183e82a48ab0b3b930b5d5993a29af8b4b54",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-5"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-47",
+      "path": "fixtures/compat/generated-47.pptx",
+      "sha256": "19d374ff9da3842fa112b8d00bad947ec58d4395a0ec3b551b67f4d2bd0101ef",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "horizontal-text",
+        "preset-6"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-48",
+      "path": "fixtures/compat/generated-48.pptx",
+      "sha256": "4f9fcf9c1f4b92aebbd4c61c96141ab30bf5eebac1b943e155cdd1c91ec4784a",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-decoration",
+        "gradient",
+        "ltr",
+        "horizontal-text",
+        "preset-7"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-49",
+      "path": "fixtures/compat/generated-49.pptx",
+      "sha256": "3ffaa9577f65bd1d5df792474a58923833459daaa710fc1369932c3024d486b5",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "ltr",
+        "vertical-text",
+        "preset-8"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "generated-compat-50",
+      "path": "fixtures/compat/generated-50.pptx",
+      "sha256": "27fc48463012a4b046a65eab0363eed069db0357ea59e1e6c320a76049507fd2",
+      "provenance": "generated-in-repository",
+      "producer": {
+        "name": "wasmppt",
+        "version": "corpus-v1"
+      },
+      "generator": "cargo run -p wasmppt-native --example write_compat_corpus -- fixtures/compat",
+      "license": "Apache-2.0",
+      "redistribution": "allowed",
+      "tier": "scheduled",
+      "featureTags": [
+        "text-multilingual",
+        "text-basic",
+        "theme-fill",
+        "rtl",
+        "horizontal-text",
+        "preset-9"
+      ],
+      "expected": {
+        "open": "pass",
+        "preserve": "pass",
+        "edit": "pass",
+        "render": "pass",
+        "diagnostics": []
+      }
     }
   ]
 }

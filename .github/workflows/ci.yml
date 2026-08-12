@@ -297,6 +297,15 @@ jobs:
         run: npm ci
       - name: Verify fixture hashes, provenance, redistribution, and capabilities
         run: node --test scripts/corpus.test.mjs scripts/capabilities.test.mjs
+      - name: Build and score the pull-request compatibility corpus
+        run: |
+          cargo build --locked -p wasmppt-cli
+          node scripts/corpus-scorecard.mjs --output=target/corpus-scorecard-pr.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: corpus-scorecard-pr-${{ github.sha }}
+          path: target/corpus-scorecard-pr.json
+          if-no-files-found: error
       - name: Compile every fuzz surface
         run: cargo check --manifest-path crates/wasmppt-opc/fuzz/Cargo.toml --bins
       - name: Exercise stable XML and package security limits

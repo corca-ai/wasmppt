@@ -1,160 +1,154 @@
 import { CanvasDisplayListRenderer, decodeDisplayList, decodeSvgImage } from './lib/canvas.js'
 import { WasmpptWorkerClient } from './lib/worker-client.js'
 
-const elementIds = [
-  'template', 'drop-zone', 'use-sample', 'file-name', 'bindings', 'preview', 'download',
-  'status', 'diagnostics', 'compile-time', 'generate-time', 'output-size',
+const templateDefinitions = [
+  {
+    id: 'atlas',
+    name: 'Atlas Report',
+    source: './fixtures/report.potx',
+    outputName: 'wasmppt-atlas-report.pptx',
+  },
+  {
+    id: 'garden',
+    name: 'Signal Garden',
+    source: './fixtures/garden.potx',
+    outputName: 'wasmppt-signal-garden.pptx',
+  },
 ]
-const elements = Object.fromEntries(elementIds.map((id) => [id, document.getElementById(id)]))
+const preferredBindings = ['title', 'subtitle', 'metrics.label', 'metrics.value']
+const bindingLabels = new Map([
+  ['title', ['Headline', 'The main story both templates will typeset']],
+  ['subtitle', ['Supporting line', 'A little context beneath the headline']],
+  ['metrics.label', ['Metric label', 'The label used on each second slide']],
+  ['metrics.value', ['Metric value', 'The number or phrase to emphasize']],
+])
+
+const elements = {
+  bindings: document.getElementById('bindings'),
+  status: document.getElementById('status'),
+  diagnostics: document.getElementById('diagnostics'),
+}
 const worker = new Worker('./worker.js', { type: 'module' })
 const client = new WasmpptWorkerClient(worker)
-const renderer = new CanvasDisplayListRenderer()
+const decks = templateDefinitions.map((definition) => createDeck(definition))
 
-let prepared
-let liveSession
-let outputUrl
-let outputBlob
-let outputRevision = -1
-let templateEpoch = 0
+let pendingDelta = emptyDelta()
 let updateFrame
 let updateRunning = false
-let pendingDelta = emptyDelta()
-let renderEpoch = 0
-let renderAbort
-let exportTimer
-let exportAbort
-let exportPromise
-let exportPromiseRevision = -1
-let visibilityObserver
-const visibleSlides = new Set()
-const dirtySlides = new Set()
-const slideHosts = new Map()
-const slideDiagnostics = new Map()
-const bindingEditVersions = new Map()
-let outputName = 'wasmppt-report.pptx'
 let defaultImageData
-let preparationDiagnostics = []
 const liveSettleWaiters = new Set()
-let activeRenderBatches = 0
-let abandonedWork = 0
 
 worker.addEventListener('message', (event) => {
-  if (event.data?.type === 'host-ready') void useBundledTemplate()
+  if (event.data?.type === 'host-ready') void initializeGarden()
   else if (event.data?.type === 'host-init-error') fail(new Error(event.data.message))
 })
 worker.addEventListener('error', (event) => fail(new Error(event.message)))
-
-elements.template.addEventListener('change', () => {
-  const file = elements.template.files[0]
-  if (file !== undefined) void useFile(file)
-})
-elements['use-sample'].addEventListener('click', () => void useBundledTemplate())
-elements.bindings.addEventListener('input', (event) => void queueBindingEdit(event))
-elements.bindings.addEventListener('change', (event) => void queueBindingEdit(event))
-elements.download.addEventListener('click', (event) => void downloadCurrentRevision(event))
-
-for (const type of ['dragenter', 'dragover']) {
-  elements['drop-zone'].addEventListener(type, (event) => {
-    event.preventDefault()
-    if (hasFiles(event.dataTransfer)) elements['drop-zone'].classList.add('is-dragging')
-  })
+elements.bindings.addEventListener('input', queueBindingEdit)
+for (const deck of decks) {
+  deck.download.addEventListener('click', (event) => void downloadCurrentRevision(deck, event))
 }
-for (const type of ['dragleave', 'drop']) {
-  elements['drop-zone'].addEventListener(type, (event) => {
-    event.preventDefault()
-    elements['drop-zone'].classList.remove('is-dragging')
-  })
-}
-elements['drop-zone'].addEventListener('drop', (event) => {
-  const file = [...(event.dataTransfer?.files ?? [])].find(isPowerPointFile)
-  if (file === undefined) {
-    fail(new TypeError('Drop a .potx, .potm, or .pptx file'))
-    return
+
+function createDeck(definition) {
+  const element = document.querySelector(`[data-deck="${definition.id}"]`)
+  if (!(element instanceof HTMLElement)) throw new Error(`Missing ${definition.id} deck host`)
+  return {
+    ...definition,
+    element,
+    preview: element.querySelector('[data-preview]'),
+    download: element.querySelector('[data-download]'),
+    compileTime: element.querySelector('[data-compile-time]'),
+    refreshTime: element.querySelector('[data-refresh-time]'),
+    outputSize: element.querySelector('[data-output-size]'),
+    status: element.querySelector('[data-deck-status]'),
+    renderer: new CanvasDisplayListRenderer(),
+    prepared: undefined,
+    session: undefined,
+    preparationDiagnostics: [],
+    slideDiagnostics: new Map(),
+    slideHosts: new Map(),
+    visibleSlides: new Set(),
+    dirtySlides: new Set(),
+    renderAbort: undefined,
+    renderEpoch: 0,
+    outputUrl: undefined,
+    outputBlob: undefined,
+    outputRevision: -1,
+    exportTimer: undefined,
+    exportAbort: undefined,
+    exportPromise: undefined,
+    exportPromiseRevision: -1,
+    abandonedWork: 0,
   }
-  void useFile(file)
-})
-
-async function useBundledTemplate() {
-  const response = await fetch('./fixtures/report.potx').then(required)
-  elements['file-name'].textContent = 'Bundled report template'
-  outputName = 'wasmppt-report.pptx'
-  await prepareTemplate(await response.arrayBuffer())
 }
 
-async function useFile(file) {
-  if (!isPowerPointFile(file)) {
-    fail(new TypeError('Choose a .potx, .potm, or .pptx file'))
-    return
-  }
-  elements['file-name'].textContent = `${file.name} · ${formatBytes(file.size)}`
-  outputName = `${file.name.replace(/\.(potx|potm|pptx)$/i, '') || 'wasmppt'}.pptx`
-  await prepareTemplate(await file.arrayBuffer())
-}
-
-async function prepareTemplate(bytes) {
-  const epoch = ++templateEpoch
-  cancelLiveWork()
-  disableDownload()
-  setStatus('Reading template…', true)
+async function initializeGarden() {
+  setStatus('Preparing two PowerPoint templates in parallel…', true)
   try {
-    const previous = prepared
-    prepared = undefined
-    await releaseLiveSession()
-    if (previous !== undefined) await client.release(previous.handle)
-    const started = performance.now()
-    const next = await client.prepare(bytes, { macroPolicy: 'strip' })
-    if (epoch !== templateEpoch) {
-      await client.release(next.handle)
-      return
-    }
-    prepared = next
-    abandonedWork = 0
-    elements['compile-time'].textContent = formatMs(performance.now() - started)
-    renderBindings(next.bindings)
-    preparationDiagnostics = next.diagnostics
-    showDiagnostics([], next.bindings.length)
-    const data = await generationData(next.bindings)
-    const session = await client.createLiveSession(next.handle, data)
-    if (epoch !== templateEpoch) {
-      await client.releaseLiveSession(session.handle)
-      return
-    }
-    liveSession = session
-    setupPreview(session.slideCount)
-    enableDownloadAction()
-    await renderDirtySlides()
-    await exportRevision(session.revision)
+    await Promise.all(decks.map(async (deck) => {
+      const started = performance.now()
+      const bytes = await fetch(deck.source).then(required).then((response) => response.arrayBuffer())
+      deck.prepared = await client.prepare(bytes, { macroPolicy: 'strip' })
+      deck.preparationDiagnostics = deck.prepared.diagnostics
+      deck.compileTime.textContent = formatMs(performance.now() - started)
+      deck.status.textContent = `${deck.prepared.bindings.length} bindings discovered`
+    }))
+
+    const sharedBindings = commonTextBindings()
+    renderBindings(sharedBindings)
+    await Promise.all(decks.map(async (deck) => {
+      const data = await generationData(deck.prepared.bindings)
+      deck.session = await client.createLiveSession(deck.prepared.handle, data)
+      setupPreview(deck, deck.session.slideCount)
+      enableDownloadAction(deck)
+    }))
+    await Promise.all(decks.map((deck) => renderDirtySlides(deck)))
+    await Promise.all(decks.map((deck) => exportRevision(deck, deck.session.revision)))
+    showDiagnostics()
+    setStatus('Both decks are live · edit any field to update them together', false)
   } catch (error) {
-    if (epoch === templateEpoch) fail(error)
+    fail(error)
   }
 }
 
-async function queueBindingEdit(event) {
+function commonTextBindings() {
+  const bindingMaps = decks.map((deck) => new Map(
+    deck.prepared.bindings.map((binding) => [binding.id, binding]),
+  ))
+  const bindings = preferredBindings.flatMap((id) => {
+    const binding = bindingMaps[0].get(id)
+    return binding?.kind === 'text' && bindingMaps.every((map) => map.get(id)?.kind === 'text')
+      ? [binding]
+      : []
+  })
+  if (bindings.length === 0) throw new Error('The bundled templates have no shared text bindings')
+  return bindings
+}
+
+function renderBindings(bindings) {
+  elements.bindings.replaceChildren()
+  for (const binding of bindings) {
+    const [name, hint] = bindingLabels.get(binding.id) ?? [binding.id, 'Shared by both templates']
+    const wrapper = document.createElement('div')
+    wrapper.className = 'field'
+    const label = document.createElement('label')
+    const input = document.createElement('input')
+    const description = document.createElement('small')
+    input.id = `binding-${binding.id.replaceAll(/[^a-zA-Z0-9_-]/g, '-')}`
+    input.type = 'text'
+    input.value = defaultText(binding.id)
+    input.dataset.binding = binding.id
+    label.htmlFor = input.id
+    label.textContent = name
+    description.textContent = hint
+    wrapper.append(label, input, description)
+    elements.bindings.append(wrapper)
+  }
+}
+
+function queueBindingEdit(event) {
   const input = event.target
   if (!(input instanceof HTMLInputElement) || input.dataset.binding === undefined) return
-  const binding = prepared?.bindings.find((candidate) => candidate.id === input.dataset.binding)
-  if (binding === undefined) return
-  const editVersion = (bindingEditVersions.get(binding.id) ?? 0) + 1
-  bindingEditVersions.set(binding.id, editVersion)
-  if (binding.kind === 'text') {
-    if (event.type !== 'input') return
-    pendingDelta.text[binding.id] = input.value
-  } else if (event.type === 'change') {
-    const file = input.files?.[0]
-    const image = file === undefined ? await defaultImage() : {
-      bytes: new Uint8Array(await file.arrayBuffer()),
-      extension: extensionOf(file.name),
-      contentType: file.type || contentTypeOf(file.name),
-    }
-    if (bindingEditVersions.get(binding.id) !== editVersion) return
-    pendingDelta.images[binding.id] = image
-  } else {
-    return
-  }
-  scheduleLiveUpdate()
-}
-
-function scheduleLiveUpdate() {
+  pendingDelta.text[input.dataset.binding] = input.value
   if (updateFrame !== undefined) return
   updateFrame = requestAnimationFrame(() => {
     updateFrame = undefined
@@ -163,37 +157,54 @@ function scheduleLiveUpdate() {
 }
 
 async function flushLiveUpdate() {
-  if (updateRunning || liveSession === undefined || deltaEmpty(pendingDelta)) return
-  const session = liveSession
+  if (updateRunning || deltaEmpty(pendingDelta) || decks.some((deck) => deck.session === undefined)) return
   const delta = pendingDelta
   pendingDelta = emptyDelta()
   updateRunning = true
-  if (activeRenderBatches > 0) abandonedWork += activeRenderBatches
-  renderAbort?.abort()
-  setStatus(`Applying revision ${session.revision + 1}…`, true)
+  const sessions = decks.map((deck) => deck.session)
+  for (const deck of decks) {
+    deck.renderAbort?.abort()
+    if (deck.exportPromise !== undefined) deck.abandonedWork += 1
+    deck.exportAbort?.abort()
+  }
+  const nextRevision = sessions[0].revision + 1
+  setStatus(`Applying shared revision ${nextRevision} to both templates…`, true)
   const started = performance.now()
   try {
-    const update = await client.applyLiveDelta(session.handle, session.revision, delta)
-    if (liveSession?.handle !== session.handle) return
-    liveSession = { handle: update.handle, revision: update.revision, slideCount: update.slideCount }
-    if (update.fullFallback) setupPreview(update.slideCount)
-    else for (const index of update.invalidatedSlides) dirtySlides.add(index)
-    const interactiveMs = performance.now() - started
-    elements['generate-time'].textContent = formatMs(interactiveMs)
-    await renderDirtySlides()
-    scheduleExport(update.revision)
-    const telemetry = await client.liveSessionCacheTelemetry(update.handle)
-    setStatus(
-      `Preview revision ${update.revision} · ${update.invalidatedSlides.length} slide${update.invalidatedSlides.length === 1 ? '' : 's'} updated in ${formatMs(interactiveMs)} (${update.invalidationReason}) · ${update.overlay.reusedMaterializedParts} overlay parts reused · ${telemetry.hits}/${telemetry.hits + telemetry.misses || 0} scene hits · ${abandonedWork} stale jobs abandoned`,
-      false,
-    )
+    const updates = await Promise.all(decks.map((deck, index) =>
+      client.applyLiveDelta(sessions[index].handle, sessions[index].revision, delta),
+    ))
+    if (decks.some((deck, index) => deck.session?.handle !== sessions[index].handle)) return
+
+    for (const [index, deck] of decks.entries()) {
+      const update = updates[index]
+      deck.session = {
+        handle: update.handle,
+        revision: update.revision,
+        slideCount: update.slideCount,
+      }
+      if (update.fullFallback) setupPreview(deck, update.slideCount)
+      else for (const slideIndex of update.invalidatedSlides) deck.dirtySlides.add(slideIndex)
+      deck.refreshTime.textContent = formatMs(performance.now() - started)
+      deck.status.textContent = `${update.invalidatedSlides.length} slide${update.invalidatedSlides.length === 1 ? '' : 's'} invalidated · ${update.overlay.reusedMaterializedParts} overlay parts reused`
+    }
+
+    await Promise.all(decks.map((deck) => renderDirtySlides(deck)))
+    for (const deck of decks) scheduleExport(deck, deck.session.revision)
+    const elapsed = performance.now() - started
+    setStatus(`Both previews reached revision ${nextRevision} in ${formatMs(elapsed)}`, false)
   } catch (error) {
-    if (error?.name !== 'AbortError' && liveSession?.handle === session.handle) fail(error)
+    fail(error)
   } finally {
     updateRunning = false
     if (!deltaEmpty(pendingDelta)) {
       if (liveSettleWaiters.size > 0) void flushLiveUpdate()
-      else scheduleLiveUpdate()
+      else {
+        updateFrame = requestAnimationFrame(() => {
+          updateFrame = undefined
+          void flushLiveUpdate()
+        })
+      }
     } else {
       resolveLiveSettleWaiters()
     }
@@ -204,125 +215,68 @@ async function generationData(bindings) {
   const text = {}
   const images = {}
   for (const binding of bindings) {
-    const input = document.querySelector(`[data-binding="${CSS.escape(binding.id)}"]`)
     if (binding.kind === 'text') {
+      const input = document.querySelector(`[data-binding="${CSS.escape(binding.id)}"]`)
       text[binding.id] = input?.value ?? defaultText(binding.id)
-    } else {
-      const file = input?.files?.[0]
-      images[binding.id] = file === undefined ? await defaultImage() : {
-        bytes: new Uint8Array(await file.arrayBuffer()),
-        extension: extensionOf(file.name),
-        contentType: file.type || contentTypeOf(file.name),
-      }
+    } else if (binding.kind === 'image') {
+      images[binding.id] = await defaultImage()
     }
   }
-  // Only submit capabilities discovered from this template. In particular, do not leak
-  // bundled-template table or slide defaults into an unrelated uploaded template.
   return { text, images }
 }
 
-function renderBindings(bindings) {
-  elements.bindings.replaceChildren()
-  if (bindings.length === 0) {
-    const message = document.createElement('p')
-    message.className = 'muted'
-    message.textContent = 'No editable bindings found. The template is ready as-is.'
-    elements.bindings.append(message)
-    return
-  }
-  for (const binding of bindings) {
-    const wrapper = document.createElement('div')
-    wrapper.className = 'field'
-    const label = document.createElement('label')
-    label.textContent = binding.kind === 'image' ? `${binding.id} — image` : binding.id
-    const input = document.createElement('input')
-    input.id = `binding-${binding.id.replaceAll(/[^a-zA-Z0-9_-]/g, '-')}`
-    input.dataset.binding = binding.id
-    label.htmlFor = input.id
-    if (binding.kind === 'image') {
-      input.type = 'file'
-      input.accept = 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml'
-    } else {
-      input.type = 'text'
-      input.value = defaultText(binding.id)
-    }
-    const source = document.createElement('small')
-    source.textContent = `${binding.source} · ${binding.partName}`
-    wrapper.append(label, input, source)
-    elements.bindings.append(wrapper)
-  }
-}
-
-function setupPreview(slideCount) {
-  renderAbort?.abort()
-  visibilityObserver?.disconnect()
-  elements.preview.replaceChildren()
-  visibleSlides.clear()
-  dirtySlides.clear()
-  slideHosts.clear()
-  slideDiagnostics.clear()
-  visibilityObserver = new IntersectionObserver((entries) => {
-    for (const entry of entries) {
-      const index = Number(entry.target.dataset.slideIndex)
-      if (entry.isIntersecting) visibleSlides.add(index)
-      else {
-        visibleSlides.delete(index)
-        const canvas = slideHosts.get(index)?.querySelector('canvas')
-        canvas?.remove()
-      }
-    }
-    void renderDirtySlides()
-  }, { rootMargin: '240px 0px' })
+function setupPreview(deck, slideCount) {
+  deck.renderAbort?.abort()
+  deck.preview.replaceChildren()
+  deck.visibleSlides.clear()
+  deck.dirtySlides.clear()
+  deck.slideHosts.clear()
+  deck.slideDiagnostics.clear()
   for (let index = 0; index < slideCount; index += 1) {
     const figure = document.createElement('figure')
     figure.dataset.slideIndex = String(index)
-    figure.className = 'slide-host'
-    figure.style.aspectRatio = '4 / 3'
+    figure.style.aspectRatio = '16 / 9'
     const caption = document.createElement('figcaption')
-    caption.textContent = `Slide ${index + 1}`
+    caption.textContent = `${deck.name} · Slide ${index + 1}`
     figure.append(caption)
-    elements.preview.append(figure)
-    slideHosts.set(index, figure)
-    dirtySlides.add(index)
-    visibilityObserver.observe(figure)
+    deck.preview.append(figure)
+    deck.slideHosts.set(index, figure)
+    deck.visibleSlides.add(index)
+    deck.dirtySlides.add(index)
   }
-  // Paint the first slide immediately even when the preview starts below the fold.
-  if (slideCount > 0) visibleSlides.add(0)
 }
 
-async function renderDirtySlides() {
-  const session = liveSession
+async function renderDirtySlides(deck) {
+  const session = deck.session
   if (session === undefined) return
-  const indices = [...visibleSlides].filter((index) =>
+  const indices = [...deck.visibleSlides].filter((index) =>
     index >= 0 && index < session.slideCount &&
-    (dirtySlides.has(index) || slideHosts.get(index)?.querySelector('canvas') === null),
+    (deck.dirtySlides.has(index) || deck.slideHosts.get(index)?.querySelector('canvas') === null),
   )
   if (indices.length === 0) return
-  const epoch = ++renderEpoch
-  renderAbort?.abort()
-  renderAbort = new AbortController()
-  const { signal } = renderAbort
-  activeRenderBatches += 1
+  const epoch = ++deck.renderEpoch
+  deck.renderAbort?.abort()
+  deck.renderAbort = new AbortController()
+  const { signal } = deck.renderAbort
   try {
-    await Promise.all(indices.map((index) => renderLiveSlide(session, index, epoch, signal)))
+    await Promise.all(indices.map((index) => renderLiveSlide(deck, session, index, epoch, signal)))
   } catch (error) {
-    if (signal.aborted || epoch !== renderEpoch || error?.name === 'WasmpptRevisionError') return
+    if (signal.aborted || epoch !== deck.renderEpoch || error?.name === 'WasmpptRevisionError') return
     throw error
-  } finally {
-    activeRenderBatches -= 1
   }
-  if (epoch === renderEpoch) {
-    showDiagnostics([...slideDiagnostics.values()].flat(), prepared?.bindings.length ?? 0)
+  if (epoch === deck.renderEpoch) {
+    deck.element.dataset.renderRevision = String(session.revision)
+    showDiagnostics()
   }
 }
 
-async function renderLiveSlide(session, index, epoch, signal) {
+async function renderLiveSlide(deck, session, index, epoch, signal) {
   const started = performance.now()
   const resolved = await client.resolveLiveSlide(session.handle, session.revision, index, { signal })
-  if (signal.aborted || epoch !== renderEpoch || liveSession?.revision !== session.revision) return
+  if (signal.aborted || epoch !== deck.renderEpoch || deck.session?.revision !== session.revision) return
   const scene = decodeDisplayList(resolved.displayList)
-  slideDiagnostics.set(index, scene.diagnostics)
-  const figure = slideHosts.get(index)
+  deck.slideDiagnostics.set(index, scene.diagnostics)
+  const figure = deck.slideHosts.get(index)
   if (figure === undefined) return
   const deviceScale = Math.min(devicePixelRatio || 1, 2)
   const width = Math.min(scene.width / 9_525, 960)
@@ -331,13 +285,13 @@ async function renderLiveSlide(session, index, epoch, signal) {
   canvas.width = Math.max(1, Math.round(width * deviceScale))
   canvas.height = Math.max(1, Math.round(height * deviceScale))
   canvas.style.aspectRatio = `${scene.width} / ${scene.height}`
-  canvas.setAttribute('aria-label', `Slide ${index + 1}`)
+  canvas.setAttribute('aria-label', `${deck.name} slide ${index + 1}`)
   figure.style.aspectRatio = `${scene.width} / ${scene.height}`
   figure.querySelector('canvas')?.remove()
   figure.prepend(canvas)
   const context = canvas.getContext('2d', { alpha: false })
   if (context === null) throw new Error('Canvas 2D is unavailable')
-  await renderer.render(scene, context, {
+  await deck.renderer.render(scene, context, {
     signal,
     resolutionMs: performance.now() - started,
     imageCacheKey: async (image, imageSignal) => {
@@ -374,146 +328,117 @@ async function renderLiveSlide(session, index, epoch, signal) {
       }
     },
   })
-  if (!signal.aborted && epoch === renderEpoch && liveSession?.revision === session.revision) {
-    dirtySlides.delete(index)
+  if (!signal.aborted && epoch === deck.renderEpoch && deck.session?.revision === session.revision) {
+    deck.dirtySlides.delete(index)
   }
 }
 
-function showDiagnostics(renderDiagnostics, bindingCount) {
-  const diagnostics = [...preparationDiagnostics, ...renderDiagnostics]
-  const unique = [...new Map(diagnostics.map((item) => [
-    `${item.code}\0${item.partName ?? ''}\0${item.shapeId ?? ''}\0${item.message}`,
-    item,
+function showDiagnostics() {
+  const diagnostics = decks.flatMap((deck) => [
+    ...deck.preparationDiagnostics.map((item) => ({ deck: deck.name, item })),
+    ...[...deck.slideDiagnostics.values()].flat().map((item) => ({ deck: deck.name, item })),
+  ])
+  const unique = [...new Map(diagnostics.map(({ deck, item }) => [
+    `${deck}\0${item.code}\0${item.partName ?? ''}\0${item.shapeId ?? ''}\0${item.message}`,
+    { deck, item },
   ])).values()]
   elements.diagnostics.textContent = unique.length === 0
-    ? `${bindingCount} editable bindings · no diagnostics`
-    : unique.map((item) => `${item.code}: ${item.message}`).join('\n')
+    ? 'Two templates · shared bindings · no diagnostics'
+    : unique.map(({ deck, item }) => `${deck} · ${item.code}: ${item.message}`).join('\n')
 }
 
-async function releaseLiveSession() {
-  if (liveSession === undefined) return
-  const handle = liveSession.handle
-  liveSession = undefined
-  await client.releaseLiveSession(handle)
+function enableDownloadAction(deck) {
+  deck.download.classList.remove('is-disabled')
+  deck.download.setAttribute('aria-disabled', 'false')
 }
 
-function enableDownload(blob, revision) {
-  if (outputUrl !== undefined) URL.revokeObjectURL(outputUrl)
-  outputBlob = blob
-  outputRevision = revision
-  outputUrl = URL.createObjectURL(blob)
-  elements.download.href = outputUrl
-  elements.download.download = outputName
-  elements.download.dataset.revision = String(revision)
-  elements.download.classList.remove('is-disabled')
-  elements.download.setAttribute('aria-disabled', 'false')
+function enableDownload(deck, blob, revision) {
+  if (deck.outputUrl !== undefined) URL.revokeObjectURL(deck.outputUrl)
+  deck.outputBlob = blob
+  deck.outputRevision = revision
+  deck.outputUrl = URL.createObjectURL(blob)
+  deck.download.href = deck.outputUrl
+  deck.download.download = deck.outputName
+  deck.download.dataset.revision = String(revision)
+  enableDownloadAction(deck)
 }
 
-function enableDownloadAction() {
-  elements.download.classList.remove('is-disabled')
-  elements.download.setAttribute('aria-disabled', 'false')
+function disableDownload(deck) {
+  if (deck.outputUrl !== undefined) URL.revokeObjectURL(deck.outputUrl)
+  deck.outputUrl = undefined
+  deck.outputBlob = undefined
+  deck.outputRevision = -1
+  deck.download.removeAttribute('href')
+  delete deck.download.dataset.revision
+  deck.download.classList.add('is-disabled')
+  deck.download.setAttribute('aria-disabled', 'true')
 }
 
-function disableDownload() {
-  if (outputUrl !== undefined) URL.revokeObjectURL(outputUrl)
-  outputUrl = undefined
-  outputBlob = undefined
-  outputRevision = -1
-  elements.download.removeAttribute('href')
-  delete elements.download.dataset.revision
-  elements.download.classList.add('is-disabled')
-  elements.download.setAttribute('aria-disabled', 'true')
+function scheduleExport(deck, revision) {
+  clearTimeout(deck.exportTimer)
+  deck.exportTimer = setTimeout(() => void exportRevision(deck, revision), 200)
 }
 
-function scheduleExport(revision) {
-  clearTimeout(exportTimer)
-  exportTimer = setTimeout(() => void exportRevision(revision), 200)
-}
-
-async function exportRevision(revision) {
-  const session = liveSession
+async function exportRevision(deck, revision) {
+  const session = deck.session
   if (session === undefined || session.revision !== revision) return undefined
-  if (outputRevision === revision && outputBlob !== undefined) return outputBlob
-  if (exportPromiseRevision === revision && exportPromise !== undefined) return exportPromise
-  if (exportPromise !== undefined && exportPromiseRevision !== revision) abandonedWork += 1
-  exportAbort?.abort()
-  exportAbort = new AbortController()
-  const { signal } = exportAbort
-  exportPromiseRevision = revision
-  exportPromise = (async () => {
+  if (deck.outputRevision === revision && deck.outputBlob !== undefined) return deck.outputBlob
+  if (deck.exportPromiseRevision === revision && deck.exportPromise !== undefined) {
+    return deck.exportPromise
+  }
+  deck.exportAbort?.abort()
+  deck.exportAbort = new AbortController()
+  const { signal } = deck.exportAbort
+  deck.exportPromiseRevision = revision
+  deck.exportPromise = (async () => {
     const started = performance.now()
     const chunks = []
     let length = 0
-    for await (const chunk of client.generateLiveStream(session.handle, revision, {
-      signal,
-      onProgress: (phase, completed) => {
-        if (phase === 'stream' && liveSession?.revision === revision) {
-          elements.status.textContent = `Preparing revision ${revision} download · ${formatBytes(completed)}…`
-        }
-      },
-    })) {
+    for await (const chunk of client.generateLiveStream(session.handle, revision, { signal })) {
       chunks.push(chunk)
       length += chunk.byteLength
     }
-    if (signal.aborted || liveSession?.revision !== revision) return undefined
+    if (signal.aborted || deck.session?.revision !== revision) return undefined
     const blob = new Blob(chunks, {
       type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     })
-    enableDownload(blob, revision)
-    elements['generate-time'].textContent = formatMs(performance.now() - started)
-    elements['output-size'].textContent = formatBytes(length)
-    setStatus(`PPTX ready · ${session.slideCount} slide${session.slideCount === 1 ? '' : 's'}`, false)
+    enableDownload(deck, blob, revision)
+    deck.outputSize.textContent = formatBytes(length)
+    deck.status.textContent = `Revision ${revision} PPTX ready in ${formatMs(performance.now() - started)} · ${deck.abandonedWork} stale exports abandoned`
     return blob
   })().catch((error) => {
-    if (error?.name !== 'AbortError' && liveSession?.handle === session.handle) fail(error)
+    if (error?.name !== 'AbortError' && deck.session?.handle === session.handle) fail(error)
     return undefined
   }).finally(() => {
-    if (exportPromiseRevision === revision) {
-      exportPromise = undefined
-      exportPromiseRevision = -1
+    if (deck.exportPromiseRevision === revision) {
+      deck.exportPromise = undefined
+      deck.exportPromiseRevision = -1
     }
   })
-  return exportPromise
+  return deck.exportPromise
 }
 
-async function downloadCurrentRevision(event) {
-  let session = liveSession
-  if (session === undefined || elements.download.getAttribute('aria-disabled') === 'true') {
+async function downloadCurrentRevision(deck, event) {
+  let session = deck.session
+  if (session === undefined || deck.download.getAttribute('aria-disabled') === 'true') {
     event.preventDefault()
     return
   }
   if (updateRunning || !deltaEmpty(pendingDelta)) {
     event.preventDefault()
     await settleLiveEdits()
-    session = liveSession
+    session = deck.session
     if (session === undefined) return
   }
-  if (outputRevision === session.revision && outputUrl !== undefined) return
+  if (deck.outputRevision === session.revision && deck.outputUrl !== undefined) return
   event.preventDefault()
-  const blob = await exportRevision(session.revision)
-  if (blob === undefined || liveSession?.revision !== session.revision) return
+  const blob = await exportRevision(deck, session.revision)
+  if (blob === undefined || deck.session?.revision !== session.revision) return
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
-  link.download = outputName
+  link.download = deck.outputName
   link.click()
   setTimeout(() => URL.revokeObjectURL(link.href), 0)
-}
-
-function cancelLiveWork() {
-  if (updateFrame !== undefined) cancelAnimationFrame(updateFrame)
-  updateFrame = undefined
-  clearTimeout(exportTimer)
-  pendingDelta = emptyDelta()
-  bindingEditVersions.clear()
-  renderEpoch += 1
-  renderAbort?.abort()
-  exportAbort?.abort()
-  visibilityObserver?.disconnect()
-  visibleSlides.clear()
-  dirtySlides.clear()
-  slideHosts.clear()
-  slideDiagnostics.clear()
-  resolveLiveSettleWaiters()
 }
 
 function settleLiveEdits() {
@@ -533,11 +458,11 @@ function resolveLiveSettleWaiters() {
 }
 
 function emptyDelta() {
-  return { text: {}, images: {} }
+  return { text: {} }
 }
 
 function deltaEmpty(delta) {
-  return Object.keys(delta.text).length === 0 && Object.keys(delta.images).length === 0
+  return Object.keys(delta.text).length === 0
 }
 
 function setStatus(message, busy) {
@@ -547,40 +472,46 @@ function setStatus(message, busy) {
 
 function fail(error) {
   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
-  setStatus('Could not create a preview', false)
+  setStatus('Could not keep both previews in sync', false)
   elements.diagnostics.textContent = message
-  if (liveSession === undefined) disableDownload()
+  for (const deck of decks) {
+    if (deck.session === undefined) disableDownload(deck)
+  }
   console.error(error)
 }
 
-function hasFiles(dataTransfer) {
-  return dataTransfer?.types?.includes('Files') ?? false
-}
-
-function isPowerPointFile(file) {
-  return /\.(potx|potm|pptx)$/i.test(file.name)
-}
-
 function defaultText(id) {
-  if (id === 'title') return 'wasmppt quarterly report'
-  if (id === 'subtitle') return 'Generated and previewed entirely in your browser'
-  const field = id.split('.').at(-1) ?? id
-  return field.replaceAll(/[-_]/g, ' ').replace(/^./, (value) => value.toUpperCase())
+  if (id === 'title') return 'One story, two visual worlds'
+  if (id === 'subtitle') return 'Live PowerPoint templates, rendered side by side'
+  if (id === 'metrics.label') return 'Template refresh latency'
+  if (id === 'metrics.value') return 'Under 16 ms'
+  return id.split('.').at(-1)?.replaceAll(/[-_]/g, ' ') ?? id
 }
 
 async function defaultImage() {
   if (defaultImageData !== undefined) return defaultImageData
   const canvas = document.createElement('canvas')
-  canvas.width = 64
-  canvas.height = 64
+  canvas.width = 384
+  canvas.height = 384
   const context = canvas.getContext('2d')
   if (context === null) throw new Error('Canvas 2D is unavailable')
-  context.fillStyle = '#71ffb1'
-  context.fillRect(0, 0, 64, 64)
-  context.fillStyle = '#07120c'
-  context.fillRect(16, 16, 32, 32)
+  const background = context.createLinearGradient(0, 0, 384, 384)
+  background.addColorStop(0, '#71ffb1')
+  background.addColorStop(1, '#10233d')
+  context.fillStyle = background
+  context.fillRect(0, 0, 384, 384)
+  context.fillStyle = '#ff6b4a'
+  context.beginPath()
+  context.arc(280, 105, 72, 0, Math.PI * 2)
+  context.fill()
+  context.fillStyle = 'rgba(255, 255, 255, .88)'
+  context.fillRect(54, 205, 216, 34)
+  context.fillRect(54, 259, 148, 20)
   const blob = await new Promise((resolve, reject) => {
-    canvas.toBlob((value) => value === null ? reject(new Error('Cannot encode fallback image')) : resolve(value), 'image/png')
+    canvas.toBlob(
+      (value) => value === null ? reject(new Error('Cannot encode bundled artwork')) : resolve(value),
+      'image/png',
+    )
   })
   defaultImageData = {
     bytes: new Uint8Array(await blob.arrayBuffer()),
@@ -588,17 +519,6 @@ async function defaultImage() {
     contentType: 'image/png',
   }
   return defaultImageData
-}
-
-function extensionOf(name) {
-  const extension = name.split('.').at(-1)?.toLowerCase()
-  if (!extension || !/^[a-z0-9]+$/.test(extension)) throw new Error('Image needs a safe file extension')
-  return extension === 'jpeg' ? 'jpg' : extension
-}
-
-function contentTypeOf(name) {
-  const extension = extensionOf(name)
-  return extension === 'jpg' ? 'image/jpeg' : `image/${extension}`
 }
 
 function mediaTypeOf(name) {

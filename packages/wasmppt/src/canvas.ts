@@ -39,7 +39,7 @@ export interface SceneSemanticElement {
   readonly commandCount: number
   readonly shapeId: number
   readonly zOrder: number
-  readonly kind: 'shape' | 'image'
+  readonly kind: 'shape' | 'image' | 'table' | 'chart' | 'preserved-graphic'
   readonly bounds: EmuRect
   readonly name: string
   readonly alternativeText?: string
@@ -55,6 +55,13 @@ export type DisplayDiagnosticCode =
   | 'unsupported-fill'
   | 'unsupported-effect'
   | 'missing-image'
+  | 'unsupported-smartart'
+  | 'unsupported-metafile'
+  | 'unsupported-animation'
+  | 'unsupported-transition'
+  | 'unsupported-active-content'
+  | 'unsupported-3d'
+  | 'unsupported-chart-kind'
   | 'unknown'
 
 export interface SceneDiagnostic {
@@ -146,7 +153,7 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
     const shapeId = reader.u32()
     const zOrder = reader.u32()
     const kindCode = reader.u8()
-    if (kindCode !== 1 && kindCode !== 2) throw new Error('semantic element has an unknown kind')
+    if (kindCode < 1 || kindCode > 5) throw new Error('semantic element has an unknown kind')
     const bounds = readRect(reader)
     const name = reader.utf8Blob()
     const alternativeText = reader.utf8Blob()
@@ -159,7 +166,7 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
       commandCount,
       shapeId,
       zOrder,
-      kind: kindCode === 1 ? 'shape' : 'image',
+      kind: semanticKind(kindCode),
       bounds,
       name,
       alternativeText: alternativeText === '' ? undefined : alternativeText,
@@ -874,7 +881,22 @@ function diagnosticCode(code: number): DisplayDiagnosticCode {
   if (code === 6) return 'unsupported-fill'
   if (code === 7) return 'unsupported-effect'
   if (code === 8) return 'missing-image'
+  if (code === 9) return 'unsupported-smartart'
+  if (code === 10) return 'unsupported-metafile'
+  if (code === 11) return 'unsupported-animation'
+  if (code === 12) return 'unsupported-transition'
+  if (code === 13) return 'unsupported-active-content'
+  if (code === 14) return 'unsupported-3d'
+  if (code === 15) return 'unsupported-chart-kind'
   return 'unknown'
+}
+
+function semanticKind(code: number): SceneSemanticElement['kind'] {
+  if (code === 1) return 'shape'
+  if (code === 2) return 'image'
+  if (code === 3) return 'table'
+  if (code === 4) return 'chart'
+  return 'preserved-graphic'
 }
 
 function detectFontScript(text: string): FontScript {

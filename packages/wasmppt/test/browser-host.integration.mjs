@@ -135,6 +135,8 @@ try {
     const opened = await client.openPresentation(renderFixture)
     const displayBytes = await client.resolveSlide(opened.handle, 0)
     const scene = decodeDisplayList(displayBytes)
+    const advancedDisplayBytes = await client.resolveSlide(opened.handle, 1)
+    const advancedScene = decodeDisplayList(advancedDisplayBytes)
     const domHost = document.createElement('div')
     document.body.append(domHost)
     const domRenderer = new DomSvgRenderer()
@@ -194,6 +196,41 @@ try {
         return { source: bitmap, residentBytes: 16 * 16 * 4, close: () => bitmap.close() }
       },
     })
+    const advancedCanvas = document.createElement('canvas')
+    advancedCanvas.width = 640
+    advancedCanvas.height = 360
+    document.body.append(advancedCanvas)
+    const advancedContext = advancedCanvas.getContext('2d', { alpha: false })
+    const advancedTelemetry = await renderer.render(advancedScene, advancedContext)
+    const advancedPixels = advancedContext.getImageData(
+      0,
+      0,
+      advancedCanvas.width,
+      advancedCanvas.height,
+    ).data
+    let advancedColoredPixels = 0
+    for (let offset = 0; offset < advancedPixels.length; offset += 4) {
+      if (
+        advancedPixels[offset] !== 255 ||
+        advancedPixels[offset + 1] !== 255 ||
+        advancedPixels[offset + 2] !== 255
+      ) advancedColoredPixels += 1
+    }
+    const advancedDomHost = document.createElement('div')
+    document.body.append(advancedDomHost)
+    const advancedDom = await new DomSvgRenderer().render(advancedScene, advancedDomHost, {
+      revision: 1,
+      slideIndex: 1,
+    })
+    const advancedFacts = {
+      semanticKinds: advancedScene.semantics.map((semantic) => semantic.kind),
+      strings: advancedScene.strings,
+      diagnosticCodes: advancedScene.diagnostics.map((diagnostic) => diagnostic.code),
+      coloredPixels: advancedColoredPixels,
+      commandCount: advancedTelemetry.commandCount,
+      svgPathCount: advancedDomHost.querySelectorAll('path').length,
+      domDiagnosticCodes: advancedDom.diagnostics.map((diagnostic) => diagnostic.code),
+    }
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
     let pixelHash = 0x811c9dc5
     for (const byte of pixels) pixelHash = Math.imul(pixelHash ^ byte, 0x01000193) >>> 0
@@ -298,6 +335,7 @@ try {
       decodedImageBytesAfterClear: renderer.decodedImageBytes,
       koreanLines,
       telemetry,
+      advancedFacts,
       domFacts,
       domMountedAtPeak,
       domMountedAfterScroll,
@@ -315,6 +353,27 @@ try {
   assert(result.telemetry.displayExecutionMs >= 0)
   assert(result.telemetry.fontMeasurementMs >= 0)
   assert(result.telemetry.mediaDecodeMs >= 0)
+  assert(result.advancedFacts.semanticKinds.includes('table'))
+  assert(result.advancedFacts.semanticKinds.includes('chart'))
+  assert(result.advancedFacts.semanticKinds.includes('preserved-graphic'))
+  assert(result.advancedFacts.strings.includes('Quarter'))
+  assert(result.advancedFacts.strings.includes('42'))
+  for (const code of [
+    'unsupported-smartart',
+    'unsupported-metafile',
+    'unsupported-animation',
+    'unsupported-transition',
+    'unsupported-3d',
+  ]) {
+    assert(result.advancedFacts.diagnosticCodes.includes(code))
+  }
+  assert.deepEqual(
+    result.advancedFacts.domDiagnosticCodes,
+    result.advancedFacts.diagnosticCodes,
+  )
+  assert(result.advancedFacts.coloredPixels > 10_000)
+  assert(result.advancedFacts.commandCount > 10)
+  assert(result.advancedFacts.svgPathCount > 10)
   assert.equal(result.domFacts.text, 'Actual title')
   assert.equal(result.domFacts.selectable, 'text')
   assert.equal(result.domFacts.href, 'https://example.com/report')

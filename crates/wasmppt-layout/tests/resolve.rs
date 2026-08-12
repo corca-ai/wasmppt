@@ -1,4 +1,7 @@
-use wasmppt_layout::{ElementKind, Fill, PresentationDocument, ResolveDiagnosticCode, RgbaColor};
+use wasmppt_layout::{
+    ChartKind, ElementKind, Fill, PresentationDocument, PreservedFeature, ResolveDiagnosticCode,
+    RgbaColor,
+};
 
 const FIXTURE: &[u8] = include_bytes!("../../../fixtures/render/basic.pptx");
 
@@ -134,4 +137,87 @@ fn dependency_invalidation_is_exact_for_disjoint_branches() {
     );
     assert_eq!(deck.invalidated_slides("ppt/media/image1.png"), [0]);
     assert!(deck.invalidated_slides("ppt/missing.xml").is_empty());
+}
+
+#[test]
+fn reads_tables_chart_caches_and_preserves_advanced_content_explicitly() {
+    let output = PresentationDocument::open(FIXTURE.to_vec())
+        .unwrap()
+        .resolve_slide(1)
+        .unwrap();
+    let table = output
+        .slide
+        .elements
+        .iter()
+        .find_map(|element| match &element.kind {
+            ElementKind::Table { table } => Some(table),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(table.column_widths, [2_500_000, 2_500_000]);
+    assert_eq!(table.rows.len(), 2);
+    assert_eq!(table.rows[0].cells[0].text, "Quarter");
+    assert_eq!(table.rows[1].cells[1].text, "42");
+
+    let chart = output
+        .slide
+        .elements
+        .iter()
+        .find_map(|element| match &element.kind {
+            ElementKind::Chart { chart } => Some(chart),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(chart.kind, ChartKind::Column);
+    assert_eq!(chart.series[0].name, "Sales");
+    assert_eq!(chart.series[0].categories, ["Q1", "Q2", "Q3"]);
+    assert_eq!(chart.series[0].values, [42.0, 64.0, 53.0]);
+    assert_eq!(
+        chart.embedded_workbook.as_deref(),
+        Some("ppt/embeddings/sales.xlsx")
+    );
+    assert!(
+        output
+            .trace
+            .visited_parts
+            .contains(&"ppt/embeddings/sales.xlsx".to_owned())
+    );
+    assert!(
+        !output
+            .trace
+            .parsed_xml_parts
+            .contains(&"ppt/embeddings/sales.xlsx".to_owned())
+    );
+
+    assert!(output.slide.elements.iter().any(|element| {
+        matches!(
+            element.kind,
+            ElementKind::PreservedGraphic {
+                feature: PreservedFeature::SmartArt
+            }
+        )
+    }));
+    assert!(output.slide.elements.iter().any(|element| {
+        matches!(
+            element.kind,
+            ElementKind::PreservedGraphic {
+                feature: PreservedFeature::Metafile
+            }
+        )
+    }));
+    for code in [
+        ResolveDiagnosticCode::UnsupportedSmartArt,
+        ResolveDiagnosticCode::UnsupportedMetafile,
+        ResolveDiagnosticCode::UnsupportedAnimation,
+        ResolveDiagnosticCode::UnsupportedTransition,
+        ResolveDiagnosticCode::UnsupportedThreeD,
+    ] {
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == code),
+            "missing diagnostic {code:?}"
+        );
+    }
 }

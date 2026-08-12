@@ -4,9 +4,11 @@ use wasmppt_opc::{MemorySource, PackageGraph, PartId, RelationshipTarget, ZipArc
 use wasmppt_xml::{Attribute, TokenKind, XmlDocument, decode_entities};
 
 use crate::{
-    ElementKind, EmuPoint, EmuSize, Fill, GroupTransform, ImageCrop, LayoutError, Placeholder,
-    PresetGeometry, ResolutionTrace, ResolveDiagnostic, ResolveDiagnosticCode, ResolveOutput,
-    ResolvedElement, ResolvedSlide, RgbaColor, SourceLevel, Stroke, Transform, plain_i64,
+    ChartKind, ChartSeries, ElementKind, EmuPoint, EmuSize, Fill, GroupTransform, ImageCrop,
+    LayoutError, Placeholder, PreservedFeature, PresetGeometry, ResolutionTrace, ResolveDiagnostic,
+    ResolveDiagnosticCode, ResolveOutput, ResolvedChart, ResolvedElement, ResolvedSlide,
+    ResolvedTable, ResolvedTableCell, ResolvedTableRow, RgbaColor, SourceLevel, Stroke, Transform,
+    plain_i64,
 };
 
 const WHITE: RgbaColor = RgbaColor {
@@ -34,6 +36,9 @@ struct RawShape {
     text: Option<String>,
     alternative_text: Option<String>,
     hyperlink_relationship_id: Option<String>,
+    table: Option<ResolvedTable>,
+    chart_relationship_id: Option<String>,
+    preserved_graphic: Option<PreservedFeature>,
     geometry: Option<PresetGeometry>,
     image_relationship_id: Option<String>,
     crop: ImageCrop,
@@ -134,53 +139,55 @@ pub fn resolve_slide_parts(
         .or_else(|| master.as_ref().and_then(|(_, part, _)| part.background))
         .unwrap_or(WHITE);
     let mut elements = Vec::new();
-    if let Some((part, parsed, _)) = &master {
-        append_non_placeholder(
-            &mut elements,
-            parsed,
-            SourceLevel::Master,
-            *part,
+    {
+        let mut element_resolver = ElementResolver {
+            archive,
             graph,
-            &mut diagnostics,
-            &mut trace,
-        );
-    }
-    if let Some((part, parsed, _)) = &layout {
-        append_non_placeholder(
-            &mut elements,
-            parsed,
-            SourceLevel::Layout,
-            *part,
-            graph,
-            &mut diagnostics,
-            &mut trace,
-        );
-    }
-    for raw in &slide.shapes {
-        let inherited_layout = raw.placeholder.as_ref().and_then(|placeholder| {
-            layout.as_ref().and_then(|(_, part, _)| {
-                part.shapes.iter().find(|candidate| {
-                    placeholder_matches(placeholder, candidate.placeholder.as_ref())
+            diagnostics: &mut diagnostics,
+            trace: &mut trace,
+        };
+        if let Some((part, parsed, _)) = &master {
+            append_non_placeholder(
+                &mut elements,
+                &mut element_resolver,
+                parsed,
+                SourceLevel::Master,
+                *part,
+            );
+        }
+        if let Some((part, parsed, _)) = &layout {
+            append_non_placeholder(
+                &mut elements,
+                &mut element_resolver,
+                parsed,
+                SourceLevel::Layout,
+                *part,
+            );
+        }
+        for raw in &slide.shapes {
+            let inherited_layout = raw.placeholder.as_ref().and_then(|placeholder| {
+                layout.as_ref().and_then(|(_, part, _)| {
+                    part.shapes.iter().find(|candidate| {
+                        placeholder_matches(placeholder, candidate.placeholder.as_ref())
+                    })
                 })
-            })
-        });
-        let inherited_master = raw.placeholder.as_ref().and_then(|placeholder| {
-            master.as_ref().and_then(|(_, part, _)| {
-                part.shapes.iter().find(|candidate| {
-                    placeholder_matches(placeholder, candidate.placeholder.as_ref())
+            });
+            let inherited_master = raw.placeholder.as_ref().and_then(|placeholder| {
+                master.as_ref().and_then(|(_, part, _)| {
+                    part.shapes.iter().find(|candidate| {
+                        placeholder_matches(placeholder, candidate.placeholder.as_ref())
+                    })
                 })
-            })
-        });
-        let merged = merge_shape(raw, inherited_layout, inherited_master);
-        elements.push(resolve_element(
-            &merged,
-            SourceLevel::Slide,
-            slide_id,
-            graph,
-            &mut diagnostics,
-            &mut trace,
-            &slide_name,
-        ));
+            });
+            let merged = merge_shape(raw, inherited_layout, inherited_master);
+            elements.push(resolve_element(
+                &merged,
+                &mut element_resolver,
+                SourceLevel::Slide,
+                slide_id,
+                &slide_name,
+            ));
+        }
     }
     for (z_order, element) in elements.iter_mut().enumerate() {
         element.z_order = z_order as u32;
@@ -234,43 +241,104 @@ fn related(graph: &PackageGraph, source: PartId, relationship_suffix: &str) -> O
         })
 }
 
+fn relationship_target(graph: &PackageGraph, source: PartId, id: &str) -> Option<PartId> {
+    graph
+        .part(source)
+        .relationships
+        .iter()
+        .find(|relationship| graph.relationship_id(relationship) == id)
+        .and_then(|relationship| match relationship.target {
+            RelationshipTarget::Internal(part) => Some(part),
+            _ => None,
+        })
+}
+
 fn append_non_placeholder(
     output: &mut Vec<ResolvedElement>,
+    resolver: &mut ElementResolver<'_>,
     part: &ParsedPart,
     source: SourceLevel,
     part_id: PartId,
-    graph: &PackageGraph,
-    diagnostics: &mut Vec<ResolveDiagnostic>,
-    trace: &mut ResolutionTrace,
 ) {
-    let part_name = graph.part_name(graph.part(part_id));
+    let part_name = resolver
+        .graph
+        .part_name(resolver.graph.part(part_id))
+        .to_owned();
     for shape in part
         .shapes
         .iter()
         .filter(|shape| shape.placeholder.is_none())
     {
         output.push(resolve_element(
-            shape,
-            source,
-            part_id,
-            graph,
-            diagnostics,
-            trace,
-            part_name,
+            shape, resolver, source, part_id, &part_name,
         ));
     }
 }
 
+struct ElementResolver<'a> {
+    archive: &'a ZipArchive<MemorySource>,
+    graph: &'a PackageGraph,
+    diagnostics: &'a mut Vec<ResolveDiagnostic>,
+    trace: &'a mut ResolutionTrace,
+}
+
 fn resolve_element(
     shape: &RawShape,
+    resolver: &mut ElementResolver<'_>,
     source: SourceLevel,
     source_part: PartId,
-    graph: &PackageGraph,
-    diagnostics: &mut Vec<ResolveDiagnostic>,
-    trace: &mut ResolutionTrace,
     source_name: &str,
 ) -> ResolvedElement {
-    let kind = if let Some(relationship_id) = &shape.image_relationship_id {
+    let graph = resolver.graph;
+    let kind = if let Some(table) = &shape.table {
+        ElementKind::Table {
+            table: table.clone(),
+        }
+    } else if let Some(relationship_id) = &shape.chart_relationship_id {
+        let target = relationship_target(graph, source_part, relationship_id);
+        let chart = target
+            .and_then(|part| {
+                let (part_name, document) =
+                    parse_part(resolver.archive, graph, part, resolver.trace).ok()?;
+                let mut chart = parse_chart(&document);
+                chart.embedded_workbook = related(graph, part, "/package").map(|workbook| {
+                    let name = graph.part_name(graph.part(workbook)).to_owned();
+                    resolver.trace.visited_parts.push(name.clone());
+                    name
+                });
+                if matches!(
+                    chart.kind,
+                    ChartKind::Pie | ChartKind::Area | ChartKind::Scatter | ChartKind::Other
+                ) {
+                    resolver.diagnostics.push(ResolveDiagnostic {
+                        code: ResolveDiagnosticCode::UnsupportedChartKind,
+                        part_name,
+                        shape_id: Some(shape.id),
+                        message: format!(
+                            "{:?} chart data is read and preserved but not rendered yet",
+                            chart.kind
+                        ),
+                    });
+                }
+                Some(chart)
+            })
+            .unwrap_or_else(|| {
+                resolver.diagnostics.push(ResolveDiagnostic {
+                    code: ResolveDiagnosticCode::MissingDependency,
+                    part_name: source_name.to_owned(),
+                    shape_id: Some(shape.id),
+                    message: format!("chart relationship {relationship_id} has no readable target"),
+                });
+                ResolvedChart {
+                    kind: ChartKind::Other,
+                    series: Vec::new(),
+                    embedded_workbook: None,
+                }
+            });
+        ElementKind::Chart { chart }
+    } else if let Some(feature) = shape.preserved_graphic {
+        ElementKind::PreservedGraphic { feature }
+    } else if let Some(relationship_id) = &shape.image_relationship_id {
         let target = graph
             .part(source_part)
             .relationships
@@ -282,9 +350,26 @@ fn resolve_element(
             });
         let part_name = target.map(|part| graph.part_name(graph.part(part)).to_owned());
         if let Some(name) = &part_name {
-            trace.visited_parts.push(name.clone());
+            resolver.trace.visited_parts.push(name.clone());
+            if name.ends_with(".emf") || name.ends_with(".wmf") {
+                resolver.diagnostics.push(ResolveDiagnostic {
+                    code: ResolveDiagnosticCode::UnsupportedMetafile,
+                    part_name: source_name.to_owned(),
+                    shape_id: Some(shape.id),
+                    message: format!("metafile {name} is preserved and requires a preview backend"),
+                });
+                return resolved_element(
+                    shape,
+                    source,
+                    ElementKind::PreservedGraphic {
+                        feature: PreservedFeature::Metafile,
+                    },
+                    graph,
+                    source_part,
+                );
+            }
         } else {
-            diagnostics.push(ResolveDiagnostic {
+            resolver.diagnostics.push(ResolveDiagnostic {
                 code: ResolveDiagnosticCode::MissingImage,
                 part_name: source_name.to_owned(),
                 shape_id: Some(shape.id),
@@ -301,6 +386,16 @@ fn resolve_element(
             geometry: shape.geometry.unwrap_or(PresetGeometry::Rect),
         }
     };
+    resolved_element(shape, source, kind, graph, source_part)
+}
+
+fn resolved_element(
+    shape: &RawShape,
+    source: SourceLevel,
+    kind: ElementKind,
+    graph: &PackageGraph,
+    source_part: PartId,
+) -> ResolvedElement {
     ResolvedElement {
         id: shape.id,
         name: shape.name.clone(),
@@ -371,6 +466,9 @@ fn merge_shape(local: &RawShape, layout: Option<&RawShape>, master: Option<&RawS
             .or_else(|| layout.and_then(|shape| shape.alternative_text.clone()))
             .or_else(|| master.and_then(|shape| shape.alternative_text.clone())),
         hyperlink_relationship_id: local.hyperlink_relationship_id.clone(),
+        table: local.table.clone(),
+        chart_relationship_id: local.chart_relationship_id.clone(),
+        preserved_graphic: local.preserved_graphic,
         geometry: local
             .geometry
             .or_else(|| layout.and_then(|shape| shape.geometry))
@@ -419,12 +517,16 @@ fn parse_drawing_part(document: &XmlDocument, theme: &Theme) -> ParsedPart {
                 }
             }
             TokenKind::Start { name, .. } if name.local == "graphicFrame" => {
-                parsed.diagnostics.push((
-                    ResolveDiagnosticCode::UnsupportedGraphicFrame,
-                    None,
-                    "chart, table, SmartArt, or other graphic frame requires a fallback backend"
-                        .to_owned(),
-                ));
+                if let Some(end) = element_end(document, index) {
+                    parsed.shapes.push(parse_graphic_frame(
+                        document,
+                        index,
+                        end,
+                        groups.iter().map(|(_, transform)| *transform).collect(),
+                        theme,
+                        &mut parsed.diagnostics,
+                    ));
+                }
             }
             TokenKind::End { name }
                 if name.local == "grpSp"
@@ -437,7 +539,369 @@ fn parse_drawing_part(document: &XmlDocument, theme: &Theme) -> ParsedPart {
             _ => {}
         }
     }
+    for token in document.tokens() {
+        let TokenKind::Start { name, .. } = &token.kind else {
+            continue;
+        };
+        let diagnostic = match name.local.as_str() {
+            "timing" | "anim" | "animMotion" | "animEffect" => Some((
+                ResolveDiagnosticCode::UnsupportedAnimation,
+                "animation timing is preserved but not executed",
+            )),
+            "transition" => Some((
+                ResolveDiagnosticCode::UnsupportedTransition,
+                "slide transition is preserved but not executed",
+            )),
+            "scene3d" | "sp3d" => Some((
+                ResolveDiagnosticCode::UnsupportedThreeD,
+                "3D properties are preserved but not rendered",
+            )),
+            _ => None,
+        };
+        if let Some((code, message)) = diagnostic {
+            if !parsed.diagnostics.iter().any(|existing| existing.0 == code) {
+                parsed.diagnostics.push((code, None, message.to_owned()));
+            }
+        }
+    }
     parsed
+}
+
+fn parse_graphic_frame(
+    document: &XmlDocument,
+    start: usize,
+    end: usize,
+    groups: Vec<GroupTransform>,
+    theme: &Theme,
+    diagnostics: &mut Vec<(ResolveDiagnosticCode, Option<u32>, String)>,
+) -> RawShape {
+    let mut shape = RawShape {
+        groups,
+        ..RawShape::default()
+    };
+    for index in start..=end {
+        let TokenKind::Start {
+            name, attributes, ..
+        } = &document.tokens()[index].kind
+        else {
+            continue;
+        };
+        match name.local.as_str() {
+            "cNvPr" => {
+                shape.id = plain_u32(attributes, "id").unwrap_or(0);
+                shape.name = plain(attributes, "name").unwrap_or_default().to_owned();
+                shape.alternative_text = plain(attributes, "descr")
+                    .or_else(|| plain(attributes, "title"))
+                    .map(str::to_owned);
+            }
+            "xfrm" if shape.transform.is_none() => {
+                if let Some(transform_end) = element_end(document, index) {
+                    shape.transform = Some(parse_transform(document, index, transform_end));
+                }
+            }
+            "tbl" if shape.table.is_none() => {
+                if let Some(table_end) = element_end(document, index) {
+                    shape.table = Some(parse_table(document, index, table_end, theme));
+                }
+            }
+            "chart" => {
+                shape.chart_relationship_id = attributes
+                    .iter()
+                    .find(|attribute| attribute.name.local == "id")
+                    .map(|attribute| attribute.value.clone());
+            }
+            "relIds" => {
+                shape.preserved_graphic = Some(PreservedFeature::SmartArt);
+                diagnostics.push((
+                    ResolveDiagnosticCode::UnsupportedSmartArt,
+                    Some(shape.id),
+                    "SmartArt data and fallback relationships are preserved but not rendered"
+                        .to_owned(),
+                ));
+            }
+            "oleObj" => {
+                shape.preserved_graphic = Some(PreservedFeature::OleObject);
+                diagnostics.push((
+                    ResolveDiagnosticCode::UnsupportedActiveContent,
+                    Some(shape.id),
+                    "embedded OLE content is preserved but never activated".to_owned(),
+                ));
+            }
+            _ => {}
+        }
+    }
+    if shape.table.is_none()
+        && shape.chart_relationship_id.is_none()
+        && shape.preserved_graphic.is_none()
+    {
+        shape.preserved_graphic = Some(PreservedFeature::UnknownGraphicFrame);
+        diagnostics.push((
+            ResolveDiagnosticCode::UnsupportedGraphicFrame,
+            Some(shape.id),
+            "unknown graphic frame is preserved but not rendered".to_owned(),
+        ));
+    }
+    shape
+}
+
+fn parse_table(document: &XmlDocument, start: usize, end: usize, theme: &Theme) -> ResolvedTable {
+    let mut column_widths = Vec::new();
+    let mut rows = Vec::new();
+    for index in start..=end {
+        let TokenKind::Start {
+            name, attributes, ..
+        } = &document.tokens()[index].kind
+        else {
+            continue;
+        };
+        if name.local == "gridCol" {
+            column_widths.push(plain_i64(attributes, "w").unwrap_or(0));
+        } else if name.local == "tr" {
+            let Some(row_end) = element_end(document, index) else {
+                continue;
+            };
+            let mut cells = Vec::new();
+            for cell_index in index + 1..row_end {
+                let TokenKind::Start {
+                    name: cell_name,
+                    attributes: cell_attributes,
+                    ..
+                } = &document.tokens()[cell_index].kind
+                else {
+                    continue;
+                };
+                if cell_name.local != "tc"
+                    || document.tokens()[cell_index].depth != document.tokens()[index].depth + 1
+                {
+                    continue;
+                }
+                let cell_end = element_end(document, cell_index).unwrap_or(cell_index);
+                let text = collect_text(document, cell_index, cell_end);
+                let fill = (cell_index..=cell_end)
+                    .find_map(|fill_index| {
+                        matches!(
+                            &document.tokens()[fill_index].kind,
+                            TokenKind::Start { name, .. } if name.local == "solidFill"
+                        )
+                        .then(|| {
+                            parse_color(
+                                document,
+                                fill_index,
+                                element_end(document, fill_index).unwrap_or(fill_index),
+                                theme,
+                            )
+                        })
+                        .flatten()
+                    })
+                    .unwrap_or(WHITE);
+                cells.push(ResolvedTableCell {
+                    text,
+                    row_span: plain_u32(cell_attributes, "rowSpan").unwrap_or(1),
+                    column_span: plain_u32(cell_attributes, "gridSpan").unwrap_or(1),
+                    fill,
+                });
+            }
+            rows.push(ResolvedTableRow {
+                height: plain_i64(attributes, "h").unwrap_or(0),
+                cells,
+            });
+        }
+    }
+    ResolvedTable {
+        column_widths,
+        rows,
+    }
+}
+
+fn parse_chart(document: &XmlDocument) -> ResolvedChart {
+    let mut kind = ChartKind::Other;
+    for token in document.tokens() {
+        let TokenKind::Start { name, .. } = &token.kind else {
+            continue;
+        };
+        kind = match name.local.as_str() {
+            "lineChart" => ChartKind::Line,
+            "pieChart" | "pie3DChart" | "doughnutChart" => ChartKind::Pie,
+            "areaChart" | "area3DChart" => ChartKind::Area,
+            "scatterChart" => ChartKind::Scatter,
+            "barChart" | "bar3DChart" => {
+                let bar_direction = document.tokens().iter().find_map(|candidate| {
+                    let TokenKind::Start {
+                        name, attributes, ..
+                    } = &candidate.kind
+                    else {
+                        return None;
+                    };
+                    (name.local == "barDir")
+                        .then(|| plain(attributes, "val"))
+                        .flatten()
+                });
+                if bar_direction == Some("bar") {
+                    ChartKind::Bar
+                } else {
+                    ChartKind::Column
+                }
+            }
+            _ => continue,
+        };
+        break;
+    }
+    let palette = [
+        RgbaColor {
+            red: 68,
+            green: 114,
+            blue: 196,
+            alpha: 255,
+        },
+        RgbaColor {
+            red: 237,
+            green: 125,
+            blue: 49,
+            alpha: 255,
+        },
+        RgbaColor {
+            red: 165,
+            green: 165,
+            blue: 165,
+            alpha: 255,
+        },
+        RgbaColor {
+            red: 255,
+            green: 192,
+            blue: 0,
+            alpha: 255,
+        },
+        RgbaColor {
+            red: 91,
+            green: 155,
+            blue: 213,
+            alpha: 255,
+        },
+    ];
+    let mut series = Vec::new();
+    for (index, token) in document.tokens().iter().enumerate() {
+        let TokenKind::Start { name, .. } = &token.kind else {
+            continue;
+        };
+        if name.local != "ser" {
+            continue;
+        }
+        let Some(end) = element_end(document, index) else {
+            continue;
+        };
+        let name = child_cache_values(document, index, end, &["tx"])
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| format!("Series {}", series.len() + 1));
+        let categories = child_cache_values(document, index, end, &["cat", "xVal"]);
+        let values = child_cache_values(document, index, end, &["val", "yVal"])
+            .into_iter()
+            .filter_map(|value| value.parse::<f64>().ok())
+            .collect();
+        series.push(ChartSeries {
+            name,
+            categories,
+            values,
+            color: palette[series.len() % palette.len()],
+        });
+    }
+    ResolvedChart {
+        kind,
+        series,
+        embedded_workbook: None,
+    }
+}
+
+fn child_cache_values(
+    document: &XmlDocument,
+    start: usize,
+    end: usize,
+    container_names: &[&str],
+) -> Vec<String> {
+    for index in start..=end {
+        let TokenKind::Start { name, .. } = &document.tokens()[index].kind else {
+            continue;
+        };
+        if !container_names.contains(&name.local.as_str()) {
+            continue;
+        }
+        let container_end = element_end(document, index).unwrap_or(index);
+        let values = cache_values(document, index, container_end);
+        if !values.is_empty() {
+            return values;
+        }
+    }
+    Vec::new()
+}
+
+fn cache_values(document: &XmlDocument, start: usize, end: usize) -> Vec<String> {
+    let mut indexed = Vec::<(u32, String)>::new();
+    for index in start..=end {
+        let TokenKind::Start {
+            name, attributes, ..
+        } = &document.tokens()[index].kind
+        else {
+            continue;
+        };
+        if name.local != "pt" {
+            continue;
+        }
+        let point_end = element_end(document, index).unwrap_or(index);
+        let value = (index..=point_end).find_map(|value_index| {
+            let TokenKind::Start { name, .. } = &document.tokens()[value_index].kind else {
+                return None;
+            };
+            (name.local == "v").then(|| {
+                element_end(document, value_index)
+                    .map(|value_end| collect_raw_text(document, value_index, value_end))
+                    .unwrap_or_default()
+            })
+        });
+        if let Some(value) = value {
+            indexed.push((plain_u32(attributes, "idx").unwrap_or(index as u32), value));
+        }
+    }
+    if indexed.is_empty() {
+        let direct = collect_raw_text(document, start, end);
+        return (!direct.is_empty()).then_some(direct).into_iter().collect();
+    }
+    indexed.sort_unstable_by_key(|(index, _)| *index);
+    indexed.into_iter().map(|(_, value)| value).collect()
+}
+
+fn collect_text(document: &XmlDocument, start: usize, end: usize) -> String {
+    let mut output = String::new();
+    for index in start..=end {
+        let TokenKind::Start { name, .. } = &document.tokens()[index].kind else {
+            continue;
+        };
+        if name.local == "t" {
+            let text_end = element_end(document, index).unwrap_or(index);
+            output.push_str(&collect_raw_text(document, index, text_end));
+        }
+    }
+    output
+}
+
+fn collect_raw_text(document: &XmlDocument, start: usize, end: usize) -> String {
+    let mut output = String::new();
+    for token in &document.tokens()[start..=end] {
+        if !matches!(token.kind, TokenKind::Text | TokenKind::Cdata) {
+            continue;
+        }
+        let range = if matches!(token.kind, TokenKind::Cdata) {
+            token.range.start + 9..token.range.end - 3
+        } else {
+            token.range.clone()
+        };
+        let raw = std::str::from_utf8(document.source_range(range)).unwrap_or_default();
+        if matches!(token.kind, TokenKind::Cdata) {
+            output.push_str(raw);
+        } else if let Ok(decoded) = decode_entities(raw, token.range.start) {
+            output.push_str(&decoded);
+        }
+    }
+    output
 }
 
 fn parse_shape(
@@ -548,7 +1012,7 @@ fn parse_shape(
                         };
                     }
                     "t" => in_text = true,
-                    "effectLst" | "effectDag" | "scene3d" | "sp3d" => diagnostics.push((
+                    "effectLst" | "effectDag" => diagnostics.push((
                         ResolveDiagnosticCode::UnsupportedEffect,
                         Some(shape.id),
                         format!("{} is retained but not rendered", name.local),

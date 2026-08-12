@@ -42,6 +42,14 @@ relationship target, updates or inserts `a:srcRect`, and adds or corrects the co
 default. The old media part is removed only when the source graph proves it has one
 reference. External hyperlinks and unrelated relationships remain unchanged.
 
+## Chart data
+
+`set_chart("ppt/charts/chart1.xml", data)` replaces complete categories and series for a
+supported chart. Generation validates dimensions and finite numeric values, then updates both
+the chart's text/category/number caches and the related embedded workbook worksheet in the same
+output. Cache formulas and workbook cell ranges are resized consistently. See
+[tables, charts, and advanced content](advanced-content.md) for read and render coverage.
+
 ## Slide inclusion and cloning
 
 `set_slide_copies(part_name, count)` controls a source slide:

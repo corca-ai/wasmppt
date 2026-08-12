@@ -111,6 +111,71 @@ pub enum ElementKind {
         part_name: Option<String>,
         crop: ImageCrop,
     },
+    Table {
+        table: ResolvedTable,
+    },
+    Chart {
+        chart: ResolvedChart,
+    },
+    PreservedGraphic {
+        feature: PreservedFeature,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedTableCell {
+    pub text: String,
+    pub row_span: u32,
+    pub column_span: u32,
+    pub fill: RgbaColor,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedTableRow {
+    pub height: Emu,
+    pub cells: Vec<ResolvedTableCell>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedTable {
+    pub column_widths: Vec<Emu>,
+    pub rows: Vec<ResolvedTableRow>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ChartKind {
+    Column,
+    Bar,
+    Line,
+    Pie,
+    Area,
+    Scatter,
+    Other,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChartSeries {
+    pub name: String,
+    pub categories: Vec<String>,
+    pub values: Vec<f64>,
+    pub color: RgbaColor,
+}
+
+impl Eq for ChartSeries {}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedChart {
+    pub kind: ChartKind,
+    pub series: Vec<ChartSeries>,
+    pub embedded_workbook: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PreservedFeature {
+    SmartArt,
+    Metafile,
+    OleObject,
+    UnknownGraphicFrame,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -149,6 +214,13 @@ pub enum ResolveDiagnosticCode {
     UnsupportedFill,
     UnsupportedEffect,
     MissingImage,
+    UnsupportedSmartArt,
+    UnsupportedMetafile,
+    UnsupportedAnimation,
+    UnsupportedTransition,
+    UnsupportedActiveContent,
+    UnsupportedThreeD,
+    UnsupportedChartKind,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -10,8 +10,8 @@ use wasmppt_xml::{TokenKind, XmlDocument};
 mod inject;
 
 pub use inject::{
-    GenerateError, GenerateErrorCode, GenerateOutput, GenerateStats, ImageCrop, ImageData,
-    InjectionData, PreparedTemplate,
+    ChartData, ChartSeriesData, GenerateError, GenerateErrorCode, GenerateOutput, GenerateStats,
+    ImageCrop, ImageData, InjectionData, PreparedTemplate,
 };
 
 pub const PLAN_SCHEMA_VERSION: u32 = 1;

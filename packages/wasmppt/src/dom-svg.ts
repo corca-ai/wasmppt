@@ -190,7 +190,12 @@ function graphicElement(state: SlideDomState, semantic: SceneSemanticElement): S
   group.dataset['commandFirst'] = String(semantic.firstCommand)
   group.dataset['commandCount'] = String(semantic.commandCount)
   group.setAttribute('aria-label', semantic.alternativeText ?? semantic.name)
-  group.setAttribute('role', semantic.kind === 'image' ? 'img' : 'graphics-symbol')
+  group.setAttribute(
+    'role',
+    semantic.kind === 'image' || semantic.kind === 'table' || semantic.kind === 'chart'
+      ? 'img'
+      : 'graphics-symbol',
+  )
   state.graphics.append(group)
   return group
 }
@@ -303,7 +308,10 @@ function updateAccessibleOverlay(
   element.dataset['commandCount'] = String(semantic.commandCount)
   if (semantic.hyperlink !== undefined) element.dataset['hyperlink'] = semantic.hyperlink
   if (element instanceof HTMLAnchorElement && safeHref !== undefined) element.href = safeHref
-  if (!(element instanceof HTMLAnchorElement) && semantic.kind === 'image') {
+  if (
+    !(element instanceof HTMLAnchorElement) &&
+    (semantic.kind === 'image' || semantic.kind === 'table' || semantic.kind === 'chart')
+  ) {
     element.setAttribute('role', 'img')
   } else {
     element.removeAttribute('role')

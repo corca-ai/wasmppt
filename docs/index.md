@@ -24,6 +24,8 @@ This is the canonical index for living `wasmppt` documentation.
   execution, fonts, virtualization, resource budgets, and stage telemetry.
 - [Accessible DOM and SVG backend](dom-svg.md) — selectable text, accessibility,
   hyperlinks, semantic metadata, shared diagnostics, and incremental DOM updates.
+- [Tables, charts, and advanced content](advanced-content.md) — table layout,
+  chart caches and workbook edits, explicit fallbacks, and the capability matrix.
 - [Documentation guide](metadoc.md) — how documentation is organized, written,
   linked, and linted.
 

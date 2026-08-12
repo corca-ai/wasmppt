@@ -5,8 +5,11 @@ use std::{
 use wasmppt_opc::WriteSink;
 use wasmppt_opc::{CompressionMethod, EntryOptions, PackageGraph, VecSink, ZipArchive, ZipWriter};
 use wasmppt_template::{
-    GenerateErrorCode, ImageCrop, ImageData, InjectionData, PreparedTemplate, TemplateCompiler,
+    ChartData, ChartSeriesData, GenerateErrorCode, ImageCrop, ImageData, InjectionData,
+    PreparedTemplate, TemplateCompiler,
 };
+
+const ADVANCED_FIXTURE: &[u8] = include_bytes!("../../../fixtures/render/basic.pptx");
 
 fn template(main_type: &str, with_macro: bool) -> Vec<u8> {
     let options = EntryOptions::deterministic(CompressionMethod::Deflate);
@@ -487,4 +490,76 @@ fn generation_streams_to_a_non_seekable_sink() {
     assert!(stats.zip.raw_copied_entries > 0);
     assert_eq!(stats.zip.inflated_entries, 0);
     ZipArchive::from_bytes(sink.into_inner().0).unwrap();
+}
+
+#[test]
+fn chart_injection_updates_cache_and_embedded_workbook_atomically() {
+    let bytes = ADVANCED_FIXTURE.to_vec();
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let chart = ChartData {
+        categories: vec!["북부".to_owned(), "남부 & 동부".to_owned()],
+        series: vec![ChartSeriesData {
+            name: "매출 <확정>".to_owned(),
+            values: vec![101.5, 202.25],
+        }],
+    };
+    let output = PreparedTemplate::new(bytes, plan)
+        .unwrap()
+        .generate(&InjectionData::new().with_chart("ppt/charts/chart1.xml", chart))
+        .unwrap();
+    assert_eq!(output.rewritten_entries, 2);
+    let package = ZipArchive::from_bytes(output.bytes).unwrap();
+    let chart_xml = String::from_utf8(
+        package
+            .read_entry(package.entry("ppt/charts/chart1.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(chart_xml.contains("매출 &lt;확정&gt;"));
+    assert!(chart_xml.contains("남부 &amp; 동부"));
+    assert!(chart_xml.contains("Sheet1!$A$2:$A$3"));
+    assert!(chart_xml.contains("Sheet1!$B$2:$B$3"));
+    assert!(!chart_xml.contains(">64<"));
+    let workbook_bytes = package
+        .read_entry(package.entry("ppt/embeddings/sales.xlsx").unwrap())
+        .unwrap();
+    let workbook = ZipArchive::from_bytes(workbook_bytes).unwrap();
+    let sheet = String::from_utf8(
+        workbook
+            .read_entry(workbook.entry("xl/worksheets/sheet1.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(sheet.contains("매출 &lt;확정&gt;"));
+    assert!(sheet.contains("남부 &amp; 동부"));
+    assert!(sheet.contains(">202.25<"));
+    assert!(!sheet.contains(">64<"));
+}
+
+#[test]
+fn invalid_chart_data_fails_before_writing_partial_output() {
+    let bytes = ADVANCED_FIXTURE.to_vec();
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let error = PreparedTemplate::new(bytes, plan)
+        .unwrap()
+        .generate(&InjectionData::new().with_chart(
+            "ppt/charts/chart1.xml",
+            ChartData {
+                categories: vec!["Q1".to_owned(), "Q2".to_owned()],
+                series: vec![ChartSeriesData {
+                    name: "Sales".to_owned(),
+                    values: vec![1.0],
+                }],
+            },
+        ))
+        .unwrap_err();
+    assert_eq!(error.code(), GenerateErrorCode::InvalidChart);
 }

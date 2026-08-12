@@ -1,8 +1,9 @@
 //! Compact backend-neutral display lists lowered from resolved slides.
 
 use wasmppt_layout::{
-    ElementKind, EmuRect, EmuSize, Fill, GroupTransform, PresetGeometry, ResolveDiagnosticCode,
-    ResolveOutput, ResolvedSlide, RgbaColor, Stroke, Transform,
+    ChartKind, ElementKind, EmuPoint, EmuRect, EmuSize, Fill, GroupTransform, PresetGeometry,
+    ResolveDiagnosticCode, ResolveOutput, ResolvedChart, ResolvedSlide, ResolvedTable, RgbaColor,
+    Stroke, Transform,
 };
 
 pub const DISPLAY_LIST_VERSION: u16 = 2;
@@ -18,6 +19,9 @@ pub struct ImageResource {
 pub enum SemanticKind {
     Shape,
     Image,
+    Table,
+    Chart,
+    PreservedGraphic,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -156,6 +160,9 @@ impl DisplayList {
                         crop: *crop,
                     });
                 }
+                ElementKind::Table { table } => lower_table(&mut list, element.transform, table),
+                ElementKind::Chart { chart } => lower_chart(&mut list, element.transform, chart),
+                ElementKind::PreservedGraphic { .. } => {}
             }
             if !element.text.is_empty() {
                 let text = list.strings.len() as u32;
@@ -176,6 +183,9 @@ impl DisplayList {
                 kind: match &element.kind {
                     ElementKind::Shape { .. } => SemanticKind::Shape,
                     ElementKind::Image { .. } => SemanticKind::Image,
+                    ElementKind::Table { .. } => SemanticKind::Table,
+                    ElementKind::Chart { .. } => SemanticKind::Chart,
+                    ElementKind::PreservedGraphic { .. } => SemanticKind::PreservedGraphic,
                 },
                 bounds: element.transform.bounds,
                 name: element.name.clone(),
@@ -224,6 +234,9 @@ impl DisplayList {
             bytes.push(match semantic.kind {
                 SemanticKind::Shape => 1,
                 SemanticKind::Image => 2,
+                SemanticKind::Table => 3,
+                SemanticKind::Chart => 4,
+                SemanticKind::PreservedGraphic => 5,
             });
             encode_rect(&mut bytes, semantic.bounds);
             push_blob(&mut bytes, semantic.name.as_bytes());
@@ -259,6 +272,253 @@ impl DisplayList {
     }
 }
 
+fn lower_table(list: &mut DisplayList, transform: Transform, table: &ResolvedTable) {
+    let bounds = transform.bounds;
+    let column_count = table.column_widths.len().max(
+        table
+            .rows
+            .iter()
+            .map(|row| row.cells.len())
+            .max()
+            .unwrap_or(0),
+    );
+    if column_count == 0 || table.rows.is_empty() {
+        return;
+    }
+    let declared_width: i64 = table.column_widths.iter().sum();
+    let column_widths = if table.column_widths.len() == column_count && declared_width > 0 {
+        table
+            .column_widths
+            .iter()
+            .map(|width| bounds.size.width.saturating_mul(*width) / declared_width)
+            .collect::<Vec<_>>()
+    } else {
+        vec![bounds.size.width / column_count as i64; column_count]
+    };
+    let declared_height: i64 = table.rows.iter().map(|row| row.height).sum();
+    let row_heights = table
+        .rows
+        .iter()
+        .map(|row| {
+            if declared_height > 0 {
+                bounds.size.height.saturating_mul(row.height) / declared_height
+            } else {
+                bounds.size.height / table.rows.len() as i64
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut y = bounds.origin.y;
+    for (row_index, row) in table.rows.iter().enumerate() {
+        let mut x = bounds.origin.x;
+        let height = row_heights[row_index];
+        let mut column_index = 0;
+        for cell in &row.cells {
+            let span = cell.column_span.max(1) as usize;
+            let width = column_widths
+                .iter()
+                .skip(column_index)
+                .take(span)
+                .sum::<i64>();
+            let row_span = cell.row_span.max(1) as usize;
+            let cell_height = row_heights
+                .iter()
+                .skip(row_index)
+                .take(row_span)
+                .sum::<i64>();
+            let cell_transform = Transform {
+                bounds: EmuRect {
+                    origin: EmuPoint { x, y },
+                    size: EmuSize {
+                        width,
+                        height: cell_height,
+                    },
+                },
+                rotation: transform.rotation,
+                flip_horizontal: transform.flip_horizontal,
+                flip_vertical: transform.flip_vertical,
+            };
+            list.commands.push(DisplayCommand::FillPreset {
+                geometry: PresetGeometry::Rect,
+                transform: cell_transform,
+                color: cell.fill,
+            });
+            list.commands.push(DisplayCommand::StrokePreset {
+                geometry: PresetGeometry::Rect,
+                transform: cell_transform,
+                stroke: Stroke {
+                    color: RgbaColor {
+                        red: 127,
+                        green: 127,
+                        blue: 127,
+                        alpha: 255,
+                    },
+                    width: 9_525,
+                    dash: None,
+                },
+            });
+            if !cell.text.is_empty() {
+                let text = list.strings.len() as u32;
+                list.strings.push(cell.text.clone());
+                list.commands.push(DisplayCommand::DrawText {
+                    text,
+                    bounds: cell_transform.bounds,
+                });
+            }
+            x = x.saturating_add(width);
+            column_index += span;
+        }
+        y = y.saturating_add(height);
+    }
+}
+
+fn lower_chart(list: &mut DisplayList, transform: Transform, chart: &ResolvedChart) {
+    if chart.series.is_empty() {
+        return;
+    }
+    let bounds = transform.bounds;
+    let padding_x = bounds.size.width / 12;
+    let padding_y = bounds.size.height / 10;
+    let plot = EmuRect {
+        origin: EmuPoint {
+            x: bounds.origin.x + padding_x,
+            y: bounds.origin.y + padding_y,
+        },
+        size: EmuSize {
+            width: bounds.size.width - padding_x * 2,
+            height: bounds.size.height - padding_y * 2,
+        },
+    };
+    let maximum = chart
+        .series
+        .iter()
+        .flat_map(|series| series.values.iter())
+        .copied()
+        .fold(0.0_f64, |maximum, value| maximum.max(value.abs()))
+        .max(1.0);
+    match chart.kind {
+        ChartKind::Column => {
+            let category_count = chart
+                .series
+                .iter()
+                .map(|series| series.values.len())
+                .max()
+                .unwrap_or(0);
+            if category_count == 0 {
+                return;
+            }
+            let slot = plot.size.width / category_count as i64;
+            let bar_width = (slot * 4 / 5) / chart.series.len() as i64;
+            for (series_index, series) in chart.series.iter().enumerate() {
+                for (value_index, value) in series.values.iter().enumerate() {
+                    let height = ((value.abs() / maximum) * plot.size.height as f64) as i64;
+                    let x = plot.origin.x
+                        + slot * value_index as i64
+                        + slot / 10
+                        + bar_width * series_index as i64;
+                    push_chart_rect(
+                        list,
+                        transform,
+                        x,
+                        plot.origin.y + plot.size.height - height,
+                        bar_width,
+                        height,
+                        series.color,
+                    );
+                }
+            }
+        }
+        ChartKind::Bar => {
+            let category_count = chart
+                .series
+                .iter()
+                .map(|series| series.values.len())
+                .max()
+                .unwrap_or(0);
+            if category_count == 0 {
+                return;
+            }
+            let slot = plot.size.height / category_count as i64;
+            let bar_height = (slot * 4 / 5) / chart.series.len() as i64;
+            for (series_index, series) in chart.series.iter().enumerate() {
+                for (value_index, value) in series.values.iter().enumerate() {
+                    let width = ((value.abs() / maximum) * plot.size.width as f64) as i64;
+                    let y = plot.origin.y
+                        + slot * value_index as i64
+                        + slot / 10
+                        + bar_height * series_index as i64;
+                    push_chart_rect(
+                        list,
+                        transform,
+                        plot.origin.x,
+                        y,
+                        width,
+                        bar_height,
+                        series.color,
+                    );
+                }
+            }
+        }
+        ChartKind::Line => {
+            for series in &chart.series {
+                let denominator = series.values.len().saturating_sub(1).max(1) as i64;
+                for (index, values) in series.values.windows(2).enumerate() {
+                    let x1 = plot.origin.x + plot.size.width * index as i64 / denominator;
+                    let x2 = plot.origin.x + plot.size.width * (index as i64 + 1) / denominator;
+                    let y1 = plot.origin.y + plot.size.height
+                        - ((values[0].abs() / maximum) * plot.size.height as f64) as i64;
+                    let y2 = plot.origin.y + plot.size.height
+                        - ((values[1].abs() / maximum) * plot.size.height as f64) as i64;
+                    list.commands.push(DisplayCommand::StrokePreset {
+                        geometry: PresetGeometry::Line,
+                        transform: Transform {
+                            bounds: EmuRect {
+                                origin: EmuPoint { x: x1, y: y1 },
+                                size: EmuSize {
+                                    width: x2 - x1,
+                                    height: y2 - y1,
+                                },
+                            },
+                            rotation: transform.rotation,
+                            flip_horizontal: transform.flip_horizontal,
+                            flip_vertical: transform.flip_vertical,
+                        },
+                        stroke: Stroke {
+                            color: series.color,
+                            width: 19_050,
+                            dash: None,
+                        },
+                    });
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn push_chart_rect(
+    list: &mut DisplayList,
+    parent: Transform,
+    x: i64,
+    y: i64,
+    width: i64,
+    height: i64,
+    color: RgbaColor,
+) {
+    list.commands.push(DisplayCommand::FillPreset {
+        geometry: PresetGeometry::Rect,
+        transform: Transform {
+            bounds: EmuRect {
+                origin: EmuPoint { x, y },
+                size: EmuSize { width, height },
+            },
+            rotation: parent.rotation,
+            flip_horizontal: parent.flip_horizontal,
+            flip_vertical: parent.flip_vertical,
+        },
+        color,
+    });
+}
+
 fn diagnostic_code(code: ResolveDiagnosticCode) -> u8 {
     match code {
         ResolveDiagnosticCode::MissingDependency => 1,
@@ -269,6 +529,13 @@ fn diagnostic_code(code: ResolveDiagnosticCode) -> u8 {
         ResolveDiagnosticCode::UnsupportedFill => 6,
         ResolveDiagnosticCode::UnsupportedEffect => 7,
         ResolveDiagnosticCode::MissingImage => 8,
+        ResolveDiagnosticCode::UnsupportedSmartArt => 9,
+        ResolveDiagnosticCode::UnsupportedMetafile => 10,
+        ResolveDiagnosticCode::UnsupportedAnimation => 11,
+        ResolveDiagnosticCode::UnsupportedTransition => 12,
+        ResolveDiagnosticCode::UnsupportedActiveContent => 13,
+        ResolveDiagnosticCode::UnsupportedThreeD => 14,
+        ResolveDiagnosticCode::UnsupportedChartKind => 15,
         _ => 255,
     }
 }

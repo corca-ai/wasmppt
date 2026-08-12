@@ -56,5 +56,30 @@ fn lowers_to_stable_compact_binary_commands_and_side_tables() {
         u16::from_le_bytes([encoded[4], encoded[5]]),
         DISPLAY_LIST_VERSION
     );
-    assert_eq!(display.structural_signature(), 0x9862_98b7_5076_e847);
+    assert_eq!(display.structural_signature(), 0x1604_1fe2_c07f_3636);
+}
+
+#[test]
+fn lowers_tables_and_supported_chart_kinds_to_shared_primitives() {
+    let resolved = PresentationDocument::open(FIXTURE.to_vec())
+        .unwrap()
+        .resolve_slide(1)
+        .unwrap();
+    let display = DisplayList::from_resolve(&resolved);
+    let table = display
+        .semantics
+        .iter()
+        .find(|semantic| semantic.name == "Sales Table")
+        .unwrap();
+    assert_eq!(table.kind, SemanticKind::Table);
+    assert!(table.command_count >= 10);
+    let chart = display
+        .semantics
+        .iter()
+        .find(|semantic| semantic.name == "Sales Chart")
+        .unwrap();
+    assert_eq!(chart.kind, SemanticKind::Chart);
+    assert_eq!(chart.command_count, 3);
+    assert!(display.strings.iter().any(|text| text == "Quarter"));
+    assert!(display.strings.iter().any(|text| text == "42"));
 }

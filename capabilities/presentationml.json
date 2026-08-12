@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "displayListVersion": 2,
+  "features": [
+    { "id": "text", "read": "basic", "preserve": "yes", "edit": "text-binding", "render": "canvas-dom" },
+    { "id": "images-raster", "read": "yes", "preserve": "yes", "edit": "image-binding", "render": "canvas-svg" },
+    { "id": "tables", "read": "cells-spans-sizing-solid-fill", "preserve": "yes", "edit": "repeat-bound-row", "render": "canvas-svg-basic" },
+    { "id": "charts-column-bar-line", "read": "cache-and-workbook-link", "preserve": "yes", "edit": "cache-and-workbook-atomic", "render": "canvas-svg-basic" },
+    { "id": "charts-pie-area-scatter-other", "read": "cache-and-workbook-link", "preserve": "yes", "edit": "cache-and-workbook-atomic", "render": "diagnostic-only" },
+    { "id": "preset-geometry", "read": "nine-common-presets", "preserve": "yes", "edit": "no", "render": "canvas-svg" },
+    { "id": "custom-geometry", "read": "detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
+    { "id": "gradients-patterns", "read": "detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
+    { "id": "shadows-effects", "read": "detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
+    { "id": "smartart", "read": "relationships-detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
+    { "id": "emf-wmf", "read": "media-detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
+    { "id": "animation", "read": "detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
+    { "id": "transition", "read": "detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
+    { "id": "3d", "read": "detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
+    { "id": "ole-active-content", "read": "detected", "preserve": "policy-dependent", "edit": "no", "render": "never-activate" },
+    { "id": "vba", "read": "detected", "preserve": "pptm-policy-only", "edit": "no", "render": "never-execute" }
+  ]
+}

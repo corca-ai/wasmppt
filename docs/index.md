@@ -6,6 +6,8 @@ This is the canonical index for living `wasmppt` documentation.
 
 - [System architecture](architecture.md) — mission, core boundaries, package and
   rendering pipelines, runtime model, performance contract, and delivery slices.
+- [Development guide](develop.md) — toolchain, crate and package entry points,
+  feature policy, profiles, and verification commands.
 - [Documentation guide](metadoc.md) — how documentation is organized, written,
   linked, and linted.
 

@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned Rust toolchain
+        run: rustup show
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - name: Check native workspace
+        run: cargo check --workspace --all-targets --all-features --locked
+      - name: Test native workspace
+        run: cargo test --workspace --all-features --locked
+      - name: Lint native workspace
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Check Wasm workspace
+        run: cargo check --workspace --all-features --locked --target wasm32-unknown-unknown
+      - name: Build release Wasm
+        run: cargo build --profile wasm-release --locked --target wasm32-unknown-unknown -p wasmppt-wasm
+      - name: Report Wasm artifact size
+        run: node scripts/report-wasm-size.mjs target/wasm32-unknown-unknown/wasm-release/wasmppt_wasm.wasm
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install MSRV
+        run: rustup toolchain install 1.85.1 --profile minimal
+      - name: Check workspace with MSRV
+        run: cargo +1.85.1 check --workspace --all-targets --all-features --locked
+
+  boundaries-and-packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install JavaScript dependencies
+        run: npm ci
+      - name: Check package entry points and core boundary
+        run: npm run check
+      - name: Test repository tooling
+        run: npm test
+      - name: Build JavaScript packages
+        run: npm run build
+
+  documentation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install awiki
+        run: cargo install --git https://github.com/corca-ai/awiki --rev f65f8c43dbf0300609bdfdf823c09cba370222c6 --locked awiki
+      - name: Lint documentation graph
+        run: awiki lint -root docs
+
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --version 0.19.8 --locked
+      - name: Check dependency policy
+        run: cargo deny check

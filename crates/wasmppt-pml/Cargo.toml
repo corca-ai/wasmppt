@@ -1,0 +1,20 @@
+[package]
+name = "wasmppt-pml"
+description = "Loss-aware PresentationML views for wasmppt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+default = []
+
+[dependencies]
+wasmppt-opc.workspace = true
+wasmppt-xml.workspace = true
+
+[lints]
+workspace = true

@@ -15,6 +15,8 @@ path and browser rendering path are both demonstrably fast.
 - [Documentation index](docs/index.md): canonical map of project documentation.
 - [System architecture](docs/architecture.md): goals, boundaries, data model,
   execution model, performance contract, and delivery slices.
+- [Development guide](docs/develop.md): toolchain, entry points, feature policy,
+  build profiles, and required verification commands.
 - [Documentation guide](docs/metadoc.md): documentation structure, writing rules,
   and required lint command.
 

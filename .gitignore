@@ -5,3 +5,4 @@
 *.profraw
 *.wasm.map
 .DS_Store
+packages/*/dist/

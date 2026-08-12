@@ -1,0 +1,25 @@
+[package]
+name = "wasmppt-wasm"
+description = "Narrow WebAssembly bindings for the wasmppt Rust core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+
+[dependencies]
+wasm-bindgen.workspace = true
+wasmppt-display.workspace = true
+wasmppt-layout.workspace = true
+wasmppt-template.workspace = true
+
+[lints]
+workspace = true

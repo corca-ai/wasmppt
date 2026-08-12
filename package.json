@@ -1,0 +1,22 @@
+{
+  "name": "wasmppt-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "check": "npm run check --workspaces --if-present && npm run check:core-boundary",
+    "check:core-boundary": "node scripts/check-core-boundary.mjs",
+    "lint:docs": "awiki lint -root docs",
+    "test": "node --test scripts/*.test.mjs && npm run test --workspaces --if-present"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

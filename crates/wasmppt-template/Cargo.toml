@@ -1,0 +1,21 @@
+[package]
+name = "wasmppt-template"
+description = "Compiled PowerPoint template planning and injection for wasmppt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+default = []
+
+[dependencies]
+wasmppt-opc.workspace = true
+wasmppt-pml.workspace = true
+wasmppt-xml.workspace = true
+
+[lints]
+workspace = true

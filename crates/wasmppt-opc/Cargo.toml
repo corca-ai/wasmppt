@@ -1,0 +1,16 @@
+[package]
+name = "wasmppt-opc"
+description = "Bounded Open Packaging Conventions and ZIP substrate for wasmppt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+default = []
+
+[lints]
+workspace = true

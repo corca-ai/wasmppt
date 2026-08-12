@@ -1,0 +1,19 @@
+[package]
+name = "wasmppt-layout"
+description = "PresentationML theme, layout, and slide resolution for wasmppt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+default = []
+
+[dependencies]
+wasmppt-pml.workspace = true
+
+[lints]
+workspace = true

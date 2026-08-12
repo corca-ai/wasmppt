@@ -1,0 +1,19 @@
+[package]
+name = "wasmppt-display"
+description = "Compact backend-neutral display lists for wasmppt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+default = []
+
+[dependencies]
+wasmppt-layout.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,25 @@
+[package]
+name = "wasmppt-cli"
+description = "Native inspection, validation, corpus, and benchmark CLI for wasmppt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "wasmppt"
+path = "src/main.rs"
+
+[features]
+default = []
+
+[dependencies]
+wasmppt-opc.workspace = true
+wasmppt-pml.workspace = true
+wasmppt-template.workspace = true
+
+[lints]
+workspace = true

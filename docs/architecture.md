@@ -1,6 +1,7 @@
 # System Architecture
 
-Status: accepted direction; implementation has not started.
+Status: accepted direction. The repository and package boundaries are implemented;
+subsystem behavior described below remains planned until its tracking issue closes.
 
 This document defines the durable architecture for `wasmppt`. Execution work and
 acceptance criteria live in [GitHub Issues](https://github.com/corca-ai/wasmppt/issues).

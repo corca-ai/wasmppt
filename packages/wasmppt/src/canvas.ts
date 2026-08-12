@@ -34,6 +34,20 @@ export interface SceneImage {
   readonly relationshipId: string
 }
 
+export interface SceneTextStyle {
+  readonly fontSize: number
+  readonly color: RgbaColor
+  readonly fontFamily?: string
+  readonly bold: boolean
+  readonly italic: boolean
+  readonly alignment: 'left' | 'center' | 'right' | 'justify'
+  readonly verticalAlignment: 'top' | 'center' | 'bottom'
+  readonly marginLeft: number
+  readonly marginTop: number
+  readonly marginRight: number
+  readonly marginBottom: number
+}
+
 export interface SceneSemanticElement {
   readonly firstCommand: number
   readonly commandCount: number
@@ -95,7 +109,17 @@ export type SceneCommand =
       readonly transform: SceneTransform
       readonly crop: readonly [number, number, number, number]
     }
-  | { readonly kind: 'draw-text'; readonly text: number; readonly bounds: EmuRect }
+  | {
+      readonly kind: 'draw-text'
+      readonly text: number
+      readonly bounds: EmuRect
+      readonly style: SceneTextStyle
+    }
+  | {
+      readonly kind: 'draw-unsupported'
+      readonly transform: SceneTransform
+      readonly feature: 'smartart' | 'metafile' | 'ole-object' | 'graphic-frame'
+    }
 
 export interface DisplayScene {
   readonly version: number
@@ -116,7 +140,9 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
   const reader = new BinaryReader(bytes)
   if (reader.ascii(4) !== 'WPDL') throw new Error('display list has an invalid magic value')
   const version = reader.u16()
-  if (version !== 1 && version !== 2) throw new Error(`unsupported display-list version ${version}`)
+  if (version !== 1 && version !== 2 && version !== 3) {
+    throw new Error(`unsupported display-list version ${version}`)
+  }
   if (reader.u16() !== 0) throw new Error('display-list reserved flags are non-zero')
   const width = reader.safeI64('slide width')
   const height = reader.safeI64('slide height')
@@ -128,7 +154,9 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
   const semanticCount = version >= 2 ? reader.boundedCount('semantic element') : 0
   const diagnosticCount = version >= 2 ? reader.boundedCount('diagnostic') : 0
   const commands: SceneCommand[] = []
-  for (let index = 0; index < commandCount; index += 1) commands.push(readCommand(reader))
+  for (let index = 0; index < commandCount; index += 1) {
+    commands.push(readCommand(reader, version))
+  }
   const groups: SceneGroupTransform[] = []
   for (let index = 0; index < groupCount; index += 1) {
     groups.push({
@@ -260,20 +288,30 @@ export class FontResolver {
     this.#host = options.host ?? new BrowserFontLoadingHost()
   }
 
-  async resolve(text: string, sizePixels = 18, requestedFamily?: string): Promise<ResolvedFont> {
+  async resolve(
+    text: string,
+    sizePixels = 18,
+    requestedFamily?: string,
+    emphasis: { readonly bold?: boolean; readonly italic?: boolean } = {},
+  ): Promise<ResolvedFont> {
     const script = detectFontScript(text)
     const requested = requestedFamily ?? this.#themeFamily(script)
     const family = this.#substitutions[requested] ?? requested
     await this.#load(family)
-    const css = `${sizePixels}px ${quoteFontFamily(family)}`
+    const prefix = `${emphasis.italic === true ? 'italic' : 'normal'} ${emphasis.bold === true ? '700' : '400'}`
+    const css = `${prefix} ${sizePixels}px ${quoteFontFamily(family)}`
     const exact = this.#host.check(css, representativeText(script, text))
-    const resolvedFamily = exact ? family : this.#fallback[script]
+    const fallbackFamily = this.#fallback[script]
+    const resolvedFamily = exact ? family : fallbackFamily
+    const cssFamily = exact
+      ? `${quoteFontFamily(family)}, ${quoteFontFamily(fallbackFamily)}`
+      : quoteFontFamily(fallbackFamily)
     return Object.freeze({
       requestedFamily: requested,
       family: resolvedFamily,
       script,
       exact,
-      css: `${sizePixels}px ${quoteFontFamily(resolvedFamily)}`,
+      css: `${prefix} ${sizePixels}px ${cssFamily}`,
     })
   }
 
@@ -364,7 +402,10 @@ export interface DecodedImage {
   close?(): void
 }
 
-export type ImageResolver = (image: SceneImage, signal: AbortSignal) => Promise<DecodedImage>
+export type ImageResolver = (
+  image: SceneImage,
+  signal: AbortSignal,
+) => Promise<DecodedImage | undefined>
 
 export interface RenderTelemetry {
   readonly resolutionMs: number
@@ -412,7 +453,14 @@ export class CanvasDisplayListRenderer {
     )
     const fontStart = performance.now()
     const resolvedFonts = await Promise.all(
-      textCommands.map((command) => fontResolver.resolve(scene.strings[command.text] ?? '')),
+      textCommands.map((command) =>
+        fontResolver.resolve(
+          scene.strings[command.text] ?? '',
+          pointsToCssPixels(command.style.fontSize / 100),
+          command.style.fontFamily,
+          command.style,
+        ),
+      ),
     )
     const measurements = measureTextBatch(
       context,
@@ -465,6 +513,7 @@ export class CanvasDisplayListRenderer {
           case 'draw-image': {
             const image = decodedImages[command.resource]
             if (image !== undefined) drawImage(context, image.source, command.transform, command.crop)
+            else drawUnsupportedGraphic(context, command.transform, 'Image unavailable')
             break
           }
           case 'draw-text': {
@@ -472,9 +521,12 @@ export class CanvasDisplayListRenderer {
             const font = resolvedFonts[textIndex]!
             const measured = measurements[textIndex]!
             textIndex += 1
-            drawText(context, text, command.bounds, font, measured)
+            drawText(context, text, command.bounds, command.style, font, measured)
             break
           }
+          case 'draw-unsupported':
+            drawUnsupportedGraphic(context, command.transform, unsupportedLabel(command.feature))
+            break
         }
       }
     } finally {
@@ -506,6 +558,7 @@ export class CanvasDisplayListRenderer {
         if (cached !== undefined) return cached
         const decoded = await resolver(image, signal)
         throwIfAborted(signal)
+        if (decoded === undefined) return undefined
         this.#images.set(key, decoded, decoded.residentBytes)
         return decoded
       }),
@@ -787,7 +840,7 @@ class BinaryReader {
   }
 }
 
-function readCommand(reader: BinaryReader): SceneCommand {
+function readCommand(reader: BinaryReader, version: number): SceneCommand {
   switch (reader.u8()) {
     case 1:
       return { kind: 'clear', color: readColor(reader) }
@@ -820,11 +873,85 @@ function readCommand(reader: BinaryReader): SceneCommand {
         transform: readTransform(reader),
         crop: [reader.i32(), reader.i32(), reader.i32(), reader.i32()],
       }
-    case 7:
-      return { kind: 'draw-text', text: reader.u32(), bounds: readRect(reader) }
+    case 7: {
+      const text = reader.u32()
+      const bounds = readRect(reader)
+      if (version < 3) return { kind: 'draw-text', text, bounds, style: defaultTextStyle() }
+      const fontSize = reader.i32()
+      const color = readColor(reader)
+      const fontFamily = reader.utf8Blob()
+      const bold = reader.u8() !== 0
+      const italic = reader.u8() !== 0
+      const alignment = textAlignment(reader.u8())
+      const verticalAlignment = textVerticalAlignment(reader.u8())
+      return {
+        kind: 'draw-text',
+        text,
+        bounds,
+        style: {
+          fontSize,
+          color,
+          fontFamily: fontFamily === '' ? undefined : fontFamily,
+          bold,
+          italic,
+          alignment,
+          verticalAlignment,
+          marginLeft: reader.safeI64('text left margin'),
+          marginTop: reader.safeI64('text top margin'),
+          marginRight: reader.safeI64('text right margin'),
+          marginBottom: reader.safeI64('text bottom margin'),
+        },
+      }
+    }
+    case 8:
+      return {
+        kind: 'draw-unsupported',
+        transform: readTransform(reader),
+        feature: unsupportedFeature(reader.u8()),
+      }
     default:
       throw new Error('display list contains an unknown command')
   }
+}
+
+function unsupportedFeature(
+  value: number,
+): Extract<SceneCommand, { readonly kind: 'draw-unsupported' }>['feature'] {
+  if (value === 1) return 'smartart'
+  if (value === 2) return 'metafile'
+  if (value === 3) return 'ole-object'
+  if (value === 4) return 'graphic-frame'
+  throw new Error('display list contains an unknown preserved graphic feature')
+}
+
+function defaultTextStyle(): SceneTextStyle {
+  return {
+    fontSize: 1_800,
+    color: { red: 0, green: 0, blue: 0, alpha: 255 },
+    bold: false,
+    italic: false,
+    alignment: 'left',
+    verticalAlignment: 'top',
+    marginLeft: 91_440,
+    marginTop: 45_720,
+    marginRight: 91_440,
+    marginBottom: 45_720,
+  }
+}
+
+function textAlignment(value: number): SceneTextStyle['alignment'] {
+  if (value === 1) return 'left'
+  if (value === 2) return 'center'
+  if (value === 3) return 'right'
+  if (value === 4) return 'justify'
+  throw new Error('display list contains an unknown text alignment')
+}
+
+function textVerticalAlignment(value: number): SceneTextStyle['verticalAlignment'] {
+  if (value === 1) return 'top'
+  if (value === 2) return 'center'
+  if (value === 3) return 'bottom'
+  throw new Error('display list contains an unknown vertical text alignment')
 }
 
 function readTransform(reader: BinaryReader): SceneTransform {
@@ -1068,33 +1195,83 @@ function drawImage(
   context.restore()
 }
 
+function unsupportedLabel(
+  feature: Extract<SceneCommand, { readonly kind: 'draw-unsupported' }>['feature'],
+): string {
+  if (feature === 'smartart') return 'SmartArt preview unavailable'
+  if (feature === 'metafile') return 'EMF/WMF preview unavailable'
+  if (feature === 'ole-object') return 'Embedded object preview unavailable'
+  return 'Graphic preview unavailable'
+}
+
+function drawUnsupportedGraphic(
+  context: CanvasRenderingContext2D,
+  transform: SceneTransform,
+  label: string,
+): void {
+  context.save()
+  const bounds = applyShapeTransform(context, transform)
+  context.fillStyle = 'rgba(104, 116, 129, 0.08)'
+  context.strokeStyle = 'rgba(104, 116, 129, 0.65)'
+  context.lineWidth = 1
+  context.setLineDash([6, 4])
+  context.fillRect(0, 0, bounds.width, bounds.height)
+  context.strokeRect(0, 0, bounds.width, bounds.height)
+  context.setLineDash([])
+  context.fillStyle = 'rgba(70, 79, 89, 0.9)'
+  context.font = '12px sans-serif'
+  context.textAlign = 'center'
+  context.textBaseline = 'middle'
+  context.fillText(label, bounds.width / 2, bounds.height / 2, Math.max(0, bounds.width - 16))
+  context.restore()
+}
+
 function drawText(
   context: CanvasRenderingContext2D,
   text: string,
   bounds: EmuRect,
+  style: SceneTextStyle,
   font: ResolvedFont,
   measuredWidth: number,
 ): void {
   context.save()
   context.font = font.css
   context.textBaseline = 'top'
-  context.fillStyle = '#000'
+  context.fillStyle = cssColor(style.color)
   const pixelBounds = pixelRect(bounds)
-  const pixelWidth = pixelBounds.width
-  const lines = wrapText(text, pixelWidth, (candidate) => {
+  const left = pixelBounds.x + toPixels(style.marginLeft)
+  const top = pixelBounds.y + toPixels(style.marginTop)
+  const width = Math.max(
+    0,
+    pixelBounds.width - toPixels(style.marginLeft) - toPixels(style.marginRight),
+  )
+  const height = Math.max(
+    0,
+    pixelBounds.height - toPixels(style.marginTop) - toPixels(style.marginBottom),
+  )
+  const lines = wrapText(text, width, (candidate) => {
     if (candidate === text) return measuredWidth
     return context.measureText(candidate).width
   })
-  const lineHeight = 21
+  const lineHeight = pointsToCssPixels(style.fontSize / 100) * 1.2
+  const blockHeight = lines.length * lineHeight
+  const y =
+    style.verticalAlignment === 'center'
+      ? top + Math.max(0, height - blockHeight) / 2
+      : style.verticalAlignment === 'bottom'
+        ? top + Math.max(0, height - blockHeight)
+        : top
+  const alignment = style.alignment === 'justify' ? 'left' : style.alignment
+  context.textAlign = alignment
+  const x = alignment === 'center' ? left + width / 2 : alignment === 'right' ? left + width : left
   for (let index = 0; index < lines.length; index += 1) {
-    context.fillText(
-      lines[index]!,
-      pixelBounds.x,
-      pixelBounds.y + index * lineHeight,
-      pixelBounds.width,
-    )
+    context.fillText(lines[index]!, x, y + index * lineHeight)
   }
   context.restore()
+}
+
+function pointsToCssPixels(points: number): number {
+  return (points * 96) / 72
 }
 
 function throwIfAborted(signal: AbortSignal): void {

@@ -37,8 +37,9 @@ see Microsoft's [NumberingCache API mapping](https://learn.microsoft.com/en-us/d
 Custom geometry, gradient and pattern fills, shadows and effects, SmartArt, EMF/WMF, animation,
 transitions, 3D, OLE, and VBA are never silently classified as rendered. Their source bytes and
 relationships survive unrelated edits. Stable diagnostic codes describe the missing rendering
-capability. OLE and VBA are never activated; default POTM conversion strips prohibited active
-content as documented in [high-speed template injection](injection.md).
+capability, and drawable preserved-graphic regions use labeled placeholders instead of blank
+space. OLE and VBA are never activated; default POTM conversion strips prohibited active content
+as documented in [high-speed template injection](injection.md).
 
 The machine-readable [PresentationML capability matrix](../capabilities/presentationml.json)
 classifies read, preserve, edit, and render support independently. Tests require every feature to

@@ -23,6 +23,15 @@ fn lowers_to_stable_compact_binary_commands_and_side_tables() {
             .iter()
             .any(|command| matches!(command, DisplayCommand::DrawText { .. }))
     );
+    let text_style = display
+        .commands
+        .iter()
+        .find_map(|command| match command {
+            DisplayCommand::DrawText { style, .. } => Some(style),
+            _ => None,
+        })
+        .unwrap();
+    assert!(text_style.font_size > 0);
     assert_eq!(display.images.len(), 1);
     assert_eq!(display.strings, ["Actual title"]);
     let title = display
@@ -56,7 +65,7 @@ fn lowers_to_stable_compact_binary_commands_and_side_tables() {
         u16::from_le_bytes([encoded[4], encoded[5]]),
         DISPLAY_LIST_VERSION
     );
-    assert_eq!(display.structural_signature(), 0x1604_1fe2_c07f_3636);
+    assert_eq!(display.structural_signature(), 0x43e5_ba45_0130_0db3);
 }
 
 #[test]

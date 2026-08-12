@@ -7,8 +7,8 @@ use crate::{
     ChartKind, ChartSeries, ElementKind, EmuPoint, EmuSize, Fill, GroupTransform, ImageCrop,
     LayoutError, Placeholder, PreservedFeature, PresetGeometry, ResolutionTrace, ResolveDiagnostic,
     ResolveDiagnosticCode, ResolveOutput, ResolvedChart, ResolvedElement, ResolvedSlide,
-    ResolvedTable, ResolvedTableCell, ResolvedTableRow, RgbaColor, SourceLevel, Stroke, Transform,
-    plain_i64,
+    ResolvedTable, ResolvedTableCell, ResolvedTableRow, ResolvedTextStyle, RgbaColor, SourceLevel,
+    Stroke, TextAlignment, TextVerticalAlignment, Transform, plain_i64,
 };
 
 const WHITE: RgbaColor = RgbaColor {
@@ -34,6 +34,7 @@ struct RawShape {
     fill: Option<Fill>,
     stroke: Option<Stroke>,
     text: Option<String>,
+    text_style: PartialTextStyle,
     alternative_text: Option<String>,
     hyperlink_relationship_id: Option<String>,
     table: Option<ResolvedTable>,
@@ -49,12 +50,103 @@ struct ParsedPart {
     shapes: Vec<RawShape>,
     background: Option<RgbaColor>,
     diagnostics: Vec<(ResolveDiagnosticCode, Option<u32>, String)>,
+    text_styles: MasterTextStyles,
+}
+
+#[derive(Clone, Debug, Default)]
+struct PartialTextStyle {
+    font_size: Option<i32>,
+    color: Option<RgbaColor>,
+    font_family: Option<String>,
+    bold: Option<bool>,
+    italic: Option<bool>,
+    alignment: Option<TextAlignment>,
+    vertical_alignment: Option<TextVerticalAlignment>,
+    margin_left: Option<i64>,
+    margin_top: Option<i64>,
+    margin_right: Option<i64>,
+    margin_bottom: Option<i64>,
+    bullet: Option<Option<String>>,
+}
+
+impl PartialTextStyle {
+    fn overlay(&mut self, other: &Self) {
+        macro_rules! replace_some {
+            ($field:ident) => {
+                if other.$field.is_some() {
+                    self.$field = other.$field.clone();
+                }
+            };
+        }
+        replace_some!(font_size);
+        replace_some!(color);
+        replace_some!(font_family);
+        replace_some!(bold);
+        replace_some!(italic);
+        replace_some!(alignment);
+        replace_some!(vertical_alignment);
+        replace_some!(margin_left);
+        replace_some!(margin_top);
+        replace_some!(margin_right);
+        replace_some!(margin_bottom);
+        replace_some!(bullet);
+    }
+
+    fn fill_missing_from(&mut self, fallback: &Self) {
+        macro_rules! fill_missing {
+            ($field:ident) => {
+                if self.$field.is_none() {
+                    self.$field = fallback.$field.clone();
+                }
+            };
+        }
+        fill_missing!(font_size);
+        fill_missing!(color);
+        fill_missing!(font_family);
+        fill_missing!(bold);
+        fill_missing!(italic);
+        fill_missing!(alignment);
+        fill_missing!(vertical_alignment);
+        fill_missing!(margin_left);
+        fill_missing!(margin_top);
+        fill_missing!(margin_right);
+        fill_missing!(margin_bottom);
+        fill_missing!(bullet);
+    }
+
+    fn resolve(&self) -> ResolvedTextStyle {
+        let defaults = ResolvedTextStyle::default();
+        ResolvedTextStyle {
+            font_size: self.font_size.unwrap_or(defaults.font_size),
+            color: self.color.unwrap_or(defaults.color),
+            font_family: self.font_family.clone(),
+            bold: self.bold.unwrap_or(defaults.bold),
+            italic: self.italic.unwrap_or(defaults.italic),
+            alignment: self.alignment.unwrap_or(defaults.alignment),
+            vertical_alignment: self
+                .vertical_alignment
+                .unwrap_or(defaults.vertical_alignment),
+            margin_left: self.margin_left.unwrap_or(defaults.margin_left),
+            margin_top: self.margin_top.unwrap_or(defaults.margin_top),
+            margin_right: self.margin_right.unwrap_or(defaults.margin_right),
+            margin_bottom: self.margin_bottom.unwrap_or(defaults.margin_bottom),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct MasterTextStyles {
+    title: PartialTextStyle,
+    body: PartialTextStyle,
+    other: PartialTextStyle,
 }
 
 #[derive(Clone, Debug)]
 struct Theme {
     colors: BTreeMap<String, RgbaColor>,
     mapping: BTreeMap<String, String>,
+    major_latin: String,
+    minor_latin: String,
 }
 
 impl Default for Theme {
@@ -79,6 +171,8 @@ impl Default for Theme {
                 ("bg2".to_owned(), "lt2".to_owned()),
                 ("tx2".to_owned(), "dk2".to_owned()),
             ]),
+            major_latin: "Arial".to_owned(),
+            minor_latin: "Arial".to_owned(),
         }
     }
 }
@@ -179,7 +273,12 @@ pub fn resolve_slide_parts(
                     })
                 })
             });
-            let merged = merge_shape(raw, inherited_layout, inherited_master);
+            let mut merged = merge_shape(raw, inherited_layout, inherited_master);
+            if let Some((_, master_part, _)) = &master {
+                let master_style =
+                    master_text_style_for(&master_part.text_styles, merged.placeholder.as_ref());
+                merged.text_style.fill_missing_from(master_style);
+            }
             elements.push(resolve_element(
                 &merged,
                 &mut element_resolver,
@@ -396,6 +495,15 @@ fn resolved_element(
     graph: &PackageGraph,
     source_part: PartId,
 ) -> ResolvedElement {
+    let text_style = shape.text_style.resolve();
+    let text = apply_paragraph_markers(
+        shape.text.as_deref().unwrap_or_default(),
+        shape
+            .text_style
+            .bullet
+            .as_ref()
+            .and_then(|value| value.as_deref()),
+    );
     ResolvedElement {
         id: shape.id,
         name: shape.name.clone(),
@@ -406,7 +514,8 @@ fn resolved_element(
         group_transforms: shape.groups.clone(),
         fill: shape.fill.clone().unwrap_or(Fill::None),
         stroke: shape.stroke.clone(),
-        text: shape.text.clone().unwrap_or_default(),
+        text,
+        text_style,
         alternative_text: shape.alternative_text.clone(),
         hyperlink: shape.hyperlink_relationship_id.as_ref().and_then(|id| {
             graph
@@ -432,6 +541,13 @@ fn merge_shape(local: &RawShape, layout: Option<&RawShape>, master: Option<&RawS
             .or_else(|| layout.and_then(select))
             .or_else(|| master.and_then(select))
     };
+    let mut text_style = local.text_style.clone();
+    if let Some(layout) = layout {
+        text_style.fill_missing_from(&layout.text_style);
+    }
+    if let Some(master) = master {
+        text_style.fill_missing_from(&master.text_style);
+    }
     RawShape {
         id: local.id,
         name: local.name.clone(),
@@ -460,6 +576,7 @@ fn merge_shape(local: &RawShape, layout: Option<&RawShape>, master: Option<&RawS
             .clone()
             .or_else(|| layout.and_then(|shape| shape.text.clone()))
             .or_else(|| master.and_then(|shape| shape.text.clone())),
+        text_style,
         alternative_text: local
             .alternative_text
             .clone()
@@ -478,6 +595,33 @@ fn merge_shape(local: &RawShape, layout: Option<&RawShape>, master: Option<&RawS
     }
 }
 
+fn master_text_style_for<'a>(
+    styles: &'a MasterTextStyles,
+    placeholder: Option<&Placeholder>,
+) -> &'a PartialTextStyle {
+    match placeholder.map(|placeholder| placeholder.kind.as_str()) {
+        Some("title" | "ctrTitle") => &styles.title,
+        Some("body" | "obj" | "subTitle") | None => &styles.body,
+        _ => &styles.other,
+    }
+}
+
+fn apply_paragraph_markers(text: &str, bullet: Option<&str>) -> String {
+    let Some(bullet) = bullet else {
+        return text.to_owned();
+    };
+    text.split('\n')
+        .map(|paragraph| {
+            if paragraph.is_empty() {
+                String::new()
+            } else {
+                format!("{bullet} {paragraph}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn placeholder_matches(expected: &Placeholder, candidate: Option<&Placeholder>) -> bool {
     candidate.is_some_and(|candidate| {
         candidate.index == expected.index
@@ -488,6 +632,7 @@ fn placeholder_matches(expected: &Placeholder, candidate: Option<&Placeholder>) 
 fn parse_drawing_part(document: &XmlDocument, theme: &Theme) -> ParsedPart {
     let mut parsed = ParsedPart {
         background: parse_background(document, theme),
+        text_styles: parse_master_text_styles(document, theme),
         ..ParsedPart::default()
     };
     let mut groups = Vec::<(usize, GroupTransform)>::new();
@@ -918,7 +1063,13 @@ fn parse_shape(
     };
     let mut stack = Vec::<String>::new();
     let mut in_text = false;
-    let mut text = String::new();
+    let mut paragraph_text = String::new();
+    let mut paragraphs = Vec::new();
+    let mut defaults = PartialTextStyle::default();
+    let mut paragraph_style = PartialTextStyle::default();
+    let mut run_style = PartialTextStyle::default();
+    let mut saw_paragraph_style = false;
+    let mut saw_run_style = false;
     for index in start..=end {
         let token = &document.tokens()[index];
         match &token.kind {
@@ -928,6 +1079,9 @@ fn parse_shape(
                 empty,
             } => {
                 let inside_line = stack.iter().any(|local| local == "ln");
+                let inside_text_properties = stack
+                    .iter()
+                    .any(|local| matches!(local.as_str(), "rPr" | "defRPr" | "endParaRPr"));
                 match name.local.as_str() {
                     "cNvPr" => {
                         shape.id = plain_u32(attributes, "id").unwrap_or(0);
@@ -953,6 +1107,37 @@ fn parse_shape(
                             shape.transform = Some(parse_transform(document, index, xfrm_end));
                         }
                     }
+                    "bodyPr" => {
+                        defaults.overlay(&parse_body_properties(attributes));
+                    }
+                    "lvl1pPr" if stack.iter().any(|local| local == "lstStyle") => {
+                        if let Some(style_end) = element_end(document, index) {
+                            defaults.overlay(&parse_text_style_range(
+                                document, index, style_end, theme,
+                            ));
+                        }
+                    }
+                    "pPr" if !saw_paragraph_style => {
+                        if let Some(style_end) = element_end(document, index) {
+                            paragraph_style.overlay(&parse_text_style_range(
+                                document, index, style_end, theme,
+                            ));
+                        }
+                        saw_paragraph_style = true;
+                    }
+                    "rPr"
+                        if !saw_run_style
+                            && stack
+                                .iter()
+                                .any(|local| matches!(local.as_str(), "r" | "fld")) =>
+                    {
+                        if let Some(style_end) = element_end(document, index) {
+                            run_style.overlay(&parse_text_style_range(
+                                document, index, style_end, theme,
+                            ));
+                        }
+                        saw_run_style = true;
+                    }
                     "prstGeom" => {
                         shape.geometry = plain(attributes, "prst").and_then(preset_geometry);
                         if shape.geometry.is_none() {
@@ -971,7 +1156,7 @@ fn parse_shape(
                         Some(shape.id),
                         "custom geometry is retained in source but not lowered yet".to_owned(),
                     )),
-                    "solidFill" => {
+                    "solidFill" if !inside_text_properties => {
                         if let Some(fill_end) = element_end(document, index) {
                             let color =
                                 parse_color(document, index, fill_end, theme).unwrap_or(BLACK);
@@ -1031,14 +1216,17 @@ fn parse_shape(
                 };
                 let raw = std::str::from_utf8(document.source_range(range)).unwrap_or_default();
                 if matches!(&token.kind, TokenKind::Cdata) {
-                    text.push_str(raw);
+                    paragraph_text.push_str(raw);
                 } else if let Ok(decoded) = decode_entities(raw, token.range.start) {
-                    text.push_str(&decoded);
+                    paragraph_text.push_str(&decoded);
                 }
             }
             TokenKind::End { name } => {
                 if name.local == "t" {
                     in_text = false;
+                }
+                if name.local == "p" {
+                    paragraphs.push(std::mem::take(&mut paragraph_text));
                 }
                 if stack.last().is_some_and(|local| *local == name.local) {
                     stack.pop();
@@ -1047,9 +1235,15 @@ fn parse_shape(
             _ => {}
         }
     }
-    if !text.is_empty() {
-        shape.text = Some(text);
+    if !paragraph_text.is_empty() {
+        paragraphs.push(paragraph_text);
     }
+    if !paragraphs.is_empty() {
+        shape.text = Some(paragraphs.join("\n"));
+    }
+    defaults.overlay(&paragraph_style);
+    defaults.overlay(&run_style);
+    shape.text_style = defaults;
     shape
 }
 
@@ -1132,6 +1326,126 @@ fn parse_transform(document: &XmlDocument, start: usize, end: usize) -> Transfor
     transform
 }
 
+fn parse_master_text_styles(document: &XmlDocument, theme: &Theme) -> MasterTextStyles {
+    let mut styles = MasterTextStyles::default();
+    for (index, token) in document.tokens().iter().enumerate() {
+        let TokenKind::Start { name, .. } = &token.kind else {
+            continue;
+        };
+        let target = match name.local.as_str() {
+            "titleStyle" => &mut styles.title,
+            "bodyStyle" => &mut styles.body,
+            "otherStyle" => &mut styles.other,
+            _ => continue,
+        };
+        let Some(style_end) = element_end(document, index) else {
+            continue;
+        };
+        let level = (index + 1..=style_end).find(|candidate| {
+            matches!(
+                &document.tokens()[*candidate].kind,
+                TokenKind::Start { name, .. } if name.local == "lvl1pPr"
+            )
+        });
+        if let Some(level) = level {
+            let level_end = element_end(document, level).unwrap_or(level);
+            target.overlay(&parse_text_style_range(document, level, level_end, theme));
+        }
+    }
+    styles
+}
+
+fn parse_body_properties(attributes: &[Attribute]) -> PartialTextStyle {
+    PartialTextStyle {
+        vertical_alignment: plain(attributes, "anchor").and_then(text_vertical_alignment),
+        margin_left: plain_i64(attributes, "lIns"),
+        margin_top: plain_i64(attributes, "tIns"),
+        margin_right: plain_i64(attributes, "rIns"),
+        margin_bottom: plain_i64(attributes, "bIns"),
+        ..PartialTextStyle::default()
+    }
+}
+
+fn parse_text_style_range(
+    document: &XmlDocument,
+    start: usize,
+    end: usize,
+    theme: &Theme,
+) -> PartialTextStyle {
+    let mut style = PartialTextStyle::default();
+    for index in start..=end {
+        let TokenKind::Start {
+            name, attributes, ..
+        } = &document.tokens()[index].kind
+        else {
+            continue;
+        };
+        match name.local.as_str() {
+            "bodyPr" => style.overlay(&parse_body_properties(attributes)),
+            "pPr" | "lvl1pPr" | "lvl2pPr" | "lvl3pPr" | "lvl4pPr" | "lvl5pPr" | "lvl6pPr"
+            | "lvl7pPr" | "lvl8pPr" | "lvl9pPr" => {
+                style.alignment = plain(attributes, "algn").and_then(text_alignment);
+            }
+            "defRPr" | "rPr" | "endParaRPr" => {
+                if let Some(value) = plain_i32(attributes, "sz") {
+                    style.font_size = Some(value);
+                }
+                if let Some(value) = plain(attributes, "b") {
+                    style.bold = Some(ooxml_bool(value));
+                }
+                if let Some(value) = plain(attributes, "i") {
+                    style.italic = Some(ooxml_bool(value));
+                }
+            }
+            "latin" if style.font_family.is_none() => {
+                style.font_family =
+                    plain(attributes, "typeface").map(|family| resolve_theme_font(family, theme));
+            }
+            "solidFill" if style.color.is_none() => {
+                let fill_end = element_end(document, index).unwrap_or(index);
+                style.color = parse_color(document, index, fill_end, theme);
+            }
+            "buChar" => {
+                style.bullet = Some(Some(plain(attributes, "char").unwrap_or("•").to_owned()));
+            }
+            "buNone" => style.bullet = Some(None),
+            _ => {}
+        }
+    }
+    style
+}
+
+fn resolve_theme_font(family: &str, theme: &Theme) -> String {
+    match family {
+        "+mj-lt" => theme.major_latin.clone(),
+        "+mn-lt" => theme.minor_latin.clone(),
+        _ => family.to_owned(),
+    }
+}
+
+fn text_alignment(value: &str) -> Option<TextAlignment> {
+    match value {
+        "l" => Some(TextAlignment::Left),
+        "ctr" => Some(TextAlignment::Center),
+        "r" => Some(TextAlignment::Right),
+        "just" | "justLow" | "dist" | "thaiDist" => Some(TextAlignment::Justify),
+        _ => None,
+    }
+}
+
+fn text_vertical_alignment(value: &str) -> Option<TextVerticalAlignment> {
+    match value {
+        "t" => Some(TextVerticalAlignment::Top),
+        "ctr" => Some(TextVerticalAlignment::Center),
+        "b" => Some(TextVerticalAlignment::Bottom),
+        _ => None,
+    }
+}
+
+fn ooxml_bool(value: &str) -> bool {
+    matches!(value, "1" | "true" | "on")
+}
+
 fn parse_theme(document: &XmlDocument) -> Result<Theme, String> {
     let mut theme = Theme::default();
     let mut scheme_depth = None;
@@ -1172,6 +1486,36 @@ fn parse_theme(document: &XmlDocument) -> Result<Theme, String> {
                     .is_some_and(|(depth, _)| *depth == token.depth) =>
             {
                 slot = None
+            }
+            _ => {}
+        }
+    }
+    let mut font_group: Option<(usize, bool)> = None;
+    for token in document.tokens() {
+        match &token.kind {
+            TokenKind::Start { name, .. } if name.local == "majorFont" => {
+                font_group = Some((token.depth, true));
+            }
+            TokenKind::Start { name, .. } if name.local == "minorFont" => {
+                font_group = Some((token.depth, false));
+            }
+            TokenKind::Start {
+                name, attributes, ..
+            } if name.local == "latin"
+                && font_group.is_some_and(|(depth, _)| token.depth == depth + 1) =>
+            {
+                if let (Some((_, major)), Some(family)) =
+                    (font_group, plain(attributes, "typeface"))
+                {
+                    if major {
+                        theme.major_latin = family.to_owned();
+                    } else {
+                        theme.minor_latin = family.to_owned();
+                    }
+                }
+            }
+            TokenKind::End { name } if matches!(name.local.as_str(), "majorFont" | "minorFont") => {
+                font_group = None;
             }
             _ => {}
         }
@@ -1398,4 +1742,65 @@ fn deduplicate_trace(trace: &mut ResolutionTrace) {
     trace
         .parsed_xml_parts
         .retain(|part| parsed.insert(part.clone()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_style_inheritance_keeps_text_fill_out_of_shape_fill() {
+        let source = br#"<p:sp xmlns:p="p" xmlns:a="a">
+          <p:spPr><a:solidFill><a:srgbClr val="112233"/></a:solidFill></p:spPr>
+          <p:txBody>
+            <a:bodyPr anchor="ctr" lIns="100" tIns="200" rIns="300" bIns="400"/>
+            <a:lstStyle><a:lvl1pPr algn="ctr"><a:buNone/><a:defRPr sz="3200">
+              <a:solidFill><a:srgbClr val="445566"/></a:solidFill>
+              <a:latin typeface="+mj-lt"/>
+            </a:defRPr></a:lvl1pPr></a:lstStyle>
+            <a:p><a:r><a:rPr i="1"><a:solidFill><a:srgbClr val="92D050"/></a:solidFill></a:rPr><a:t>First</a:t></a:r></a:p>
+            <a:p><a:r><a:t>Second</a:t></a:r></a:p>
+          </p:txBody>
+        </p:sp>"#;
+        let document = XmlDocument::parse(source.as_slice()).unwrap();
+        let end = element_end(&document, 0).unwrap();
+        let theme = Theme {
+            major_latin: "Calibri".to_owned(),
+            ..Theme::default()
+        };
+        let shape = parse_shape(&document, 0, end, Vec::new(), &theme, &mut Vec::new());
+
+        assert_eq!(shape.text.as_deref(), Some("First\nSecond"));
+        assert_eq!(shape.text_style.font_size, Some(3_200));
+        assert_eq!(shape.text_style.font_family.as_deref(), Some("Calibri"));
+        assert_eq!(shape.text_style.alignment, Some(TextAlignment::Center));
+        assert_eq!(
+            shape.text_style.vertical_alignment,
+            Some(TextVerticalAlignment::Center)
+        );
+        assert_eq!(shape.text_style.italic, Some(true));
+        assert_eq!(shape.text_style.bullet, Some(None));
+        assert_eq!(shape.text_style.margin_left, Some(100));
+        assert_eq!(shape.text_style.margin_top, Some(200));
+        assert_eq!(shape.text_style.margin_right, Some(300));
+        assert_eq!(shape.text_style.margin_bottom, Some(400));
+        assert_eq!(
+            shape.text_style.color,
+            Some(RgbaColor {
+                red: 146,
+                green: 208,
+                blue: 80,
+                alpha: 255,
+            })
+        );
+        assert_eq!(
+            shape.fill,
+            Some(Fill::Solid(RgbaColor {
+                red: 17,
+                green: 34,
+                blue: 51,
+                alpha: 255,
+            }))
+        );
+    }
 }

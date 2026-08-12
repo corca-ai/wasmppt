@@ -1,12 +1,13 @@
 //! Compact backend-neutral display lists lowered from resolved slides.
 
 use wasmppt_layout::{
-    ChartKind, ElementKind, EmuPoint, EmuRect, EmuSize, Fill, GroupTransform, PresetGeometry,
-    ResolveDiagnosticCode, ResolveOutput, ResolvedChart, ResolvedSlide, ResolvedTable, RgbaColor,
-    Stroke, Transform,
+    ChartKind, ElementKind, EmuPoint, EmuRect, EmuSize, Fill, GroupTransform, PreservedFeature,
+    PresetGeometry, ResolveDiagnosticCode, ResolveOutput, ResolvedChart, ResolvedSlide,
+    ResolvedTable, ResolvedTextStyle, RgbaColor, Stroke, TextAlignment, TextVerticalAlignment,
+    Transform,
 };
 
-pub const DISPLAY_LIST_VERSION: u16 = 2;
+pub const DISPLAY_LIST_VERSION: u16 = 3;
 const MAGIC: &[u8; 4] = b"WPDL";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -72,6 +73,11 @@ pub enum DisplayCommand {
     DrawText {
         text: u32,
         bounds: EmuRect,
+        style: ResolvedTextStyle,
+    },
+    DrawUnsupported {
+        transform: Transform,
+        feature: PreservedFeature,
     },
 }
 
@@ -162,7 +168,12 @@ impl DisplayList {
                 }
                 ElementKind::Table { table } => lower_table(&mut list, element.transform, table),
                 ElementKind::Chart { chart } => lower_chart(&mut list, element.transform, chart),
-                ElementKind::PreservedGraphic { .. } => {}
+                ElementKind::PreservedGraphic { feature } => {
+                    list.commands.push(DisplayCommand::DrawUnsupported {
+                        transform: element.transform,
+                        feature: *feature,
+                    });
+                }
             }
             if !element.text.is_empty() {
                 let text = list.strings.len() as u32;
@@ -170,6 +181,7 @@ impl DisplayList {
                 list.commands.push(DisplayCommand::DrawText {
                     text,
                     bounds: element.transform.bounds,
+                    style: element.text_style.clone(),
                 });
             }
             for _ in &element.group_transforms {
@@ -362,6 +374,7 @@ fn lower_table(list: &mut DisplayList, transform: Transform, table: &ResolvedTab
                 list.commands.push(DisplayCommand::DrawText {
                     text,
                     bounds: cell_transform.bounds,
+                    style: ResolvedTextStyle::default(),
                 });
             }
             x = x.saturating_add(width);
@@ -589,10 +602,47 @@ fn encode_command(output: &mut Vec<u8>, command: &DisplayCommand) {
             push_i32(output, crop.right);
             push_i32(output, crop.bottom);
         }
-        DisplayCommand::DrawText { text, bounds } => {
+        DisplayCommand::DrawText {
+            text,
+            bounds,
+            style,
+        } => {
             output.push(7);
             push_u32(output, *text);
             encode_rect(output, *bounds);
+            push_i32(output, style.font_size);
+            encode_color(output, style.color);
+            push_blob(
+                output,
+                style.font_family.as_deref().unwrap_or_default().as_bytes(),
+            );
+            output.push(u8::from(style.bold));
+            output.push(u8::from(style.italic));
+            output.push(match style.alignment {
+                TextAlignment::Left => 1,
+                TextAlignment::Center => 2,
+                TextAlignment::Right => 3,
+                TextAlignment::Justify => 4,
+            });
+            output.push(match style.vertical_alignment {
+                TextVerticalAlignment::Top => 1,
+                TextVerticalAlignment::Center => 2,
+                TextVerticalAlignment::Bottom => 3,
+            });
+            push_i64(output, style.margin_left);
+            push_i64(output, style.margin_top);
+            push_i64(output, style.margin_right);
+            push_i64(output, style.margin_bottom);
+        }
+        DisplayCommand::DrawUnsupported { transform, feature } => {
+            output.push(8);
+            encode_transform(output, *transform);
+            output.push(match feature {
+                PreservedFeature::SmartArt => 1,
+                PreservedFeature::Metafile => 2,
+                PreservedFeature::OleObject => 3,
+                PreservedFeature::UnknownGraphicFrame => 4,
+            });
         }
     }
 }

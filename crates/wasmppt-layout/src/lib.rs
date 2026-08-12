@@ -66,6 +66,62 @@ pub struct Stroke {
     pub dash: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TextAlignment {
+    #[default]
+    Left,
+    Center,
+    Right,
+    Justify,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TextVerticalAlignment {
+    #[default]
+    Top,
+    Center,
+    Bottom,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedTextStyle {
+    /// DrawingML font size in hundredths of a point.
+    pub font_size: i32,
+    pub color: RgbaColor,
+    pub font_family: Option<String>,
+    pub bold: bool,
+    pub italic: bool,
+    pub alignment: TextAlignment,
+    pub vertical_alignment: TextVerticalAlignment,
+    pub margin_left: Emu,
+    pub margin_top: Emu,
+    pub margin_right: Emu,
+    pub margin_bottom: Emu,
+}
+
+impl Default for ResolvedTextStyle {
+    fn default() -> Self {
+        Self {
+            font_size: 1_800,
+            color: RgbaColor {
+                red: 0,
+                green: 0,
+                blue: 0,
+                alpha: 255,
+            },
+            font_family: None,
+            bold: false,
+            italic: false,
+            alignment: TextAlignment::Left,
+            vertical_alignment: TextVerticalAlignment::Top,
+            margin_left: 91_440,
+            margin_top: 45_720,
+            margin_right: 91_440,
+            margin_bottom: 45_720,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum PresetGeometry {
@@ -190,6 +246,7 @@ pub struct ResolvedElement {
     pub fill: Fill,
     pub stroke: Option<Stroke>,
     pub text: String,
+    pub text_style: ResolvedTextStyle,
     pub alternative_text: Option<String>,
     pub hyperlink: Option<String>,
     pub kind: ElementKind,

@@ -413,7 +413,7 @@ try {
         background: pixelAt(620, 340),
         imageLeft: pixelAt(280, 80),
         imageRight: pixelAt(340, 80),
-        groupFill: pixelAt(120, 70),
+        groupFill: pixelAt(120, 130),
       },
       darkGroupPixels,
       mountedAtPeak,
@@ -445,7 +445,7 @@ try {
   assert.deepEqual(result.zipSignature, [0x50, 0x4b])
   assert(result.outputBytes > 0)
   assert.equal(result.slideCount, 2)
-  assert.equal(result.commandCount, 9)
+  assert.equal(result.commandCount, 10)
   assert.equal(result.decodedImageBytesAfterClear, 0)
   assert.deepEqual(result.koreanLines, ['가나다', '라마바', '사'])
   assert(result.telemetry.displayExecutionMs >= 0)

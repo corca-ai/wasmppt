@@ -268,8 +268,52 @@ async function renderGraphicCommands(
         'clip-path': `url(#${clip.id})`,
       })
       parent.append(image)
+    } else if (command.kind === 'draw-unsupported') {
+      appendUnsupportedGraphic(parent, command.transform, unsupportedGraphicLabel(command.feature))
     }
   }
+}
+
+function unsupportedGraphicLabel(
+  feature: Extract<SceneCommand, { readonly kind: 'draw-unsupported' }>['feature'],
+): string {
+  if (feature === 'smartart') return 'SmartArt preview unavailable'
+  if (feature === 'metafile') return 'EMF/WMF preview unavailable'
+  if (feature === 'ole-object') return 'Embedded object preview unavailable'
+  return 'Graphic preview unavailable'
+}
+
+function appendUnsupportedGraphic(
+  parent: SVGGElement,
+  transform: SceneTransform,
+  label: string,
+): void {
+  const group = document.createElementNS(SVG_NAMESPACE, 'g')
+  group.setAttribute('transform', shapeSvgTransform(transform))
+  const rect = document.createElementNS(SVG_NAMESPACE, 'rect')
+  setAttributes(rect, {
+    x: 0,
+    y: 0,
+    width: transform.bounds.width,
+    height: transform.bounds.height,
+    fill: 'rgba(104, 116, 129, 0.08)',
+    stroke: 'rgba(104, 116, 129, 0.65)',
+    'stroke-width': EMU_PER_CSS_PIXEL,
+    'stroke-dasharray': `${EMU_PER_CSS_PIXEL * 6} ${EMU_PER_CSS_PIXEL * 4}`,
+  })
+  const text = document.createElementNS(SVG_NAMESPACE, 'text')
+  setAttributes(text, {
+    x: transform.bounds.width / 2,
+    y: transform.bounds.height / 2,
+    fill: 'rgba(70, 79, 89, 0.9)',
+    'font-size': EMU_PER_CSS_PIXEL * 12,
+    'font-family': 'sans-serif',
+    'text-anchor': 'middle',
+    'dominant-baseline': 'middle',
+  })
+  text.textContent = label
+  group.append(rect, text)
+  parent.append(group)
 }
 
 function updateAccessibleOverlay(
@@ -329,6 +373,7 @@ function updateAccessibleOverlay(
     identityMatrix(),
   )
   const bounds = textCommand?.bounds ?? semantic.bounds
+  const textStyle = textCommand?.style
   const positioned = multiply(matrix, translation(bounds.x, bounds.y))
   Object.assign(element.style, {
     position: 'absolute',
@@ -338,8 +383,28 @@ function updateAccessibleOverlay(
     height: `${bounds.height / EMU_PER_CSS_PIXEL}px`,
     transformOrigin: '0 0',
     transform: cssMatrix(toCssPixels(positioned)),
-    color: '#000',
-    font: '18px sans-serif',
+    boxSizing: 'border-box',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent:
+      textStyle?.verticalAlignment === 'center'
+        ? 'center'
+        : textStyle?.verticalAlignment === 'bottom'
+          ? 'flex-end'
+          : 'flex-start',
+    padding: textStyle === undefined
+      ? '0'
+      : `${textStyle.marginTop / EMU_PER_CSS_PIXEL}px ${textStyle.marginRight / EMU_PER_CSS_PIXEL}px ${textStyle.marginBottom / EMU_PER_CSS_PIXEL}px ${textStyle.marginLeft / EMU_PER_CSS_PIXEL}px`,
+    color:
+      textStyle === undefined
+        ? '#000'
+        : `rgba(${textStyle.color.red}, ${textStyle.color.green}, ${textStyle.color.blue}, ${textStyle.color.alpha / 255})`,
+    fontFamily: textStyle?.fontFamily ?? 'sans-serif',
+    fontSize: `${textStyle === undefined ? 18 : (textStyle.fontSize / 100) * 96 / 72}px`,
+    fontWeight: textStyle?.bold === true ? '700' : '400',
+    fontStyle: textStyle?.italic === true ? 'italic' : 'normal',
+    lineHeight: '1.2',
+    textAlign: textStyle?.alignment === 'justify' ? 'justify' : (textStyle?.alignment ?? 'left'),
     whiteSpace: 'pre-wrap',
     overflow: 'hidden',
     userSelect: 'text',

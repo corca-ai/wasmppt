@@ -18,7 +18,8 @@ the common display-list semantics on Canvas 2D:
 
 - preset paths, fills, strokes, rotation, flips, and nested group transforms;
 - relationship-addressed images with PowerPoint source cropping;
-- resolved text through an explicit font resolver and target-canvas measurement;
+- resolved text size, color, family, emphasis, paragraph breaks, alignment, and
+  text-frame margins through an explicit font resolver and target-canvas measurement;
 - deterministic cache eviction and disposal for decoded images.
 
 Canvas 2D and `OffscreenCanvasRenderingContext2D` expose the same core drawing and text
@@ -63,7 +64,9 @@ baselines and per-slide tolerance reports belong to the compatibility-gate slice
 
 ## Current boundary
 
-The baseline supports the WPDL v2 commands and semantic side tables produced by the lazy resolver. Advanced geometry,
-effects, chart, table, and SmartArt coverage is tracked independently and remains explicitly
-diagnosed. Canvas output is a bitmap and therefore is not the accessibility surface; the
-secondary DOM/SVG backend owns selectable text, reading order, links, and alternative text.
+The baseline supports WPDL v3 while retaining v1/v2 decoding. Mixed formatting within one text
+frame, PowerPoint-exact shaping and glyph metrics, custom geometry, gradients, effects, and
+native SmartArt or EMF/WMF drawing remain incomplete. Unsupported preserved graphics render a
+labeled placeholder and retain their stable diagnostic instead of disappearing. Canvas output
+is a bitmap and therefore is not the accessibility surface; the secondary DOM/SVG backend owns
+selectable text, reading order, links, and alternative text.

@@ -9,7 +9,7 @@ and interaction metadata.
 
 ## Semantic WPDL boundary
 
-WPDL version 2 adds two side tables without changing Canvas drawing commands:
+WPDL version 2 added two side tables without changing Canvas drawing commands:
 
 - semantic elements map a source shape ID and reading order to an exact command range, resolved
   bounds, name, alternative description, and hyperlink;
@@ -48,7 +48,9 @@ change aborts stale work, and `dispose()` removes every mounted slide and cached
 
 ## Deliberate limits
 
-The backend exposes semantics that exist in WPDL v2. Rich paragraph/run styling, tables, charts,
-custom geometry, gradients, effects, and SmartArt are added only when the common resolver and
-display model can describe them. Until then, both rendering backends preserve the package source
-and surface the same explicit diagnostic rather than producing backend-specific silent fallback.
+WPDL version 3 adds effective text-frame styling and preserved-graphic placeholder commands.
+DOM text therefore shares size, family, color, emphasis, alignment, margins, and paragraph
+breaks with Canvas. Mixed run styling, PowerPoint-exact shaping, custom geometry, gradients,
+effects, and native SmartArt rendering are added only when the common resolver and display model
+can describe them. Until then, both rendering backends preserve the package source and surface
+the same explicit diagnostic and visible placeholder rather than silently dropping content.

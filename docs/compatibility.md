@@ -82,7 +82,7 @@ required licensed runner is unavailable; the workflow does not silently skip tha
 
 ## Diagnostics and policy evolution
 
-WPDL v2 transports resolver diagnostics unchanged to Canvas and DOM/SVG. New diagnostic variants
+WPDL v2 and v3 transport resolver diagnostics unchanged to Canvas and DOM/SVG. New diagnostic variants
 append stable numeric wire codes. Unknown future codes decode as `unknown`, so older frontends fail
 honestly without corrupting the scene. Security-limit regressions and unknown-markup loss are test
 failures, never benchmark tradeoffs.

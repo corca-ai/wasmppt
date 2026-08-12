@@ -37,7 +37,9 @@ The first resolver implements:
 - solid/no fills, line color and width, image relationships and source crops;
 - rectangle, rounded rectangle, ellipse, line, triangle, right triangle, diamond,
   parallelogram, and hexagon preset geometry;
-- text collection as a loss-aware input to the full shaping layer in #9.
+- paragraph-preserving text collection plus effective first-run font size, family,
+  color, bold/italic emphasis, horizontal and vertical alignment, and text-frame
+  margins. Run-level mixed formatting remains an explicit next text-layout slice.
 
 Unsupported graphic frames, custom geometry, gradient/pattern fills, and effects produce
 explicit `ResolveDiagnostic` values. Source OOXML remains untouched, so a later backend
@@ -63,6 +65,12 @@ slide 2, and vice versa. Media invalidation reaches only its referencing slide.
 - a fixed `WPDL` header, schema version, slide size, and table counts;
 - semantic command ranges for source shape IDs, reading order, accessible names, and links;
 - resolver diagnostics shared without reinterpretation by every rendering backend.
+
+WPDL version 3 extends `DrawText` with the effective text-frame style and adds an
+explicit preserved-graphic placeholder command. Version 1 and 2 scenes still decode
+with documented defaults. Unsupported SmartArt, metafiles, OLE, and graphic frames no
+longer become invisible regions: backends draw a labeled placeholder while retaining
+the diagnostic and untouched source package.
 
 `encode()` emits a stable little-endian format. `structural_signature()` hashes the exact
 wire bytes. The same fixture has the same signature in native Rust and in a real Chrome

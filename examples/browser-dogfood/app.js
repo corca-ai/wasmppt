@@ -19,6 +19,7 @@ let generationAbort
 let regenerationTimer
 let outputName = 'wasmppt-report.pptx'
 let defaultImageData
+let preparationDiagnostics = []
 
 worker.addEventListener('message', (event) => {
   if (event.data?.type === 'host-ready') void useBundledTemplate()
@@ -94,9 +95,8 @@ async function prepareTemplate(bytes) {
     prepared = next
     elements['compile-time'].textContent = formatMs(performance.now() - started)
     renderBindings(next.bindings)
-    elements.diagnostics.textContent = next.diagnostics.length === 0
-      ? `${next.bindings.length} editable bindings · no diagnostics`
-      : next.diagnostics.map((item) => `${item.code}: ${item.message}`).join('\n')
+    preparationDiagnostics = next.diagnostics
+    showDiagnostics([], next.bindings.length)
     await generateAndPreview()
   } catch (error) {
     if (epoch === templateEpoch) fail(error)
@@ -188,7 +188,7 @@ function renderBindings(bindings) {
     label.htmlFor = input.id
     if (binding.kind === 'image') {
       input.type = 'file'
-      input.accept = 'image/png,image/jpeg,image/webp,image/gif'
+      input.accept = 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml'
     } else {
       input.type = 'text'
       input.value = defaultText(binding.id)
@@ -209,9 +209,11 @@ async function renderPreview(blob, epoch) {
   }
   presentationHandle = opened.handle
   elements.preview.replaceChildren()
+  const renderDiagnostics = []
   const deviceScale = Math.min(devicePixelRatio || 1, 2)
   for (let index = 0; index < opened.slideCount; index += 1) {
     const scene = decodeDisplayList(await client.resolveSlide(opened.handle, index))
+    renderDiagnostics.push(...scene.diagnostics)
     if (epoch !== generationEpoch) return 0
     const width = Math.min(scene.width / 9_525, 960)
     const height = width * scene.height / scene.width
@@ -231,16 +233,35 @@ async function renderPreview(blob, epoch) {
       imageResolver: async (image, signal) => {
         if (image.partName === undefined) throw new Error('Image resource has no package part')
         const bytes = await client.presentationResource(opened.handle, image.partName, { signal })
-        const bitmap = await createImageBitmap(new Blob([bytes], { type: mediaTypeOf(image.partName) }))
-        return {
-          source: bitmap,
-          residentBytes: bitmap.width * bitmap.height * 4,
-          close: () => bitmap.close(),
+        try {
+          const bitmap = await createImageBitmap(
+            new Blob([bytes], { type: mediaTypeOf(image.partName) }),
+          )
+          return {
+            source: bitmap,
+            residentBytes: bitmap.width * bitmap.height * 4,
+            close: () => bitmap.close(),
+          }
+        } catch (error) {
+          console.warn(`Cannot decode ${image.partName}; a placeholder will be shown`, error)
+          return undefined
         }
       },
     })
   }
+  showDiagnostics(renderDiagnostics, prepared?.bindings.length ?? 0)
   return opened.slideCount
+}
+
+function showDiagnostics(renderDiagnostics, bindingCount) {
+  const diagnostics = [...preparationDiagnostics, ...renderDiagnostics]
+  const unique = [...new Map(diagnostics.map((item) => [
+    `${item.code}\0${item.partName ?? ''}\0${item.shapeId ?? ''}\0${item.message}`,
+    item,
+  ])).values()]
+  elements.diagnostics.textContent = unique.length === 0
+    ? `${bindingCount} editable bindings · no diagnostics`
+    : unique.map((item) => `${item.code}: ${item.message}`).join('\n')
 }
 
 async function releasePresentation() {
@@ -337,6 +358,9 @@ function mediaTypeOf(name) {
   if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg'
   if (extension === 'gif') return 'image/gif'
   if (extension === 'webp') return 'image/webp'
+  if (extension === 'svg') return 'image/svg+xml'
+  if (extension === 'bmp') return 'image/bmp'
+  if (extension === 'tif' || extension === 'tiff') return 'image/tiff'
   return 'image/png'
 }
 

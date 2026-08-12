@@ -5,6 +5,7 @@ declare global {
   namespace Cloudflare {
     interface Env {
       HOST_FIXTURE: number[]
+      RENDER_FIXTURE: number[]
     }
   }
 }
@@ -53,6 +54,17 @@ describe('wasmppt workerd adapter', () => {
       }),
     )
     expect(response.status).toBe(413)
+  })
+
+  it('matches the native and browser display-list structure in workerd', async () => {
+    const response = await exports.default.fetch(
+      new Request('https://wasmppt.test/v1/display-signature', {
+        method: 'POST',
+        body: new Uint8Array(env.RENDER_FIXTURE),
+      }),
+    )
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ signature: '16041fe2c07f3636' })
   })
 })
 

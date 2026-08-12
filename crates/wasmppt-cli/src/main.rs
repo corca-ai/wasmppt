@@ -39,6 +39,13 @@ fn run() -> Result<(), String> {
             }
             validate(Path::new(&input))
         }
+        Some("audit-macro-free") => {
+            let input = arguments.next().ok_or("audit-macro-free requires INPUT")?;
+            if arguments.next().is_some() {
+                return Err("audit-macro-free accepts exactly one INPUT".to_owned());
+            }
+            audit_macro_free(Path::new(&input))
+        }
         Some("resolve") => {
             let input = arguments
                 .next()
@@ -54,9 +61,55 @@ fn run() -> Result<(), String> {
             resolve(Path::new(&input), slide_index)
         }
         Some(command) => Err(format!(
-            "unknown command {command:?}; use convert, validate, or resolve"
+            "unknown command {command:?}; use convert, validate, audit-macro-free, or resolve"
         )),
     }
+}
+
+fn audit_macro_free(input: &Path) -> Result<(), String> {
+    let bytes =
+        fs::read(input).map_err(|error| format!("cannot read {}: {error}", input.display()))?;
+    let archive = ZipArchive::from_bytes(bytes).map_err(|error| error.to_string())?;
+    let prohibited_parts = archive
+        .entries()
+        .iter()
+        .filter(|entry| {
+            let lower = entry.name.to_ascii_lowercase();
+            lower.contains("vbaproject")
+                || lower.contains("vbadata")
+                || lower.starts_with("_xmlsignatures/")
+                || lower.ends_with("origin.sigs")
+        })
+        .map(|entry| entry.name.as_str())
+        .collect::<Vec<_>>();
+    if !prohibited_parts.is_empty() {
+        return Err(format!(
+            "forbidden macro or signature parts: {}",
+            prohibited_parts.join(", ")
+        ));
+    }
+    for entry in archive.entries().iter().filter(|entry| {
+        entry.name.ends_with(".xml")
+            || entry.name.ends_with(".rels")
+            || entry.name == "[Content_Types].xml"
+    }) {
+        let content = archive
+            .read_entry(entry)
+            .map_err(|error| error.to_string())?;
+        let lower = String::from_utf8_lossy(&content).to_ascii_lowercase();
+        if lower.contains("vbaproject")
+            || lower.contains("vbadata")
+            || lower.contains("digital-signature")
+            || lower.contains("action=\"ppaction://macro")
+        {
+            return Err(format!(
+                "forbidden macro, signature, or Action reference in {}",
+                entry.name
+            ));
+        }
+    }
+    println!("macro-free: {} entries", archive.entries().len());
+    Ok(())
 }
 
 fn resolve(input: &Path, slide_index: usize) -> Result<(), String> {

@@ -92,6 +92,10 @@ will be added as the corresponding architecture slices become executable.
 The compatibility job converts a pinned real POTX and validates its PPTX output with the
 Microsoft Open XML SDK wrapper under `tools/openxml-validator`. It also resolves slides
 from the generated output and the pinned real-world Apache POI `SampleShow.pptx` fixture.
+The security-and-corpus job verifies fixture provenance, compiles all fuzz surfaces, and
+exercises stable parser limits and preservation policies. Browser integration publishes a
+per-slide report under `target/visual-report`; release ground truth uses the controlled
+PowerPoint, LibreOffice, and Keynote workflow described in [compatibility gates](compatibility.md).
 
 Run the package parser fuzz target separately with `cargo-fuzz`:
 

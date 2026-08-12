@@ -10,6 +10,9 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 wasmppt-opc = { path = ".." }
+wasmppt-layout = { path = "../../wasmppt-layout" }
+wasmppt-template = { path = "../../wasmppt-template" }
+wasmppt-xml = { path = "../../wasmppt-xml" }
 
 [[bin]]
 name = "open_package"
@@ -21,6 +24,27 @@ bench = false
 [[bin]]
 name = "package_graph"
 path = "fuzz_targets/package_graph.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xml_tokens"
+path = "fuzz_targets/xml_tokens.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "slide_geometry"
+path = "fuzz_targets/slide_geometry.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "template_bindings"
+path = "fuzz_targets/template_bindings.rs"
 test = false
 doc = false
 bench = false

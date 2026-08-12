@@ -1,0 +1,75 @@
+name: Office ground truth
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  powerpoint:
+    runs-on: [self-hosted, Windows, X64, PowerPoint, ImageMagick]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Render current Canvas output
+        shell: pwsh
+        run: |
+          npm ci
+          npx playwright install chromium
+          $env:CI = "true"
+          npm run test:browser --workspace @corca-ai/wasmppt
+      - name: Open without repair and export PowerPoint ground truth
+        shell: pwsh
+        run: >-
+          ./tools/office-consumers/powerpoint.ps1
+          fixtures/render/basic.pptx target/powerpoint-ground-truth
+      - name: Compare every slide against PowerPoint with declared tolerance
+        shell: pwsh
+        run: >-
+          ./tools/office-consumers/compare-visuals.ps1
+          target/powerpoint-ground-truth/slides target/visual-report
+          target/powerpoint-ground-truth/visual-report.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: powerpoint-ground-truth-${{ github.sha }}
+          path: |
+            target/powerpoint-ground-truth
+            target/visual-report
+          if-no-files-found: error
+
+  libreoffice:
+    runs-on: [self-hosted, Linux, X64, LibreOffice]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Export with LibreOffice Impress
+        run: ./tools/office-consumers/libreoffice.sh fixtures/render/basic.pptx target/libreoffice
+      - uses: actions/upload-artifact@v7
+        with:
+          name: libreoffice-${{ github.sha }}
+          path: target/libreoffice
+          if-no-files-found: error
+
+  keynote:
+    runs-on: [self-hosted, macOS, ARM64, Keynote]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Export with Keynote
+        run: |
+          mkdir -p target/keynote
+          osascript tools/office-consumers/keynote.applescript \
+            fixtures/render/basic.pptx target/keynote/ground-truth.pdf
+          test -s target/keynote/ground-truth.pdf
+      - uses: actions/upload-artifact@v7
+        with:
+          name: keynote-${{ github.sha }}
+          path: target/keynote
+          if-no-files-found: error

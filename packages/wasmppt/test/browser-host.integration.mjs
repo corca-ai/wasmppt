@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -175,6 +175,7 @@ try {
       diagnosticCodes: domResult.diagnostics.map((diagnostic) => diagnostic.code),
     }
     const canvas = document.createElement('canvas')
+    canvas.id = 'wasmppt-visual-slide-1'
     canvas.width = 640
     canvas.height = 360
     document.body.append(canvas)
@@ -197,6 +198,7 @@ try {
       },
     })
     const advancedCanvas = document.createElement('canvas')
+    advancedCanvas.id = 'wasmppt-visual-slide-2'
     advancedCanvas.width = 640
     advancedCanvas.height = 360
     document.body.append(advancedCanvas)
@@ -209,7 +211,12 @@ try {
       advancedCanvas.height,
     ).data
     let advancedColoredPixels = 0
+    let advancedPixelHash = 0x811c9dc5
     for (let offset = 0; offset < advancedPixels.length; offset += 4) {
+      advancedPixelHash = Math.imul(advancedPixelHash ^ advancedPixels[offset], 0x01000193) >>> 0
+      advancedPixelHash = Math.imul(advancedPixelHash ^ advancedPixels[offset + 1], 0x01000193) >>> 0
+      advancedPixelHash = Math.imul(advancedPixelHash ^ advancedPixels[offset + 2], 0x01000193) >>> 0
+      advancedPixelHash = Math.imul(advancedPixelHash ^ advancedPixels[offset + 3], 0x01000193) >>> 0
       if (
         advancedPixels[offset] !== 255 ||
         advancedPixels[offset + 1] !== 255 ||
@@ -227,6 +234,7 @@ try {
       strings: advancedScene.strings,
       diagnosticCodes: advancedScene.diagnostics.map((diagnostic) => diagnostic.code),
       coloredPixels: advancedColoredPixels,
+      pixelHash: advancedPixelHash.toString(16).padStart(8, '0'),
       commandCount: advancedTelemetry.commandCount,
       svgPathCount: advancedDomHost.querySelectorAll('path').length,
       domDiagnosticCodes: advancedDom.diagnostics.map((diagnostic) => diagnostic.code),
@@ -411,6 +419,51 @@ try {
   assert.equal(result.staleResult, 'AbortError')
   assert.deepEqual(result.staleMountedSlides, ['1'])
   assert.deepEqual(errors, [])
+  const visualDirectory = join(workspaceDirectory, 'target/visual-report')
+  await mkdir(visualDirectory, { recursive: true })
+  await page.locator('#wasmppt-visual-slide-1').screenshot({
+    path: join(visualDirectory, 'slide-1-actual.png'),
+  })
+  await page.locator('#wasmppt-visual-slide-2').screenshot({
+    path: join(visualDirectory, 'slide-2-actual.png'),
+  })
+  const expectedSamples = {
+    background: [255, 255, 255, 255],
+    imageLeft: [255, 0, 255, 255],
+    imageRight: [0, 255, 255, 255],
+    groupFill: [91, 132, 173, 255],
+  }
+  const sampledPixelDifferences = Object.entries(expectedSamples).filter(
+    ([name, expected]) => !expected.every((byte, index) => result.pixelSamples[name][index] === byte),
+  ).length
+  const visualReport = {
+    schema: 1,
+    engine: 'chromium-canvas2d',
+    viewport: { width: 640, height: 360 },
+    slides: [
+      {
+        slideIndex: 0,
+        actual: 'slide-1-actual.png',
+        pixelHash: result.pixelHash,
+        sampledPixelDifferences,
+        tolerance: { sampledPixelDifferences: 0 },
+        passed: sampledPixelDifferences === 0,
+      },
+      {
+        slideIndex: 1,
+        actual: 'slide-2-actual.png',
+        pixelHash: result.advancedFacts.pixelHash,
+        coloredPixels: result.advancedFacts.coloredPixels,
+        tolerance: { minimumColoredPixels: 10_000 },
+        passed: result.advancedFacts.coloredPixels > 10_000,
+      },
+    ],
+  }
+  assert(visualReport.slides.every((slide) => slide.passed))
+  await writeFile(
+    join(visualDirectory, 'report.json'),
+    `${JSON.stringify(visualReport, null, 2)}\n`,
+  )
   console.log(
     `browser host fixture ok: ${result.outputBytes} output bytes, canvas ${result.pixelHash} ${JSON.stringify(result.pixelSamples)}`,
   )

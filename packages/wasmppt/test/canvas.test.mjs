@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import {
@@ -8,6 +9,10 @@ import {
   measureTextBatch,
   wrapText,
 } from '../dist/index.js'
+
+const textCorpus = JSON.parse(
+  await readFile(new URL('../../../fixtures/text-edge-cases.json', import.meta.url), 'utf8'),
+)
 
 test('display-list decoder rejects corruption and decodes a bounded scene', () => {
   const bytes = minimalDisplayList()
@@ -60,6 +65,26 @@ test('font resolver uses an exact supplied CJK font and documents fallback', asy
   }).resolve('漢字')
   assert.equal(fallback.family, 'Documented CJK Fallback')
   assert.equal(fallback.exact, false)
+})
+
+test('RTL, emoji, and deliberately missing-font corpus cases select stable fallbacks', async () => {
+  assert.equal(textCorpus.schema, 1)
+  const resolver = new FontResolver({
+    theme: {
+      eastAsian: textCorpus.missingFont,
+      complexScript: textCorpus.missingFont,
+    },
+    fallback: {
+      'east-asian': 'Documented CJK Fallback',
+      complex: 'Documented Complex-Script Fallback',
+    },
+    host: { load: async () => {}, check: () => false },
+  })
+  for (const fixture of textCorpus.cases) {
+    const resolved = await resolver.resolve(fixture.text)
+    assert.equal(resolved.script, fixture.script, fixture.id)
+    assert.equal(resolved.exact, false, fixture.id)
+  }
 })
 
 test('text measurement is grouped by exact font without changing result order', () => {

@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "fixtures": [
+    {
+      "id": "host-minimal-potx",
+      "path": "fixtures/host-adapters/minimal.potx",
+      "sha256": "52a66c1da850b17390907b90a9916ba3e53dccbd063702a8edf02a2455f97772",
+      "provenance": "generated-in-repository",
+      "generator": "cargo run -p wasmppt-native --example write_host_fixture -- fixtures/host-adapters/minimal.potx",
+      "license": "Apache-2.0",
+      "redistribution": "allowed"
+    },
+    {
+      "id": "render-basic-pptx",
+      "path": "fixtures/render/basic.pptx",
+      "sha256": "f370c06e7a9bc191dc2f6b13782a04c8a9e5fa6fe7658328e7d06a0865af15c9",
+      "provenance": "generated-in-repository",
+      "generator": "cargo run -p wasmppt-native --example write_render_fixture -- fixtures/render/basic.pptx",
+      "license": "Apache-2.0",
+      "redistribution": "allowed"
+    },
+    {
+      "id": "text-edge-cases",
+      "path": "fixtures/text-edge-cases.json",
+      "sha256": "8cdd12dd5880803683554ad3ccc53639d26c479e0d46822bdcaae3834536aab0",
+      "provenance": "hand-authored-in-repository",
+      "generator": "reviewed UTF-8 JSON source; no binary generator required",
+      "license": "Apache-2.0",
+      "redistribution": "allowed"
+    },
+    {
+      "id": "apache-poi-bug59273-potx",
+      "url": "https://raw.githubusercontent.com/apache/poi/fe4184d649c0f7950e3a610c7dbc0591b7a52e3e/test-data/slideshow/bug59273.potx",
+      "sha256": "a69207b33c69e171dd35fab165e498802a46759bca24f5eb614deb3503aa5ee6",
+      "provenance": "apache-poi-test-data-pinned-commit",
+      "license": "Apache-2.0",
+      "redistribution": "fetch-only"
+    },
+    {
+      "id": "apache-poi-sampleshow-pptx",
+      "url": "https://raw.githubusercontent.com/apache/poi/fe4184d649c0f7950e3a610c7dbc0591b7a52e3e/test-data/slideshow/SampleShow.pptx",
+      "sha256": "bfb4b2f07c9233afd2f32aa5781d849d0c7d225bf03721a10becf487b481d828",
+      "provenance": "apache-poi-test-data-pinned-commit",
+      "license": "Apache-2.0",
+      "redistribution": "fetch-only"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "id": "korean-cjk",
+      "text": "한글 프레젠테이션 漢字かなカナ",
+      "script": "east-asian"
+    },
+    {
+      "id": "arabic-rtl",
+      "text": "تقرير الربع الأول",
+      "script": "complex"
+    },
+    {
+      "id": "hebrew-rtl",
+      "text": "דוח רבעוני",
+      "script": "complex"
+    },
+    {
+      "id": "emoji-sequence",
+      "text": "발표 👨🏽‍💻 📈 ✅",
+      "script": "east-asian"
+    }
+  ],
+  "missingFont": "Wasmppt Deliberately Missing Fixture Font"
+}

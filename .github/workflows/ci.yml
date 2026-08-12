@@ -90,6 +90,17 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Execute the shared browser Worker fixture
         run: npm run test:browser --workspace @corca-ai/wasmppt
+      - name: Verify native display-list parity
+        run: |
+          cargo run --locked -p wasmppt-cli -- resolve fixtures/render/basic.pptx 0 \
+            | tee target/native-display-signature.txt
+          grep 'signature 16041fe2c07f3636' target/native-display-signature.txt
+      - name: Publish per-slide visual report
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-regression-${{ github.sha }}
+          path: target/visual-report
+          if-no-files-found: error
 
   documentation:
     runs-on: ubuntu-latest
@@ -126,6 +137,7 @@ jobs:
           cargo run --locked -p wasmppt-cli -- \
             convert target/compat/bug59273.potx target/compat/generated.pptx
           cargo run --locked -p wasmppt-cli -- validate target/compat/generated.pptx
+          cargo run --locked -p wasmppt-cli -- audit-macro-free target/compat/generated.pptx
       - name: Validate output with Microsoft Open XML SDK
         run: >-
           dotnet run --project tools/openxml-validator/OpenXmlValidator.csproj
@@ -143,3 +155,26 @@ jobs:
         run: cargo install cargo-deny --version 0.19.8 --locked
       - name: Check dependency policy
         run: cargo deny check
+
+  security-and-corpus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install JavaScript dependencies
+        run: npm ci
+      - name: Verify fixture hashes, provenance, redistribution, and capabilities
+        run: node --test scripts/corpus.test.mjs scripts/capabilities.test.mjs
+      - name: Compile every fuzz surface
+        run: cargo check --manifest-path crates/wasmppt-opc/fuzz/Cargo.toml --bins
+      - name: Exercise stable XML and package security limits
+        run: |
+          cargo test --locked -p wasmppt-xml security_limits_fail_with_one_stable_code
+          cargo test --locked -p wasmppt-opc package_limits_are_checked_before_entry_inflation
+      - name: Prove macro and unknown-markup policies
+        run: |
+          cargo test --locked -p wasmppt-template potm_generation_strips_macros_and_injects_escaped_unicode
+          cargo test --locked -p wasmppt-template potx_conversion_preserves_notes_and_unknown_payloads

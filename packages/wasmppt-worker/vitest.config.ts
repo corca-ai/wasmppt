@@ -5,13 +5,16 @@ import { defineConfig } from 'vitest/config'
 const hostFixture = [
   ...readFileSync(new URL('../../fixtures/host-adapters/minimal.potx', import.meta.url)),
 ]
+const renderFixture = [
+  ...readFileSync(new URL('../../fixtures/render/basic.pptx', import.meta.url)),
+]
 
 export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: './wrangler.jsonc' },
       miniflare: {
-        bindings: { HOST_FIXTURE: hostFixture },
+        bindings: { HOST_FIXTURE: hostFixture, RENDER_FIXTURE: renderFixture },
       },
     }),
   ],

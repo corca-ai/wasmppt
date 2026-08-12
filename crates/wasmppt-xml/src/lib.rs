@@ -46,6 +46,26 @@ pub enum XmlErrorCode {
     MismatchedEndTag,
     DtdForbidden,
     Entity,
+    LimitExceeded,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct XmlLimits {
+    pub max_source_bytes: usize,
+    pub max_tokens: usize,
+    pub max_depth: usize,
+    pub max_attributes_per_element: usize,
+}
+
+impl Default for XmlLimits {
+    fn default() -> Self {
+        Self {
+            max_source_bytes: 256 * 1024 * 1024,
+            max_tokens: 2_000_000,
+            max_depth: 256,
+            max_attributes_per_element: 4_096,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -135,7 +155,18 @@ pub struct XmlDocument {
 
 impl XmlDocument {
     pub fn parse(bytes: impl Into<Arc<[u8]>>) -> Result<Self> {
+        Self::parse_with_limits(bytes, XmlLimits::default())
+    }
+
+    pub fn parse_with_limits(bytes: impl Into<Arc<[u8]>>, limits: XmlLimits) -> Result<Self> {
         let source = bytes.into();
+        if source.len() > limits.max_source_bytes {
+            return Err(XmlError::new(
+                XmlErrorCode::LimitExceeded,
+                0,
+                "XML source byte limit exceeded",
+            ));
+        }
         std::str::from_utf8(&source).map_err(|error| {
             XmlError::new(
                 XmlErrorCode::InvalidUtf8,
@@ -143,7 +174,7 @@ impl XmlDocument {
                 "XML is not UTF-8",
             )
         })?;
-        Parser::new(source).parse()
+        Parser::new(source, limits).parse()
     }
 
     pub fn source(&self) -> &[u8] {
@@ -186,10 +217,11 @@ struct Parser {
     namespaces: Interner,
     scopes: Vec<HashMap<String, String>>,
     open_names: Vec<String>,
+    limits: XmlLimits,
 }
 
 impl Parser {
-    fn new(source: Arc<[u8]>) -> Self {
+    fn new(source: Arc<[u8]>, limits: XmlLimits) -> Self {
         let mut root = HashMap::new();
         root.insert(
             "xml".to_owned(),
@@ -202,11 +234,19 @@ impl Parser {
             namespaces: Interner::default(),
             scopes: vec![root],
             open_names: Vec::new(),
+            limits,
         }
     }
 
     fn parse(mut self) -> Result<XmlDocument> {
         while self.cursor < self.source.len() {
+            if self.tokens.len() >= self.limits.max_tokens {
+                return Err(XmlError::new(
+                    XmlErrorCode::LimitExceeded,
+                    self.cursor,
+                    "XML token limit exceeded",
+                ));
+            }
             if self.source[self.cursor] != b'<' {
                 let end = self.source[self.cursor..]
                     .iter()
@@ -315,6 +355,13 @@ impl Parser {
     }
 
     fn start_tag(&mut self) -> Result<()> {
+        if self.open_names.len() >= self.limits.max_depth {
+            return Err(XmlError::new(
+                XmlErrorCode::LimitExceeded,
+                self.cursor,
+                "XML depth limit exceeded",
+            ));
+        }
         let end = find_tag_end(&self.source, self.cursor + 1)?;
         let mut body_end = end;
         while body_end > self.cursor + 1 && self.source[body_end - 1].is_ascii_whitespace() {
@@ -388,6 +435,13 @@ impl Parser {
                 attr_start..position,
                 value_start..value_end,
             ));
+            if raw_attributes.len() > self.limits.max_attributes_per_element {
+                return Err(XmlError::new(
+                    XmlErrorCode::LimitExceeded,
+                    attr_start,
+                    "XML attribute limit exceeded",
+                ));
+            }
         }
 
         let mut scope = self.scopes.last().expect("root namespace scope").clone();

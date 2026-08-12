@@ -1,4 +1,4 @@
-use wasmppt_xml::{TokenKind, XmlDocument, XmlErrorCode};
+use wasmppt_xml::{TokenKind, XmlDocument, XmlErrorCode, XmlLimits};
 
 #[test]
 fn resolves_namespaces_and_retains_exact_source_ranges() {
@@ -31,4 +31,46 @@ fn rejects_dtd_and_mismatched_markup_with_stable_codes() {
     assert_eq!(dtd.code(), XmlErrorCode::DtdForbidden);
     let mismatch = XmlDocument::parse(b"<x><y></x>".as_slice()).unwrap_err();
     assert_eq!(mismatch.code(), XmlErrorCode::MismatchedEndTag);
+}
+
+#[test]
+fn security_limits_fail_with_one_stable_code() {
+    let base = XmlLimits::default();
+    for (source, limits) in [
+        (
+            b"<root/>".as_slice(),
+            XmlLimits {
+                max_source_bytes: 3,
+                ..base
+            },
+        ),
+        (
+            b"<a><b><c/></b></a>".as_slice(),
+            XmlLimits {
+                max_depth: 2,
+                ..base
+            },
+        ),
+        (
+            b"<a x=\"1\" y=\"2\"/>".as_slice(),
+            XmlLimits {
+                max_attributes_per_element: 1,
+                ..base
+            },
+        ),
+        (
+            b"<a><b/></a>".as_slice(),
+            XmlLimits {
+                max_tokens: 1,
+                ..base
+            },
+        ),
+    ] {
+        assert_eq!(
+            XmlDocument::parse_with_limits(source, limits)
+                .unwrap_err()
+                .code(),
+            XmlErrorCode::LimitExceeded
+        );
+    }
 }

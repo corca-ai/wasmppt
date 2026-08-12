@@ -517,6 +517,34 @@ export function measureTextBatch(
   return Object.freeze(widths)
 }
 
+function measureTextBatchCached(
+  context: Pick<CanvasRenderingContext2D, 'font' | 'measureText'>,
+  requests: readonly TextMeasureRequest[],
+  cache: ByteBudgetLru<string, number>,
+): readonly number[] {
+  const widths = Array.from({ length: requests.length }, () => 0)
+  const missing: TextMeasureRequest[] = []
+  const missingIndices: number[] = []
+  requests.forEach((request, index) => {
+    const key = `${request.font}\0${request.text}`
+    const cached = cache.get(key)
+    if (cached === undefined) {
+      missing.push(request)
+      missingIndices.push(index)
+    } else {
+      widths[index] = cached
+    }
+  })
+  const measured = measureTextBatch(context, missing)
+  measured.forEach((width, index) => {
+    const request = missing[index]!
+    const key = `${request.font}\0${request.text}`
+    cache.set(key, width, key.length * 2 + 8)
+    widths[missingIndices[index]!] = width
+  })
+  return Object.freeze(widths)
+}
+
 export function wrapText(
   text: string,
   maxWidth: number,
@@ -1067,20 +1095,34 @@ export type ImageResolver = (
   signal: AbortSignal,
 ) => Promise<DecodedImage | undefined>
 
+export type ImageCacheKeyResolver = (
+  image: SceneImage,
+  signal: AbortSignal,
+) => Promise<string>
+
 export interface RenderTelemetry {
   readonly resolutionMs: number
   readonly fontMeasurementMs: number
   readonly displayExecutionMs: number
   readonly mediaDecodeMs: number
   readonly commandCount: number
-  readonly cacheBytes: { readonly decodedImages: number }
-  readonly cacheHitRate: { readonly decodedImages: number }
+  readonly cacheBytes: {
+    readonly decodedImages: number
+    readonly textMeasurements: number
+    readonly richTextLayouts: number
+  }
+  readonly cacheHitRate: {
+    readonly decodedImages: number
+    readonly textMeasurements: number
+    readonly richTextLayouts: number
+  }
 }
 
 export interface CanvasRenderOptions {
   readonly signal?: AbortSignal
   readonly fontResolver?: FontResolver
   readonly imageResolver?: ImageResolver
+  readonly imageCacheKey?: ImageCacheKeyResolver
   readonly imageCacheBytes?: number
   readonly resolutionMs?: number
   readonly scale?: number
@@ -1089,12 +1131,23 @@ export interface CanvasRenderOptions {
 /** Executes one compact scene and owns a bounded decoded-image cache. */
 export class CanvasDisplayListRenderer {
   readonly #images: ByteBudgetLru<string, DecodedImage>
+  readonly #textMeasurements: ByteBudgetLru<string, number>
+  readonly #richTextLayouts: ByteBudgetLru<string, RichTextLayoutPlan>
+  readonly #defaultFontResolver = new FontResolver()
+  readonly #fontResolverIds = new WeakMap<FontResolver, number>()
   readonly #imageInflight = new Map<string, Promise<DecodedImage | undefined>>()
   #imageAbort = new AbortController()
   #imageRevision = 0
+  #nextFontResolverId = 1
 
-  constructor(imageCacheBytes = 32 * 1024 * 1024) {
+  constructor(
+    imageCacheBytes = 32 * 1024 * 1024,
+    textMeasurementCacheBytes = 4 * 1024 * 1024,
+    richTextLayoutCacheBytes = 8 * 1024 * 1024,
+  ) {
     this.#images = new ByteBudgetLru(imageCacheBytes, (image) => image.close?.())
+    this.#textMeasurements = new ByteBudgetLru(textMeasurementCacheBytes)
+    this.#richTextLayouts = new ByteBudgetLru(richTextLayoutCacheBytes)
   }
 
   get decodedImageBytes(): number {
@@ -1111,7 +1164,7 @@ export class CanvasDisplayListRenderer {
     const scale = options.scale ?? 1
     const widthPixels = scene.width / EMU_PER_CSS_PIXEL
     const rootScale = (widthPixels === 0 ? 1 : context.canvas.width / widthPixels) * scale
-    const fontResolver = options.fontResolver ?? new FontResolver()
+    const fontResolver = options.fontResolver ?? this.#defaultFontResolver
     const textCommands = scene.commands.filter(
       (command): command is Extract<SceneCommand, { readonly kind: 'draw-text' }> =>
         command.kind === 'draw-text',
@@ -1131,19 +1184,32 @@ export class CanvasDisplayListRenderer {
         ),
       ),
     )
-    const measurements = measureTextBatch(
+    const measurements = measureTextBatchCached(
       context,
       textCommands.map((command, index) => ({
         text: scene.strings[command.text] ?? '',
         font: resolvedFonts[index]!.css,
       })),
+      this.#textMeasurements,
     )
     const richTextLayouts = await Promise.all(
-      richTextCommands.map((command) => buildRichTextLayout(context, command, fontResolver)),
+      richTextCommands.map(async (command) => {
+        const key = `${this.#fontResolverId(fontResolver)}\0${JSON.stringify(command)}`
+        const cached = this.#richTextLayouts.get(key)
+        if (cached !== undefined) return cached
+        const layout = await buildRichTextLayout(context, command, fontResolver)
+        this.#richTextLayouts.set(key, layout, key.length * 2 + layout.runs.length * 128)
+        return layout
+      }),
     )
     const fontMeasurementMs = performance.now() - fontStart
     const mediaStart = performance.now()
-    const decodedImages = await this.#resolveImages(scene, options.imageResolver, signal)
+    const decodedImages = await this.#resolveImages(
+      scene,
+      options.imageResolver,
+      options.imageCacheKey,
+      signal,
+    )
     const mediaDecodeMs = performance.now() - mediaStart
     throwIfAborted(signal)
     const executionStart = performance.now()
@@ -1251,8 +1317,16 @@ export class CanvasDisplayListRenderer {
       displayExecutionMs: performance.now() - executionStart,
       mediaDecodeMs,
       commandCount: scene.commands.length,
-      cacheBytes: Object.freeze({ decodedImages: this.#images.residentBytes }),
-      cacheHitRate: Object.freeze({ decodedImages: this.#images.hitRate }),
+      cacheBytes: Object.freeze({
+        decodedImages: this.#images.residentBytes,
+        textMeasurements: this.#textMeasurements.residentBytes,
+        richTextLayouts: this.#richTextLayouts.residentBytes,
+      }),
+      cacheHitRate: Object.freeze({
+        decodedImages: this.#images.hitRate,
+        textMeasurements: this.#textMeasurements.hitRate,
+        richTextLayouts: this.#richTextLayouts.hitRate,
+      }),
     })
   }
 
@@ -1262,17 +1336,32 @@ export class CanvasDisplayListRenderer {
     this.#imageAbort = new AbortController()
     this.#imageInflight.clear()
     this.#images.clear()
+    this.#textMeasurements.clear()
+    this.#richTextLayouts.clear()
+  }
+
+  #fontResolverId(resolver: FontResolver): number {
+    const current = this.#fontResolverIds.get(resolver)
+    if (current !== undefined) return current
+    const next = this.#nextFontResolverId
+    this.#nextFontResolverId += 1
+    this.#fontResolverIds.set(resolver, next)
+    return next
   }
 
   async #resolveImages(
     scene: DisplayScene,
     resolver: ImageResolver | undefined,
+    cacheKeyResolver: ImageCacheKeyResolver | undefined,
     signal: AbortSignal,
   ): Promise<readonly (DecodedImage | undefined)[]> {
     if (resolver === undefined) return scene.images.map(() => undefined)
     return Promise.all(
       scene.images.map(async (image) => {
-        const key = `${image.partName ?? ''}\0${image.relationshipId}`
+        const key = cacheKeyResolver === undefined
+          ? `${image.partName ?? ''}\0${image.relationshipId}`
+          : await cacheKeyResolver(image, signal)
+        throwIfAborted(signal)
         const cached = this.#images.get(key)
         if (cached !== undefined) return cached
         let loading = this.#imageInflight.get(key)

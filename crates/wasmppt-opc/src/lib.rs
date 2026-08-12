@@ -16,8 +16,8 @@ mod write;
 
 pub use error::{Error, ErrorCode, Result};
 pub use graph::{
-    Conformance, Diagnostic, DiagnosticCode, GraphError, PackageGraph, Part, PartId, Relationship,
-    RelationshipTarget, TraversalLimit,
+    Conformance, Diagnostic, DiagnosticCode, GraphError, PackageGraph, PackagePartSource, Part,
+    PartId, Relationship, RelationshipTarget, TraversalLimit,
 };
 pub use io::{MemorySource, OutputSink, ReadAt, VecSink, WriteSink};
 pub use limits::PackageLimits;

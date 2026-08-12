@@ -52,6 +52,31 @@ export class WasmpptEngine {
         wasm.__wbg_wasmpptengine_free(ptr, 0);
     }
     /**
+     * Atomically apply a partial WPPD payload and return compact revision metadata.
+     * @param {number} handle
+     * @param {number} expected_revision
+     * @param {number} next_revision
+     * @param {Uint8Array} payload
+     * @returns {Array<any>}
+     */
+    apply_live_session_payload(handle, expected_revision, next_revision, payload) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passArray8ToWasm0(payload, wasm.__wbindgen_export);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.wasmpptengine_apply_live_session_payload(retptr, this.__wbg_ptr, handle, expected_revision, next_revision, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return takeObject(r0);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * Report optional acceleration detected by the JavaScript adapter.
      *
      * The current baseline artifact intentionally reports scalar-only support.
@@ -60,6 +85,31 @@ export class WasmpptEngine {
     capabilities() {
         const ret = wasm.wasmpptengine_capabilities(this.__wbg_ptr);
         return EngineCapabilities.__wrap(ret);
+    }
+    /**
+     * Create a revision-zero live session from one prepared template and complete
+     * initial generation data. The logical package is opened directly, without a
+     * generated PPTX buffer.
+     * @param {number} template_handle
+     * @param {Uint8Array} payload
+     * @returns {number}
+     */
+    create_live_session_payload(template_handle, payload) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passArray8ToWasm0(payload, wasm.__wbindgen_export);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.wasmpptengine_create_live_session_payload(retptr, this.__wbg_ptr, template_handle, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0 >>> 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
     }
     /**
      * Text-only compatibility entry point returning a pull cursor handle.
@@ -125,6 +175,151 @@ export class WasmpptEngine {
             return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {number} handle
+     * @returns {Array<any>}
+     */
+    live_session_cache_telemetry(handle) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.wasmpptengine_live_session_cache_telemetry(retptr, this.__wbg_ptr, handle);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return takeObject(r0);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {number} handle
+     * @param {number} revision
+     * @param {string} part_name
+     * @returns {Uint8Array}
+     */
+    live_session_resource(handle, revision, part_name) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(part_name, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.wasmpptengine_live_session_resource(retptr, this.__wbg_ptr, handle, revision, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+            if (r3) {
+                throw takeObject(r2);
+            }
+            var v2 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export3(r0, r1 * 1, 1);
+            return v2;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {number} handle
+     * @param {number} revision
+     * @param {string} part_name
+     * @returns {string}
+     */
+    live_session_resource_fingerprint(handle, revision, part_name) {
+        let deferred3_0;
+        let deferred3_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(part_name, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.wasmpptengine_live_session_resource_fingerprint(retptr, this.__wbg_ptr, handle, revision, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+            var ptr2 = r0;
+            var len2 = r1;
+            if (r3) {
+                ptr2 = 0; len2 = 0;
+                throw takeObject(r2);
+            }
+            deferred3_0 = ptr2;
+            deferred3_1 = len2;
+            return getStringFromWasm0(ptr2, len2);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export3(deferred3_0, deferred3_1, 1);
+        }
+    }
+    /**
+     * @param {number} handle
+     * @returns {number}
+     */
+    live_session_revision(handle) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.wasmpptengine_live_session_revision(retptr, this.__wbg_ptr, handle);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0 >>> 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {number} handle
+     * @returns {number}
+     */
+    live_session_slide_count(handle) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.wasmpptengine_live_session_slide_count(retptr, this.__wbg_ptr, handle);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0 >>> 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {number} handle
+     * @param {number} revision
+     * @param {number} slide_index
+     * @returns {string}
+     */
+    live_session_slide_fingerprint(handle, revision, slide_index) {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.wasmpptengine_live_session_slide_fingerprint(retptr, this.__wbg_ptr, handle, revision, slide_index);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+            var ptr1 = r0;
+            var len1 = r1;
+            if (r3) {
+                ptr1 = 0; len1 = 0;
+                throw takeObject(r2);
+            }
+            deferred2_0 = ptr1;
+            deferred2_1 = len1;
+            return getStringFromWasm0(ptr1, len1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export3(deferred2_0, deferred2_1, 1);
         }
     }
     constructor() {
@@ -366,6 +561,14 @@ export class WasmpptEngine {
      * @param {number} handle
      * @returns {boolean}
      */
+    release_live_session(handle) {
+        const ret = wasm.wasmpptengine_release_live_session(this.__wbg_ptr, handle);
+        return ret !== 0;
+    }
+    /**
+     * @param {number} handle
+     * @returns {boolean}
+     */
     release_presentation(handle) {
         const ret = wasm.wasmpptengine_release_presentation(this.__wbg_ptr, handle);
         return ret !== 0;
@@ -377,6 +580,30 @@ export class WasmpptEngine {
     release_template(handle) {
         const ret = wasm.wasmpptengine_release_template(this.__wbg_ptr, handle);
         return ret !== 0;
+    }
+    /**
+     * @param {number} handle
+     * @param {number} revision
+     * @param {number} slide_index
+     * @returns {Uint8Array}
+     */
+    resolve_live_session_slide(handle, revision, slide_index) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.wasmpptengine_resolve_live_session_slide(retptr, this.__wbg_ptr, handle, revision, slide_index);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+            if (r3) {
+                throw takeObject(r2);
+            }
+            var v1 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export3(r0, r1 * 1, 1);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
     }
     /**
      * Resolve exactly one requested slide to the compact display-list wire format.
@@ -414,6 +641,26 @@ export class WasmpptEngine {
             const ptr0 = passArray8ToWasm0(payload, wasm.__wbindgen_export);
             const len0 = WASM_VECTOR_LEN;
             wasm.wasmpptengine_start_generation_payload(retptr, this.__wbg_ptr, template_handle, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0 >>> 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {number} handle
+     * @param {number} revision
+     * @returns {number}
+     */
+    start_live_session_generation(handle, revision) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.wasmpptengine_start_live_session_generation(retptr, this.__wbg_ptr, handle, revision);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);

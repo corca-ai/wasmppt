@@ -11,15 +11,32 @@ const client = new WasmpptWorkerClient(worker)
 const renderer = new CanvasDisplayListRenderer()
 
 let prepared
-let presentationHandle
+let liveSession
 let outputUrl
+let outputBlob
+let outputRevision = -1
 let templateEpoch = 0
-let generationEpoch = 0
-let generationAbort
-let regenerationTimer
+let updateFrame
+let updateRunning = false
+let pendingDelta = emptyDelta()
+let renderEpoch = 0
+let renderAbort
+let exportTimer
+let exportAbort
+let exportPromise
+let exportPromiseRevision = -1
+let visibilityObserver
+const visibleSlides = new Set()
+const dirtySlides = new Set()
+const slideHosts = new Map()
+const slideDiagnostics = new Map()
+const bindingEditVersions = new Map()
 let outputName = 'wasmppt-report.pptx'
 let defaultImageData
 let preparationDiagnostics = []
+const liveSettleWaiters = new Set()
+let activeRenderBatches = 0
+let abandonedWork = 0
 
 worker.addEventListener('message', (event) => {
   if (event.data?.type === 'host-ready') void useBundledTemplate()
@@ -32,11 +49,9 @@ elements.template.addEventListener('change', () => {
   if (file !== undefined) void useFile(file)
 })
 elements['use-sample'].addEventListener('click', () => void useBundledTemplate())
-elements.bindings.addEventListener('input', scheduleGeneration)
-elements.bindings.addEventListener('change', scheduleGeneration)
-elements.download.addEventListener('click', (event) => {
-  if (elements.download.getAttribute('aria-disabled') === 'true') event.preventDefault()
-})
+elements.bindings.addEventListener('input', (event) => void queueBindingEdit(event))
+elements.bindings.addEventListener('change', (event) => void queueBindingEdit(event))
+elements.download.addEventListener('click', (event) => void downloadCurrentRevision(event))
 
 for (const type of ['dragenter', 'dragover']) {
   elements['drop-zone'].addEventListener(type, (event) => {
@@ -78,14 +93,14 @@ async function useFile(file) {
 
 async function prepareTemplate(bytes) {
   const epoch = ++templateEpoch
-  cancelGeneration()
+  cancelLiveWork()
   disableDownload()
   setStatus('Reading template…', true)
   try {
     const previous = prepared
     prepared = undefined
+    await releaseLiveSession()
     if (previous !== undefined) await client.release(previous.handle)
-    await releasePresentation()
     const started = performance.now()
     const next = await client.prepare(bytes, { macroPolicy: 'strip' })
     if (epoch !== templateEpoch) {
@@ -93,57 +108,95 @@ async function prepareTemplate(bytes) {
       return
     }
     prepared = next
+    abandonedWork = 0
     elements['compile-time'].textContent = formatMs(performance.now() - started)
     renderBindings(next.bindings)
     preparationDiagnostics = next.diagnostics
     showDiagnostics([], next.bindings.length)
-    await generateAndPreview()
+    const data = await generationData(next.bindings)
+    const session = await client.createLiveSession(next.handle, data)
+    if (epoch !== templateEpoch) {
+      await client.releaseLiveSession(session.handle)
+      return
+    }
+    liveSession = session
+    setupPreview(session.slideCount)
+    enableDownloadAction()
+    await renderDirtySlides()
+    await exportRevision(session.revision)
   } catch (error) {
     if (epoch === templateEpoch) fail(error)
   }
 }
 
-function scheduleGeneration() {
-  clearTimeout(regenerationTimer)
-  regenerationTimer = setTimeout(() => void generateAndPreview(), 250)
+async function queueBindingEdit(event) {
+  const input = event.target
+  if (!(input instanceof HTMLInputElement) || input.dataset.binding === undefined) return
+  const binding = prepared?.bindings.find((candidate) => candidate.id === input.dataset.binding)
+  if (binding === undefined) return
+  const editVersion = (bindingEditVersions.get(binding.id) ?? 0) + 1
+  bindingEditVersions.set(binding.id, editVersion)
+  if (binding.kind === 'text') {
+    if (event.type !== 'input') return
+    pendingDelta.text[binding.id] = input.value
+  } else if (event.type === 'change') {
+    const file = input.files?.[0]
+    const image = file === undefined ? await defaultImage() : {
+      bytes: new Uint8Array(await file.arrayBuffer()),
+      extension: extensionOf(file.name),
+      contentType: file.type || contentTypeOf(file.name),
+    }
+    if (bindingEditVersions.get(binding.id) !== editVersion) return
+    pendingDelta.images[binding.id] = image
+  } else {
+    return
+  }
+  scheduleLiveUpdate()
 }
 
-async function generateAndPreview() {
-  const template = prepared
-  if (template === undefined) return
-  const epoch = ++generationEpoch
-  generationAbort?.abort()
-  generationAbort = new AbortController()
-  disableDownload()
-  setStatus('Refreshing preview…', true)
+function scheduleLiveUpdate() {
+  if (updateFrame !== undefined) return
+  updateFrame = requestAnimationFrame(() => {
+    updateFrame = undefined
+    void flushLiveUpdate()
+  })
+}
+
+async function flushLiveUpdate() {
+  if (updateRunning || liveSession === undefined || deltaEmpty(pendingDelta)) return
+  const session = liveSession
+  const delta = pendingDelta
+  pendingDelta = emptyDelta()
+  updateRunning = true
+  if (activeRenderBatches > 0) abandonedWork += activeRenderBatches
+  renderAbort?.abort()
+  setStatus(`Applying revision ${session.revision + 1}…`, true)
+  const started = performance.now()
   try {
-    const data = await generationData(template.bindings)
-    const started = performance.now()
-    const chunks = []
-    let length = 0
-    for await (const chunk of client.generateStream(template.handle, data, {
-      signal: generationAbort.signal,
-      onProgress: (phase, completed) => {
-        if (phase === 'stream' && epoch === generationEpoch) {
-          elements.status.textContent = `Rendering ${formatBytes(completed)}…`
-        }
-      },
-    })) {
-      chunks.push(chunk)
-      length += chunk.byteLength
-    }
-    if (epoch !== generationEpoch) return
-    const blob = new Blob(chunks, {
-      type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    })
-    elements['generate-time'].textContent = formatMs(performance.now() - started)
-    elements['output-size'].textContent = formatBytes(length)
-    const slideCount = await renderPreview(blob, epoch)
-    if (epoch !== generationEpoch) return
-    enableDownload(blob)
-    setStatus(`PPTX ready · ${slideCount} slide${slideCount === 1 ? '' : 's'}`, false)
+    const update = await client.applyLiveDelta(session.handle, session.revision, delta)
+    if (liveSession?.handle !== session.handle) return
+    liveSession = { handle: update.handle, revision: update.revision, slideCount: update.slideCount }
+    if (update.fullFallback) setupPreview(update.slideCount)
+    else for (const index of update.invalidatedSlides) dirtySlides.add(index)
+    const interactiveMs = performance.now() - started
+    elements['generate-time'].textContent = formatMs(interactiveMs)
+    await renderDirtySlides()
+    scheduleExport(update.revision)
+    const telemetry = await client.liveSessionCacheTelemetry(update.handle)
+    setStatus(
+      `Preview revision ${update.revision} · ${update.invalidatedSlides.length} slide${update.invalidatedSlides.length === 1 ? '' : 's'} updated in ${formatMs(interactiveMs)} (${update.invalidationReason}) · ${update.overlay.reusedMaterializedParts} overlay parts reused · ${telemetry.hits}/${telemetry.hits + telemetry.misses || 0} scene hits · ${abandonedWork} stale jobs abandoned`,
+      false,
+    )
   } catch (error) {
-    if (error?.name !== 'AbortError' && epoch === generationEpoch) fail(error)
+    if (error?.name !== 'AbortError' && liveSession?.handle === session.handle) fail(error)
+  } finally {
+    updateRunning = false
+    if (!deltaEmpty(pendingDelta)) {
+      if (liveSettleWaiters.size > 0) void flushLiveUpdate()
+      else scheduleLiveUpdate()
+    } else {
+      resolveLiveSettleWaiters()
+    }
   }
 }
 
@@ -200,61 +253,130 @@ function renderBindings(bindings) {
   }
 }
 
-async function renderPreview(blob, epoch) {
-  await releasePresentation()
-  const opened = await client.openPresentation(await blob.arrayBuffer())
-  if (epoch !== generationEpoch) {
-    await client.releasePresentation(opened.handle)
-    return 0
-  }
-  presentationHandle = opened.handle
+function setupPreview(slideCount) {
+  renderAbort?.abort()
+  visibilityObserver?.disconnect()
   elements.preview.replaceChildren()
-  const renderDiagnostics = []
-  const deviceScale = Math.min(devicePixelRatio || 1, 2)
-  for (let index = 0; index < opened.slideCount; index += 1) {
-    const scene = decodeDisplayList(await client.resolveSlide(opened.handle, index))
-    renderDiagnostics.push(...scene.diagnostics)
-    if (epoch !== generationEpoch) return 0
-    const width = Math.min(scene.width / 9_525, 960)
-    const height = width * scene.height / scene.width
+  visibleSlides.clear()
+  dirtySlides.clear()
+  slideHosts.clear()
+  slideDiagnostics.clear()
+  visibilityObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      const index = Number(entry.target.dataset.slideIndex)
+      if (entry.isIntersecting) visibleSlides.add(index)
+      else {
+        visibleSlides.delete(index)
+        const canvas = slideHosts.get(index)?.querySelector('canvas')
+        canvas?.remove()
+      }
+    }
+    void renderDirtySlides()
+  }, { rootMargin: '240px 0px' })
+  for (let index = 0; index < slideCount; index += 1) {
     const figure = document.createElement('figure')
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.max(1, Math.round(width * deviceScale))
-    canvas.height = Math.max(1, Math.round(height * deviceScale))
-    canvas.style.aspectRatio = `${scene.width} / ${scene.height}`
-    canvas.setAttribute('aria-label', `Slide ${index + 1}`)
+    figure.dataset.slideIndex = String(index)
+    figure.className = 'slide-host'
+    figure.style.aspectRatio = '4 / 3'
     const caption = document.createElement('figcaption')
     caption.textContent = `Slide ${index + 1}`
-    figure.append(canvas, caption)
+    figure.append(caption)
     elements.preview.append(figure)
-    const context = canvas.getContext('2d', { alpha: false })
-    if (context === null) throw new Error('Canvas 2D is unavailable')
-    await renderer.render(scene, context, {
-      imageResolver: async (image, signal) => {
-        if (image.partName === undefined) throw new Error('Image resource has no package part')
-        const metafile = /\.(?:emf|wmf)$/i.test(image.partName)
-        const bytes = metafile
-          ? await client.presentationMetafileSvg(opened.handle, image.partName, { signal })
-          : await client.presentationResource(opened.handle, image.partName, { signal })
-        try {
-          if (metafile) return await decodeSvgImage(bytes, signal)
-          const bitmap = await createImageBitmap(
-            new Blob([bytes], { type: mediaTypeOf(image.partName) }),
-          )
-          return {
-            source: bitmap,
-            residentBytes: bitmap.width * bitmap.height * 4,
-            close: () => bitmap.close(),
-          }
-        } catch (error) {
-          console.warn(`Cannot decode ${image.partName}; a placeholder will be shown`, error)
-          return undefined
-        }
-      },
-    })
+    slideHosts.set(index, figure)
+    dirtySlides.add(index)
+    visibilityObserver.observe(figure)
   }
-  showDiagnostics(renderDiagnostics, prepared?.bindings.length ?? 0)
-  return opened.slideCount
+  // Paint the first slide immediately even when the preview starts below the fold.
+  if (slideCount > 0) visibleSlides.add(0)
+}
+
+async function renderDirtySlides() {
+  const session = liveSession
+  if (session === undefined) return
+  const indices = [...visibleSlides].filter((index) =>
+    index >= 0 && index < session.slideCount &&
+    (dirtySlides.has(index) || slideHosts.get(index)?.querySelector('canvas') === null),
+  )
+  if (indices.length === 0) return
+  const epoch = ++renderEpoch
+  renderAbort?.abort()
+  renderAbort = new AbortController()
+  const { signal } = renderAbort
+  activeRenderBatches += 1
+  try {
+    await Promise.all(indices.map((index) => renderLiveSlide(session, index, epoch, signal)))
+  } catch (error) {
+    if (signal.aborted || epoch !== renderEpoch || error?.name === 'WasmpptRevisionError') return
+    throw error
+  } finally {
+    activeRenderBatches -= 1
+  }
+  if (epoch === renderEpoch) {
+    showDiagnostics([...slideDiagnostics.values()].flat(), prepared?.bindings.length ?? 0)
+  }
+}
+
+async function renderLiveSlide(session, index, epoch, signal) {
+  const started = performance.now()
+  const resolved = await client.resolveLiveSlide(session.handle, session.revision, index, { signal })
+  if (signal.aborted || epoch !== renderEpoch || liveSession?.revision !== session.revision) return
+  const scene = decodeDisplayList(resolved.displayList)
+  slideDiagnostics.set(index, scene.diagnostics)
+  const figure = slideHosts.get(index)
+  if (figure === undefined) return
+  const deviceScale = Math.min(devicePixelRatio || 1, 2)
+  const width = Math.min(scene.width / 9_525, 960)
+  const height = width * scene.height / scene.width
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(width * deviceScale))
+  canvas.height = Math.max(1, Math.round(height * deviceScale))
+  canvas.style.aspectRatio = `${scene.width} / ${scene.height}`
+  canvas.setAttribute('aria-label', `Slide ${index + 1}`)
+  figure.style.aspectRatio = `${scene.width} / ${scene.height}`
+  figure.querySelector('canvas')?.remove()
+  figure.prepend(canvas)
+  const context = canvas.getContext('2d', { alpha: false })
+  if (context === null) throw new Error('Canvas 2D is unavailable')
+  await renderer.render(scene, context, {
+    signal,
+    resolutionMs: performance.now() - started,
+    imageCacheKey: async (image, imageSignal) => {
+      if (image.partName === undefined) throw new Error('Image resource has no package part')
+      const fingerprint = await client.liveSessionResourceFingerprint(
+        session.handle,
+        session.revision,
+        image.partName,
+        { signal: imageSignal },
+      )
+      return /\.(?:emf|wmf)$/i.test(image.partName)
+        ? `${fingerprint}:metafile-svg-v1`
+        : fingerprint
+    },
+    imageResolver: async (image, imageSignal) => {
+      if (image.partName === undefined) throw new Error('Image resource has no package part')
+      const metafile = /\.(?:emf|wmf)$/i.test(image.partName)
+      const resource = metafile
+        ? await client.liveSessionMetafileSvg(session.handle, session.revision, image.partName, { signal: imageSignal })
+        : await client.liveSessionResource(session.handle, session.revision, image.partName, { signal: imageSignal })
+      try {
+        if (metafile) return await decodeSvgImage(resource.bytes, imageSignal)
+        const bitmap = await createImageBitmap(
+          new Blob([resource.bytes], { type: mediaTypeOf(image.partName) }),
+        )
+        return {
+          source: bitmap,
+          residentBytes: bitmap.width * bitmap.height * 4,
+          close: () => bitmap.close(),
+        }
+      } catch (error) {
+        console.warn(`Cannot decode ${image.partName}; a placeholder will be shown`, error)
+        return undefined
+      }
+    },
+  })
+  if (!signal.aborted && epoch === renderEpoch && liveSession?.revision === session.revision) {
+    dirtySlides.delete(index)
+  }
 }
 
 function showDiagnostics(renderDiagnostics, bindingCount) {
@@ -268,32 +390,154 @@ function showDiagnostics(renderDiagnostics, bindingCount) {
     : unique.map((item) => `${item.code}: ${item.message}`).join('\n')
 }
 
-async function releasePresentation() {
-  if (presentationHandle === undefined) return
-  const handle = presentationHandle
-  presentationHandle = undefined
-  await client.releasePresentation(handle)
+async function releaseLiveSession() {
+  if (liveSession === undefined) return
+  const handle = liveSession.handle
+  liveSession = undefined
+  await client.releaseLiveSession(handle)
 }
 
-function enableDownload(blob) {
+function enableDownload(blob, revision) {
   if (outputUrl !== undefined) URL.revokeObjectURL(outputUrl)
+  outputBlob = blob
+  outputRevision = revision
   outputUrl = URL.createObjectURL(blob)
   elements.download.href = outputUrl
   elements.download.download = outputName
+  elements.download.dataset.revision = String(revision)
+  elements.download.classList.remove('is-disabled')
+  elements.download.setAttribute('aria-disabled', 'false')
+}
+
+function enableDownloadAction() {
   elements.download.classList.remove('is-disabled')
   elements.download.setAttribute('aria-disabled', 'false')
 }
 
 function disableDownload() {
+  if (outputUrl !== undefined) URL.revokeObjectURL(outputUrl)
+  outputUrl = undefined
+  outputBlob = undefined
+  outputRevision = -1
   elements.download.removeAttribute('href')
+  delete elements.download.dataset.revision
   elements.download.classList.add('is-disabled')
   elements.download.setAttribute('aria-disabled', 'true')
 }
 
-function cancelGeneration() {
-  clearTimeout(regenerationTimer)
-  generationEpoch += 1
-  generationAbort?.abort()
+function scheduleExport(revision) {
+  clearTimeout(exportTimer)
+  exportTimer = setTimeout(() => void exportRevision(revision), 200)
+}
+
+async function exportRevision(revision) {
+  const session = liveSession
+  if (session === undefined || session.revision !== revision) return undefined
+  if (outputRevision === revision && outputBlob !== undefined) return outputBlob
+  if (exportPromiseRevision === revision && exportPromise !== undefined) return exportPromise
+  if (exportPromise !== undefined && exportPromiseRevision !== revision) abandonedWork += 1
+  exportAbort?.abort()
+  exportAbort = new AbortController()
+  const { signal } = exportAbort
+  exportPromiseRevision = revision
+  exportPromise = (async () => {
+    const started = performance.now()
+    const chunks = []
+    let length = 0
+    for await (const chunk of client.generateLiveStream(session.handle, revision, {
+      signal,
+      onProgress: (phase, completed) => {
+        if (phase === 'stream' && liveSession?.revision === revision) {
+          elements.status.textContent = `Preparing revision ${revision} download · ${formatBytes(completed)}…`
+        }
+      },
+    })) {
+      chunks.push(chunk)
+      length += chunk.byteLength
+    }
+    if (signal.aborted || liveSession?.revision !== revision) return undefined
+    const blob = new Blob(chunks, {
+      type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    })
+    enableDownload(blob, revision)
+    elements['generate-time'].textContent = formatMs(performance.now() - started)
+    elements['output-size'].textContent = formatBytes(length)
+    setStatus(`PPTX ready · ${session.slideCount} slide${session.slideCount === 1 ? '' : 's'}`, false)
+    return blob
+  })().catch((error) => {
+    if (error?.name !== 'AbortError' && liveSession?.handle === session.handle) fail(error)
+    return undefined
+  }).finally(() => {
+    if (exportPromiseRevision === revision) {
+      exportPromise = undefined
+      exportPromiseRevision = -1
+    }
+  })
+  return exportPromise
+}
+
+async function downloadCurrentRevision(event) {
+  let session = liveSession
+  if (session === undefined || elements.download.getAttribute('aria-disabled') === 'true') {
+    event.preventDefault()
+    return
+  }
+  if (updateRunning || !deltaEmpty(pendingDelta)) {
+    event.preventDefault()
+    await settleLiveEdits()
+    session = liveSession
+    if (session === undefined) return
+  }
+  if (outputRevision === session.revision && outputUrl !== undefined) return
+  event.preventDefault()
+  const blob = await exportRevision(session.revision)
+  if (blob === undefined || liveSession?.revision !== session.revision) return
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = outputName
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(link.href), 0)
+}
+
+function cancelLiveWork() {
+  if (updateFrame !== undefined) cancelAnimationFrame(updateFrame)
+  updateFrame = undefined
+  clearTimeout(exportTimer)
+  pendingDelta = emptyDelta()
+  bindingEditVersions.clear()
+  renderEpoch += 1
+  renderAbort?.abort()
+  exportAbort?.abort()
+  visibilityObserver?.disconnect()
+  visibleSlides.clear()
+  dirtySlides.clear()
+  slideHosts.clear()
+  slideDiagnostics.clear()
+  resolveLiveSettleWaiters()
+}
+
+function settleLiveEdits() {
+  if (!updateRunning && deltaEmpty(pendingDelta)) return Promise.resolve()
+  if (updateFrame !== undefined) {
+    cancelAnimationFrame(updateFrame)
+    updateFrame = undefined
+  }
+  const settled = new Promise((resolve) => liveSettleWaiters.add(resolve))
+  if (!updateRunning) void flushLiveUpdate()
+  return settled
+}
+
+function resolveLiveSettleWaiters() {
+  for (const resolve of liveSettleWaiters) resolve()
+  liveSettleWaiters.clear()
+}
+
+function emptyDelta() {
+  return { text: {}, images: {} }
+}
+
+function deltaEmpty(delta) {
+  return Object.keys(delta.text).length === 0 && Object.keys(delta.images).length === 0
 }
 
 function setStatus(message, busy) {
@@ -305,7 +549,7 @@ function fail(error) {
   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
   setStatus('Could not create a preview', false)
   elements.diagnostics.textContent = message
-  disableDownload()
+  if (liveSession === undefined) disableDownload()
   console.error(error)
 }
 

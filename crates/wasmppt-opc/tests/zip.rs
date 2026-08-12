@@ -1,4 +1,7 @@
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    sync::Arc,
+};
 
 use proptest::prelude::*;
 use wasmppt_opc::{
@@ -212,6 +215,33 @@ fn pull_writer_matches_the_forward_only_writer_for_tiny_chunks() {
     assert_eq!(writer.stats().entries, 2);
     assert_eq!(writer.stats().raw_copied_entries, 1);
     assert_eq!(writer.stats().recompressed_entries, 1);
+}
+
+#[test]
+fn pull_writer_streams_stored_shared_bytes_without_cloning_the_payload() {
+    let archive = ZipArchive::from_bytes(fixture()).unwrap();
+    let payload: Arc<[u8]> = vec![7; 128 * 1024].into();
+    let mut writer = StreamingZipWriter::new(archive.source().clone());
+    writer
+        .start_shared_entry(
+            "ppt/media/shared.bin".to_owned(),
+            payload.clone(),
+            EntryOptions::deterministic(CompressionMethod::Stored),
+        )
+        .unwrap();
+    assert_eq!(Arc::strong_count(&payload), 2);
+    let mut output = Vec::new();
+    while writer.entry_active() {
+        output.extend(writer.pull(1024).unwrap());
+    }
+    assert_eq!(Arc::strong_count(&payload), 1);
+    writer.start_finish().unwrap();
+    while !writer.is_done() {
+        output.extend(writer.pull(1024).unwrap());
+    }
+    let result = ZipArchive::from_bytes(output).unwrap();
+    let entry = result.entry("ppt/media/shared.bin").unwrap();
+    assert_eq!(result.read_entry(entry).unwrap(), payload.as_ref());
 }
 
 #[test]

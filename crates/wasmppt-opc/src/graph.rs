@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use wasmppt_xml::{Interner, TokenKind, XmlDocument};
 
-use crate::{ReadAt, ZipArchive};
+use crate::{ReadAt, Result as PackageResult, ZipArchive};
 
 const CONTENT_TYPES: &str = "[Content_Types].xml";
 const PACKAGE_RELS: &str = "_rels/.rels";
@@ -122,8 +122,48 @@ pub struct PackageGraph {
     conformance: Conformance,
 }
 
+/// Read-only logical package parts used by graph and layout consumers.
+///
+/// Implementations may expose a physical ZIP or a revision overlay. Callers never
+/// infer reuse from this interface: an overlay is responsible for returning the exact
+/// bytes and complete name set for one immutable logical revision.
+pub trait PackagePartSource: std::fmt::Debug {
+    fn part_names(&self) -> Vec<String>;
+    fn contains_part(&self, name: &str) -> bool {
+        self.part_names().iter().any(|candidate| candidate == name)
+    }
+    fn read_part(&self, name: &str) -> PackageResult<Vec<u8>>;
+}
+
+impl<S: ReadAt + std::fmt::Debug> PackagePartSource for ZipArchive<S> {
+    fn part_names(&self) -> Vec<String> {
+        self.entries()
+            .iter()
+            .map(|entry| entry.name.clone())
+            .collect()
+    }
+
+    fn contains_part(&self, name: &str) -> bool {
+        self.entry(name).is_some()
+    }
+
+    fn read_part(&self, name: &str) -> PackageResult<Vec<u8>> {
+        let entry = self.entry(name).ok_or_else(|| {
+            crate::Error::new(
+                crate::ErrorCode::InvalidField,
+                format!("package part not found: {name}"),
+            )
+        })?;
+        self.read_entry(entry)
+    }
+}
+
 impl PackageGraph {
     pub fn build<S: ReadAt>(archive: &ZipArchive<S>) -> Result<Self, GraphError> {
+        Self::build_from(&ArchivePartSource(archive))
+    }
+
+    pub fn build_from(source: &dyn PackagePartSource) -> Result<Self, GraphError> {
         let mut graph = Self {
             parts: Vec::new(),
             package_relationships: Vec::new(),
@@ -137,20 +177,18 @@ impl PackageGraph {
             conformance: Conformance::Unknown,
         };
 
-        for entry in archive.entries().iter().filter(|entry| {
-            !entry.name.ends_with('/')
-                && entry.name != CONTENT_TYPES
-                && !is_relationship_part(&entry.name)
+        for name in source.part_names().into_iter().filter(|name| {
+            !name.ends_with('/') && name != CONTENT_TYPES && !is_relationship_part(name)
         }) {
             let id = PartId(
                 u32::try_from(graph.parts.len())
                     .map_err(|_| GraphError::new("too many OPC parts"))?,
             );
-            let name = graph.names.intern(&entry.name);
-            graph.name_to_id.insert(entry.name.clone(), id);
+            let symbol = graph.names.intern(&name);
+            graph.name_to_id.insert(name, id);
             graph.parts.push(Part {
                 id,
-                name,
+                name: symbol,
                 content_type: None,
                 relationships: Vec::new(),
                 orphaned: false,
@@ -158,9 +196,9 @@ impl PackageGraph {
         }
 
         let mut evidence = ConformanceEvidence::default();
-        graph.load_content_types(archive, &mut evidence)?;
-        graph.load_relationships(archive, &mut evidence)?;
-        graph.inspect_main_namespaces(archive, &mut evidence)?;
+        graph.load_content_types(source, &mut evidence)?;
+        graph.load_relationships(source, &mut evidence)?;
+        graph.inspect_main_namespaces(source, &mut evidence)?;
         graph.conformance = evidence.finish();
         if graph.conformance == Conformance::Mixed {
             graph.diagnostics.push(Diagnostic {
@@ -242,21 +280,21 @@ impl PackageGraph {
         Ok(output)
     }
 
-    fn load_content_types<S: ReadAt>(
+    fn load_content_types(
         &mut self,
-        archive: &ZipArchive<S>,
+        source: &dyn PackagePartSource,
         evidence: &mut ConformanceEvidence,
     ) -> Result<(), GraphError> {
-        let Some(entry) = archive.entry(CONTENT_TYPES) else {
+        if !source.contains_part(CONTENT_TYPES) {
             self.diagnostics.push(Diagnostic {
                 code: DiagnosticCode::MissingContentTypes,
                 part: None,
                 message: "package has no [Content_Types].xml".to_owned(),
             });
             return Ok(());
-        };
-        let bytes = archive
-            .read_entry(entry)
+        }
+        let bytes = source
+            .read_part(CONTENT_TYPES)
             .map_err(|error| GraphError::new(format!("cannot read {CONTENT_TYPES}: {error}")))?;
         let document = match XmlDocument::parse(bytes) {
             Ok(document) => document,
@@ -339,17 +377,17 @@ impl PackageGraph {
         Ok(())
     }
 
-    fn load_relationships<S: ReadAt>(
+    fn load_relationships(
         &mut self,
-        archive: &ZipArchive<S>,
+        package: &dyn PackagePartSource,
         evidence: &mut ConformanceEvidence,
     ) -> Result<(), GraphError> {
-        for entry in archive
-            .entries()
-            .iter()
-            .filter(|entry| is_relationship_part(&entry.name))
+        for entry_name in package
+            .part_names()
+            .into_iter()
+            .filter(|name| is_relationship_part(name))
         {
-            let source = relationship_source(&entry.name);
+            let source = relationship_source(&entry_name);
             let source_id = source
                 .as_deref()
                 .and_then(|name| self.name_to_id.get(name).copied());
@@ -357,19 +395,19 @@ impl PackageGraph {
                 self.diagnostics.push(Diagnostic {
                     code: DiagnosticCode::OrphanRelationshipPart,
                     part: None,
-                    message: format!("relationship part {} has no source part", entry.name),
+                    message: format!("relationship part {entry_name} has no source part"),
                 });
             }
-            let bytes = archive
-                .read_entry(entry)
-                .map_err(|error| GraphError::new(format!("cannot read {}: {error}", entry.name)))?;
+            let bytes = package
+                .read_part(&entry_name)
+                .map_err(|error| GraphError::new(format!("cannot read {entry_name}: {error}")))?;
             let document = match XmlDocument::parse(bytes) {
                 Ok(document) => document,
                 Err(error) => {
                     self.diagnostics.push(Diagnostic {
                         code: DiagnosticCode::InvalidRelationshipsXml,
                         part: source_id,
-                        message: format!("{}: {error}", entry.name),
+                        message: format!("{entry_name}: {error}"),
                     });
                     continue;
                 }
@@ -383,7 +421,7 @@ impl PackageGraph {
                 self.diagnostics.push(Diagnostic {
                     code: DiagnosticCode::InvalidRelationshipsRoot,
                     part: source_id,
-                    message: format!("{} has an unexpected Relationships root", entry.name),
+                    message: format!("{entry_name} has an unexpected Relationships root"),
                 });
             }
             let mut ids = HashSet::new();
@@ -408,7 +446,7 @@ impl PackageGraph {
                         part: source_id,
                         message: format!(
                             "{} contains a Relationship missing Id, Type, or Target",
-                            entry.name
+                            entry_name
                         ),
                     });
                     continue;
@@ -417,7 +455,7 @@ impl PackageGraph {
                     self.diagnostics.push(Diagnostic {
                         code: DiagnosticCode::DuplicateRelationshipId,
                         part: source_id,
-                        message: format!("duplicate relationship ID {id} in {}", entry.name),
+                        message: format!("duplicate relationship ID {id} in {entry_name}"),
                     });
                     continue;
                 }
@@ -457,7 +495,7 @@ impl PackageGraph {
                     target: resolved,
                 });
             }
-            if entry.name == PACKAGE_RELS {
+            if entry_name == PACKAGE_RELS {
                 self.package_relationships = relationships;
             } else if let Some(source_id) = source_id {
                 self.parts[source_id.index()].relationships = relationships;
@@ -466,9 +504,9 @@ impl PackageGraph {
         Ok(())
     }
 
-    fn inspect_main_namespaces<S: ReadAt>(
+    fn inspect_main_namespaces(
         &mut self,
-        archive: &ZipArchive<S>,
+        source: &dyn PackagePartSource,
         evidence: &mut ConformanceEvidence,
     ) -> Result<(), GraphError> {
         let candidates = self
@@ -481,11 +519,11 @@ impl PackageGraph {
             })
             .collect::<Vec<_>>();
         for (_, name) in candidates {
-            let Some(entry) = archive.entry(&name) else {
+            if !source.contains_part(&name) {
                 continue;
-            };
-            let bytes = archive
-                .read_entry(entry)
+            }
+            let bytes = source
+                .read_part(&name)
                 .map_err(|error| GraphError::new(format!("cannot read {name}: {error}")))?;
             if let Ok(document) = XmlDocument::parse(bytes) {
                 self.collect_namespaces(&document, evidence);
@@ -587,6 +625,38 @@ impl PackageGraph {
                 });
             }
         }
+    }
+}
+
+struct ArchivePartSource<'a, S>(&'a ZipArchive<S>);
+
+impl<S> std::fmt::Debug for ArchivePartSource<'_, S> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ArchivePartSource")
+    }
+}
+
+impl<S: ReadAt> PackagePartSource for ArchivePartSource<'_, S> {
+    fn part_names(&self) -> Vec<String> {
+        self.0
+            .entries()
+            .iter()
+            .map(|entry| entry.name.clone())
+            .collect()
+    }
+
+    fn contains_part(&self, name: &str) -> bool {
+        self.0.entry(name).is_some()
+    }
+
+    fn read_part(&self, name: &str) -> PackageResult<Vec<u8>> {
+        let entry = self.0.entry(name).ok_or_else(|| {
+            crate::Error::new(
+                crate::ErrorCode::InvalidField,
+                format!("package part not found: {name}"),
+            )
+        })?;
+        self.0.read_entry(entry)
     }
 }
 

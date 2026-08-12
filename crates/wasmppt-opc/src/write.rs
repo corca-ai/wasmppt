@@ -1,4 +1,4 @@
-use std::{collections::HashSet, io::Write};
+use std::{collections::HashSet, io::Write, sync::Arc};
 
 use flate2::{Compression, write::DeflateEncoder};
 
@@ -123,6 +123,7 @@ struct StreamingEntry {
 enum StreamingPayload {
     Raw { offset: u64, remaining: u64 },
     Owned { bytes: Vec<u8>, offset: usize },
+    Shared { bytes: Arc<[u8]>, offset: usize },
 }
 
 impl<S: OutputSink> ZipWriter<S> {
@@ -565,6 +566,72 @@ impl<R: ReadAt> StreamingZipWriter<R> {
         Ok(())
     }
 
+    /// Start an entry from shared immutable bytes.
+    ///
+    /// Stored payloads remain shared until they drain. Deflated payloads still need a
+    /// distinct compressed buffer, so they delegate to the regular owned path.
+    pub fn start_shared_entry(
+        &mut self,
+        name: String,
+        bytes: Arc<[u8]>,
+        options: EntryOptions,
+    ) -> Result<()> {
+        if options.compression != CompressionMethod::Stored {
+            return self.start_entry(name, bytes.to_vec(), options);
+        }
+        self.ensure_idle()?;
+        validate_name(&name)?;
+        ensure_metadata_lengths(
+            name.len(),
+            options.local_extra.len(),
+            options.central_extra.len(),
+            options.comment.len(),
+        )?;
+        let uncompressed_size = ensure_u32("uncompressed entry size", bytes.len() as u64)?;
+        let crc32 = crc32fast::hash(&bytes);
+        let compressed_size = uncompressed_size;
+        let local_header_offset = ensure_u32("local header offset", self.position)?;
+        self.reserve_name(&name)?;
+        let flags = UTF8_FLAG;
+        let needed = version_needed(options.compression);
+        let header = local_header_bytes(
+            &name,
+            flags,
+            options.compression,
+            crc32,
+            compressed_size,
+            uncompressed_size,
+            options.modified_time,
+            options.modified_date,
+            &options.local_extra,
+            needed,
+        )?;
+        self.current = Some(StreamingEntry {
+            header,
+            header_offset: 0,
+            payload: StreamingPayload::Shared { bytes, offset: 0 },
+            metadata: WrittenEntry {
+                name,
+                flags,
+                compression: options.compression,
+                crc32,
+                compressed_size,
+                uncompressed_size,
+                modified_time: options.modified_time,
+                modified_date: options.modified_date,
+                version_made_by: 20,
+                version_needed: needed,
+                internal_attributes: options.internal_attributes,
+                external_attributes: options.external_attributes,
+                central_extra: options.central_extra,
+                comment: options.comment,
+                local_header_offset,
+            },
+            raw_copied: false,
+        });
+        Ok(())
+    }
+
     /// Finish package metadata after the last entry has drained.
     pub fn start_finish(&mut self) -> Result<()> {
         self.ensure_idle()?;
@@ -626,6 +693,9 @@ impl<R: ReadAt> StreamingZipWriter<R> {
                         *remaining -= amount as u64;
                     }
                     StreamingPayload::Owned { bytes, offset } => {
+                        append_slice(&mut output, maximum_bytes, bytes, offset);
+                    }
+                    StreamingPayload::Shared { bytes, offset } => {
                         append_slice(&mut output, maximum_bytes, bytes, offset);
                     }
                 }
@@ -893,6 +963,7 @@ fn streaming_entry_done(entry: &StreamingEntry) -> bool {
     match &entry.payload {
         StreamingPayload::Raw { remaining, .. } => *remaining == 0,
         StreamingPayload::Owned { bytes, offset } => *offset == bytes.len(),
+        StreamingPayload::Shared { bytes, offset } => *offset == bytes.len(),
     }
 }
 

@@ -1,4 +1,4 @@
-export const WORKER_PROTOCOL_VERSION = 3 as const
+export const WORKER_PROTOCOL_VERSION = 4 as const
 
 export type TextBindings = Readonly<Record<string, string>>
 
@@ -52,6 +52,74 @@ export type WorkerRequest =
   | {
       readonly version: typeof WORKER_PROTOCOL_VERSION
       readonly id: number
+      readonly type: 'create-live-session'
+      readonly templateHandle: number
+      readonly payload: ArrayBuffer
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'apply-live-delta'
+      readonly sessionHandle: number
+      readonly expectedRevision: number
+      readonly nextRevision: number
+      readonly payload: ArrayBuffer
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'generate-live-session'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly chunkBytes: number
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'resolve-live-slide'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly slideIndex: number
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'live-session-resource'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly partName: string
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'live-session-resource-fingerprint'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly partName: string
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'live-session-metafile-svg'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly partName: string
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'live-session-cache-telemetry'
+      readonly sessionHandle: number
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'release-live-session'
+      readonly sessionHandle: number
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
       readonly type: 'release'
       readonly templateHandle: number
     }
@@ -100,7 +168,7 @@ export type WorkerResponse =
       readonly version: typeof WORKER_PROTOCOL_VERSION
       readonly id: number
       readonly type: 'progress'
-      readonly phase: 'prepare' | 'generate' | 'stream' | 'open' | 'resolve'
+      readonly phase: 'prepare' | 'session' | 'delta' | 'generate' | 'stream' | 'open' | 'resolve'
       readonly completed: number
       readonly total: number
     }
@@ -113,6 +181,36 @@ export type WorkerResponse =
       readonly plan: ArrayBuffer
       readonly bindings: readonly TemplateBinding[]
       readonly diagnostics: readonly TemplateDiagnostic[]
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'live-session-created'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly slideCount: number
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'live-session-updated'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly graphChanged: boolean
+      readonly fullFallback: boolean
+      readonly invalidationReason: 'topology' | 'dependency' | 'none'
+      readonly slideCount: number
+      readonly invalidatedSlides: readonly number[]
+      readonly changedBindings: readonly string[]
+      readonly changedParts: readonly string[]
+      readonly overlay: {
+        readonly reusedMaterializedParts: number
+        readonly logicalParts: number
+        readonly materializedParts: number
+        readonly materializedBytes: number
+        readonly reusedSourceBytes: number
+        readonly removedParts: number
+      }
     }
   | {
       readonly version: typeof WORKER_PROTOCOL_VERSION
@@ -150,6 +248,61 @@ export type WorkerResponse =
       readonly type: 'slide-resolved'
       readonly slideIndex: number
       readonly displayList: ArrayBuffer
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'live-slide-resolved'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly slideIndex: number
+      readonly fingerprint: string
+      readonly displayList: ArrayBuffer
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'live-session-resource'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly partName: string
+      readonly fingerprint: string
+      readonly bytes: ArrayBuffer
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'live-session-resource-fingerprint'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly partName: string
+      readonly fingerprint: string
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'live-session-metafile-svg'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly partName: string
+      readonly fingerprint: string
+      readonly bytes: ArrayBuffer
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'live-session-cache-telemetry'
+      readonly residentBytes: number
+      readonly peakBytes: number
+      readonly entries: number
+      readonly hits: number
+      readonly misses: number
+      readonly evictions: number
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'live-session-released'
     }
   | {
       readonly version: typeof WORKER_PROTOCOL_VERSION
@@ -193,6 +346,21 @@ export interface WorkerEngine {
   prepared_bindings(handle: number): unknown[]
   prepared_diagnostics(handle: number): unknown[]
   start_generation_payload(handle: number, payload: Uint8Array): number
+  create_live_session_payload(templateHandle: number, payload: Uint8Array): number
+  live_session_revision(handle: number): number
+  live_session_slide_count(handle: number): number
+  apply_live_session_payload(
+    handle: number,
+    expectedRevision: number,
+    nextRevision: number,
+    payload: Uint8Array,
+  ): unknown[]
+  resolve_live_session_slide(handle: number, revision: number, slideIndex: number): Uint8Array
+  live_session_slide_fingerprint(handle: number, revision: number, slideIndex: number): string
+  live_session_resource(handle: number, revision: number, partName: string): Uint8Array
+  live_session_resource_fingerprint(handle: number, revision: number, partName: string): string
+  start_live_session_generation(handle: number, revision: number): number
+  live_session_cache_telemetry(handle: number): unknown[]
   generation_pull(handle: number, maximumBytes: number): Uint8Array
   generation_done(handle: number): boolean
   release_template(handle: number): boolean
@@ -202,6 +370,7 @@ export interface WorkerEngine {
   resolve_presentation_slide(handle: number, slideIndex: number): Uint8Array
   presentation_resource(handle: number, partName: string): Uint8Array
   release_presentation(handle: number): boolean
+  release_live_session(handle: number): boolean
 }
 
 export interface RuntimeCapabilities {

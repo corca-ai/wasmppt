@@ -25,7 +25,8 @@ npm test --workspace @corca-ai/wasmppt-worker
 `benchmarks/run.mjs` deterministically creates the public 3-by-3 matrix in
 `target/benchmark-fixtures`: text-heavy, image-heavy, and mixed templates at 10, 50, and 200
 slides. Set `WASMPPT_BENCH_ITERATIONS`; the default is 30. `--ci` uses ten iterations of the
-declared release-budget fixture. Generated templates are source artifacts: their generator,
+mixed 10, 50, and 200 live-editing fixtures plus the declared generation budget fixture. Generated
+templates are source artifacts: their generator,
 payload dimensions, compression mode, hashes, and redistribution license are recorded in the raw
 report rather than hidden behind an unpublished corpus.
 
@@ -38,6 +39,14 @@ The native report contains every nanosecond sample plus p50/p95 and throughput f
 - `firstSlide`: presentation open plus resolution and WPDL encoding of slide zero;
 - `visibleSlides`: presentation open plus the first three slides (or fewer);
 - `allSlides`: presentation open plus every slide.
+
+Each native matrix entry also retains live samples for `applyDelta`, dependency invalidation,
+invalidated-slide resolution, `inputToRenderReady`, and `backgroundExport`. It records unchanged
+media copy count, shared overlay parts, maximum invalidated slides, final output bytes, and peak
+session residency. Chromium runs the mixed 10/50/200 matrix through the real module Worker and
+records apply, resolve, Canvas render, input-to-pixels, current-revision export, and cache telemetry.
+The native operation report separately exercises repeated table rows, chart plus embedded workbook,
+and slide-topology changes against the dogfood and advanced-content fixtures.
 
 It also records input/output bytes, conservative prepared-plan resident bytes, OS-process peak RSS,
 input/output copy counts, raw-copied bytes and entries, inflated and recompressed entries, scalar
@@ -63,6 +72,8 @@ The visible set is awaited before neighbor prefetch can consume Worker or main-t
 The browser gate also executes a 1,000-slide rapid-scroll trace, enforcing the configured
 strong-reference window, byte-budgeted cache residency, disposal, and average scheduling/render
 budget. It exercises the OffscreenCanvas thumbnail path and closes the transferred ImageBitmap.
+The same gate fails when a text edit invalidates more than one independent slide, loses overlay
+sharing, exceeds live input-to-pixels or export latency, or exceeds bounded cache residency.
 
 ## Comparisons and claims
 

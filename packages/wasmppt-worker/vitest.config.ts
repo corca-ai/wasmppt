@@ -26,6 +26,8 @@ export default defineConfig({
           RENDER_FIXTURE: renderFixture,
           DOGFOOD_FIXTURE: dogfoodFixture,
           WORKER_P95_BUDGET_MS: performanceBudgets.cloudflareWorkerd.maximumWarmRequestP95Ms,
+          WORKER_LIVE_P95_BUDGET_MS:
+            performanceBudgets.cloudflareWorkerd.maximumLiveRequestP95Ms,
           WORKER_MEMORY_BUDGET_BYTES:
             performanceBudgets.cloudflareWorkerd.maximumAccountedMemoryBytes,
         },

@@ -1,12 +1,13 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     ops::Range,
     sync::Arc,
 };
 
 use sha2::{Digest, Sha256};
 use wasmppt_opc::{
-    CompressionMethod, Entry, EntryOptions, OutputSink, PackageGraph, ReadAt, RelationshipTarget,
+    CompressionMethod, Entry, EntryOptions, Error as PackageError, ErrorCode as PackageErrorCode,
+    MemorySource, OutputSink, PackageGraph, PackagePartSource, ReadAt, RelationshipTarget,
     RewriteMode, StreamingZipWriter, VecSink, WriteStats, ZipArchive, ZipWriter,
 };
 use wasmppt_pml::SlideView;
@@ -24,7 +25,7 @@ pub struct ImageCrop {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImageData {
-    pub bytes: Vec<u8>,
+    pub bytes: Arc<[u8]>,
     pub extension: String,
     pub content_type: String,
     pub crop: Option<ImageCrop>,
@@ -198,6 +199,7 @@ pub enum GenerateErrorCode {
     InvalidImage,
     InvalidChart,
     InvalidTable,
+    InvalidRevision,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -346,6 +348,69 @@ pub struct PreparedTemplate {
     slide_deck: SlideDeckPlan,
 }
 
+#[derive(Clone, Debug)]
+struct OverlayEntry {
+    bytes: Arc<[u8]>,
+    options: EntryOptions,
+}
+
+/// One immutable logical package revision prepared from a compiled template.
+///
+/// Unchanged parts stay in the shared source ZIP. Only rewritten or new parts are
+/// retained here, so layout resolution can consume this view without serializing and
+/// reopening a complete PPTX.
+#[derive(Clone, Debug)]
+pub struct PreparedOverlay {
+    archive: ZipArchive<MemorySource>,
+    order: Vec<String>,
+    names: HashSet<String>,
+    overrides: BTreeMap<String, OverlayEntry>,
+    rewritten_entries: u64,
+    removed_entries: u64,
+    dirty_uncompressed_bytes: u64,
+    peak_dirty_entry_bytes: u64,
+    graph_fingerprint: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OverlayStats {
+    pub logical_parts: u64,
+    pub materialized_parts: u64,
+    pub materialized_bytes: u64,
+    pub reused_source_bytes: u64,
+    pub removed_parts: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LiveSessionUpdate {
+    pub revision: u32,
+    pub changed_bindings: Vec<String>,
+    pub changed_parts: Vec<String>,
+    pub graph_changed: bool,
+    pub reused_materialized_parts: u64,
+    pub overlay_stats: OverlayStats,
+}
+
+#[derive(Debug)]
+pub struct LiveSession {
+    prepared: Arc<PreparedTemplate>,
+    data: InjectionData,
+    revision: u32,
+    overlay: Arc<PreparedOverlay>,
+}
+
+#[derive(Debug, Default)]
+struct InjectionUndo {
+    text: BTreeMap<String, Option<String>>,
+    images: BTreeMap<String, Option<ImageData>>,
+    table_rows: BTreeMap<String, Option<Vec<BTreeMap<String, String>>>>,
+    table_policies: BTreeMap<String, Option<TablePolicyData>>,
+    slide_copies: BTreeMap<String, Option<usize>>,
+    charts: BTreeMap<String, Option<ChartData>>,
+    semantic_shapes: BTreeMap<String, Option<SemanticShapeData>>,
+    notes: BTreeMap<String, Option<String>>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GenerateOutput {
     pub bytes: Vec<u8>,
@@ -381,7 +446,7 @@ enum GenerationEntry {
     Raw(Entry),
     Owned {
         name: String,
-        bytes: Vec<u8>,
+        bytes: Arc<[u8]>,
         options: EntryOptions,
     },
 }
@@ -408,7 +473,7 @@ impl GenerationCursor {
                         options,
                     }) => self
                         .writer
-                        .start_entry(name, bytes, options)
+                        .start_shared_entry(name, bytes, options)
                         .map_err(package_error)?,
                     None => {
                         self.writer.start_finish().map_err(package_error)?;
@@ -443,6 +508,449 @@ impl GenerationCursor {
             maximum_output_chunk_bytes: self.maximum_output_chunk_bytes,
         })
     }
+}
+
+impl PreparedOverlay {
+    #[allow(clippy::too_many_arguments)]
+    fn from_entries(
+        archive: ZipArchive<MemorySource>,
+        entries: VecDeque<GenerationEntry>,
+        rewritten_entries: u64,
+        removed_entries: u64,
+        dirty_uncompressed_bytes: u64,
+        peak_dirty_entry_bytes: u64,
+    ) -> Result<Self, GenerateError> {
+        let mut order = Vec::with_capacity(entries.len());
+        let mut overrides = BTreeMap::new();
+        for entry in entries {
+            match entry {
+                GenerationEntry::Raw(entry) => order.push(entry.name),
+                GenerationEntry::Owned {
+                    name,
+                    bytes,
+                    options,
+                } => {
+                    order.push(name.clone());
+                    if overrides
+                        .insert(name.clone(), OverlayEntry { bytes, options })
+                        .is_some()
+                    {
+                        return Err(GenerateError::new(
+                            GenerateErrorCode::InvalidTemplate,
+                            format!("duplicate logical package part {name}"),
+                        ));
+                    }
+                }
+            }
+        }
+        let names = order.iter().cloned().collect();
+        let mut overlay = Self {
+            archive,
+            order,
+            names,
+            overrides,
+            rewritten_entries,
+            removed_entries,
+            dirty_uncompressed_bytes,
+            peak_dirty_entry_bytes,
+            graph_fingerprint: [0; 32],
+        };
+        overlay.graph_fingerprint = overlay.compute_graph_fingerprint()?;
+        Ok(overlay)
+    }
+
+    pub fn generation_cursor(&self) -> GenerationCursor {
+        let mut entries = VecDeque::with_capacity(self.order.len());
+        for name in &self.order {
+            if let Some(entry) = self.overrides.get(name) {
+                entries.push_back(GenerationEntry::Owned {
+                    name: name.clone(),
+                    bytes: entry.bytes.clone(),
+                    options: entry.options.clone(),
+                });
+            } else if let Some(entry) = self.archive.entry(name) {
+                entries.push_back(GenerationEntry::Raw(entry.clone()));
+            }
+        }
+        GenerationCursor {
+            writer: StreamingZipWriter::new(self.archive.source().clone()),
+            entries,
+            rewritten_entries: self.rewritten_entries,
+            removed_entries: self.removed_entries,
+            finish_started: false,
+            dirty_uncompressed_bytes: self.dirty_uncompressed_bytes,
+            peak_dirty_entry_bytes: self.peak_dirty_entry_bytes,
+            maximum_output_chunk_bytes: 0,
+        }
+    }
+
+    pub fn stats(&self) -> OverlayStats {
+        let reused_source_bytes = self
+            .order
+            .iter()
+            .filter(|name| !self.overrides.contains_key(*name))
+            .filter_map(|name| self.archive.entry(name))
+            .map(|entry| entry.compressed_size)
+            .sum();
+        OverlayStats {
+            logical_parts: self.order.len() as u64,
+            materialized_parts: self.overrides.len() as u64,
+            materialized_bytes: self.dirty_uncompressed_bytes,
+            reused_source_bytes,
+            removed_parts: self.removed_entries,
+        }
+    }
+
+    pub const fn graph_fingerprint(&self) -> [u8; 32] {
+        self.graph_fingerprint
+    }
+
+    pub fn part_fingerprint(&self, name: &str) -> Result<[u8; 32], GenerateError> {
+        let bytes = self.read_part(name).map_err(package_error)?;
+        Ok(Sha256::digest(bytes).into())
+    }
+
+    /// Exact logical parts whose bytes or presence differ from another revision of
+    /// the same prepared template. Source-only parts need no comparison because their
+    /// shared immutable ZIP bytes cannot change.
+    pub fn changed_parts_since(&self, previous: &Self) -> Vec<String> {
+        let mut candidates = self
+            .overrides
+            .keys()
+            .chain(previous.overrides.keys())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let current_names = self.order.iter().cloned().collect::<BTreeSet<_>>();
+        let previous_names = previous.order.iter().cloned().collect::<BTreeSet<_>>();
+        candidates.extend(current_names.symmetric_difference(&previous_names).cloned());
+        candidates
+            .into_iter()
+            .filter(|name| {
+                if let (Some(current), Some(old)) =
+                    (self.overrides.get(name), previous.overrides.get(name))
+                {
+                    if Arc::ptr_eq(&current.bytes, &old.bytes) {
+                        return false;
+                    }
+                }
+                match (self.logical_bytes(name), previous.logical_bytes(name)) {
+                    (Some(current), Some(old)) => current != old,
+                    (None, None) => false,
+                    _ => true,
+                }
+            })
+            .collect()
+    }
+
+    fn generation_entry(&self, name: &str) -> Option<GenerationEntry> {
+        if !self.names.contains(name) {
+            return None;
+        }
+        self.overrides.get(name).map_or_else(
+            || self.archive.entry(name).cloned().map(GenerationEntry::Raw),
+            |entry| {
+                Some(GenerationEntry::Owned {
+                    name: name.to_owned(),
+                    bytes: entry.bytes.clone(),
+                    options: entry.options.clone(),
+                })
+            },
+        )
+    }
+
+    fn shared_materialized_parts_with(&self, previous: &Self) -> u64 {
+        self.overrides
+            .iter()
+            .filter(|(name, current)| {
+                previous
+                    .overrides
+                    .get(*name)
+                    .is_some_and(|old| Arc::ptr_eq(&current.bytes, &old.bytes))
+            })
+            .count() as u64
+    }
+
+    fn logical_bytes(&self, name: &str) -> Option<&[u8]> {
+        if !self.names.contains(name) {
+            return None;
+        }
+        self.overrides
+            .get(name)
+            .map(|entry| entry.bytes.as_ref())
+            .or_else(|| {
+                self.archive.entry(name).and_then(|entry| {
+                    let range = entry.compressed_range();
+                    (entry.compression == CompressionMethod::Stored)
+                        .then(|| {
+                            self.archive
+                                .source()
+                                .as_bytes()
+                                .get(range.start as usize..range.end as usize)
+                        })
+                        .flatten()
+                })
+            })
+    }
+
+    fn compute_graph_fingerprint(&self) -> Result<[u8; 32], GenerateError> {
+        let mut hasher = Sha256::new();
+        for name in self.order.iter().filter(|name| graph_identity_part(name)) {
+            let bytes = self.read_part(name).map_err(package_error)?;
+            hasher.update((name.len() as u64).to_le_bytes());
+            hasher.update(name.as_bytes());
+            hasher.update((bytes.len() as u64).to_le_bytes());
+            hasher.update(bytes);
+        }
+        Ok(hasher.finalize().into())
+    }
+}
+
+impl PackagePartSource for PreparedOverlay {
+    fn part_names(&self) -> Vec<String> {
+        self.order.clone()
+    }
+
+    fn contains_part(&self, name: &str) -> bool {
+        self.names.contains(name)
+    }
+
+    fn read_part(&self, name: &str) -> wasmppt_opc::Result<Vec<u8>> {
+        if !self.names.contains(name) {
+            return Err(PackageError::new(
+                PackageErrorCode::InvalidField,
+                format!("logical package part not found: {name}"),
+            ));
+        }
+        if let Some(entry) = self.overrides.get(name) {
+            return Ok(entry.bytes.to_vec());
+        }
+        let entry = self.archive.entry(name).ok_or_else(|| {
+            PackageError::new(
+                PackageErrorCode::InvalidField,
+                format!("source package part not found: {name}"),
+            )
+        })?;
+        self.archive.read_entry(entry)
+    }
+}
+
+impl LiveSession {
+    fn new(prepared: Arc<PreparedTemplate>, data: InjectionData) -> Result<Self, GenerateError> {
+        let overlay = Arc::new(prepared.prepare_overlay(&data)?);
+        PackageGraph::build_from(overlay.as_ref()).map_err(|error| {
+            GenerateError::new(
+                GenerateErrorCode::Package,
+                format!("invalid initial live package graph: {error}"),
+            )
+        })?;
+        Ok(Self {
+            prepared,
+            data,
+            revision: 0,
+            overlay,
+        })
+    }
+
+    pub const fn revision(&self) -> u32 {
+        self.revision
+    }
+
+    pub fn overlay(&self) -> Arc<PreparedOverlay> {
+        self.overlay.clone()
+    }
+
+    pub fn estimated_resident_bytes(&self) -> u64 {
+        self.prepared
+            .estimated_resident_bytes()
+            .saturating_add(self.overlay.stats().materialized_bytes)
+            .saturating_add(injection_data_weight(&self.data))
+    }
+
+    /// Atomically merge a compact partial data update into the current revision.
+    ///
+    /// Only keys present in `delta` are replaced. Optional values are reset by sending
+    /// their explicit empty/default representation. The next revision must be exactly
+    /// one greater than the expected current revision.
+    pub fn apply_delta(
+        &mut self,
+        expected_revision: u32,
+        next_revision: u32,
+        delta: InjectionData,
+    ) -> Result<LiveSessionUpdate, GenerateError> {
+        self.apply_delta_validated(expected_revision, next_revision, delta, |_, _| Ok(()))
+    }
+
+    /// Apply a delta only if a host-specific logical-view validator also succeeds.
+    ///
+    /// The validator runs after package-graph validation but before commit. Its error
+    /// triggers the same undo log as an injection failure, allowing a Wasm host to
+    /// validate a new layout index without cloning complete session data.
+    pub fn apply_delta_validated(
+        &mut self,
+        expected_revision: u32,
+        next_revision: u32,
+        delta: InjectionData,
+        validate: impl FnOnce(Arc<PreparedOverlay>, bool) -> Result<(), String>,
+    ) -> Result<LiveSessionUpdate, GenerateError> {
+        if expected_revision != self.revision
+            || next_revision
+                != expected_revision.checked_add(1).ok_or_else(|| {
+                    GenerateError::new(
+                        GenerateErrorCode::InvalidRevision,
+                        "live session revision is exhausted",
+                    )
+                })?
+        {
+            return Err(GenerateError::new(
+                GenerateErrorCode::InvalidRevision,
+                format!(
+                    "live delta expected revision {expected_revision} -> {next_revision}, current revision is {}",
+                    self.revision
+                ),
+            ));
+        }
+
+        let changed_bindings = injection_delta_keys(&delta);
+        let affected_parts = self.prepared.incremental_affected_parts(&delta);
+        let changed_binding_set = changed_bindings.iter().cloned().collect::<BTreeSet<_>>();
+        let undo = merge_injection_data(&mut self.data, delta);
+        let next_overlay = match self.prepared.prepare_overlay_reusing(
+            &self.data,
+            &self.overlay,
+            affected_parts.as_ref(),
+            &changed_binding_set,
+        ) {
+            Ok(overlay) => Arc::new(overlay),
+            Err(error) => {
+                rollback_injection_data(&mut self.data, undo);
+                return Err(error);
+            }
+        };
+        if let Err(error) = PackageGraph::build_from(next_overlay.as_ref()) {
+            rollback_injection_data(&mut self.data, undo);
+            return Err(GenerateError::new(
+                GenerateErrorCode::Package,
+                format!("invalid live package graph: {error}"),
+            ));
+        }
+        let changed_parts = next_overlay.changed_parts_since(&self.overlay);
+        let graph_changed = next_overlay.graph_fingerprint() != self.overlay.graph_fingerprint();
+        let reused_materialized_parts = next_overlay.shared_materialized_parts_with(&self.overlay);
+        if let Err(error) = validate(next_overlay.clone(), graph_changed) {
+            rollback_injection_data(&mut self.data, undo);
+            return Err(GenerateError::new(
+                GenerateErrorCode::Package,
+                format!("live overlay validation failed: {error}"),
+            ));
+        }
+        self.revision = next_revision;
+        self.overlay = next_overlay;
+        Ok(LiveSessionUpdate {
+            revision: self.revision,
+            changed_bindings,
+            changed_parts,
+            graph_changed,
+            reused_materialized_parts,
+            overlay_stats: self.overlay.stats(),
+        })
+    }
+
+    pub fn generation_cursor(&self) -> GenerationCursor {
+        self.overlay.generation_cursor()
+    }
+}
+
+fn injection_delta_keys(delta: &InjectionData) -> Vec<String> {
+    delta
+        .text
+        .keys()
+        .chain(delta.images.keys())
+        .chain(delta.table_rows.keys())
+        .chain(delta.table_policies.keys())
+        .chain(delta.slide_copies.keys())
+        .chain(delta.charts.keys())
+        .chain(delta.semantic_shapes.keys())
+        .chain(delta.notes.keys())
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn merge_injection_data(target: &mut InjectionData, delta: InjectionData) -> InjectionUndo {
+    InjectionUndo {
+        text: merge_map(&mut target.text, delta.text),
+        images: merge_map(&mut target.images, delta.images),
+        table_rows: merge_map(&mut target.table_rows, delta.table_rows),
+        table_policies: merge_map(&mut target.table_policies, delta.table_policies),
+        slide_copies: merge_map(&mut target.slide_copies, delta.slide_copies),
+        charts: merge_map(&mut target.charts, delta.charts),
+        semantic_shapes: merge_map(&mut target.semantic_shapes, delta.semantic_shapes),
+        notes: merge_map(&mut target.notes, delta.notes),
+    }
+}
+
+fn merge_map<Value>(
+    target: &mut BTreeMap<String, Value>,
+    updates: BTreeMap<String, Value>,
+) -> BTreeMap<String, Option<Value>> {
+    updates
+        .into_iter()
+        .map(|(key, value)| {
+            let previous = target.insert(key.clone(), value);
+            (key, previous)
+        })
+        .collect()
+}
+
+fn rollback_injection_data(target: &mut InjectionData, undo: InjectionUndo) {
+    rollback_map(&mut target.text, undo.text);
+    rollback_map(&mut target.images, undo.images);
+    rollback_map(&mut target.table_rows, undo.table_rows);
+    rollback_map(&mut target.table_policies, undo.table_policies);
+    rollback_map(&mut target.slide_copies, undo.slide_copies);
+    rollback_map(&mut target.charts, undo.charts);
+    rollback_map(&mut target.semantic_shapes, undo.semantic_shapes);
+    rollback_map(&mut target.notes, undo.notes);
+}
+
+fn rollback_map<Value>(
+    target: &mut BTreeMap<String, Value>,
+    previous: BTreeMap<String, Option<Value>>,
+) {
+    for (key, value) in previous {
+        if let Some(value) = value {
+            target.insert(key, value);
+        } else {
+            target.remove(&key);
+        }
+    }
+}
+
+fn injection_data_weight(data: &InjectionData) -> u64 {
+    fn strings(map: &BTreeMap<String, String>) -> u64 {
+        map.iter()
+            .map(|(key, value)| (key.len() + value.len()) as u64)
+            .sum()
+    }
+    let images = data
+        .images
+        .iter()
+        .map(|(key, image)| {
+            (key.len() + image.extension.len() + image.content_type.len() + image.bytes.len())
+                as u64
+        })
+        .sum::<u64>();
+    strings(&data.text)
+        .saturating_add(strings(&data.notes))
+        .saturating_add(images)
+}
+
+fn graph_identity_part(name: &str) -> bool {
+    name == "[Content_Types].xml"
+        || name.ends_with(".rels")
+        || name.ends_with("/presentation.xml")
+        || name == "ppt/presentation.xml"
 }
 
 impl PreparedTemplate {
@@ -566,6 +1074,67 @@ impl PreparedTemplate {
 
     pub fn plan(&self) -> &TemplatePlan {
         &self.plan
+    }
+
+    pub fn start_live_session(
+        self: &Arc<Self>,
+        data: InjectionData,
+    ) -> Result<LiveSession, GenerateError> {
+        LiveSession::new(self.clone(), data)
+    }
+
+    fn incremental_affected_parts(&self, delta: &InjectionData) -> Option<HashSet<String>> {
+        if !delta.slide_copies.is_empty() {
+            return None;
+        }
+        let mut affected = HashSet::new();
+        let direct_ids = delta
+            .text
+            .keys()
+            .chain(delta.images.keys())
+            .collect::<HashSet<_>>();
+        for binding in self
+            .plan
+            .bindings
+            .iter()
+            .filter(|binding| direct_ids.contains(&binding.id))
+        {
+            affected.insert(binding.part_name.clone());
+            if binding.kind == BindingKind::Image {
+                affected.insert("[Content_Types].xml".to_owned());
+                if let Some(plan) = self.image_plans.get(&binding.id) {
+                    affected.insert(plan.relationship_part.clone());
+                    affected.insert(plan.original_media_part.clone());
+                }
+            }
+        }
+        for id in delta.table_rows.keys().chain(delta.table_policies.keys()) {
+            if let Some(plan) = self.table_plans.get(id) {
+                affected.insert(plan.part_name.clone());
+            }
+        }
+        for id in delta.charts.keys() {
+            if let Some(plan) = self.chart_plans.get(id) {
+                affected.insert(plan.chart_part.clone());
+                if let Some(workbook) = &plan.workbook_part {
+                    affected.insert(workbook.clone());
+                }
+            }
+        }
+        for id in delta.semantic_shapes.keys() {
+            if let Some(plan) = self.semantic_shape_plans.get(id) {
+                affected.insert(plan.part_name.clone());
+                if let Some((relationship_part, _)) = &plan.hyperlink_target {
+                    affected.insert(relationship_part.clone());
+                }
+            }
+        }
+        for slide in delta.notes.keys() {
+            if let Some(plan) = self.notes_plans.get(slide) {
+                affected.insert(plan.part_name.clone());
+            }
+        }
+        Some(affected)
     }
 
     /// Conservative byte weight used by host-owned eviction policies.
@@ -1083,11 +1652,31 @@ impl PreparedTemplate {
         ))
     }
 
-    /// Prepare a resumable package cursor. No complete output buffer is retained.
-    pub fn generate_cursor(&self, data: &InjectionData) -> Result<GenerationCursor, GenerateError> {
+    /// Prepare one immutable logical package revision without serializing a PPTX.
+    pub fn prepare_overlay(&self, data: &InjectionData) -> Result<PreparedOverlay, GenerateError> {
+        self.prepare_overlay_internal(data, None, None, &BTreeSet::new())
+    }
+
+    fn prepare_overlay_reusing(
+        &self,
+        data: &InjectionData,
+        previous: &PreparedOverlay,
+        affected_parts: Option<&HashSet<String>>,
+        changed_bindings: &BTreeSet<String>,
+    ) -> Result<PreparedOverlay, GenerateError> {
+        self.prepare_overlay_internal(data, Some(previous), affected_parts, changed_bindings)
+    }
+
+    fn prepare_overlay_internal(
+        &self,
+        data: &InjectionData,
+        previous: Option<&PreparedOverlay>,
+        affected_parts: Option<&HashSet<String>>,
+        changed_bindings: &BTreeSet<String>,
+    ) -> Result<PreparedOverlay, GenerateError> {
         let slide_operations = self.prepare_slide_operations(&data.slide_copies)?;
         let mut dynamic = HashMap::<String, Vec<Patch>>::new();
-        let mut new_media = BTreeMap::<String, (ImageData, EntryOptions)>::new();
+        let mut new_media = BTreeMap::<String, (String, ImageData, EntryOptions)>::new();
         let mut replaced_media = HashSet::new();
         let mut image_types = BTreeMap::<String, String>::new();
         self.append_v2_patches(data, &mut dynamic)?;
@@ -1165,6 +1754,7 @@ impl PreparedTemplate {
                     new_media.insert(
                         media_name,
                         (
+                            binding.id.clone(),
                             image.clone(),
                             EntryOptions::deterministic(CompressionMethod::Stored),
                         ),
@@ -1312,6 +1902,15 @@ impl PreparedTemplate {
                 entries.push_back(GenerationEntry::Raw(entry.clone()));
                 continue;
             }
+            if affected_parts.is_some_and(|parts| !parts.contains(&entry.name)) {
+                if let Some(reused) =
+                    previous.and_then(|overlay| overlay.generation_entry(&entry.name))
+                {
+                    entries.push_back(reused);
+                    rewritten_entries += 1;
+                    continue;
+                }
+            }
             let mut patches = static_edits
                 .into_iter()
                 .flatten()
@@ -1320,12 +1919,19 @@ impl PreparedTemplate {
             patches.extend(dynamic_edits.into_iter().flatten().cloned());
             entries.push_back(GenerationEntry::Owned {
                 name: entry.name.clone(),
-                bytes: apply_patches(self.cached_part(&entry.name)?, patches)?,
+                bytes: apply_patches(self.cached_part(&entry.name)?, patches)?.into(),
                 options: options_from_entry(entry),
             });
             rewritten_entries += 1;
         }
-        for (name, (image, options)) in new_media {
+        for (name, (binding_id, image, options)) in new_media {
+            if !changed_bindings.contains(&binding_id) {
+                if let Some(reused) = previous.and_then(|overlay| overlay.generation_entry(&name)) {
+                    entries.push_back(reused);
+                    rewritten_entries += 1;
+                    continue;
+                }
+            }
             entries.push_back(GenerationEntry::Owned {
                 name,
                 bytes: image.bytes,
@@ -1340,6 +1946,25 @@ impl PreparedTemplate {
                     "clone source slide is missing",
                 )
             })?;
+            if affected_parts.is_some_and(|parts| !parts.contains(&clone.source_part)) {
+                let reused_slide =
+                    previous.and_then(|overlay| overlay.generation_entry(&clone.part_name));
+                let reused_relationships = clone
+                    .relationship_part
+                    .as_ref()
+                    .map(|name| previous.and_then(|overlay| overlay.generation_entry(name)));
+                if let Some(reused_slide) = reused_slide {
+                    if reused_relationships.as_ref().is_none_or(Option::is_some) {
+                        entries.push_back(reused_slide);
+                        rewritten_entries += 1;
+                        if let Some(Some(reused)) = reused_relationships {
+                            entries.push_back(reused);
+                            rewritten_entries += 1;
+                        }
+                        continue;
+                    }
+                }
+            }
             let mut patches = self
                 .static_patches
                 .get(&clone.source_part)
@@ -1356,7 +1981,7 @@ impl PreparedTemplate {
             );
             entries.push_back(GenerationEntry::Owned {
                 name: clone.part_name,
-                bytes: apply_patches(self.cached_part(&clone.source_part)?, patches)?,
+                bytes: apply_patches(self.cached_part(&clone.source_part)?, patches)?.into(),
                 options: options_from_entry(source_entry),
             });
             rewritten_entries += 1;
@@ -1383,7 +2008,7 @@ impl PreparedTemplate {
                 )?)?;
                 entries.push_back(GenerationEntry::Owned {
                     name: clone_rels,
-                    bytes,
+                    bytes: bytes.into(),
                     options: options_from_entry(entry),
                 });
                 rewritten_entries += 1;
@@ -1399,16 +2024,20 @@ impl PreparedTemplate {
                         peak.max(bytes.len() as u64),
                     ),
                 });
-        Ok(GenerationCursor {
-            writer: StreamingZipWriter::new(self.archive.source().clone()),
+        PreparedOverlay::from_entries(
+            self.archive.clone(),
             entries,
             rewritten_entries,
             removed_entries,
-            finish_started: false,
             dirty_uncompressed_bytes,
             peak_dirty_entry_bytes,
-            maximum_output_chunk_bytes: 0,
-        })
+        )
+    }
+
+    /// Prepare a resumable package cursor. No complete output buffer is retained.
+    pub fn generate_cursor(&self, data: &InjectionData) -> Result<GenerationCursor, GenerateError> {
+        self.prepare_overlay(data)
+            .map(|overlay| overlay.generation_cursor())
     }
 
     fn cached_part(&self, name: &str) -> Result<&[u8], GenerateError> {

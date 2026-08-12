@@ -69,7 +69,7 @@ impl Entry {
 }
 
 /// A lazily indexed ZIP archive backed by a random-access source.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ZipArchive<S> {
     source: S,
     entries: Vec<Entry>,

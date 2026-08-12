@@ -23,10 +23,19 @@ export interface WorkerEngine {
   prepare(template: Uint8Array): number
   prepared_weight(handle: number): bigint
   start_generation_payload(handle: number, payload: Uint8Array): number
+  create_live_session_payload(templateHandle: number, payload: Uint8Array): number
+  apply_live_session_payload(
+    handle: number,
+    expectedRevision: number,
+    nextRevision: number,
+    payload: Uint8Array,
+  ): unknown[]
+  start_live_session_generation(handle: number, revision: number): number
   generation_pull(handle: number, maximumBytes: number): Uint8Array
   generation_done(handle: number): boolean
   release_template(handle: number): boolean
   release_generation(handle: number): boolean
+  release_live_session(handle: number): boolean
 }
 
 interface CachedPlan {
@@ -148,6 +157,34 @@ export interface WasmpptWorkerOptions {
   readonly budget?: Partial<WorkerMemoryBudget>
 }
 
+/** Encode complete initial WPPD data and partial WPPD deltas for request-local live generation. */
+export function encodeLiveEditBundle(
+  initial: Uint8Array,
+  deltas: readonly Uint8Array[],
+): Uint8Array {
+  const payloads = [initial, ...deltas]
+  for (const [index, payload] of payloads.entries()) {
+    if (!(payload instanceof Uint8Array)) throw new TypeError(`live payload ${index} must be Uint8Array`)
+    if (payload.byteLength > 0xffff_ffff) throw new RangeError(`live payload ${index} is too large`)
+  }
+  if (deltas.length > 10_000) throw new RangeError('live edit bundle has too many deltas')
+  const length = payloads.reduce((sum, payload) => sum + 4 + payload.byteLength, 12)
+  if (!Number.isSafeInteger(length)) throw new RangeError('live edit bundle is too large')
+  const output = new Uint8Array(length)
+  const view = new DataView(output.buffer)
+  let offset = 0
+  output.set([0x57, 0x50, 0x4c, 0x43], offset); offset += 4
+  view.setUint32(offset, 1, true); offset += 4
+  view.setUint32(offset, initial.byteLength, true); offset += 4
+  output.set(initial, offset); offset += initial.byteLength
+  view.setUint32(offset, deltas.length, true); offset += 4
+  for (const delta of deltas) {
+    view.setUint32(offset, delta.byteLength, true); offset += 4
+    output.set(delta, offset); offset += delta.byteLength
+  }
+  return output
+}
+
 /**
  * Create an ES-module Worker around one isolate-local engine.
  *
@@ -169,10 +206,14 @@ export function createWasmpptWorker(
       if (url.pathname === '/healthz') {
         return Response.json({ ok: true, cachedPlanBytes: cache.residentBytes })
       }
-      if (url.pathname !== '/v1/generate' || request.method !== 'POST') {
+      const live = url.pathname === '/v1/live-generate'
+      if ((url.pathname !== '/v1/generate' && !live) || request.method !== 'POST') {
         return Response.json({ error: 'not found' }, { status: 404 })
       }
       try {
+        if (live && url.searchParams.get('r2') === null) {
+          throw new HttpError(400, 'live generation requires an R2 template')
+        }
         const source = await readTemplate(request, env.TEMPLATES, url, budget)
         const cacheKey = source.cacheKey ?? (await sha256Hex(source.bytes))
         let cached = cache.get(cacheKey)
@@ -190,14 +231,33 @@ export function createWasmpptWorker(
           }
         }
 
-        const payload = source.cacheKey !== undefined && isInjectionPayload(request)
-          ? await readBoundedBody(request, budget.maxPayloadBytes, 'injection payload')
-          : encodeTextPayload(parseTextBindings(request.headers.get('x-wasmppt-bindings')))
+        const requestPayload = live
+          ? await readBoundedBody(request, budget.maxPayloadBytes, 'live edit bundle')
+          : source.cacheKey !== undefined && isInjectionPayload(request)
+            ? await readBoundedBody(request, budget.maxPayloadBytes, 'injection payload')
+            : encodeTextPayload(parseTextBindings(request.headers.get('x-wasmppt-bindings')))
         let generationHandle: number
-        try {
-          generationHandle = engine.start_generation_payload(cached.handle, payload)
-        } finally {
-          if (releaseTemplate) engine.release_template(cached.handle)
+        let liveRevision: number | undefined
+        if (live) {
+          const bundle = decodeLiveEditBundle(requestPayload)
+          let session: number | undefined
+          try {
+            session = engine.create_live_session_payload(cached.handle, bundle.initial)
+            for (let index = 0; index < bundle.deltas.length; index += 1) {
+              engine.apply_live_session_payload(session, index, index + 1, bundle.deltas[index]!)
+            }
+            liveRevision = bundle.deltas.length
+            generationHandle = engine.start_live_session_generation(session, liveRevision)
+          } finally {
+            if (session !== undefined) engine.release_live_session(session)
+            if (releaseTemplate) engine.release_template(cached.handle)
+          }
+        } else {
+          try {
+            generationHandle = engine.start_generation_payload(cached.handle, requestPayload)
+          } finally {
+            if (releaseTemplate) engine.release_template(cached.handle)
+          }
         }
 
         return new Response(outputStream(engine, generationHandle, budget), {
@@ -205,6 +265,9 @@ export function createWasmpptWorker(
             'content-type':
               'application/vnd.openxmlformats-officedocument.presentationml.presentation',
             'x-wasmppt-output-mode': 'pull-stream',
+            ...(liveRevision === undefined
+              ? {}
+              : { 'x-wasmppt-live-revision': String(liveRevision) }),
             'x-wasmppt-accounted-memory-bytes': String(
               accountedMemoryBytes(budget),
             ),
@@ -218,6 +281,40 @@ export function createWasmpptWorker(
       }
     },
   } satisfies ExportedHandler<Env>
+}
+
+interface LiveEditBundle {
+  readonly initial: Uint8Array
+  readonly deltas: readonly Uint8Array[]
+}
+
+function decodeLiveEditBundle(input: Uint8Array): LiveEditBundle {
+  const view = new DataView(input.buffer, input.byteOffset, input.byteLength)
+  let offset = 0
+  const takeU32 = (label: string): number => {
+    if (offset + 4 > input.byteLength) throw new HttpError(400, `truncated ${label}`)
+    const value = view.getUint32(offset, true)
+    offset += 4
+    return value
+  }
+  const takeBytes = (label: string): Uint8Array => {
+    const length = takeU32(`${label} length`)
+    if (offset + length > input.byteLength) throw new HttpError(400, `truncated ${label}`)
+    const bytes = input.subarray(offset, offset + length)
+    offset += length
+    return bytes
+  }
+  if (input.byteLength < 8 || new TextDecoder().decode(input.subarray(0, 4)) !== 'WPLC') {
+    throw new HttpError(400, 'live edit bundle has an invalid magic')
+  }
+  offset = 4
+  if (takeU32('live edit schema') !== 1) throw new HttpError(400, 'unsupported live edit schema')
+  const initial = takeBytes('initial payload')
+  const count = takeU32('delta count')
+  if (count > 10_000) throw new HttpError(400, 'live edit bundle has too many deltas')
+  const deltas = Array.from({ length: count }, (_, index) => takeBytes(`delta ${index}`))
+  if (offset !== input.byteLength) throw new HttpError(400, 'live edit bundle has trailing bytes')
+  return { initial, deltas }
 }
 
 async function readTemplate(

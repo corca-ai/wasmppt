@@ -65,6 +65,12 @@ const routes = new Map([
     [join(workspaceDirectory, 'target/benchmarks/pptxgenjs-text-10.pptx'), 'application/octet-stream'],
   ],
 ])
+for (const slides of [10, 50, 200]) {
+  routes.set(`/benchmark-mixed-${slides}.potx`, [
+    join(workspaceDirectory, `target/benchmark-fixtures/mixed-${slides}.potx`),
+    'application/octet-stream',
+  ])
+}
 
 const workerSource = `
 import init, { WasmpptEngine } from '/wasm/wasmppt_wasm.js';
@@ -166,6 +172,7 @@ try {
       CanvasDisplayListRenderer,
       FontResolver,
       VirtualizedCanvasViewer,
+      decodeRasterImage,
       decodeSvgImage,
       decodeDisplayList,
       renderOffscreenThumbnail,
@@ -203,7 +210,153 @@ try {
       output = new Uint8Array(await client.generate(prepared.handle))
       warmInjectionSamplesMs.push(performance.now() - start)
     }
+    const topologySession = await client.createLiveSession(prepared.handle, {})
+    const topologyUpdate = await client.applyLiveDelta(topologySession.handle, 0, {
+      slides: { 'ppt/slides/slide1.xml': 2 },
+    })
+    await client.releaseLiveSession(topologySession.handle)
     await client.release(prepared.handle)
+    const liveEditingMatrix = []
+    const pixelCanvas = new OffscreenCanvas(1, 1)
+    const pixelContext = pixelCanvas.getContext('2d')
+    pixelContext.fillStyle = '#00ff00'
+    pixelContext.fillRect(0, 0, 1, 1)
+    const onePixelPng = new Uint8Array(await (await pixelCanvas.convertToBlob({
+      type: 'image/png',
+    })).arrayBuffer())
+    for (const slides of [10, 50, 200]) {
+      const liveTemplate = await fetch(`/benchmark-mixed-${slides}.potx`)
+        .then((response) => response.arrayBuffer())
+      const livePrepared = await client.prepare(liveTemplate)
+      const text = {}
+      const images = {}
+      for (let slide = 0; slide < slides; slide += 1) {
+        for (let field = 0; field < 8; field += 1) {
+          text[`text_${slide}_${field}`] = `Slide ${slide} field ${field}: live browser benchmark`
+        }
+        images[`image_${slide}`] = {
+          bytes: onePixelPng,
+          extension: 'png',
+          contentType: 'image/png',
+        }
+      }
+      const liveSession = await client.createLiveSession(livePrepared.handle, { text, images })
+      const liveRenderer = new CanvasDisplayListRenderer(4 * 1024 * 1024)
+      const liveCanvas = new OffscreenCanvas(640, 360)
+      const liveContext = liveCanvas.getContext('2d', { alpha: false })
+      const samples = []
+      let revision = liveSession.revision
+      let lastUpdate
+      for (let iteration = 0; iteration < 5; iteration += 1) {
+        const totalStart = performance.now()
+        const applyStart = performance.now()
+        lastUpdate = await client.applyLiveDelta(liveSession.handle, revision, {
+          text: { text_0_0: `browser live edit ${slides}/${iteration}` },
+        })
+        const applyMs = performance.now() - applyStart
+        revision = lastUpdate.revision
+        const resolveStart = performance.now()
+        const resolved = await client.resolveLiveSlide(liveSession.handle, revision, 0)
+        const scene = decodeDisplayList(resolved.displayList)
+        const resolveMs = performance.now() - resolveStart
+        const renderStart = performance.now()
+        const renderTelemetry = await liveRenderer.render(scene, liveContext, {
+          imageCacheKey: async (image, signal) => {
+            if (image.partName === undefined) throw new Error('live image part is missing')
+            return client.liveSessionResourceFingerprint(
+              liveSession.handle, revision, image.partName, { signal },
+            )
+          },
+          imageResolver: async (image, signal) => {
+            if (image.partName === undefined) throw new Error('live image part is missing')
+            const resource = await client.liveSessionResource(
+              liveSession.handle, revision, image.partName, { signal },
+            )
+            return decodeRasterImage(resource.bytes, {}, signal)
+          },
+        })
+        const renderMs = performance.now() - renderStart
+        const pixel = [...liveContext.getImageData(20, 20, 1, 1).data]
+        samples.push({
+          applyMs,
+          resolveMs,
+          renderMs,
+          inputToPixelsMs: performance.now() - totalStart,
+          pixel,
+          cacheBytes: renderTelemetry.cacheBytes,
+          cacheHitRate: renderTelemetry.cacheHitRate,
+        })
+      }
+      let sustained
+      if (slides === 200) {
+        const beforeAba = await client.liveSessionCacheTelemetry(liveSession.handle)
+        const aba = []
+        for (const value of ['cache-A', 'cache-B', 'cache-A']) {
+          const started = performance.now()
+          lastUpdate = await client.applyLiveDelta(liveSession.handle, revision, {
+            text: { text_0_0: value },
+          })
+          revision = lastUpdate.revision
+          await client.resolveLiveSlide(liveSession.handle, revision, 0)
+          aba.push(performance.now() - started)
+        }
+        const afterAba = await client.liveSessionCacheTelemetry(liveSession.handle)
+        lastUpdate = await client.applyLiveDelta(liveSession.handle, revision, {
+          text: { text_1_0: 'offscreen edit remains deferred' },
+        })
+        revision = lastUpdate.revision
+        const offscreenInvalidatedSlides = lastUpdate.invalidatedSlides
+        const traceSamplesMs = []
+        let maximumInvalidatedSlides = 0
+        for (let iteration = 0; iteration < 100; iteration += 1) {
+          const started = performance.now()
+          lastUpdate = await client.applyLiveDelta(liveSession.handle, revision, {
+            text: { text_0_0: `sustained-${(iteration * 17) % 101}` },
+          })
+          revision = lastUpdate.revision
+          maximumInvalidatedSlides = Math.max(
+            maximumInvalidatedSlides,
+            lastUpdate.invalidatedSlides.length,
+          )
+          await client.resolveLiveSlide(liveSession.handle, revision, 0)
+          traceSamplesMs.push(performance.now() - started)
+        }
+        sustained = {
+          iterations: traceSamplesMs.length,
+          traceSamplesMs,
+          maximumInvalidatedSlides,
+          offscreenInvalidatedSlides,
+          abaSamplesMs: aba,
+          abaSceneCacheHits: afterAba.hits - beforeAba.hits,
+          cache: await client.liveSessionCacheTelemetry(liveSession.handle),
+        }
+      }
+      const exportStart = performance.now()
+      const liveOutput = await client.generateLive(liveSession.handle, revision)
+      const backgroundExportMs = performance.now() - exportStart
+      const cache = await client.liveSessionCacheTelemetry(liveSession.handle)
+      liveRenderer.clear()
+      await client.releaseLiveSession(liveSession.handle)
+      await client.release(livePrepared.handle)
+      liveEditingMatrix.push({
+        slides,
+        revision,
+        copiesPerEdit: {
+          templateInput: 0,
+          unchangedMedia: 0,
+          displayListTransfer: 1,
+          exportOutput: 1,
+        },
+        samples,
+        backgroundExportMs,
+        outputBytes: liveOutput.byteLength,
+        invalidatedSlides: lastUpdate.invalidatedSlides,
+        changedBindings: lastUpdate.changedBindings,
+        overlay: lastUpdate.overlay,
+        cache,
+        sustained,
+      })
+    }
     const renderFixture = await fetch('/render-fixture.pptx').then((response) => response.arrayBuffer())
     const opened = await client.openPresentation(renderFixture)
     const displayBytes = await client.resolveSlide(opened.handle, 0)
@@ -497,6 +650,8 @@ try {
       transferredByteLength,
       coldPrepareMs,
       warmInjectionSamplesMs,
+      topologyUpdate,
+      liveEditingMatrix,
       residentBytes: prepared.residentBytes,
       zipSignature: [...output.subarray(0, 2)],
       outputBytes: output.byteLength,
@@ -549,6 +704,40 @@ try {
   assert(warmP95Ms <= performanceBudgets.browserScalarWasm.maximumWarmInjectionP95Ms)
   assert(firstVisibleP95Ms <= performanceBudgets.browserScalarWasm.maximumFirstVisibleSlideMs)
   assert(result.residentBytes > 0)
+  assert.equal(result.topologyUpdate.fullFallback, true)
+  assert.equal(result.topologyUpdate.invalidationReason, 'topology')
+  assert.equal(result.topologyUpdate.slideCount, 2)
+  assert.deepEqual(result.topologyUpdate.invalidatedSlides, [0, 1])
+  for (const live of result.liveEditingMatrix) {
+    const inputSamples = live.samples.map((sample) => sample.inputToPixelsMs)
+      .toSorted((left, right) => left - right)
+    const inputP95 = inputSamples[Math.ceil(inputSamples.length * 0.95) - 1]
+    assert(inputP95 <= performanceBudgets.browserScalarWasm.maximumLiveInputToPixelsP95Ms)
+    assert(live.backgroundExportMs <= performanceBudgets.browserScalarWasm.maximumLiveBackgroundExportMs)
+    assert(live.cache.peakBytes <= performanceBudgets.browserScalarWasm.maximumLivePeakCacheBytes)
+    assert(live.invalidatedSlides.length <= performanceBudgets.browserScalarWasm.maximumLiveInvalidatedSlides)
+    assert.deepEqual(live.changedBindings, ['text_0_0'])
+    assert(live.overlay.reusedMaterializedParts > 0)
+    assert(live.samples.every((sample) => sample.pixel.length === 4))
+    assert(live.samples.at(-1).cacheHitRate.decodedImages > 0)
+    assert(
+      live.samples.at(-1).cacheHitRate.textMeasurements > 0 ||
+      live.samples.at(-1).cacheHitRate.richTextLayouts > 0,
+    )
+    assert(live.outputBytes > 0)
+    if (live.slides === 200) {
+      assert.equal(live.sustained.iterations, 100)
+      assert.deepEqual(live.sustained.offscreenInvalidatedSlides, [1])
+      assert.equal(live.sustained.maximumInvalidatedSlides, 1)
+      assert(live.sustained.abaSceneCacheHits >= 1)
+      assert(live.sustained.cache.residentBytes <= 16 * 1024 * 1024)
+      assert(
+        live.sustained.traceSamplesMs.reduce((sum, sample) => sum + sample, 0) /
+          live.sustained.iterations <=
+        performanceBudgets.browserScalarWasm.maximumLiveSustainedAverageMs,
+      )
+    }
+  }
   assert.deepEqual(result.zipSignature, [0x50, 0x4b])
   assert(result.outputBytes > 0)
   assert.equal(result.slideCount, 2)
@@ -733,6 +922,7 @@ try {
         stress1000Slides: result.stress,
         offscreenThumbnail: result.thumbnailFacts,
       },
+      liveEditing: result.liveEditingMatrix,
       correctness: { zipSignature: result.zipSignature, outputBytes: result.outputBytes },
       comparison: {
         library: { name: 'pptx-browser', version: '4.1.4' },

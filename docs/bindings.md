@@ -103,6 +103,11 @@ persist shape IDs or relationship part names. A chart frame Description such as
 stable transactional update. The v1 decoder remains supported for migration;
 v2 invalid combinations fail before any output entry is written.
 
+The same WPPD v2 envelope is used for live deltas. `createLiveSession` receives complete initial
+data; `applyLiveDelta` receives only changed keys and returns changed binding IDs, package parts,
+and affected slides for its accepted revision. See
+[live editing and incremental preview](live-editing.md) for atomicity and scheduling.
+
 ## Storage boundary
 
 The Rust core exposes only a generic binary plan-store capability. Native files,

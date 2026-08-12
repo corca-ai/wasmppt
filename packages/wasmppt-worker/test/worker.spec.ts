@@ -1,6 +1,6 @@
 import { env, exports } from 'cloudflare:workers'
 import { describe, expect, it } from 'vitest'
-import { PreparedPlanCache } from '../src/index'
+import { PreparedPlanCache, encodeLiveEditBundle } from '../src/index'
 
 declare global {
   namespace Cloudflare {
@@ -9,6 +9,7 @@ declare global {
       RENDER_FIXTURE: number[]
       DOGFOOD_FIXTURE: number[]
       WORKER_P95_BUDGET_MS: number
+      WORKER_LIVE_P95_BUDGET_MS: number
       WORKER_MEMORY_BUDGET_BYTES: number
     }
   }
@@ -35,6 +36,13 @@ describe('prepared plan cache', () => {
     expect(() => cache.insert('template', { handle: 7, weight: Number.NaN })).toThrow(
       /cache weight/,
     )
+  })
+
+  it('bounds request-local live edit bundles before allocation', () => {
+    expect(() => encodeLiveEditBundle(new Uint8Array(), Array.from(
+      { length: 10_001 },
+      () => new Uint8Array(),
+    ))).toThrow(/too many deltas/)
   })
 })
 
@@ -86,6 +94,36 @@ describe('wasmppt workerd adapter', () => {
     expect(output.byteLength).toBeGreaterThan(2_000)
   })
 
+  it('keeps a multi-delta live session inside one request and streams its final revision', async () => {
+    await env.TEMPLATES.put('live-report.potx', new Uint8Array(env.DOGFOOD_FIXTURE))
+    const response = await exports.default.fetch(
+      new Request('https://wasmppt.test/v1/live-generate?r2=live-report.potx', {
+        method: 'POST',
+        body: encodeLiveEditBundle(dogfoodPayload(), [
+          textDeltaPayload('first live edit'),
+          textDeltaPayload('final live edit'),
+        ]),
+      }),
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get('x-wasmppt-live-revision')).toBe('2')
+    const output = new Uint8Array(await response.arrayBuffer())
+    expect([...output.subarray(0, 2)]).toEqual([0x50, 0x4b])
+    expect(output.byteLength).toBeGreaterThan(2_000)
+  })
+
+  it('rejects malformed request-local live bundles before creating a session', async () => {
+    await env.TEMPLATES.put('invalid-live.potx', new Uint8Array(env.DOGFOOD_FIXTURE))
+    const response = await exports.default.fetch(
+      new Request('https://wasmppt.test/v1/live-generate?r2=invalid-live.potx', {
+        method: 'POST',
+        body: new Uint8Array(16),
+      }),
+    )
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'live edit bundle has an invalid magic' })
+  })
+
   it('rejects an advertised body larger than the bounded input budget', async () => {
     const response = await exports.default.fetch(
       new Request('https://wasmppt.test/v1/generate', {
@@ -126,16 +164,49 @@ describe('wasmppt workerd adapter', () => {
     const sorted = [...samplesMs].sort((left, right) => left - right)
     const p50Ms = sorted[Math.ceil(sorted.length * 0.5) - 1]!
     const p95Ms = sorted[Math.ceil(sorted.length * 0.95) - 1]!
+    await env.TEMPLATES.put('live-benchmark.potx', new Uint8Array(env.DOGFOOD_FIXTURE))
+    const liveSamplesMs: number[] = []
+    let liveOutputBytes = 0
+    const bundle = encodeLiveEditBundle(
+      dogfoodPayload(),
+      [textDeltaPayload('workerd live benchmark')],
+    )
+    for (let iteration = 0; iteration < 15; iteration += 1) {
+      const start = performance.now()
+      const response = await exports.default.fetch(
+        new Request('https://wasmppt.test/v1/live-generate?r2=live-benchmark.potx', {
+          method: 'POST',
+          body: bundle,
+        }),
+      )
+      expect(response.status).toBe(200)
+      expect(response.headers.get('x-wasmppt-live-revision')).toBe('1')
+      liveOutputBytes = (await response.arrayBuffer()).byteLength
+      liveSamplesMs.push(performance.now() - start)
+    }
+    const liveSorted = [...liveSamplesMs].sort((left, right) => left - right)
+    const liveP50Ms = liveSorted[Math.ceil(liveSorted.length * 0.5) - 1]!
+    const liveP95Ms = liveSorted[Math.ceil(liveSorted.length * 0.95) - 1]!
     expect(p95Ms).toBeLessThanOrEqual(env.WORKER_P95_BUDGET_MS)
+    expect(liveP95Ms).toBeLessThanOrEqual(env.WORKER_LIVE_P95_BUDGET_MS)
     expect(accountedMemoryBytes).toBeLessThanOrEqual(env.WORKER_MEMORY_BUDGET_BYTES)
     console.log(`WASM_WORKER_BENCHMARK:${JSON.stringify({
-      schema: 1,
+      schema: 2,
       host: 'cloudflare-workerd-scalar-wasm',
       fixture: 'host-minimal-potx',
       iterations: samplesMs.length,
       copies: { input: 1, output: 1 },
       warmRequestSamplesMs: samplesMs,
       summary: { warmRequestP50Ms: p50Ms, warmRequestP95Ms: p95Ms },
+      live: {
+        fixture: 'dogfood-report-potx',
+        revisionsPerRequest: 1,
+        requestLocalSession: true,
+        copiesPerRequest: { bundleInput: 1, unchangedMedia: 0, output: 1 },
+        requestSamplesMs: liveSamplesMs,
+        summary: { p50Ms: liveP50Ms, p95Ms: liveP95Ms },
+        outputBytes: liveOutputBytes,
+      },
       correctness: { outputBytes, accountedMemoryBytes },
     })}`)
   })
@@ -190,6 +261,26 @@ function dogfoodPayload(): Uint8Array {
   for (const chunk of chunks) {
     output.set(chunk, offset)
     offset += chunk.byteLength
+  }
+  return output
+}
+
+function textDeltaPayload(title: string): Uint8Array {
+  const encoder = new TextEncoder()
+  const titleBytes = encoder.encode(title)
+  const idBytes = encoder.encode('title')
+  const output = new Uint8Array(4 + 4 + 4 + 4 + idBytes.length + 4 + titleBytes.length + 16)
+  const view = new DataView(output.buffer)
+  let offset = 0
+  output.set([0x57, 0x50, 0x50, 0x44], offset); offset += 4
+  view.setUint32(offset, 1, true); offset += 4
+  view.setUint32(offset, 1, true); offset += 4
+  view.setUint32(offset, idBytes.length, true); offset += 4
+  output.set(idBytes, offset); offset += idBytes.length
+  view.setUint32(offset, titleBytes.length, true); offset += 4
+  output.set(titleBytes, offset); offset += titleBytes.length
+  for (let index = 0; index < 4; index += 1) {
+    view.setUint32(offset, 0, true); offset += 4
   }
   return output
 }

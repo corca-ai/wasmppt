@@ -167,6 +167,8 @@ dotnet run --project tools/openxml-validator/OpenXmlValidator.csproj -- result.p
 
 ## Related documents
 
+- See [live editing and incremental preview](live-editing.md) for delta merge, overlay preview,
+  invalidation, and current-revision export.
 - See [template bindings and TemplatePlan](bindings.md) for authoring and cache identity.
 - See the [OPC and ZIP substrate](opc.md) for raw-copy and forward-only writer contracts.
 - Return to the [documentation index](index.md) for the project map.

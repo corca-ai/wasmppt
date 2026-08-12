@@ -57,6 +57,13 @@ and part name and exposes its bounded resident-byte count. Evicted image objects
 are closed when their host resource supports `close()`. `dispose()` aborts work, removes every
 canvas, clears both caches, and releases listeners owned by the mounted canvas elements.
 
+Live rendering keys image resources by their exact part-content fingerprint rather than a
+relationship ID. Text widths use a 4 MiB LRU keyed by resolved font and text; rich-text layout uses
+an 8 MiB LRU keyed by font-resolver identity plus the full display command, including run tree,
+bounds, wrapping, margins, and flow. `clear()` empties all renderer-owned caches. The dogfood viewer
+keeps unrelated canvases mounted and redraws only visible invalidated slides; slide-level redraw is
+the current measured correctness boundary.
+
 The viewer intentionally accepts visible slide indices from the application. This avoids
 installing a second scroll policy or an immortal global `IntersectionObserver`; React, vanilla
 DOM, and custom viewers can feed the same bounded primitive.

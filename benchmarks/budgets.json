@@ -15,16 +15,68 @@
     "minimumRawCopiedEntries": 1,
     "maximumInflatedEntries": 0
   },
+  "nativeLive": {
+    "10": {
+      "maximumApplyDeltaP95Ns": 100000000,
+      "maximumInputToRenderReadyP95Ns": 200000000,
+      "maximumBackgroundExportP95Ns": 500000000,
+      "maximumInvalidatedSlides": 1,
+      "maximumPeakResidentBytes": 536870912,
+      "minimumReusedMaterializedParts": 1
+    },
+    "50": {
+      "maximumApplyDeltaP95Ns": 250000000,
+      "maximumInputToRenderReadyP95Ns": 400000000,
+      "maximumBackgroundExportP95Ns": 1000000000,
+      "maximumInvalidatedSlides": 1,
+      "maximumPeakResidentBytes": 536870912,
+      "minimumReusedMaterializedParts": 1
+    },
+    "200": {
+      "maximumApplyDeltaP95Ns": 500000000,
+      "maximumInputToRenderReadyP95Ns": 750000000,
+      "maximumBackgroundExportP95Ns": 3000000000,
+      "maximumInvalidatedSlides": 1,
+      "maximumPeakResidentBytes": 536870912,
+      "minimumReusedMaterializedParts": 1
+    }
+  },
+  "nativeLiveOperations": {
+    "table": {
+      "maximumApplyDeltaP95Ns": 50000000,
+      "maximumInputToRenderReadyP95Ns": 100000000,
+      "maximumInvalidatedSlides": 1,
+      "maximumResidentBytes": 536870912
+    },
+    "chart": {
+      "maximumApplyDeltaP95Ns": 100000000,
+      "maximumInputToRenderReadyP95Ns": 200000000,
+      "maximumInvalidatedSlides": 1,
+      "maximumResidentBytes": 536870912
+    },
+    "slideTopology": {
+      "maximumApplyDeltaP95Ns": 100000000,
+      "maximumInputToRenderReadyP95Ns": 200000000,
+      "maximumInvalidatedSlides": 3,
+      "maximumResidentBytes": 536870912
+    }
+  },
   "browserScalarWasm": {
     "maximumColdPrepareMs": 1000,
     "maximumWarmInjectionP95Ms": 500,
     "maximumBinaryBytes": 2097152,
     "maximumFirstVisibleSlideMs": 500,
+    "maximumLiveInputToPixelsP95Ms": 750,
+    "maximumLiveBackgroundExportMs": 3000,
+    "maximumLivePeakCacheBytes": 67108864,
+    "maximumLiveInvalidatedSlides": 1,
+    "maximumLiveSustainedAverageMs": 100,
     "maximumRapidScrollAverageMs": 100,
     "maximumStronglyReferencedSlides": 3
   },
   "cloudflareWorkerd": {
     "maximumWarmRequestP95Ms": 1000,
+    "maximumLiveRequestP95Ms": 1000,
     "maximumAccountedMemoryBytes": 134217728
   }
 }

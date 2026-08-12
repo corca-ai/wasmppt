@@ -46,7 +46,9 @@ try {
   assert.equal(await page.getByRole('button', { name: /compile/i }).count(), 0)
   assert.equal(await page.getByRole('button', { name: /generate/i }).count(), 0)
   await page.getByText(/^PPTX ready · 2 slides$/).waitFor()
-  assert.equal(await page.locator('#preview canvas').count(), 2)
+  await page.locator('#preview figure').first().scrollIntoViewIfNeeded()
+  await page.locator('#preview canvas').first().waitFor()
+  assert((await page.locator('#preview canvas').count()) <= 2)
   assert.equal(await page.locator('#download').getAttribute('aria-disabled'), 'false')
   assert.equal(await page.locator('[data-binding="title"]').inputValue(), 'wasmppt quarterly report')
 
@@ -57,7 +59,27 @@ try {
     return link?.getAttribute('aria-disabled') === 'false' && link.getAttribute('href') !== previous
   }, firstDownloadUrl)
   await page.getByText(/^PPTX ready · 2 slides$/).waitFor()
+  await page.locator('#preview figure').first().scrollIntoViewIfNeeded()
+  await page.locator('#preview canvas').first().waitFor()
   await assertDownload(page, 2_000)
+
+  const settledRevision = Number(await page.locator('#download').getAttribute('data-revision'))
+  await page.locator('[data-binding="title"]').fill('Download waits for this pending edit')
+  await assertDownload(page, 2_000)
+  assert(Number(await page.locator('#download').getAttribute('data-revision')) > settledRevision)
+
+  const beforeBurst = Number(await page.locator('#download').getAttribute('data-revision'))
+  await page.locator('[data-binding="title"]').evaluate((input) => {
+    for (let index = 0; index < 20; index += 1) {
+      input.value = `coalesced burst ${index}`
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }))
+    }
+  })
+  await assertDownload(page, 2_000)
+  assert.equal(
+    Number(await page.locator('#download').getAttribute('data-revision')),
+    beforeBurst + 1,
+  )
 
   await page.evaluate(async () => {
     const bytes = await fetch('./fixtures/minimal.potx').then((response) => response.arrayBuffer())
@@ -71,6 +93,8 @@ try {
   })
   await page.getByText(/dropped-minimal\.potx/).waitFor()
   await page.getByText(/^PPTX ready · 1 slide$/).waitFor()
+  await page.locator('#preview figure').scrollIntoViewIfNeeded()
+  await page.locator('#preview canvas').waitFor()
   assert.equal(await page.locator('#preview canvas').count(), 1)
   assert.equal(await page.locator('#download').getAttribute('aria-disabled'), 'false')
   assert.equal((await page.locator('#diagnostics').textContent()).includes('no repeated table row'), false)

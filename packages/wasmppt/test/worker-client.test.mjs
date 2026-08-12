@@ -369,3 +369,83 @@ test('releasing a presentation prevents an in-flight resource from repopulating 
   assert.equal(client.resourceCacheBytes, 0)
   client.terminate()
 })
+
+test('live deltas expose exact invalidation and content-addressed resources survive A-B-A edits', async () => {
+  const worker = new FakeWorker()
+  const client = new WasmpptWorkerClient(worker)
+  const partName = 'ppt/media/hero.png'
+
+  const apply = async (expectedRevision, fingerprintLabel) => {
+    const pending = client.applyLiveDelta(17, expectedRevision, { title: fingerprintLabel })
+    const request = worker.messages.at(-1)
+    assert.equal(request.type, 'apply-live-delta')
+    assert.deepEqual(worker.transfers.at(-1), [request.payload])
+    worker.respond({
+      version: WORKER_PROTOCOL_VERSION,
+      id: request.id,
+      type: 'live-session-updated',
+      sessionHandle: 17,
+      revision: expectedRevision + 1,
+      graphChanged: false,
+      fullFallback: false,
+      invalidationReason: 'dependency',
+      slideCount: 2,
+      invalidatedSlides: [0],
+      changedBindings: ['title'],
+      changedParts: [partName],
+      overlay: {
+        reusedMaterializedParts: 7,
+        logicalParts: 20,
+        materializedParts: 8,
+        materializedBytes: 1024,
+        reusedSourceBytes: 2048,
+        removedParts: 0,
+      },
+    })
+    const update = await pending
+    assert.deepEqual(update.changedBindings, ['title'])
+    assert.deepEqual(update.invalidatedSlides, [0])
+    assert.equal(update.overlay.reusedMaterializedParts, 7)
+  }
+
+  const load = async (revision, fingerprint, fill) => {
+    const pending = client.liveSessionResource(17, revision, partName)
+    await Promise.resolve()
+    const fingerprintRequest = worker.messages.at(-1)
+    assert.equal(fingerprintRequest.type, 'live-session-resource-fingerprint')
+    worker.respond({
+      version: WORKER_PROTOCOL_VERSION,
+      id: fingerprintRequest.id,
+      type: 'live-session-resource-fingerprint',
+      sessionHandle: 17,
+      revision,
+      partName,
+      fingerprint,
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+    const resourceRequest = worker.messages.at(-1)
+    if (resourceRequest.type === 'live-session-resource') {
+      const bytes = Uint8Array.of(fill).buffer
+      worker.respond({
+        version: WORKER_PROTOCOL_VERSION,
+        id: resourceRequest.id,
+        type: 'live-session-resource',
+        sessionHandle: 17,
+        revision,
+        partName,
+        fingerprint,
+        bytes,
+      })
+    }
+    return pending
+  }
+
+  await apply(0, 'A')
+  assert.deepEqual(new Uint8Array((await load(1, 'sha-A', 0xaa)).bytes), Uint8Array.of(0xaa))
+  await apply(1, 'B')
+  assert.deepEqual(new Uint8Array((await load(2, 'sha-B', 0xbb)).bytes), Uint8Array.of(0xbb))
+  await apply(2, 'A')
+  assert.deepEqual(new Uint8Array((await load(3, 'sha-A', 0xcc)).bytes), Uint8Array.of(0xaa))
+  assert.equal(worker.messages.filter((message) => message.type === 'live-session-resource').length, 2)
+  client.terminate()
+})

@@ -92,7 +92,7 @@ impl<'a> Reader<'a> {
             data.insert_image(
                 id,
                 ImageData {
-                    bytes,
+                    bytes: bytes.into(),
                     extension,
                     content_type,
                     crop,
@@ -370,7 +370,7 @@ mod tests {
         expected.insert_image(
             "hero",
             ImageData {
-                bytes: vec![1, 2, 3],
+                bytes: vec![1, 2, 3].into(),
                 extension: "png".to_owned(),
                 content_type: "image/png".to_owned(),
                 crop: Some(ImageCrop {

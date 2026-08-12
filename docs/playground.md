@@ -9,9 +9,11 @@ is uploaded to a server.
 The page loads the scalar Wasm module in a module Worker and immediately prepares and previews the
 bundled report. A user may drag a local POTX, POTM, or PPTX onto the drop zone or use the file
 picker. There is no separate compile or generate action: selecting a template discovers its
-bindings, generates a PPTX using only data discovered for that template, reopens the result, and
-renders every slide to Canvas. Editing text or selecting an image automatically refreshes the
-output after a short debounce. Download remains disabled until the current preview succeeds.
+bindings, creates a revisioned live session, and renders its virtual package directly to Canvas.
+Editing text or selecting an image coalesces a partial delta on the next animation frame. Only
+visible invalidated slides are resolved; unrelated canvases remain mounted. A current-revision
+PPTX is generated in the background, and download waits for that revision if the user clicks while
+the Blob is stale.
 
 The automatic payload deliberately does not carry table, slide-copy, or chart defaults from the
 bundled report into an uploaded template. Dotted table tokens remain editable as ordinary text in
@@ -51,5 +53,6 @@ instead of collecting every chunk into one Blob as this download-focused example
 
 - See [template bindings and TemplatePlan](bindings.md) for authoring and preparation metadata.
 - See [high-speed template injection](injection.md) for structured generation and pull output.
+- See [live editing and incremental preview](live-editing.md) for scheduling and revision parity.
 - See [runtime host adapters](hosts.md) for browser and Cloudflare memory contracts.
 - Return to the [documentation index](index.md) for the project map.

@@ -41,7 +41,8 @@ The native report contains every nanosecond sample plus p50/p95 and throughput f
 
 It also records input/output bytes, conservative prepared-plan resident bytes, OS-process peak RSS,
 input/output copy counts, raw-copied bytes and entries, inflated and recompressed entries, scalar
-Wasm binary size, revision and dirty state, fixture hashes, CPU/RAM/OS/runtime, iteration count,
+Wasm binary size, revision and source dirty state, separately listed regenerated tracked build
+artifacts, fixture hashes, CPU/RAM/OS/runtime, iteration count,
 release profile, and compression configuration. Browser and workerd reports retain their own raw
 warm samples because host scheduling cannot honestly be folded into a native headline.
 

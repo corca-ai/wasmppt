@@ -42,12 +42,19 @@ for (const [scenario, slides] of selected) {
 
 const wasmPath = resolve(root, 'packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm')
 const wasmBytes = (await stat(wasmPath)).size
+const trackedChanges = output('git', ['status', '--porcelain', '--untracked-files=no'])
+  .split('\n')
+  .filter(Boolean)
+const generatedArtifactChanges = trackedChanges.filter((line) =>
+  line.includes('packages/wasmppt-worker/src/generated/'),
+)
 const report = {
   schema: 1,
   generatedAt: new Date().toISOString(),
   source: {
     revision: output('git', ['rev-parse', 'HEAD']),
-    dirty: output('git', ['status', '--porcelain']).length > 0,
+    dirty: trackedChanges.length !== generatedArtifactChanges.length,
+    regeneratedTrackedArtifacts: generatedArtifactChanges.map((line) => line.slice(3)),
   },
   corpus: { contractSha256: sha256(await readFile(resolve(root, 'benchmarks/fixtures.json'))), fixtures },
   environment: {

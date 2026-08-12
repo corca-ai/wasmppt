@@ -70,6 +70,32 @@ jobs:
       - name: Lint documentation graph
         run: awiki lint -root docs
 
+  openxml-compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+      - name: Fetch pinned Apache POI POTX fixture
+        run: |
+          mkdir -p target/compat
+          curl --fail --location --silent --show-error \
+            https://raw.githubusercontent.com/apache/poi/fe4184d649c0f7950e3a610c7dbc0591b7a52e3e/test-data/slideshow/bug59273.potx \
+            --output target/compat/bug59273.potx
+          echo "a69207b33c69e171dd35fab165e498802a46759bca24f5eb614deb3503aa5ee6  target/compat/bug59273.potx" \
+            | sha256sum --check --strict
+      - name: Convert real POTX through a forward-only sink
+        run: |
+          cargo run --locked -p wasmppt-cli -- validate target/compat/bug59273.potx
+          cargo run --locked -p wasmppt-cli -- \
+            convert target/compat/bug59273.potx target/compat/generated.pptx
+          cargo run --locked -p wasmppt-cli -- validate target/compat/generated.pptx
+      - name: Validate output with Microsoft Open XML SDK
+        run: >-
+          dotnet run --project tools/openxml-validator/OpenXmlValidator.csproj
+          --configuration Release -- target/compat/generated.pptx
+
   licenses:
     runs-on: ubuntu-latest
     steps:

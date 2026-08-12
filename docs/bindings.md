@@ -39,8 +39,12 @@ For centrally managed templates, add `wasmppt/bindings.xml`:
 ```
 
 A manifest selector may use `shapeName`, `shapeId`, or both. If both are present, both
-MUST match. Manifest bindings have the highest priority. Version 1 implements `text`;
-other kinds produce an `UnsupportedKind` diagnostic until their injection slice lands.
+MUST match. Manifest bindings have the highest priority. Version 1 implements `text` and
+`image`; other kinds produce an `UnsupportedKind` diagnostic.
+
+Picture shapes may use `wasmppt:image:binding_id` in Alt Text Description or `kind="image"`
+in the manifest. See [high-speed template injection](injection.md) for image data and crop
+semantics.
 
 ## Diagnostics
 

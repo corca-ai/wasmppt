@@ -7,6 +7,13 @@ use wasmppt_opc::{DiagnosticCode as GraphDiagnosticCode, PackageGraph, ReadAt, Z
 use wasmppt_pml::{ShapeView, SlideView};
 use wasmppt_xml::{TokenKind, XmlDocument};
 
+mod inject;
+
+pub use inject::{
+    GenerateError, GenerateErrorCode, GenerateOutput, GenerateStats, ImageCrop, ImageData,
+    InjectionData, PreparedTemplate,
+};
+
 pub const PLAN_SCHEMA_VERSION: u32 = 1;
 pub const BINDING_SCHEMA_VERSION: u32 = 1;
 pub const MANIFEST_PART: &str = "wasmppt/bindings.xml";
@@ -63,6 +70,7 @@ pub struct PlanIdentity {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BindingKind {
     Text,
+    Image,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -74,12 +82,13 @@ pub enum BindingSource {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StylePolicy {
-    PreserveRuns,
+    PreserveFirstRun,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RelationshipAction {
     None,
+    ReplaceImage { relationship_id: String },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -221,14 +230,35 @@ impl TemplateCompiler {
                 Ok(slide) => {
                     for shape in slide.shapes() {
                         if let Some(description) = &shape.description {
-                            if let Some(id) = metadata_binding_id(description) {
-                                candidates.push(candidate_for_shape(
-                                    id,
-                                    BindingSource::ShapeMetadata,
-                                    &entry.name,
-                                    shape,
-                                    None,
-                                ));
+                            if let Some((kind, id)) = metadata_binding(description) {
+                                match kind {
+                                    BindingKind::Text => candidates.push(candidate_for_text(
+                                        id,
+                                        BindingSource::ShapeMetadata,
+                                        &entry.name,
+                                        shape,
+                                        None,
+                                    )),
+                                    BindingKind::Image => {
+                                        if let Some(relationship_id) = &shape.image_relationship_id
+                                        {
+                                            candidates.push(candidate_for_image(
+                                                id,
+                                                BindingSource::ShapeMetadata,
+                                                &entry.name,
+                                                shape,
+                                                relationship_id,
+                                            ));
+                                        } else {
+                                            diagnostics.push(BindingDiagnostic {
+                                                code: BindingDiagnosticCode::MissingTarget,
+                                                binding_id: Some(id),
+                                                part_name: Some(entry.name.clone()),
+                                                message: "image binding shape has no embedded image relationship".to_owned(),
+                                            });
+                                        }
+                                    }
+                                }
                             }
                         }
                         if self.options.allow_visible_tokens {
@@ -247,15 +277,19 @@ impl TemplateCompiler {
         }
 
         for declaration in manifest {
-            if declaration.kind != "text" {
-                diagnostics.push(BindingDiagnostic {
-                    code: BindingDiagnosticCode::UnsupportedKind,
-                    binding_id: Some(declaration.id),
-                    part_name: Some(declaration.part),
-                    message: format!("unsupported binding kind {}", declaration.kind),
-                });
-                continue;
-            }
+            let kind = match declaration.kind.as_str() {
+                "text" => BindingKind::Text,
+                "image" => BindingKind::Image,
+                _ => {
+                    diagnostics.push(BindingDiagnostic {
+                        code: BindingDiagnosticCode::UnsupportedKind,
+                        binding_id: Some(declaration.id),
+                        part_name: Some(declaration.part),
+                        message: format!("unsupported binding kind {}", declaration.kind),
+                    });
+                    continue;
+                }
+            };
             let matches = shapes_by_part
                 .get(&declaration.part)
                 .into_iter()
@@ -275,13 +309,31 @@ impl TemplateCompiler {
                     part_name: Some(declaration.part),
                     message: "manifest binding target was not found".to_owned(),
                 }),
-                [shape] => candidates.push(candidate_for_shape(
-                    declaration.id,
-                    BindingSource::Manifest,
-                    &declaration.part,
-                    shape,
-                    None,
-                )),
+                [shape] => match kind {
+                    BindingKind::Text => candidates.push(candidate_for_text(
+                        declaration.id,
+                        BindingSource::Manifest,
+                        &declaration.part,
+                        shape,
+                        None,
+                    )),
+                    BindingKind::Image => match &shape.image_relationship_id {
+                        Some(relationship_id) => candidates.push(candidate_for_image(
+                            declaration.id,
+                            BindingSource::Manifest,
+                            &declaration.part,
+                            shape,
+                            relationship_id,
+                        )),
+                        None => diagnostics.push(BindingDiagnostic {
+                            code: BindingDiagnosticCode::MissingTarget,
+                            binding_id: Some(declaration.id),
+                            part_name: Some(declaration.part),
+                            message: "image binding shape has no embedded image relationship"
+                                .to_owned(),
+                        }),
+                    },
+                },
                 _ => diagnostics.push(BindingDiagnostic {
                     code: BindingDiagnosticCode::AmbiguousTarget,
                     binding_id: Some(declaration.id),
@@ -324,7 +376,7 @@ struct Candidate {
     target: BindingTarget,
 }
 
-fn candidate_for_shape(
+fn candidate_for_text(
     id: String,
     source: BindingSource,
     part_name: &str,
@@ -350,8 +402,32 @@ fn candidate_for_shape(
                     })
                     .collect()
             }),
-            style_policy: StylePolicy::PreserveRuns,
+            style_policy: StylePolicy::PreserveFirstRun,
             relationship_action: RelationshipAction::None,
+        },
+    }
+}
+
+fn candidate_for_image(
+    id: String,
+    source: BindingSource,
+    part_name: &str,
+    shape: &ShapeView,
+    relationship_id: &str,
+) -> Candidate {
+    Candidate {
+        target: BindingTarget {
+            id,
+            kind: BindingKind::Image,
+            source,
+            part_name: part_name.to_owned(),
+            shape_id: shape.id,
+            shape_name: shape.name.clone(),
+            text_spans: Vec::new(),
+            style_policy: StylePolicy::PreserveFirstRun,
+            relationship_action: RelationshipAction::ReplaceImage {
+                relationship_id: relationship_id.to_owned(),
+            },
         },
     }
 }
@@ -373,7 +449,7 @@ fn visible_candidates(part_name: &str, shape: &ShapeView) -> Vec<Candidate> {
         let id = &joined[start + 2..end - 2];
         if valid_binding_id(id) {
             let spans = map_joined_span(shape, start..end);
-            output.push(candidate_for_shape(
+            output.push(candidate_for_text(
                 id.to_owned(),
                 BindingSource::VisibleToken,
                 part_name,
@@ -446,11 +522,18 @@ fn finalize_candidates(
     output
 }
 
-fn metadata_binding_id(description: &str) -> Option<String> {
-    description
-        .strip_prefix("wasmppt:text:")
-        .filter(|id| valid_binding_id(id))
-        .map(str::to_owned)
+fn metadata_binding(description: &str) -> Option<(BindingKind, String)> {
+    [
+        ("wasmppt:text:", BindingKind::Text),
+        ("wasmppt:image:", BindingKind::Image),
+    ]
+    .into_iter()
+    .find_map(|(prefix, kind)| {
+        description
+            .strip_prefix(prefix)
+            .filter(|id| valid_binding_id(id))
+            .map(|id| (kind, id.to_owned()))
+    })
 }
 
 fn valid_binding_id(id: &str) -> bool {
@@ -634,7 +717,13 @@ impl TemplatePlan {
             put_option_u32(&mut bytes, binding.shape_id);
             put_option_string(&mut bytes, binding.shape_name.as_deref());
             bytes.push(binding.style_policy as u8);
-            bytes.push(binding.relationship_action as u8);
+            match &binding.relationship_action {
+                RelationshipAction::None => bytes.push(0),
+                RelationshipAction::ReplaceImage { relationship_id } => {
+                    bytes.push(1);
+                    put_string(&mut bytes, relationship_id);
+                }
+            }
             put_u32(&mut bytes, binding.text_spans.len() as u32);
             for span in &binding.text_spans {
                 put_u32(&mut bytes, span.source_range.start);
@@ -706,6 +795,7 @@ impl<'a> PlanReader<'a> {
             let id = self.string()?;
             let kind = match self.byte()? {
                 0 => BindingKind::Text,
+                1 => BindingKind::Image,
                 _ => return Err(PlanDecodeError),
             };
             let source = match self.byte()? {
@@ -718,11 +808,14 @@ impl<'a> PlanReader<'a> {
             let shape_id = self.option_u32()?;
             let shape_name = self.option_string()?;
             let style_policy = match self.byte()? {
-                0 => StylePolicy::PreserveRuns,
+                0 => StylePolicy::PreserveFirstRun,
                 _ => return Err(PlanDecodeError),
             };
             let relationship_action = match self.byte()? {
                 0 => RelationshipAction::None,
+                1 => RelationshipAction::ReplaceImage {
+                    relationship_id: self.string()?,
+                },
                 _ => return Err(PlanDecodeError),
             };
             let span_count = self.u32()? as usize;

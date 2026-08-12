@@ -353,6 +353,7 @@ dependencies = [
  "wasmppt-opc",
  "wasmppt-pml",
  "wasmppt-template",
+ "wasmppt-xml",
 ]
 
 [[package]]

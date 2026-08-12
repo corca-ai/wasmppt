@@ -14,6 +14,8 @@ This is the canonical index for living `wasmppt` documentation.
   types, relationships, conformance detection, diagnostics, and typed views.
 - [Template bindings and TemplatePlan](bindings.md) — PowerPoint authoring,
   split-run tokens, manifests, diagnostics, serialization, and cache identity.
+- [High-speed template injection](injection.md) — prepared warm generation,
+  text, images, tables, slides, macro stripping, streaming, and validation.
 - [Documentation guide](metadoc.md) — how documentation is organized, written,
   linked, and linted.
 

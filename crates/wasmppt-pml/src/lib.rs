@@ -112,6 +112,16 @@ pub struct ShapeView {
     pub name: Option<String>,
     pub description: Option<String>,
     pub text_runs: Vec<TextRun>,
+    pub image_relationship_id: Option<String>,
+    pub crop: Option<CropRect>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CropRect {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
 }
 
 #[derive(Clone, Debug)]
@@ -126,7 +136,7 @@ impl SlideView {
             .map_err(|error| PmlError::new(PmlErrorCode::Xml, error.to_string()))?;
         ensure_root(&document, "sld", &[PML_TRANSITIONAL, PML_STRICT])?;
         let mut shapes = Vec::new();
-        let mut shape: Option<(usize, ShapeView)> = None;
+        let mut shape: Option<(usize, String, ShapeView)> = None;
         let mut text_depth = None;
         for token in document.tokens() {
             match &token.kind {
@@ -135,20 +145,23 @@ impl SlideView {
                     attributes,
                     empty,
                 } => {
-                    if name.local == "sp"
+                    if matches!(name.local.as_str(), "sp" | "pic")
                         && namespace_is(&document, name.namespace, &[PML_TRANSITIONAL, PML_STRICT])
                     {
                         shape = Some((
                             token.depth,
+                            name.local.clone(),
                             ShapeView {
                                 id: None,
                                 name: None,
                                 description: None,
                                 text_runs: Vec::new(),
+                                image_relationship_id: None,
+                                crop: None,
                             },
                         ));
                     } else if name.local == "cNvPr" {
-                        if let Some((_, current)) = &mut shape {
+                        if let Some((_, _, current)) = &mut shape {
                             current.id = plain_attribute(attributes, "id")
                                 .map(|value| {
                                     value.parse::<u32>().map_err(|_| {
@@ -170,10 +183,38 @@ impl SlideView {
                         && !empty
                     {
                         text_depth = Some(token.depth);
+                    } else if name.local == "blip" {
+                        if let Some((_, _, current)) = &mut shape {
+                            current.image_relationship_id = attributes
+                                .iter()
+                                .find(|attribute| {
+                                    attribute.name.local == "embed"
+                                        && namespace_is(
+                                            &document,
+                                            attribute.name.namespace,
+                                            &[REL_TRANSITIONAL, REL_STRICT],
+                                        )
+                                })
+                                .map(|attribute| attribute.value.clone());
+                        }
+                    } else if name.local == "srcRect" {
+                        if let Some((_, _, current)) = &mut shape {
+                            let value = |local| {
+                                plain_attribute(attributes, local)
+                                    .and_then(|value| value.parse::<i32>().ok())
+                                    .unwrap_or(0)
+                            };
+                            current.crop = Some(CropRect {
+                                left: value("l"),
+                                top: value("t"),
+                                right: value("r"),
+                                bottom: value("b"),
+                            });
+                        }
                     }
                 }
                 TokenKind::Text | TokenKind::Cdata if text_depth.is_some() => {
-                    if let Some((_, current)) = &mut shape {
+                    if let Some((_, _, current)) = &mut shape {
                         let source_range = if matches!(&token.kind, TokenKind::Cdata) {
                             token.range.start + 9..token.range.end - 3
                         } else {
@@ -197,16 +238,16 @@ impl SlideView {
                     {
                         text_depth = None;
                     }
-                    if let Some((depth, _)) = &shape {
+                    if let Some((depth, end_local, _)) = &shape {
                         if token.depth == *depth
-                            && name.local == "sp"
+                            && name.local == *end_local
                             && namespace_is(
                                 &document,
                                 name.namespace,
                                 &[PML_TRANSITIONAL, PML_STRICT],
                             )
                         {
-                            shapes.push(shape.take().expect("shape exists").1);
+                            shapes.push(shape.take().expect("shape exists").2);
                         }
                     }
                 }

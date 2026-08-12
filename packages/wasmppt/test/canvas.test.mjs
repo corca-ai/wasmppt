@@ -19,6 +19,10 @@ const textCorpus = JSON.parse(
   await readFile(new URL('../../../fixtures/text-edge-cases.json', import.meta.url), 'utf8'),
 )
 
+function codePointLength(value) {
+  return [...value].length
+}
+
 test('display-list decoder rejects corruption and decodes a bounded scene', () => {
   const bytes = minimalDisplayList()
   const scene = decodeDisplayList(bytes)
@@ -43,6 +47,60 @@ test('Korean and CJK wrapping permits deterministic character boundaries', () =>
     '사',
   ])
   assert.deepEqual(wrapText('漢字かなカナ', 2, (value) => [...value].length), ['漢字', 'かな', 'カナ'])
+})
+
+test('Latin wrapping uses whitespace and falls back for an oversized word', () => {
+  assert.deepEqual(wrapText('alpha beta gamma', 10, codePointLength), ['alpha beta', 'gamma'])
+  assert.deepEqual(wrapText('extraordinary', 5, codePointLength), ['extra', 'ordin', 'ary'])
+})
+
+test('rich-text layout wraps Latin titles inside the text frame', async () => {
+  const style = {
+    fontSize: 1_200,
+    color: { red: 0, green: 0, blue: 0, alpha: 255 },
+    bold: false,
+    italic: false,
+    underline: false,
+    strike: false,
+    characterSpacing: 0,
+    baseline: 0,
+    alignment: 'left',
+    verticalAlignment: 'top',
+    marginLeft: 0,
+    marginTop: 0,
+    marginRight: 0,
+    marginBottom: 0,
+  }
+  const command = (text, width) => ({
+    kind: 'draw-rich-text',
+    bounds: { x: 0, y: 0, width: width * 9_525, height: 2_000_000 },
+    frame: {
+      paragraphs: [{
+        runs: [{ text, style }],
+        alignment: 'left',
+        level: 0,
+        marginLeft: 0,
+        indent: 0,
+        direction: 'ltr',
+        tabs: [],
+      }],
+      verticalAlignment: 'top',
+      marginLeft: 0,
+      marginTop: 0,
+      marginRight: 0,
+      marginBottom: 0,
+      wrap: true,
+      autofit: 'none',
+      flow: 'horizontal',
+    },
+  })
+  const context = { font: '', measureText: (value) => ({ width: codePointLength(value) }) }
+  const words = await buildRichTextLayout(context, command('alpha beta gamma', 10))
+  const longWord = await buildRichTextLayout(context, command('extraordinary', 5))
+  assert.equal(new Set(words.runs.map((run) => run.baseline)).size, 2)
+  assert.equal(words.contentWidth, 10)
+  assert.equal(new Set(longWord.runs.map((run) => run.baseline)).size, 3)
+  assert.equal(longWord.contentWidth, 5)
 })
 
 test('font resolver uses an exact supplied CJK font and documents fallback', async () => {

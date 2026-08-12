@@ -4,11 +4,13 @@ use wasmppt_opc::{MemorySource, PackageGraph, PartId, RelationshipTarget, ZipArc
 use wasmppt_xml::{Attribute, TokenKind, XmlDocument, decode_entities};
 
 use crate::{
-    ChartKind, ChartSeries, ElementKind, EmuPoint, EmuSize, Fill, GroupTransform, ImageCrop,
-    LayoutError, Placeholder, PreservedFeature, PresetGeometry, ResolutionTrace, ResolveDiagnostic,
-    ResolveDiagnosticCode, ResolveOutput, ResolvedChart, ResolvedElement, ResolvedSlide,
-    ResolvedTable, ResolvedTableCell, ResolvedTableRow, ResolvedTextStyle, RgbaColor, SourceLevel,
-    Stroke, TextAlignment, TextVerticalAlignment, Transform, plain_i64,
+    ChartKind, ChartSeries, CustomPath, ElementKind, EmuPoint, EmuSize, Fill, GradientStop,
+    GroupTransform, ImageCrop, LayoutError, LineEnd, OuterShadow, PathCommand, Placeholder,
+    PreservedFeature, PresetGeometry, ResolutionTrace, ResolveDiagnostic, ResolveDiagnosticCode,
+    ResolveOutput, ResolvedChart, ResolvedElement, ResolvedParagraph, ResolvedSlide, ResolvedTable,
+    ResolvedTableCell, ResolvedTableRow, ResolvedTextFrame, ResolvedTextRun, ResolvedTextStyle,
+    RgbaColor, SourceLevel, Stroke, TextAlignment, TextAutofit, TextVerticalAlignment, Transform,
+    plain_i64,
 };
 
 const WHITE: RgbaColor = RgbaColor {
@@ -33,8 +35,11 @@ struct RawShape {
     groups: Vec<GroupTransform>,
     fill: Option<Fill>,
     stroke: Option<Stroke>,
+    custom_path: Option<CustomPath>,
+    outer_shadow: Option<OuterShadow>,
     text: Option<String>,
     text_style: PartialTextStyle,
+    text_frame: Option<RawTextFrame>,
     alternative_text: Option<String>,
     hyperlink_relationship_id: Option<String>,
     table: Option<ResolvedTable>,
@@ -43,6 +48,33 @@ struct RawShape {
     geometry: Option<PresetGeometry>,
     image_relationship_id: Option<String>,
     crop: ImageCrop,
+}
+
+#[derive(Clone, Debug, Default)]
+struct RawTextRun {
+    text: String,
+    style: PartialTextStyle,
+    east_asian_font_family: Option<String>,
+    complex_script_font_family: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct RawParagraph {
+    runs: Vec<RawTextRun>,
+    style: PartialTextStyle,
+    level: u8,
+    margin_left: Option<i64>,
+    indent: Option<i64>,
+    line_spacing: Option<i32>,
+    space_before: Option<i32>,
+    space_after: Option<i32>,
+}
+
+#[derive(Clone, Debug)]
+struct RawTextFrame {
+    paragraphs: Vec<RawParagraph>,
+    wrap: bool,
+    autofit: TextAutofit,
 }
 
 #[derive(Debug, Default)]
@@ -147,6 +179,10 @@ struct Theme {
     mapping: BTreeMap<String, String>,
     major_latin: String,
     minor_latin: String,
+    major_east_asian: String,
+    minor_east_asian: String,
+    major_complex_script: String,
+    minor_complex_script: String,
 }
 
 impl Default for Theme {
@@ -173,6 +209,10 @@ impl Default for Theme {
             ]),
             major_latin: "Arial".to_owned(),
             minor_latin: "Arial".to_owned(),
+            major_east_asian: "Arial".to_owned(),
+            minor_east_asian: "Arial".to_owned(),
+            major_complex_script: "Arial".to_owned(),
+            minor_complex_script: "Arial".to_owned(),
         }
     }
 }
@@ -497,8 +537,14 @@ fn resolved_element(
         group_transforms: shape.groups.clone(),
         fill: shape.fill.clone().unwrap_or(Fill::None),
         stroke: shape.stroke.clone(),
+        custom_path: shape.custom_path.clone(),
+        outer_shadow: shape.outer_shadow,
         text,
         text_style,
+        text_frame: shape
+            .text_frame
+            .as_ref()
+            .map(|frame| resolve_text_frame(frame, &shape.text_style)),
         alternative_text: shape.alternative_text.clone(),
         hyperlink: shape.hyperlink_relationship_id.as_ref().and_then(|id| {
             graph
@@ -515,6 +561,57 @@ fn resolved_element(
                 })
         }),
         kind,
+    }
+}
+
+fn resolve_text_frame(frame: &RawTextFrame, inherited: &PartialTextStyle) -> ResolvedTextFrame {
+    let base = inherited.resolve();
+    ResolvedTextFrame {
+        paragraphs: frame
+            .paragraphs
+            .iter()
+            .map(|paragraph| {
+                let mut paragraph_style = inherited.clone();
+                paragraph_style.overlay(&paragraph.style);
+                let resolved_paragraph = paragraph_style.resolve();
+                ResolvedParagraph {
+                    runs: paragraph
+                        .runs
+                        .iter()
+                        .map(|run| {
+                            let mut style = paragraph_style.clone();
+                            style.overlay(&run.style);
+                            ResolvedTextRun {
+                                text: run.text.clone(),
+                                style: style.resolve(),
+                                east_asian_font_family: run.east_asian_font_family.clone(),
+                                complex_script_font_family: run.complex_script_font_family.clone(),
+                            }
+                        })
+                        .collect(),
+                    alignment: resolved_paragraph.alignment,
+                    bullet: paragraph
+                        .style
+                        .bullet
+                        .as_ref()
+                        .or(inherited.bullet.as_ref())
+                        .and_then(|bullet| bullet.clone()),
+                    level: paragraph.level,
+                    margin_left: paragraph.margin_left.unwrap_or(0),
+                    indent: paragraph.indent.unwrap_or(0),
+                    line_spacing: paragraph.line_spacing,
+                    space_before: paragraph.space_before,
+                    space_after: paragraph.space_after,
+                }
+            })
+            .collect(),
+        vertical_alignment: base.vertical_alignment,
+        margin_left: base.margin_left,
+        margin_top: base.margin_top,
+        margin_right: base.margin_right,
+        margin_bottom: base.margin_bottom,
+        wrap: frame.wrap,
+        autofit: frame.autofit,
     }
 }
 
@@ -554,12 +651,26 @@ fn merge_shape(local: &RawShape, layout: Option<&RawShape>, master: Option<&RawS
             .clone()
             .or_else(|| layout.and_then(|shape| shape.stroke.clone()))
             .or_else(|| master.and_then(|shape| shape.stroke.clone())),
+        custom_path: local
+            .custom_path
+            .clone()
+            .or_else(|| layout.and_then(|shape| shape.custom_path.clone()))
+            .or_else(|| master.and_then(|shape| shape.custom_path.clone())),
+        outer_shadow: local
+            .outer_shadow
+            .or_else(|| layout.and_then(|shape| shape.outer_shadow))
+            .or_else(|| master.and_then(|shape| shape.outer_shadow)),
         text: local
             .text
             .clone()
             .or_else(|| layout.and_then(|shape| shape.text.clone()))
             .or_else(|| master.and_then(|shape| shape.text.clone())),
         text_style,
+        text_frame: local
+            .text_frame
+            .clone()
+            .or_else(|| layout.and_then(|shape| shape.text_frame.clone()))
+            .or_else(|| master.and_then(|shape| shape.text_frame.clone())),
         alternative_text: local
             .alternative_text
             .clone()
@@ -1134,11 +1245,17 @@ fn parse_shape(
                             ));
                         }
                     }
-                    "custGeom" => diagnostics.push((
-                        ResolveDiagnosticCode::UnsupportedCustomGeometry,
-                        Some(shape.id),
-                        "custom geometry is retained in source but not lowered yet".to_owned(),
-                    )),
+                    "custGeom" => {
+                        let geometry_end = element_end(document, index).unwrap_or(index).min(end);
+                        shape.custom_path = parse_custom_path(document, index, geometry_end);
+                        if shape.custom_path.is_none() {
+                            diagnostics.push((
+                                ResolveDiagnosticCode::UnsupportedCustomGeometry,
+                                Some(shape.id),
+                                "custom geometry contains unsupported path commands".to_owned(),
+                            ));
+                        }
+                    }
                     "solidFill" if !inside_text_properties => {
                         if let Some(fill_end) = element_end(document, index) {
                             let color =
@@ -1150,6 +1267,8 @@ fn parse_shape(
                                     color,
                                     width,
                                     dash: nearest_dash(document, index, fill_end),
+                                    head_end: None,
+                                    tail_end: None,
                                 });
                             } else if shape.fill.is_none() {
                                 shape.fill = Some(Fill::Solid(color));
@@ -1158,12 +1277,32 @@ fn parse_shape(
                     }
                     "noFill" if inside_line => shape.stroke = None,
                     "noFill" => shape.fill = Some(Fill::None),
-                    "gradFill" | "pattFill" | "blipFill" if name.local != "blipFill" => {
-                        diagnostics.push((
-                            ResolveDiagnosticCode::UnsupportedFill,
-                            Some(shape.id),
-                            format!("{} requires a renderer fallback", name.local),
-                        ));
+                    "gradFill" => {
+                        let fill_end = element_end(document, index).unwrap_or(index).min(end);
+                        shape.fill = parse_linear_gradient(document, index, fill_end, theme);
+                        if shape.fill.is_none() {
+                            diagnostics.push((
+                                ResolveDiagnosticCode::UnsupportedFill,
+                                Some(shape.id),
+                                "non-linear or invalid gradient requires a renderer fallback"
+                                    .to_owned(),
+                            ));
+                        }
+                    }
+                    "pattFill" => diagnostics.push((
+                        ResolveDiagnosticCode::UnsupportedFill,
+                        Some(shape.id),
+                        "pattern fill requires a renderer fallback".to_owned(),
+                    )),
+                    "headEnd" if inside_line => {
+                        if let Some(stroke) = &mut shape.stroke {
+                            stroke.head_end = plain(attributes, "type").and_then(line_end);
+                        }
+                    }
+                    "tailEnd" if inside_line => {
+                        if let Some(stroke) = &mut shape.stroke {
+                            stroke.tail_end = plain(attributes, "type").and_then(line_end);
+                        }
                     }
                     "blip" => {
                         shape.image_relationship_id = attributes
@@ -1180,10 +1319,14 @@ fn parse_shape(
                         };
                     }
                     "t" => in_text = true,
-                    "effectLst" | "effectDag" => diagnostics.push((
+                    "outerShdw" => {
+                        let shadow_end = element_end(document, index).unwrap_or(index).min(end);
+                        shape.outer_shadow = parse_outer_shadow(document, index, shadow_end, theme);
+                    }
+                    "effectDag" => diagnostics.push((
                         ResolveDiagnosticCode::UnsupportedEffect,
                         Some(shape.id),
-                        format!("{} is retained but not rendered", name.local),
+                        "effectDag is retained but not rendered".to_owned(),
                     )),
                     _ => {}
                 }
@@ -1227,7 +1370,279 @@ fn parse_shape(
     defaults.overlay(&paragraph_style);
     defaults.overlay(&run_style);
     shape.text_style = defaults;
+    shape.text_frame = parse_text_frame(document, start, end, theme);
     shape
+}
+
+fn parse_linear_gradient(
+    document: &XmlDocument,
+    start: usize,
+    end: usize,
+    theme: &Theme,
+) -> Option<Fill> {
+    let mut angle = 0;
+    let mut stops = Vec::new();
+    for index in start..=end {
+        let TokenKind::Start {
+            name, attributes, ..
+        } = &document.tokens()[index].kind
+        else {
+            continue;
+        };
+        if name.local == "lin" {
+            angle = plain_i32(attributes, "ang").unwrap_or(0);
+        } else if name.local == "gs" {
+            let stop_end = element_end(document, index).unwrap_or(index).min(end);
+            if let Some(color) = parse_color(document, index, stop_end, theme) {
+                stops.push(GradientStop {
+                    position: plain_i32(attributes, "pos").unwrap_or(0).clamp(0, 100_000),
+                    color,
+                });
+            }
+        }
+    }
+    stops.sort_unstable_by_key(|stop| stop.position);
+    (stops.len() >= 2).then_some(Fill::LinearGradient { angle, stops })
+}
+
+fn parse_custom_path(document: &XmlDocument, start: usize, end: usize) -> Option<CustomPath> {
+    let path_start = (start..=end).find(|index| {
+        matches!(
+            &document.tokens()[*index].kind,
+            TokenKind::Start { name, .. } if name.local == "path"
+        )
+    })?;
+    let TokenKind::Start { attributes, .. } = &document.tokens()[path_start].kind else {
+        return None;
+    };
+    let size = EmuSize {
+        width: plain_i64(attributes, "w").unwrap_or(1).max(1),
+        height: plain_i64(attributes, "h").unwrap_or(1).max(1),
+    };
+    let path_end = element_end(document, path_start)
+        .unwrap_or(path_start)
+        .min(end);
+    let mut commands = Vec::new();
+    for index in path_start..=path_end {
+        let TokenKind::Start { name, .. } = &document.tokens()[index].kind else {
+            continue;
+        };
+        match name.local.as_str() {
+            "moveTo" | "lnTo" => {
+                let command_end = element_end(document, index).unwrap_or(index).min(path_end);
+                let point = (index..=command_end).find_map(|candidate| {
+                    let TokenKind::Start {
+                        name, attributes, ..
+                    } = &document.tokens()[candidate].kind
+                    else {
+                        return None;
+                    };
+                    (name.local == "pt").then(|| EmuPoint {
+                        x: plain_i64(attributes, "x").unwrap_or(0),
+                        y: plain_i64(attributes, "y").unwrap_or(0),
+                    })
+                });
+                if let Some(point) = point {
+                    commands.push(if name.local == "moveTo" {
+                        PathCommand::MoveTo(point)
+                    } else {
+                        PathCommand::LineTo(point)
+                    });
+                }
+            }
+            "close" => commands.push(PathCommand::Close),
+            "arcTo" | "quadBezTo" | "cubicBezTo" => return None,
+            _ => {}
+        }
+    }
+    (!commands.is_empty()).then_some(CustomPath { size, commands })
+}
+
+fn parse_outer_shadow(
+    document: &XmlDocument,
+    start: usize,
+    end: usize,
+    theme: &Theme,
+) -> Option<OuterShadow> {
+    let TokenKind::Start { attributes, .. } = &document.tokens()[start].kind else {
+        return None;
+    };
+    Some(OuterShadow {
+        color: parse_color(document, start, end, theme)?,
+        blur_radius: plain_i64(attributes, "blurRad").unwrap_or(0),
+        distance: plain_i64(attributes, "dist").unwrap_or(0),
+        direction: plain_i32(attributes, "dir").unwrap_or(0),
+    })
+}
+
+fn line_end(value: &str) -> Option<LineEnd> {
+    match value {
+        "triangle" => Some(LineEnd::Triangle),
+        "stealth" => Some(LineEnd::Stealth),
+        "diamond" => Some(LineEnd::Diamond),
+        "oval" => Some(LineEnd::Oval),
+        "arrow" => Some(LineEnd::Arrow),
+        _ => None,
+    }
+}
+
+fn parse_text_frame(
+    document: &XmlDocument,
+    start: usize,
+    end: usize,
+    theme: &Theme,
+) -> Option<RawTextFrame> {
+    let body = (start..=end).find(|index| {
+        matches!(
+            &document.tokens()[*index].kind,
+            TokenKind::Start { name, .. } if name.local == "txBody"
+        )
+    })?;
+    let body_end = element_end(document, body).unwrap_or(end).min(end);
+    let mut wrap = true;
+    let mut autofit = TextAutofit::None;
+    for index in body..=body_end {
+        let TokenKind::Start {
+            name, attributes, ..
+        } = &document.tokens()[index].kind
+        else {
+            continue;
+        };
+        match name.local.as_str() {
+            "bodyPr" => wrap = plain(attributes, "wrap") != Some("none"),
+            "normAutofit" => autofit = TextAutofit::ShrinkText,
+            "spAutoFit" => autofit = TextAutofit::ResizeShape,
+            "noAutofit" => autofit = TextAutofit::None,
+            _ => {}
+        }
+    }
+    let mut paragraphs = Vec::new();
+    let mut index = body + 1;
+    while index <= body_end {
+        let is_paragraph = matches!(
+            &document.tokens()[index].kind,
+            TokenKind::Start { name, .. } if name.local == "p"
+        );
+        if !is_paragraph {
+            index += 1;
+            continue;
+        }
+        let paragraph_end = element_end(document, index).unwrap_or(index).min(body_end);
+        paragraphs.push(parse_rich_paragraph(document, index, paragraph_end, theme));
+        index = paragraph_end + 1;
+    }
+    (!paragraphs.is_empty()).then_some(RawTextFrame {
+        paragraphs,
+        wrap,
+        autofit,
+    })
+}
+
+fn parse_rich_paragraph(
+    document: &XmlDocument,
+    start: usize,
+    end: usize,
+    theme: &Theme,
+) -> RawParagraph {
+    let mut paragraph = RawParagraph::default();
+    for index in start..=end {
+        let TokenKind::Start {
+            name, attributes, ..
+        } = &document.tokens()[index].kind
+        else {
+            continue;
+        };
+        if name.local == "pPr" {
+            let property_end = element_end(document, index).unwrap_or(index).min(end);
+            paragraph.style = parse_text_style_range(document, index, property_end, theme);
+            paragraph.level = plain_u32(attributes, "lvl").unwrap_or(0).min(8) as u8;
+            paragraph.margin_left = plain_i64(attributes, "marL");
+            paragraph.indent = plain_i64(attributes, "indent");
+            paragraph.line_spacing = spacing_value(document, index, property_end, "lnSpc");
+            paragraph.space_before = spacing_value(document, index, property_end, "spcBef");
+            paragraph.space_after = spacing_value(document, index, property_end, "spcAft");
+            break;
+        }
+    }
+    let mut index = start + 1;
+    while index < end {
+        let run_end = match &document.tokens()[index].kind {
+            TokenKind::Start { name, .. } if matches!(name.local.as_str(), "r" | "fld") => {
+                element_end(document, index).unwrap_or(index).min(end)
+            }
+            _ => {
+                index += 1;
+                continue;
+            }
+        };
+        let text = collect_text(document, index, run_end);
+        if !text.is_empty() {
+            let mut style = PartialTextStyle::default();
+            let mut east_asian_font_family = None;
+            let mut complex_script_font_family = None;
+            for candidate in index..=run_end {
+                let TokenKind::Start {
+                    name, attributes, ..
+                } = &document.tokens()[candidate].kind
+                else {
+                    continue;
+                };
+                if name.local == "rPr" {
+                    let style_end = element_end(document, candidate)
+                        .unwrap_or(candidate)
+                        .min(run_end);
+                    style = parse_text_style_range(document, candidate, style_end, theme);
+                } else if name.local == "ea" {
+                    east_asian_font_family = plain(attributes, "typeface")
+                        .map(|family| resolve_theme_font(family, theme));
+                } else if name.local == "cs" {
+                    complex_script_font_family = plain(attributes, "typeface")
+                        .map(|family| resolve_theme_font(family, theme));
+                }
+            }
+            paragraph.runs.push(RawTextRun {
+                text,
+                style,
+                east_asian_font_family,
+                complex_script_font_family,
+            });
+        }
+        index = run_end + 1;
+    }
+    if paragraph.runs.is_empty() {
+        let text = collect_text(document, start, end);
+        if !text.is_empty() {
+            paragraph.runs.push(RawTextRun {
+                text,
+                ..RawTextRun::default()
+            });
+        }
+    }
+    paragraph
+}
+
+fn spacing_value(document: &XmlDocument, start: usize, end: usize, container: &str) -> Option<i32> {
+    let container_start = (start..=end).find(|index| {
+        matches!(
+            &document.tokens()[*index].kind,
+            TokenKind::Start { name, .. } if name.local == container
+        )
+    })?;
+    let container_end = element_end(document, container_start)
+        .unwrap_or(container_start)
+        .min(end);
+    for token in &document.tokens()[container_start..=container_end] {
+        let TokenKind::Start {
+            name, attributes, ..
+        } = &token.kind
+        else {
+            continue;
+        };
+        if matches!(name.local.as_str(), "spcPct" | "spcPts") {
+            return plain_i32(attributes, "val");
+        }
+    }
+    None
 }
 
 fn parse_group_transform(document: &XmlDocument, start: usize, end: usize) -> GroupTransform {
@@ -1402,6 +1817,10 @@ fn resolve_theme_font(family: &str, theme: &Theme) -> String {
     match family {
         "+mj-lt" => theme.major_latin.clone(),
         "+mn-lt" => theme.minor_latin.clone(),
+        "+mj-ea" => theme.major_east_asian.clone(),
+        "+mn-ea" => theme.minor_east_asian.clone(),
+        "+mj-cs" => theme.major_complex_script.clone(),
+        "+mn-cs" => theme.minor_complex_script.clone(),
         _ => family.to_owned(),
     }
 }
@@ -1484,16 +1903,20 @@ fn parse_theme(document: &XmlDocument) -> Result<Theme, String> {
             }
             TokenKind::Start {
                 name, attributes, ..
-            } if name.local == "latin"
+            } if matches!(name.local.as_str(), "latin" | "ea" | "cs")
                 && font_group.is_some_and(|(depth, _)| token.depth == depth + 1) =>
             {
                 if let (Some((_, major)), Some(family)) =
                     (font_group, plain(attributes, "typeface"))
                 {
-                    if major {
-                        theme.major_latin = family.to_owned();
-                    } else {
-                        theme.minor_latin = family.to_owned();
+                    match (major, name.local.as_str()) {
+                        (true, "latin") => theme.major_latin = family.to_owned(),
+                        (false, "latin") => theme.minor_latin = family.to_owned(),
+                        (true, "ea") => theme.major_east_asian = family.to_owned(),
+                        (false, "ea") => theme.minor_east_asian = family.to_owned(),
+                        (true, "cs") => theme.major_complex_script = family.to_owned(),
+                        (false, "cs") => theme.minor_complex_script = family.to_owned(),
+                        _ => {}
                     }
                 }
             }
@@ -1754,6 +2177,10 @@ mod tests {
         let shape = parse_shape(&document, 0, end, Vec::new(), &theme, &mut Vec::new());
 
         assert_eq!(shape.text.as_deref(), Some("First\nSecond"));
+        let frame = shape.text_frame.as_ref().unwrap();
+        assert_eq!(frame.paragraphs.len(), 2);
+        assert_eq!(frame.paragraphs[0].runs[0].text, "First");
+        assert_eq!(frame.paragraphs[0].runs[0].style.italic, Some(true));
         assert_eq!(shape.text_style.font_size, Some(3_200));
         assert_eq!(shape.text_style.font_family.as_deref(), Some("Calibri"));
         assert_eq!(shape.text_style.alignment, Some(TextAlignment::Center));
@@ -1785,5 +2212,51 @@ mod tests {
                 alpha: 255,
             }))
         );
+    }
+
+    #[test]
+    fn lowers_linear_gradient_custom_path_shadow_and_line_ends() {
+        let source = br#"<p:sp xmlns:p="p" xmlns:a="a">
+          <p:spPr>
+            <a:custGeom><a:pathLst><a:path w="100" h="100">
+              <a:moveTo><a:pt x="0" y="0"/></a:moveTo>
+              <a:lnTo><a:pt x="100" y="0"/></a:lnTo>
+              <a:lnTo><a:pt x="50" y="100"/></a:lnTo><a:close/>
+            </a:path></a:pathLst></a:custGeom>
+            <a:gradFill><a:gsLst>
+              <a:gs pos="0"><a:srgbClr val="FF0000"><a:alpha val="50000"/></a:srgbClr></a:gs>
+              <a:gs pos="100000"><a:srgbClr val="0000FF"/></a:gs>
+            </a:gsLst><a:lin ang="5400000"/></a:gradFill>
+            <a:ln w="12700"><a:solidFill><a:srgbClr val="000000"/></a:solidFill>
+              <a:headEnd type="triangle"/><a:tailEnd type="diamond"/></a:ln>
+            <a:effectLst><a:outerShdw blurRad="100" dist="200" dir="5400000">
+              <a:srgbClr val="333333"/>
+            </a:outerShdw></a:effectLst>
+          </p:spPr>
+        </p:sp>"#;
+        let document = XmlDocument::parse(source.as_slice()).unwrap();
+        let end = element_end(&document, 0).unwrap();
+        let mut diagnostics = Vec::new();
+        let shape = parse_shape(
+            &document,
+            0,
+            end,
+            Vec::new(),
+            &Theme::default(),
+            &mut diagnostics,
+        );
+
+        let Fill::LinearGradient { angle, stops } = shape.fill.unwrap() else {
+            panic!("expected a linear gradient")
+        };
+        assert_eq!(angle, 5_400_000);
+        assert_eq!(stops.len(), 2);
+        assert_eq!(stops[0].color.alpha, 127);
+        assert_eq!(shape.custom_path.unwrap().commands.len(), 4);
+        let stroke = shape.stroke.unwrap();
+        assert_eq!(stroke.head_end, Some(LineEnd::Triangle));
+        assert_eq!(stroke.tail_end, Some(LineEnd::Diamond));
+        assert_eq!(shape.outer_shadow.unwrap().distance, 200);
+        assert!(diagnostics.is_empty());
     }
 }

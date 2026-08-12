@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "generator": "cargo run -p wasmppt-native --example write_render_fixture -- fixtures/render/basic.pptx",
+  "presentations": [
+    {
+      "id": "basic",
+      "path": "basic.pptx",
+      "features": [
+        { "id": "text", "slideIndex": 0, "region": [95, 45, 515, 70] },
+        { "id": "raster-images", "slideIndex": 0, "region": [280, 80, 61, 1] },
+        { "id": "shapes", "slideIndex": 1, "region": [0, 0, 640, 360] },
+        { "id": "charts", "slideIndex": 1, "region": [0, 0, 640, 360] },
+        { "id": "metafiles", "slideIndex": 1, "region": [0, 0, 640, 360] }
+      ]
+    }
+  ]
+}

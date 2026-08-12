@@ -21,19 +21,29 @@ fn lowers_to_stable_compact_binary_commands_and_side_tables() {
         display
             .commands
             .iter()
-            .any(|command| matches!(command, DisplayCommand::DrawText { .. }))
+            .any(|command| matches!(command, DisplayCommand::DrawRichText { .. }))
     );
     let text_style = display
         .commands
         .iter()
         .find_map(|command| match command {
-            DisplayCommand::DrawText { style, .. } => Some(style),
+            DisplayCommand::DrawRichText { frame, .. } => frame
+                .paragraphs
+                .first()
+                .and_then(|paragraph| paragraph.runs.first())
+                .map(|run| &run.style),
             _ => None,
         })
         .unwrap();
     assert!(text_style.font_size > 0);
+    assert!(
+        display
+            .commands
+            .iter()
+            .any(|command| matches!(command, DisplayCommand::DrawCustomPath { .. }))
+    );
     assert_eq!(display.images.len(), 1);
-    assert_eq!(display.strings, ["Actual title"]);
+    assert!(display.strings.is_empty());
     let title = display
         .semantics
         .iter()
@@ -58,14 +68,14 @@ fn lowers_to_stable_compact_binary_commands_and_side_tables() {
         photo.alternative_text.as_deref(),
         Some("Quarterly report photo")
     );
-    assert_eq!(display.diagnostics.len(), 2);
+    assert_eq!(display.diagnostics.len(), 1);
     let encoded = display.encode();
     assert_eq!(&encoded[0..4], b"WPDL");
     assert_eq!(
         u16::from_le_bytes([encoded[4], encoded[5]]),
         DISPLAY_LIST_VERSION
     );
-    assert_eq!(display.structural_signature(), 0x43e5_ba45_0130_0db3);
+    assert_eq!(display.structural_signature(), 0xeea3_2248_06b1_8899);
 }
 
 #[test]

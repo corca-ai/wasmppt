@@ -66,15 +66,27 @@ export class WasmpptWorkerClient {
   readonly #pending = new Map<number, Pending>()
   #nextId = 1
   #closed = false
+  readonly #resourceCache = new Map<string, ArrayBuffer>()
+  readonly #resourceInflight = new Map<string, Promise<ArrayBuffer>>()
+  readonly #resourceCacheLimit: number
+  #resourceCacheBytes = 0
 
   readonly #onMessage = (event: MessageEvent<unknown>): void => this.#receive(event.data)
   readonly #onCrash = (): void => this.#failAll(new Error('wasmppt Worker terminated unexpectedly'))
 
-  constructor(worker: WorkerLike) {
+  constructor(worker: WorkerLike, resourceCacheBytes = 32 * 1024 * 1024) {
+    if (!Number.isSafeInteger(resourceCacheBytes) || resourceCacheBytes < 0) {
+      throw new RangeError('resourceCacheBytes must be a non-negative safe integer')
+    }
     this.#worker = worker
+    this.#resourceCacheLimit = resourceCacheBytes
     worker.addEventListener('message', this.#onMessage)
     worker.addEventListener('error', this.#onCrash)
     worker.addEventListener('messageerror', this.#onCrash)
+  }
+
+  get resourceCacheBytes(): number {
+    return this.#resourceCacheBytes
   }
 
   async prepare(template: ArrayBuffer, options: PrepareOptions = {}): Promise<PreparedBrowserTemplate> {
@@ -151,18 +163,20 @@ export class WasmpptWorkerClient {
   ): Promise<ArrayBuffer> {
     this.#assertOpen()
     if (partName.length === 0) throw new TypeError('partName must not be empty')
-    const id = this.#allocateId()
-    const result = this.#unaryRequest(id, 'resource', options.signal, options.onProgress)
-    this.#worker.postMessage({
-      version: WORKER_PROTOCOL_VERSION,
-      id,
-      type: 'presentation-resource',
-      presentationHandle,
-      partName,
+    return this.#cachedResource(`${presentationHandle}\0raw\0${partName}`, options.signal, async () => {
+      const id = this.#allocateId()
+      const result = this.#unaryRequest(id, 'resource', undefined, options.onProgress)
+      this.#worker.postMessage({
+        version: WORKER_PROTOCOL_VERSION,
+        id,
+        type: 'presentation-resource',
+        presentationHandle,
+        partName,
+      })
+      const response = await result
+      if (response.type !== 'presentation-resource') throw new Error('invalid presentation-resource response')
+      return response.bytes
     })
-    const response = await result
-    if (response.type !== 'presentation-resource') throw new Error('invalid presentation-resource response')
-    return response.bytes
   }
 
   async presentationMetafileSvg(
@@ -174,20 +188,22 @@ export class WasmpptWorkerClient {
     if (!/\.(?:emf|wmf)$/i.test(partName)) {
       throw new TypeError('partName must identify an EMF or WMF resource')
     }
-    const id = this.#allocateId()
-    const result = this.#unaryRequest(id, 'metafile', options.signal, options.onProgress)
-    this.#worker.postMessage({
-      version: WORKER_PROTOCOL_VERSION,
-      id,
-      type: 'presentation-metafile-svg',
-      presentationHandle,
-      partName,
+    return this.#cachedResource(`${presentationHandle}\0svg\0${partName}`, options.signal, async () => {
+      const id = this.#allocateId()
+      const result = this.#unaryRequest(id, 'metafile', undefined, options.onProgress)
+      this.#worker.postMessage({
+        version: WORKER_PROTOCOL_VERSION,
+        id,
+        type: 'presentation-metafile-svg',
+        presentationHandle,
+        partName,
+      })
+      const response = await result
+      if (response.type !== 'presentation-metafile-svg') {
+        throw new Error('invalid presentation-metafile-svg response')
+      }
+      return response.bytes
     })
-    const response = await result
-    if (response.type !== 'presentation-metafile-svg') {
-      throw new Error('invalid presentation-metafile-svg response')
-    }
-    return response.bytes
   }
 
   async releasePresentation(presentationHandle: number): Promise<void> {
@@ -203,6 +219,55 @@ export class WasmpptWorkerClient {
     const response = await result
     if (response.type !== 'presentation-released') {
       throw new Error('invalid release-presentation response')
+    }
+    this.#purgePresentationResources(presentationHandle)
+  }
+
+  async #cachedResource(
+    key: string,
+    signal: AbortSignal | undefined,
+    load: () => Promise<ArrayBuffer>,
+  ): Promise<ArrayBuffer> {
+    if (signal?.aborted === true) throw abortError()
+    const cached = this.#resourceCache.get(key)
+    if (cached !== undefined) {
+      this.#resourceCache.delete(key)
+      this.#resourceCache.set(key, cached)
+      return cached
+    }
+    let loading = this.#resourceInflight.get(key)
+    if (loading === undefined) {
+      loading = load().then((bytes) => {
+        this.#storeResource(key, bytes)
+        return bytes
+      }).finally(() => this.#resourceInflight.delete(key))
+      this.#resourceInflight.set(key, loading)
+    }
+    const bytes = await abortable(loading, signal)
+    return bytes
+  }
+
+  #storeResource(key: string, bytes: ArrayBuffer): void {
+    if (bytes.byteLength > this.#resourceCacheLimit) return
+    const previous = this.#resourceCache.get(key)
+    if (previous !== undefined) this.#resourceCacheBytes -= previous.byteLength
+    this.#resourceCache.delete(key)
+    this.#resourceCache.set(key, bytes)
+    this.#resourceCacheBytes += bytes.byteLength
+    while (this.#resourceCacheBytes > this.#resourceCacheLimit) {
+      const oldest = this.#resourceCache.entries().next().value as [string, ArrayBuffer] | undefined
+      if (oldest === undefined) break
+      this.#resourceCache.delete(oldest[0])
+      this.#resourceCacheBytes -= oldest[1].byteLength
+    }
+  }
+
+  #purgePresentationResources(handle: number): void {
+    const prefix = `${handle}\0`
+    for (const [key, bytes] of this.#resourceCache) {
+      if (!key.startsWith(prefix)) continue
+      this.#resourceCache.delete(key)
+      this.#resourceCacheBytes -= bytes.byteLength
     }
   }
 
@@ -301,6 +366,8 @@ export class WasmpptWorkerClient {
     this.#closed = true
     this.#detach()
     this.#worker.terminate()
+    this.#resourceCache.clear()
+    this.#resourceCacheBytes = 0
     this.#failAll(new Error('wasmppt Worker was terminated'))
   }
 
@@ -416,6 +483,19 @@ function remoteError(response: Extract<WorkerResponse, { readonly type: 'error' 
 
 function abortError(): DOMException {
   return new DOMException('wasmppt generation was cancelled', 'AbortError')
+}
+
+function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return promise
+  if (signal.aborted) return Promise.reject(abortError())
+  return new Promise<T>((resolve, reject) => {
+    const abort = (): void => reject(abortError())
+    signal.addEventListener('abort', abort, { once: true })
+    promise.then(
+      (value) => { signal.removeEventListener('abort', abort); resolve(value) },
+      (error: unknown) => { signal.removeEventListener('abort', abort); reject(error) },
+    )
+  })
 }
 
 function normalizeGenerationData(data: GenerationData | TextBindings): GenerationData {

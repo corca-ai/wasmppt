@@ -34,14 +34,16 @@ The first resolver implements:
 - slide placeholder inheritance from layout and master by type/index;
 - nested group transform chains without converting coordinates to pixels;
 - source-layer z-order, transforms, flips and 1/60000-degree rotation;
-- solid/no fills, line color and width, image relationships and source crops;
+- solid/no and linear-gradient fills, line color, width, dash and line ends, image
+  relationships and source crops;
 - rectangle, rounded rectangle, ellipse, line, triangle, right triangle, diamond,
   parallelogram, and hexagon preset geometry;
-- paragraph-preserving text collection plus effective first-run font size, family,
-  color, bold/italic emphasis, horizontal and vertical alignment, and text-frame
-  margins. Run-level mixed formatting remains an explicit next text-layout slice.
+- paragraph/run-preserving text with mixed font size, Latin/East-Asian/complex-script
+  families, color and emphasis; bullets, indentation, spacing and alignment; and
+  text-frame margins, vertical anchoring, wrapping and autofit mode;
+- bounded move/line/close custom paths and outer shadows.
 
-Unsupported graphic frames, custom geometry, gradient/pattern fills, and effects produce
+Unsupported graphic frames, pattern fills, curved custom paths, and effect DAGs produce
 explicit `ResolveDiagnostic` values. Source OOXML remains untouched, so a later backend
 or fallback can recover it. The resolver never silently claims those features were drawn.
 
@@ -66,7 +68,9 @@ slide 2, and vice versa. Media invalidation reaches only its referencing slide.
 - semantic command ranges for source shape IDs, reading order, accessible names, and links;
 - resolver diagnostics shared without reinterpretation by every rendering backend.
 
-WPDL version 3 extends `DrawText` with the effective text-frame style and adds an
+WPDL version 4 adds paragraph/run-preserving rich text, linear gradients, bounded custom
+paths, outer shadows, connectors, and arrowheads. Version 3 extends `DrawText` with the
+effective text-frame style and adds an
 explicit preserved-graphic placeholder command. Version 1 and 2 scenes still decode
 with documented defaults. Unsupported SmartArt, OLE, and graphic frames no longer become
 invisible regions: backends draw a labeled placeholder while retaining the diagnostic and
@@ -81,9 +85,11 @@ Wasm module Worker; the browser integration test treats a mismatch as a failure.
 
 ## Fixtures and verification
 
-`fixtures/render/basic.pptx` exercises two independent theme/master/layout branches,
+`fixtures/render/basic.pptx` is deterministically generated and exercises two independent theme/master/layout branches,
 placeholder inheritance, theme transforms, group transforms, image crops, z-order,
-initial geometry, a real synthesized EMF record stream, and explicit unsupported diagnostics. The pinned Apache POI
+mixed text runs, advanced geometry, gradients, shadows, a real synthesized EMF record stream,
+and explicit unsupported diagnostics. `fixtures/render/corpus.json` pins the feature regions used
+by Chromium visual reports. The pinned Apache POI
 `SampleShow.pptx` fixture supplies an independent real-world resolution check in CI.
 
 ```sh

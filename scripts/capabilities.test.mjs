@@ -8,7 +8,7 @@ const matrix = JSON.parse(
 
 test('every feature independently classifies read, preserve, edit, and render support', () => {
   assert.equal(matrix.schema, 1)
-  assert.equal(matrix.displayListVersion, 3)
+  assert.equal(matrix.displayListVersion, 4)
   assert(matrix.features.length >= 16)
   const identifiers = new Set()
   for (const feature of matrix.features) {

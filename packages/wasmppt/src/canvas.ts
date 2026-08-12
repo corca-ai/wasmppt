@@ -48,6 +48,52 @@ export interface SceneTextStyle {
   readonly marginBottom: number
 }
 
+export interface SceneTextRun {
+  readonly text: string
+  readonly style: SceneTextStyle
+  readonly eastAsianFontFamily?: string
+  readonly complexScriptFontFamily?: string
+}
+
+export interface SceneParagraph {
+  readonly runs: readonly SceneTextRun[]
+  readonly alignment: SceneTextStyle['alignment']
+  readonly bullet?: string
+  readonly level: number
+  readonly marginLeft: number
+  readonly indent: number
+  readonly lineSpacing?: number
+  readonly spaceBefore?: number
+  readonly spaceAfter?: number
+}
+
+export interface SceneTextFrame {
+  readonly paragraphs: readonly SceneParagraph[]
+  readonly verticalAlignment: SceneTextStyle['verticalAlignment']
+  readonly marginLeft: number
+  readonly marginTop: number
+  readonly marginRight: number
+  readonly marginBottom: number
+  readonly wrap: boolean
+  readonly autofit: 'none' | 'shrink-text' | 'resize-shape'
+}
+
+export interface SceneGradientStop {
+  readonly position: number
+  readonly color: RgbaColor
+}
+
+export type SceneLineEnd = 'triangle' | 'stealth' | 'diamond' | 'oval' | 'arrow'
+
+export type SceneFill =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'solid'; readonly color: RgbaColor }
+  | { readonly kind: 'linear-gradient'; readonly angle: number; readonly stops: readonly SceneGradientStop[] }
+
+export type ScenePathCommand =
+  | { readonly kind: 'move-to' | 'line-to'; readonly x: number; readonly y: number }
+  | { readonly kind: 'close' }
+
 export interface SceneSemanticElement {
   readonly firstCommand: number
   readonly commandCount: number
@@ -102,6 +148,39 @@ export type SceneCommand =
       readonly color: RgbaColor
       readonly width: number
       readonly dash?: string
+      readonly headEnd?: SceneLineEnd
+      readonly tailEnd?: SceneLineEnd
+    }
+  | {
+      readonly kind: 'fill-gradient-preset'
+      readonly geometry: number
+      readonly transform: SceneTransform
+      readonly angle: number
+      readonly stops: readonly SceneGradientStop[]
+    }
+  | {
+      readonly kind: 'draw-custom-path'
+      readonly transform: SceneTransform
+      readonly pathWidth: number
+      readonly pathHeight: number
+      readonly path: readonly ScenePathCommand[]
+      readonly fill: SceneFill
+      readonly stroke?: {
+        readonly color: RgbaColor
+        readonly width: number
+        readonly dash?: string
+        readonly headEnd?: SceneLineEnd
+        readonly tailEnd?: SceneLineEnd
+      }
+    }
+  | {
+      readonly kind: 'draw-outer-shadow'
+      readonly geometry: number
+      readonly transform: SceneTransform
+      readonly color: RgbaColor
+      readonly blurRadius: number
+      readonly distance: number
+      readonly direction: number
     }
   | {
       readonly kind: 'draw-image'
@@ -114,6 +193,11 @@ export type SceneCommand =
       readonly text: number
       readonly bounds: EmuRect
       readonly style: SceneTextStyle
+    }
+  | {
+      readonly kind: 'draw-rich-text'
+      readonly bounds: EmuRect
+      readonly frame: SceneTextFrame
     }
   | {
       readonly kind: 'draw-unsupported'
@@ -140,7 +224,7 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
   const reader = new BinaryReader(bytes)
   if (reader.ascii(4) !== 'WPDL') throw new Error('display list has an invalid magic value')
   const version = reader.u16()
-  if (version !== 1 && version !== 2 && version !== 3) {
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4) {
     throw new Error(`unsupported display-list version ${version}`)
   }
   if (reader.u16() !== 0) throw new Error('display-list reserved flags are non-zero')
@@ -356,15 +440,23 @@ export function measureTextBatch(
   requests: readonly TextMeasureRequest[],
 ): readonly number[] {
   const widths = new Array<number>(requests.length)
-  const batches = new Map<string, number[]>()
+  const batches = new Map<string, Map<string, number[]>>()
   requests.forEach((request, index) => {
-    const indices = batches.get(request.font)
-    if (indices === undefined) batches.set(request.font, [index])
+    let texts = batches.get(request.font)
+    if (texts === undefined) {
+      texts = new Map()
+      batches.set(request.font, texts)
+    }
+    const indices = texts.get(request.text)
+    if (indices === undefined) texts.set(request.text, [index])
     else indices.push(index)
   })
-  for (const [font, indices] of batches) {
+  for (const [font, texts] of batches) {
     context.font = font
-    for (const index of indices) widths[index] = context.measureText(requests[index]!.text).width
+    for (const [value, indices] of texts) {
+      const width = context.measureText(value).width
+      for (const index of indices) widths[index] = width
+    }
   }
   return Object.freeze(widths)
 }
@@ -396,10 +488,275 @@ export function wrapText(
   return Object.freeze(lines)
 }
 
+export interface RichTextLayoutRun {
+  readonly text: string
+  readonly x: number
+  readonly baseline: number
+  readonly width: number
+  readonly font: ResolvedFont
+  readonly color: RgbaColor
+}
+
+export interface RichTextLayoutPlan {
+  readonly runs: readonly RichTextLayoutRun[]
+  readonly contentWidth: number
+  readonly contentHeight: number
+}
+
+/** Builds the backend-neutral positioned run plan shared by Canvas and DOM/SVG renderers. */
+export async function buildRichTextLayout(
+  context: Pick<CanvasRenderingContext2D, 'font' | 'measureText'>,
+  command: Extract<SceneCommand, { readonly kind: 'draw-rich-text' }>,
+  resolver = new FontResolver(),
+): Promise<RichTextLayoutPlan> {
+  const innerX = toPixels(command.bounds.x + command.frame.marginLeft)
+  const innerY = toPixels(command.bounds.y + command.frame.marginTop)
+  const innerWidth = Math.max(
+    0,
+    toPixels(command.bounds.width - command.frame.marginLeft - command.frame.marginRight),
+  )
+  const innerHeight = Math.max(
+    0,
+    toPixels(command.bounds.height - command.frame.marginTop - command.frame.marginBottom),
+  )
+  const resolved = await Promise.all(
+    command.frame.paragraphs.flatMap((paragraph) =>
+      paragraph.runs.map(async (run) => {
+        const script = detectFontScript(run.text)
+        const requested =
+          script === 'east-asian'
+            ? run.eastAsianFontFamily ?? run.style.fontFamily
+            : script === 'complex'
+              ? run.complexScriptFontFamily ?? run.style.fontFamily
+              : run.style.fontFamily
+        return resolver.resolve(
+          run.text,
+          pointsToCssPixels(run.style.fontSize / 100),
+          requested,
+          run.style,
+        )
+      }),
+    ),
+  )
+  const measureRequests: TextMeasureRequest[] = []
+  let measureFontIndex = 0
+  for (const paragraph of command.frame.paragraphs) {
+    if (paragraph.bullet !== undefined && paragraph.runs[0] !== undefined) {
+      measureRequests.push({ text: `${paragraph.bullet} `, font: resolved[measureFontIndex]!.css })
+    }
+    for (const run of paragraph.runs) {
+      const font = resolved[measureFontIndex++]!
+      for (const token of command.frame.wrap ? lineBreakTokens(run.text) : [run.text]) {
+        if (token !== '\n') measureRequests.push({ text: token, font: font.css })
+      }
+    }
+  }
+  const measured = measureTextBatch(context, measureRequests)
+  const measurementLookup = new Map(
+    measureRequests.map((request, index) => [`${request.font}\0${request.text}`, measured[index]!]),
+  )
+  let resolvedIndex = 0
+  const lines: Array<{
+    readonly runs: Array<Omit<RichTextLayoutRun, 'x' | 'baseline'>>
+    readonly height: number
+    readonly alignment: SceneTextStyle['alignment']
+    readonly before: number
+    readonly after: number
+    readonly left: number
+  }> = []
+  for (const paragraph of command.frame.paragraphs) {
+    const lineRuns: Array<Omit<RichTextLayoutRun, 'x' | 'baseline'>> = []
+    let lineWidth = 0
+    let lineHeight = 0
+    const left = toPixels(paragraph.marginLeft + paragraph.indent)
+    const available = Math.max(0, innerWidth - left)
+    const inputs = paragraph.bullet === undefined || paragraph.runs[0] === undefined
+      ? paragraph.runs
+      : [{ ...paragraph.runs[0]!, text: `${paragraph.bullet} ` }, ...paragraph.runs]
+    for (const run of inputs) {
+      const font = paragraph.bullet !== undefined && run === inputs[0]
+        ? resolved[resolvedIndex] ?? await resolver.resolve(run.text)
+        : resolved[resolvedIndex++]!
+      const tokens = command.frame.wrap ? lineBreakTokens(run.text) : [run.text]
+      for (const token of tokens) {
+        if (token === '\n') {
+          lines.push({ runs: lineRuns.splice(0), height: lineHeight || 1, alignment: paragraph.alignment, before: 0, after: 0, left })
+          lineWidth = 0
+          lineHeight = 0
+          continue
+        }
+        const width = measurementLookup.get(`${font.css}\0${token}`) ?? 0
+        if (command.frame.wrap && lineRuns.length > 0 && lineWidth + width > available) {
+          lines.push({ runs: lineRuns.splice(0), height: lineHeight || 1, alignment: paragraph.alignment, before: 0, after: 0, left })
+          lineWidth = 0
+          lineHeight = 0
+        }
+        lineRuns.push({ text: token, width, font, color: run.style.color })
+        lineWidth += width
+        lineHeight = Math.max(lineHeight, pointsToCssPixels(run.style.fontSize / 100) * 1.2)
+      }
+    }
+    lines.push({
+      runs: lineRuns,
+      height: applyLineSpacing(lineHeight || 1, paragraph.lineSpacing),
+      alignment: paragraph.alignment,
+      before: spacingPixels(paragraph.spaceBefore),
+      after: spacingPixels(paragraph.spaceAfter),
+      left,
+    })
+  }
+  const rawHeight = lines.reduce((sum, line) => sum + line.before + line.height + line.after, 0)
+  const shrink = command.frame.autofit === 'shrink-text' && rawHeight > innerHeight
+    ? Math.max(0.1, innerHeight / rawHeight)
+    : 1
+  const contentHeight = rawHeight * shrink
+  let y = innerY
+  if (command.frame.verticalAlignment === 'center') y += Math.max(0, (innerHeight - contentHeight) / 2)
+  if (command.frame.verticalAlignment === 'bottom') y += Math.max(0, innerHeight - contentHeight)
+  const output: RichTextLayoutRun[] = []
+  let contentWidth = 0
+  for (const line of lines) {
+    y += line.before * shrink
+    const width = line.runs.reduce((sum, run) => sum + run.width, 0) * shrink
+    let x = innerX + line.left
+    if (line.alignment === 'center') x += Math.max(0, (innerWidth - line.left - width) / 2)
+    if (line.alignment === 'right') x += Math.max(0, innerWidth - line.left - width)
+    for (const run of line.runs) {
+      output.push({
+        ...run,
+        x,
+        baseline: y + line.height * 0.82 * shrink,
+        width: run.width * shrink,
+        font: shrink === 1 ? run.font : { ...run.font, css: scaleCssFont(run.font.css, shrink) },
+      })
+      x += run.width * shrink
+    }
+    y += (line.height + line.after) * shrink
+    contentWidth = Math.max(contentWidth, width + line.left)
+  }
+  return Object.freeze({ runs: Object.freeze(output), contentWidth, contentHeight })
+}
+
+function drawRichTextLayout(
+  context: CanvasRenderingContext2D,
+  plan: RichTextLayoutPlan,
+): void {
+  context.textAlign = 'left'
+  context.textBaseline = 'alphabetic'
+  for (const run of plan.runs) {
+    context.font = run.font.css
+    context.fillStyle = cssColor(run.color)
+    context.fillText(run.text, run.x, run.baseline)
+  }
+}
+
+function spacingPixels(value: number | undefined): number {
+  if (value === undefined) return 0
+  return pointsToCssPixels(value / 100)
+}
+
+function applyLineSpacing(height: number, value: number | undefined): number {
+  if (value === undefined) return height
+  return value >= 10_000 ? height * value / 100_000 : pointsToCssPixels(value / 100)
+}
+
+function scaleCssFont(css: string, scale: number): string {
+  return css.replace(/([0-9.]+)px/, (_match, size: string) => `${Number(size) * scale}px`)
+}
+
 export interface DecodedImage {
   readonly source: CanvasImageSource
   readonly residentBytes: number
   close?(): void
+}
+
+export interface RasterImageMetadata {
+  readonly format: 'png' | 'jpeg'
+  readonly width: number
+  readonly height: number
+  readonly orientation: number
+}
+
+export interface RasterDecodeLimits {
+  readonly maxBytes?: number
+  readonly maxPixels?: number
+}
+
+/** Reads PNG/JPEG dimensions and JPEG EXIF orientation without decoding pixels. */
+export function inspectRasterImageMetadata(input: ArrayBuffer | Uint8Array): RasterImageMetadata {
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
+  if (bytes.byteLength >= 24 && bytes[0] === 0x89 && String.fromCharCode(...bytes.subarray(1, 4)) === 'PNG') {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    return { format: 'png', width: view.getUint32(16), height: view.getUint32(20), orientation: 1 }
+  }
+  if (bytes.byteLength < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
+    throw new Error('resource is not a supported PNG or JPEG image')
+  }
+  let offset = 2
+  let width = 0
+  let height = 0
+  let orientation = 1
+  while (offset + 4 <= bytes.byteLength) {
+    if (bytes[offset] !== 0xff) { offset += 1; continue }
+    const marker = bytes[offset + 1]!
+    offset += 2
+    if (marker === 0xd9 || marker === 0xda) break
+    const length = (bytes[offset]! << 8) | bytes[offset + 1]!
+    if (length < 2 || offset + length > bytes.byteLength) throw new Error('JPEG segment is truncated')
+    if (marker === 0xe1) orientation = jpegExifOrientation(bytes.subarray(offset + 2, offset + length))
+    if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)) {
+      height = (bytes[offset + 3]! << 8) | bytes[offset + 4]!
+      width = (bytes[offset + 5]! << 8) | bytes[offset + 6]!
+    }
+    offset += length
+  }
+  if (width <= 0 || height <= 0) throw new Error('JPEG dimensions are missing')
+  return { format: 'jpeg', width, height, orientation }
+}
+
+/** Bounded raster decoder; browsers apply EXIF orientation while creating the bitmap. */
+export async function decodeRasterImage(
+  input: ArrayBuffer | Uint8Array,
+  limits: RasterDecodeLimits = {},
+  signal: AbortSignal = new AbortController().signal,
+): Promise<DecodedImage> {
+  throwIfAborted(signal)
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
+  const maxBytes = limits.maxBytes ?? 32 * 1024 * 1024
+  const maxPixels = limits.maxPixels ?? 64 * 1024 * 1024
+  if (bytes.byteLength > maxBytes) throw new RangeError(`image exceeds the ${maxBytes}-byte decode limit`)
+  const metadata = inspectRasterImageMetadata(bytes)
+  if (metadata.width * metadata.height > maxPixels) {
+    throw new RangeError(`image exceeds the ${maxPixels}-pixel decode limit`)
+  }
+  const owned = bytes.slice()
+  const source = await createImageBitmap(new Blob([owned], {
+    type: metadata.format === 'png' ? 'image/png' : 'image/jpeg',
+  }), { imageOrientation: 'from-image' })
+  throwIfAborted(signal)
+  return {
+    source,
+    residentBytes: metadata.width * metadata.height * 4,
+    close: () => source.close(),
+  }
+}
+
+function jpegExifOrientation(bytes: Uint8Array): number {
+  if (bytes.byteLength < 14 || new TextDecoder().decode(bytes.subarray(0, 6)) !== 'Exif\0\0') return 1
+  const little = bytes[6] === 0x49 && bytes[7] === 0x49
+  if (!little && !(bytes[6] === 0x4d && bytes[7] === 0x4d)) return 1
+  const view = new DataView(bytes.buffer, bytes.byteOffset + 6, bytes.byteLength - 6)
+  const u16 = (offset: number): number => view.getUint16(offset, little)
+  const u32 = (offset: number): number => view.getUint32(offset, little)
+  const directory = u32(4)
+  if (directory + 2 > view.byteLength) return 1
+  const entries = u16(directory)
+  for (let index = 0; index < entries; index += 1) {
+    const entry = directory + 2 + index * 12
+    if (entry + 12 > view.byteLength) break
+    if (u16(entry) === 0x0112) return Math.max(1, Math.min(8, u16(entry + 8)))
+  }
+  return 1
 }
 
 /** Decode SVG bytes through an HTML image, including Chrome builds that reject SVG ImageBitmap. */
@@ -459,6 +816,7 @@ export interface RenderTelemetry {
   readonly displayExecutionMs: number
   readonly mediaDecodeMs: number
   readonly commandCount: number
+  readonly cacheBytes: { readonly decodedImages: number }
 }
 
 export interface CanvasRenderOptions {
@@ -473,6 +831,7 @@ export interface CanvasRenderOptions {
 /** Executes one compact scene and owns a bounded decoded-image cache. */
 export class CanvasDisplayListRenderer {
   readonly #images: ByteBudgetLru<string, DecodedImage>
+  readonly #imageInflight = new Map<string, Promise<DecodedImage | undefined>>()
 
   constructor(imageCacheBytes = 32 * 1024 * 1024) {
     this.#images = new ByteBudgetLru(imageCacheBytes, (image) => image.close?.())
@@ -497,6 +856,10 @@ export class CanvasDisplayListRenderer {
       (command): command is Extract<SceneCommand, { readonly kind: 'draw-text' }> =>
         command.kind === 'draw-text',
     )
+    const richTextCommands = scene.commands.filter(
+      (command): command is Extract<SceneCommand, { readonly kind: 'draw-rich-text' }> =>
+        command.kind === 'draw-rich-text',
+    )
     const fontStart = performance.now()
     const resolvedFonts = await Promise.all(
       textCommands.map((command) =>
@@ -515,6 +878,9 @@ export class CanvasDisplayListRenderer {
         font: resolvedFonts[index]!.css,
       })),
     )
+    const richTextLayouts = await Promise.all(
+      richTextCommands.map((command) => buildRichTextLayout(context, command, fontResolver)),
+    )
     const fontMeasurementMs = performance.now() - fontStart
     const mediaStart = performance.now()
     const decodedImages = await this.#resolveImages(scene, options.imageResolver, signal)
@@ -525,6 +891,7 @@ export class CanvasDisplayListRenderer {
     try {
       context.setTransform(rootScale, 0, 0, rootScale, 0, 0)
       let textIndex = 0
+      let richTextIndex = 0
       for (const command of scene.commands) {
         throwIfAborted(signal)
         switch (command.kind) {
@@ -555,6 +922,19 @@ export class CanvasDisplayListRenderer {
               context.setLineDash(dashPattern(command.dash, toPixels(command.width)))
               context.stroke()
             })
+            if (command.geometry === 4) drawLineEnds(context, command.transform, command)
+            break
+          case 'fill-gradient-preset':
+            drawPreset(context, command.geometry, command.transform, () => {
+              context.fillStyle = canvasGradient(context, command.transform.bounds, command.angle, command.stops)
+              context.fill()
+            })
+            break
+          case 'draw-custom-path':
+            drawCustomPath(context, command)
+            break
+          case 'draw-outer-shadow':
+            drawOuterShadow(context, command)
             break
           case 'draw-image': {
             const image = decodedImages[command.resource]
@@ -570,6 +950,10 @@ export class CanvasDisplayListRenderer {
             drawText(context, text, command.bounds, command.style, font, measured)
             break
           }
+          case 'draw-rich-text':
+            drawRichTextLayout(context, richTextLayouts[richTextIndex]!)
+            richTextIndex += 1
+            break
           case 'draw-unsupported':
             drawUnsupportedGraphic(context, command.transform, unsupportedLabel(command.feature))
             break
@@ -584,6 +968,7 @@ export class CanvasDisplayListRenderer {
       displayExecutionMs: performance.now() - executionStart,
       mediaDecodeMs,
       commandCount: scene.commands.length,
+      cacheBytes: Object.freeze({ decodedImages: this.#images.residentBytes }),
     })
   }
 
@@ -602,10 +987,17 @@ export class CanvasDisplayListRenderer {
         const key = `${image.partName ?? ''}\0${image.relationshipId}`
         const cached = this.#images.get(key)
         if (cached !== undefined) return cached
-        const decoded = await resolver(image, signal)
+        let loading = this.#imageInflight.get(key)
+        if (loading === undefined) {
+          loading = resolver(image, signal).then((decoded) => {
+            throwIfAborted(signal)
+            if (decoded !== undefined) this.#images.set(key, decoded, decoded.residentBytes)
+            return decoded
+          }).finally(() => this.#imageInflight.delete(key))
+          this.#imageInflight.set(key, loading)
+        }
+        const decoded = await loading
         throwIfAborted(signal)
-        if (decoded === undefined) return undefined
-        this.#images.set(key, decoded, decoded.residentBytes)
         return decoded
       }),
     )
@@ -701,9 +1093,10 @@ export class VirtualizedCanvasViewer {
       }
     }
     for (const index of visible) neighbors.delete(index)
-    const prefetchTasks = [...neighbors].map((index) => this.#scene(index, signal).catch(() => undefined))
     await Promise.all(renderTasks)
-    void Promise.all(prefetchTasks)
+    if (!this.#stale(revision, signal)) {
+      void Promise.all([...neighbors].map((index) => this.#scene(index, signal).catch(() => undefined)))
+    }
   }
 
   dispose(): void {
@@ -910,7 +1303,9 @@ function readCommand(reader: BinaryReader, version: number): SceneCommand {
         width: reader.safeI64('stroke width'),
         dash: reader.utf8Blob(),
       }
-      return { ...command, dash: command.dash === '' ? undefined : command.dash }
+      const headEnd = version >= 4 ? lineEnd(reader.u8()) : undefined
+      const tailEnd = version >= 4 ? lineEnd(reader.u8()) : undefined
+      return { ...command, dash: command.dash === '' ? undefined : command.dash, headEnd, tailEnd }
     }
     case 6:
       return {
@@ -955,9 +1350,175 @@ function readCommand(reader: BinaryReader, version: number): SceneCommand {
         transform: readTransform(reader),
         feature: unsupportedFeature(reader.u8()),
       }
+    case 9: {
+      if (version < 4) throw new Error('rich text requires display-list version 4')
+      const bounds = readRect(reader)
+      const verticalAlignment = textVerticalAlignment(reader.u8())
+      const marginLeft = reader.safeI64('text-frame left margin')
+      const marginTop = reader.safeI64('text-frame top margin')
+      const marginRight = reader.safeI64('text-frame right margin')
+      const marginBottom = reader.safeI64('text-frame bottom margin')
+      const wrap = reader.u8() !== 0
+      const autofitCode = reader.u8()
+      if (autofitCode > 2) throw new Error('display list contains an unknown text autofit mode')
+      const paragraphs: SceneParagraph[] = []
+      const paragraphCount = reader.boundedCount('paragraph')
+      for (let paragraphIndex = 0; paragraphIndex < paragraphCount; paragraphIndex += 1) {
+        const alignment = textAlignment(reader.u8())
+        const rawBullet = reader.utf8Blob()
+        const level = reader.u8()
+        const paragraphMarginLeft = reader.safeI64('paragraph left margin')
+        const indent = reader.safeI64('paragraph indent')
+        const lineSpacing = optionalI32(reader)
+        const spaceBefore = optionalI32(reader)
+        const spaceAfter = optionalI32(reader)
+        const runs: SceneTextRun[] = []
+        const runCount = reader.boundedCount('text run')
+        for (let runIndex = 0; runIndex < runCount; runIndex += 1) {
+          const text = reader.utf8Blob()
+          const style = readTextStyle(reader)
+          const eastAsianFontFamily = reader.utf8Blob()
+          const complexScriptFontFamily = reader.utf8Blob()
+          runs.push({
+            text,
+            style,
+            eastAsianFontFamily: eastAsianFontFamily || undefined,
+            complexScriptFontFamily: complexScriptFontFamily || undefined,
+          })
+        }
+        paragraphs.push({
+          runs,
+          alignment,
+          bullet: rawBullet || undefined,
+          level,
+          marginLeft: paragraphMarginLeft,
+          indent,
+          lineSpacing,
+          spaceBefore,
+          spaceAfter,
+        })
+      }
+      return {
+        kind: 'draw-rich-text',
+        bounds,
+        frame: {
+          paragraphs,
+          verticalAlignment,
+          marginLeft,
+          marginTop,
+          marginRight,
+          marginBottom,
+          wrap,
+          autofit: autofitCode === 1 ? 'shrink-text' : autofitCode === 2 ? 'resize-shape' : 'none',
+        },
+      }
+    }
+    case 10:
+      return {
+        kind: 'fill-gradient-preset',
+        geometry: reader.u8(),
+        transform: readTransform(reader),
+        angle: reader.i32(),
+        stops: readGradientStops(reader),
+      }
+    case 11: {
+      const transform = readTransform(reader)
+      const pathWidth = reader.safeI64('custom path width')
+      const pathHeight = reader.safeI64('custom path height')
+      const commandCount = reader.boundedCount('custom path command')
+      const path: ScenePathCommand[] = []
+      for (let index = 0; index < commandCount; index += 1) {
+        const kind = reader.u8()
+        if (kind === 3) path.push({ kind: 'close' })
+        else if (kind === 1 || kind === 2) {
+          path.push({
+            kind: kind === 1 ? 'move-to' : 'line-to',
+            x: reader.safeI64('custom path x'),
+            y: reader.safeI64('custom path y'),
+          })
+        } else throw new Error('display list contains an unknown custom path command')
+      }
+      const fill = readFill(reader)
+      const stroke = reader.u8() === 0 ? undefined : readStroke(reader)
+      return { kind: 'draw-custom-path', transform, pathWidth, pathHeight, path, fill, stroke }
+    }
+    case 12:
+      return {
+        kind: 'draw-outer-shadow',
+        geometry: reader.u8(),
+        transform: readTransform(reader),
+        color: readColor(reader),
+        blurRadius: reader.safeI64('shadow blur radius'),
+        distance: reader.safeI64('shadow distance'),
+        direction: reader.i32(),
+      }
     default:
       throw new Error('display list contains an unknown command')
   }
+}
+
+function readGradientStops(reader: BinaryReader): readonly SceneGradientStop[] {
+  const stops: SceneGradientStop[] = []
+  const count = reader.boundedCount('gradient stop')
+  for (let index = 0; index < count; index += 1) {
+    stops.push({ position: reader.i32(), color: readColor(reader) })
+  }
+  return stops
+}
+
+function readFill(reader: BinaryReader): SceneFill {
+  const kind = reader.u8()
+  if (kind === 0) return { kind: 'none' }
+  if (kind === 1) return { kind: 'solid', color: readColor(reader) }
+  if (kind === 2) return { kind: 'linear-gradient', angle: reader.i32(), stops: readGradientStops(reader) }
+  throw new Error('display list contains an unknown fill')
+}
+
+function readStroke(reader: BinaryReader): NonNullable<Extract<SceneCommand, { readonly kind: 'draw-custom-path' }>['stroke']> {
+  const color = readColor(reader)
+  const width = reader.safeI64('stroke width')
+  const dash = reader.utf8Blob()
+  return {
+    color,
+    width,
+    dash: dash || undefined,
+    headEnd: lineEnd(reader.u8()),
+    tailEnd: lineEnd(reader.u8()),
+  }
+}
+
+function lineEnd(value: number): SceneLineEnd | undefined {
+  if (value === 0) return undefined
+  if (value === 1) return 'triangle'
+  if (value === 2) return 'stealth'
+  if (value === 3) return 'diamond'
+  if (value === 4) return 'oval'
+  if (value === 5) return 'arrow'
+  throw new Error('display list contains an unknown line end')
+}
+
+function readTextStyle(reader: BinaryReader): SceneTextStyle {
+  const fontSize = reader.i32()
+  const color = readColor(reader)
+  const fontFamily = reader.utf8Blob()
+  return {
+    fontSize,
+    color,
+    fontFamily: fontFamily || undefined,
+    bold: reader.u8() !== 0,
+    italic: reader.u8() !== 0,
+    alignment: textAlignment(reader.u8()),
+    verticalAlignment: textVerticalAlignment(reader.u8()),
+    marginLeft: reader.safeI64('text left margin'),
+    marginTop: reader.safeI64('text top margin'),
+    marginRight: reader.safeI64('text right margin'),
+    marginBottom: reader.safeI64('text bottom margin'),
+  }
+}
+
+function optionalI32(reader: BinaryReader): number | undefined {
+  const value = reader.i32()
+  return value === -0x8000_0000 ? undefined : value
 }
 
 function unsupportedFeature(
@@ -1137,6 +1698,112 @@ function applyGroup(context: CanvasRenderingContext2D, group: SceneGroupTransfor
     group.childHeight === 0 ? 1 : bounds.height / toPixels(group.childHeight),
   )
   context.translate(-toPixels(group.childX), -toPixels(group.childY))
+}
+
+function canvasGradient(
+  context: CanvasRenderingContext2D,
+  bounds: EmuRect,
+  angle: number,
+  stops: readonly SceneGradientStop[],
+): CanvasGradient {
+  const radians = angle / 60_000 * Math.PI / 180
+  const centerX = toPixels(bounds.x + bounds.width / 2)
+  const centerY = toPixels(bounds.y + bounds.height / 2)
+  const radius = Math.hypot(toPixels(bounds.width), toPixels(bounds.height)) / 2
+  const dx = Math.cos(radians) * radius
+  const dy = Math.sin(radians) * radius
+  const gradient = context.createLinearGradient(centerX - dx, centerY - dy, centerX + dx, centerY + dy)
+  for (const stop of stops) gradient.addColorStop(Math.max(0, Math.min(1, stop.position / 100_000)), cssColor(stop.color))
+  return gradient
+}
+
+function drawCustomPath(
+  context: CanvasRenderingContext2D,
+  command: Extract<SceneCommand, { readonly kind: 'draw-custom-path' }>,
+): void {
+  const bounds = command.transform.bounds
+  context.save()
+  context.translate(toPixels(bounds.x), toPixels(bounds.y))
+  context.scale(toPixels(bounds.width) / command.pathWidth, toPixels(bounds.height) / command.pathHeight)
+  context.beginPath()
+  for (const part of command.path) {
+    if (part.kind === 'move-to') context.moveTo(part.x, part.y)
+    else if (part.kind === 'line-to') context.lineTo(part.x, part.y)
+    else context.closePath()
+  }
+  if (command.fill.kind !== 'none') {
+    if (command.fill.kind === 'solid') context.fillStyle = cssColor(command.fill.color)
+    else {
+      const gradient = context.createLinearGradient(0, 0, command.pathWidth, 0)
+      for (const stop of command.fill.stops) gradient.addColorStop(stop.position / 100_000, cssColor(stop.color))
+      context.fillStyle = gradient
+    }
+    context.fill()
+  }
+  if (command.stroke !== undefined) {
+    context.strokeStyle = cssColor(command.stroke.color)
+    context.lineWidth = command.stroke.width * command.pathWidth / Math.max(1, bounds.width)
+    context.setLineDash(dashPattern(command.stroke.dash, context.lineWidth))
+    context.stroke()
+  }
+  context.restore()
+}
+
+function drawOuterShadow(
+  context: CanvasRenderingContext2D,
+  command: Extract<SceneCommand, { readonly kind: 'draw-outer-shadow' }>,
+): void {
+  const radians = command.direction / 60_000 * Math.PI / 180
+  context.save()
+  context.translate(
+    Math.cos(radians) * toPixels(command.distance),
+    Math.sin(radians) * toPixels(command.distance),
+  )
+  context.filter = `blur(${Math.max(0, toPixels(command.blurRadius))}px)`
+  drawPreset(context, command.geometry, command.transform, () => {
+    context.fillStyle = cssColor(command.color)
+    context.fill()
+  })
+  context.restore()
+}
+
+function drawLineEnds(
+  context: CanvasRenderingContext2D,
+  transform: SceneTransform,
+  command: Extract<SceneCommand, { readonly kind: 'stroke-preset' }>,
+): void {
+  const start = { x: toPixels(transform.bounds.x), y: toPixels(transform.bounds.y) }
+  const end = {
+    x: toPixels(transform.bounds.x + transform.bounds.width),
+    y: toPixels(transform.bounds.y + transform.bounds.height),
+  }
+  const angle = Math.atan2(end.y - start.y, end.x - start.x)
+  if (command.headEnd !== undefined) drawLineEnd(context, start.x, start.y, angle + Math.PI, command.headEnd, command)
+  if (command.tailEnd !== undefined) drawLineEnd(context, end.x, end.y, angle, command.tailEnd, command)
+}
+
+function drawLineEnd(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  angle: number,
+  kind: SceneLineEnd,
+  command: Extract<SceneCommand, { readonly kind: 'stroke-preset' }>,
+): void {
+  const size = Math.max(4, toPixels(command.width) * 4)
+  context.save()
+  context.translate(x, y)
+  context.rotate(angle)
+  context.fillStyle = cssColor(command.color)
+  context.beginPath()
+  if (kind === 'oval') context.ellipse(-size / 2, 0, size / 2, size / 3, 0, 0, Math.PI * 2)
+  else if (kind === 'diamond') {
+    context.moveTo(0, 0); context.lineTo(-size / 2, size / 3); context.lineTo(-size, 0); context.lineTo(-size / 2, -size / 3); context.closePath()
+  } else {
+    context.moveTo(0, 0); context.lineTo(-size, size / 2); context.lineTo(-size * 0.7, 0); context.lineTo(-size, -size / 2); context.closePath()
+  }
+  context.fill()
+  context.restore()
 }
 
 function drawPreset(

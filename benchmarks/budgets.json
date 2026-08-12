@@ -16,7 +16,8 @@
   "browserScalarWasm": {
     "maximumColdPrepareMs": 1000,
     "maximumWarmInjectionP95Ms": 500,
-    "maximumBinaryBytes": 2097152
+    "maximumBinaryBytes": 2097152,
+    "maximumFirstVisibleSlideMs": 500
   },
   "cloudflareWorkerd": {
     "maximumWarmRequestP95Ms": 1000,

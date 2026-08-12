@@ -373,7 +373,8 @@ parts.inflated             parts.recompressed
 ```
 
 CI budgets cover Wasm binary size, cold template compilation, warm injection p50/p95,
-first-slide rendering, representative all-slide rendering, peak memory, and output size.
+first-visible-slide rendering, representative all-slide rendering, peak memory, and output size.
+Browser reports retain render stages and bounded cache residency separately from generation timings.
 The central warm-path invariant is that unchanged entries are not inflated or recompressed.
 
 A public performance claim names the workload and competitors and publishes hardware,
@@ -389,7 +390,7 @@ safe defaults for:
 - compression ratio and overlapping-entry checks;
 - part count, relationship count, XML depth, attributes, and token count;
 - path normalization and traversal prevention;
-- image dimensions and decoded pixel budgets;
+- image byte limits, PNG/JPEG dimensions, EXIF orientation, and decoded pixel budgets;
 - relationship cycles and external targets;
 - DTD, entity, and external-resource behavior;
 - macro and signature handling.

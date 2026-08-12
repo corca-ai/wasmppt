@@ -32,6 +32,8 @@ struct RawShape {
     fill: Option<Fill>,
     stroke: Option<Stroke>,
     text: Option<String>,
+    alternative_text: Option<String>,
+    hyperlink_relationship_id: Option<String>,
     geometry: Option<PresetGeometry>,
     image_relationship_id: Option<String>,
     crop: ImageCrop,
@@ -310,6 +312,21 @@ fn resolve_element(
         fill: shape.fill.clone().unwrap_or(Fill::None),
         stroke: shape.stroke.clone(),
         text: shape.text.clone().unwrap_or_default(),
+        alternative_text: shape.alternative_text.clone(),
+        hyperlink: shape.hyperlink_relationship_id.as_ref().and_then(|id| {
+            graph
+                .part(source_part)
+                .relationships
+                .iter()
+                .find(|relationship| graph.relationship_id(relationship) == id)
+                .and_then(|relationship| match &relationship.target {
+                    RelationshipTarget::External(target) => Some(target.clone()),
+                    RelationshipTarget::Internal(part) => {
+                        Some(graph.part_name(graph.part(*part)).to_owned())
+                    }
+                    RelationshipTarget::Missing(_) => None,
+                })
+        }),
         kind,
     }
 }
@@ -348,6 +365,12 @@ fn merge_shape(local: &RawShape, layout: Option<&RawShape>, master: Option<&RawS
             .clone()
             .or_else(|| layout.and_then(|shape| shape.text.clone()))
             .or_else(|| master.and_then(|shape| shape.text.clone())),
+        alternative_text: local
+            .alternative_text
+            .clone()
+            .or_else(|| layout.and_then(|shape| shape.alternative_text.clone()))
+            .or_else(|| master.and_then(|shape| shape.alternative_text.clone())),
+        hyperlink_relationship_id: local.hyperlink_relationship_id.clone(),
         geometry: local
             .geometry
             .or_else(|| layout.and_then(|shape| shape.geometry))
@@ -445,6 +468,15 @@ fn parse_shape(
                     "cNvPr" => {
                         shape.id = plain_u32(attributes, "id").unwrap_or(0);
                         shape.name = plain(attributes, "name").unwrap_or_default().to_owned();
+                        shape.alternative_text = plain(attributes, "descr")
+                            .or_else(|| plain(attributes, "title"))
+                            .map(str::to_owned);
+                    }
+                    "hlinkClick" => {
+                        shape.hyperlink_relationship_id = attributes
+                            .iter()
+                            .find(|attribute| attribute.name.local == "id")
+                            .map(|attribute| attribute.value.clone());
                     }
                     "ph" => {
                         shape.placeholder = Some(Placeholder {

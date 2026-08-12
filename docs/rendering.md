@@ -60,7 +60,9 @@ slide 2, and vice versa. Media invalidation reaches only its referencing slide.
 - clear, group push/pop, preset fill/stroke, image, and text commands;
 - group transforms in EMU;
 - UTF-8 string and image-resource tables;
-- a fixed `WPDL` header, schema version, slide size, and table counts.
+- a fixed `WPDL` header, schema version, slide size, and table counts;
+- semantic command ranges for source shape IDs, reading order, accessible names, and links;
+- resolver diagnostics shared without reinterpretation by every rendering backend.
 
 `encode()` emits a stable little-endian format. `structural_signature()` hashes the exact
 wire bytes. The same fixture has the same signature in native Rust and in a real Chrome

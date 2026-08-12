@@ -66,7 +66,7 @@ fn resolve(input: &Path, slide_index: usize) -> Result<(), String> {
     let resolved = deck
         .resolve_slide(slide_index)
         .map_err(|error| error.to_string())?;
-    let display = DisplayList::from_slide(&resolved.slide);
+    let display = DisplayList::from_resolve(&resolved);
     println!(
         "resolved slide {slide_index}: {} commands, {} diagnostics, {} parsed parts, signature {:016x}",
         display.commands.len(),

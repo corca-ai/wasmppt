@@ -61,7 +61,7 @@ baselines and per-slide tolerance reports belong to the compatibility-gate slice
 
 ## Current boundary
 
-The baseline supports the WPDL v1 commands produced by the lazy resolver. Advanced geometry,
+The baseline supports the WPDL v2 commands and semantic side tables produced by the lazy resolver. Advanced geometry,
 effects, chart, table, and SmartArt coverage is tracked independently and remains explicitly
 diagnosed. Canvas output is a bitmap and therefore is not the accessibility surface; the
 secondary DOM/SVG backend owns selectable text, reading order, links, and alternative text.

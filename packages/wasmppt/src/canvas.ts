@@ -34,6 +34,36 @@ export interface SceneImage {
   readonly relationshipId: string
 }
 
+export interface SceneSemanticElement {
+  readonly firstCommand: number
+  readonly commandCount: number
+  readonly shapeId: number
+  readonly zOrder: number
+  readonly kind: 'shape' | 'image'
+  readonly bounds: EmuRect
+  readonly name: string
+  readonly alternativeText?: string
+  readonly hyperlink?: string
+}
+
+export type DisplayDiagnosticCode =
+  | 'missing-dependency'
+  | 'invalid-xml'
+  | 'invalid-value'
+  | 'unsupported-graphic-frame'
+  | 'unsupported-custom-geometry'
+  | 'unsupported-fill'
+  | 'unsupported-effect'
+  | 'missing-image'
+  | 'unknown'
+
+export interface SceneDiagnostic {
+  readonly code: DisplayDiagnosticCode
+  readonly partName: string
+  readonly shapeId?: number
+  readonly message: string
+}
+
 export type SceneCommand =
   | { readonly kind: 'clear'; readonly color: RgbaColor }
   | { readonly kind: 'push-group'; readonly transform: number }
@@ -68,6 +98,8 @@ export interface DisplayScene {
   readonly groups: readonly SceneGroupTransform[]
   readonly strings: readonly string[]
   readonly images: readonly SceneImage[]
+  readonly semantics: readonly SceneSemanticElement[]
+  readonly diagnostics: readonly SceneDiagnostic[]
   readonly byteLength: number
 }
 
@@ -77,7 +109,7 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
   const reader = new BinaryReader(bytes)
   if (reader.ascii(4) !== 'WPDL') throw new Error('display list has an invalid magic value')
   const version = reader.u16()
-  if (version !== 1) throw new Error(`unsupported display-list version ${version}`)
+  if (version !== 1 && version !== 2) throw new Error(`unsupported display-list version ${version}`)
   if (reader.u16() !== 0) throw new Error('display-list reserved flags are non-zero')
   const width = reader.safeI64('slide width')
   const height = reader.safeI64('slide height')
@@ -86,6 +118,8 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
   const groupCount = reader.boundedCount('group')
   const stringCount = reader.boundedCount('string')
   const imageCount = reader.boundedCount('image')
+  const semanticCount = version >= 2 ? reader.boundedCount('semantic element') : 0
+  const diagnosticCount = version >= 2 ? reader.boundedCount('diagnostic') : 0
   const commands: SceneCommand[] = []
   for (let index = 0; index < commandCount; index += 1) commands.push(readCommand(reader))
   const groups: SceneGroupTransform[] = []
@@ -105,6 +139,44 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
     const partName = reader.utf8Blob()
     images.push({ partName: partName === '' ? undefined : partName, relationshipId: reader.utf8Blob() })
   }
+  const semantics: SceneSemanticElement[] = []
+  for (let index = 0; index < semanticCount; index += 1) {
+    const firstCommand = reader.u32()
+    const commandCount = reader.u32()
+    const shapeId = reader.u32()
+    const zOrder = reader.u32()
+    const kindCode = reader.u8()
+    if (kindCode !== 1 && kindCode !== 2) throw new Error('semantic element has an unknown kind')
+    const bounds = readRect(reader)
+    const name = reader.utf8Blob()
+    const alternativeText = reader.utf8Blob()
+    const hyperlink = reader.utf8Blob()
+    if (firstCommand + commandCount > commands.length) {
+      throw new Error('semantic element command range is out of bounds')
+    }
+    semantics.push({
+      firstCommand,
+      commandCount,
+      shapeId,
+      zOrder,
+      kind: kindCode === 1 ? 'shape' : 'image',
+      bounds,
+      name,
+      alternativeText: alternativeText === '' ? undefined : alternativeText,
+      hyperlink: hyperlink === '' ? undefined : hyperlink,
+    })
+  }
+  const diagnostics: SceneDiagnostic[] = []
+  for (let index = 0; index < diagnosticCount; index += 1) {
+    const code = diagnosticCode(reader.u8())
+    const rawShapeId = reader.u32()
+    diagnostics.push({
+      code,
+      shapeId: rawShapeId === 0xffff_ffff ? undefined : rawShapeId,
+      partName: reader.utf8Blob(),
+      message: reader.utf8Blob(),
+    })
+  }
   if (!reader.done) throw new Error('display list has trailing bytes')
   validateReferences(commands, groups.length, strings.length, images.length)
   return Object.freeze({
@@ -115,6 +187,8 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
     groups: Object.freeze(groups),
     strings: Object.freeze(strings),
     images: Object.freeze(images),
+    semantics: Object.freeze(semantics),
+    diagnostics: Object.freeze(diagnostics),
     byteLength: bytes.byteLength,
   })
 }
@@ -789,6 +863,18 @@ function validateReferences(
     }
   }
   if (depth !== 0) throw new Error('display list group stack is unbalanced')
+}
+
+function diagnosticCode(code: number): DisplayDiagnosticCode {
+  if (code === 1) return 'missing-dependency'
+  if (code === 2) return 'invalid-xml'
+  if (code === 3) return 'invalid-value'
+  if (code === 4) return 'unsupported-graphic-frame'
+  if (code === 5) return 'unsupported-custom-geometry'
+  if (code === 6) return 'unsupported-fill'
+  if (code === 7) return 'unsupported-effect'
+  if (code === 8) return 'missing-image'
+  return 'unknown'
 }
 
 function detectFontScript(text: string): FontScript {

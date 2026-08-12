@@ -20,7 +20,7 @@ pub fn engine_version() -> String {
 pub fn resolve_display_list(presentation: &[u8], slide_index: u32) -> Result<Vec<u8>, JsError> {
     let deck = PresentationDocument::open(presentation.to_vec()).map_err(js_error)?;
     let resolved = deck.resolve_slide(slide_index as usize).map_err(js_error)?;
-    Ok(DisplayList::from_slide(&resolved.slide).encode())
+    Ok(DisplayList::from_resolve(&resolved).encode())
 }
 
 /// Stable signature used to compare native and Wasm display-list structure.
@@ -30,7 +30,7 @@ pub fn display_list_signature(presentation: &[u8], slide_index: u32) -> Result<S
     let resolved = deck.resolve_slide(slide_index as usize).map_err(js_error)?;
     Ok(format!(
         "{:016x}",
-        DisplayList::from_slide(&resolved.slide).structural_signature()
+        DisplayList::from_resolve(&resolved).structural_signature()
     ))
 }
 
@@ -131,7 +131,7 @@ impl WasmpptEngine {
             .presentation(presentation_handle)?
             .resolve_slide(slide_index as usize)
             .map_err(js_error)?;
-        Ok(DisplayList::from_slide(&resolved.slide).encode())
+        Ok(DisplayList::from_resolve(&resolved).encode())
     }
 
     /// Generate into an engine-owned output buffer and return an opaque handle.

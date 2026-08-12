@@ -125,6 +125,8 @@ pub struct ResolvedElement {
     pub fill: Fill,
     pub stroke: Option<Stroke>,
     pub text: String,
+    pub alternative_text: Option<String>,
+    pub hyperlink: Option<String>,
     pub kind: ElementKind,
 }
 

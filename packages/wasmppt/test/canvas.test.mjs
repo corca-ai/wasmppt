@@ -19,8 +19,8 @@ test('display-list decoder rejects corruption and decodes a bounded scene', () =
   ])
   assert.throws(() => decodeDisplayList(bytes.slice(0, -1)), /truncated/)
   const wrongVersion = bytes.slice()
-  new DataView(wrongVersion).setUint16(4, 2, true)
-  assert.throws(() => decodeDisplayList(wrongVersion), /version 2/)
+  new DataView(wrongVersion).setUint16(4, 99, true)
+  assert.throws(() => decodeDisplayList(wrongVersion), /version 99/)
 })
 
 test('Korean and CJK wrapping permits deterministic character boundaries', () => {

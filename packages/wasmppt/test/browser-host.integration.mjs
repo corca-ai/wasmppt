@@ -14,6 +14,7 @@ const routes = new Map([
   ['/dist/worker-client.js', [join(packageDirectory, 'dist/worker-client.js'), 'text/javascript']],
   ['/dist/protocol.js', [join(packageDirectory, 'dist/protocol.js'), 'text/javascript']],
   ['/dist/canvas.js', [join(packageDirectory, 'dist/canvas.js'), 'text/javascript']],
+  ['/dist/dom-svg.js', [join(packageDirectory, 'dist/dom-svg.js'), 'text/javascript']],
   [
     '/dist/worker-runtime.js',
     [join(packageDirectory, 'dist/worker-runtime.js'), 'text/javascript'],
@@ -105,6 +106,7 @@ try {
       decodeDisplayList,
       wrapText,
     } = await import('/dist/canvas.js')
+    const { DomSvgRenderer, VirtualizedDomViewer } = await import('/dist/dom-svg.js')
     const worker = new Worker('/worker.js', { type: 'module' })
     await new Promise((resolvePromise, reject) => {
       const timer = setTimeout(() => reject(new Error('browser Worker initialization timed out')), 10_000)
@@ -133,6 +135,43 @@ try {
     const opened = await client.openPresentation(renderFixture)
     const displayBytes = await client.resolveSlide(opened.handle, 0)
     const scene = decodeDisplayList(displayBytes)
+    const domHost = document.createElement('div')
+    document.body.append(domHost)
+    const domRenderer = new DomSvgRenderer()
+    const domResult = await domRenderer.render(scene, domHost, {
+      revision: 1,
+      slideIndex: 0,
+      imageResolver: async () =>
+        'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><path fill="magenta" d="M0 0h2v2H0z"/></svg>',
+    })
+    const titleLink = domHost.querySelector('a[data-shape-id="2"]')
+    const titleIdentity = titleLink
+    const unchangedDomResult = await domRenderer.render(scene, domHost, { revision: 1 })
+    await domRenderer.render(scene, domHost, { revision: 2 })
+    const staleDomResult = await domRenderer.render(scene, domHost, { revision: 1 })
+    const reusedTitle = titleIdentity === domHost.querySelector('a[data-shape-id="2"]')
+    const photoGraphic = domHost.querySelector('.wasmppt-dom-text-layer [data-shape-id="3"]')
+    const titleGraphicPaths = [...domHost.querySelectorAll('g[data-shape-id="2"] path')]
+    const domFacts = {
+      text: titleLink?.textContent,
+      selectable: titleLink?.style.userSelect,
+      href: titleLink?.href,
+      titleLabel: titleLink?.getAttribute('aria-label'),
+      selectionId: titleLink?.dataset.selectionId,
+      photoRole: photoGraphic?.getAttribute('role'),
+      photoLabel: photoGraphic?.getAttribute('aria-label'),
+      svgPaths: domHost.querySelectorAll('svg path').length,
+      inlineImages: domHost.querySelectorAll('svg image').length,
+      titleGraphicStyles: titleGraphicPaths.map((path) => ({
+        fill: path.getAttribute('fill'),
+        stroke: path.getAttribute('stroke'),
+        strokeWidth: path.getAttribute('stroke-width'),
+      })),
+      unchangedUpdates: unchangedDomResult.updatedElements,
+      staleIgnored: staleDomResult.stale,
+      reusedTitle,
+      diagnosticCodes: domResult.diagnostics.map((diagnostic) => diagnostic.code),
+    }
     const canvas = document.createElement('canvas')
     canvas.width = 640
     canvas.height = 360
@@ -215,6 +254,21 @@ try {
       (element) => element.dataset.slideIndex,
     )
     staleViewer.dispose()
+    const domViewerRoot = document.createElement('div')
+    document.body.append(domViewerRoot)
+    const domViewer = new VirtualizedDomViewer(
+      { resolveSlide: async () => displayBytes.slice(0) },
+      opened.handle,
+      domViewerRoot,
+      new DomSvgRenderer(),
+      { sceneCacheBytes: displayBytes.byteLength * 2, prefetchNeighbors: 0 },
+    )
+    await domViewer.setVisibleSlides([0, 1])
+    const domMountedAtPeak = domViewer.mountedSlideCount
+    await domViewer.setVisibleSlides([1])
+    const domMountedAfterScroll = domViewer.mountedSlideCount
+    domViewer.dispose()
+    const domMountedAfterDispose = domViewerRoot.children.length
     await client.releasePresentation(opened.handle)
     renderer.clear()
     client.terminate()
@@ -244,6 +298,10 @@ try {
       decodedImageBytesAfterClear: renderer.decodedImageBytes,
       koreanLines,
       telemetry,
+      domFacts,
+      domMountedAtPeak,
+      domMountedAfterScroll,
+      domMountedAfterDispose,
     }
   })
   assert.equal(result.transferredByteLength, 0, 'template ArrayBuffer was cloned, not transferred')
@@ -257,6 +315,29 @@ try {
   assert(result.telemetry.displayExecutionMs >= 0)
   assert(result.telemetry.fontMeasurementMs >= 0)
   assert(result.telemetry.mediaDecodeMs >= 0)
+  assert.equal(result.domFacts.text, 'Actual title')
+  assert.equal(result.domFacts.selectable, 'text')
+  assert.equal(result.domFacts.href, 'https://example.com/report')
+  assert.equal(result.domFacts.titleLabel, 'Quarterly report title')
+  assert.equal(result.domFacts.selectionId, 'shape:2:2')
+  assert.equal(result.domFacts.photoRole, 'img')
+  assert.equal(result.domFacts.photoLabel, 'Quarterly report photo')
+  assert(result.domFacts.svgPaths >= 3)
+  assert.equal(result.domFacts.inlineImages, 1)
+  assert.deepEqual(result.domFacts.titleGraphicStyles, [
+    { fill: 'rgba(91, 132, 173, 1)', stroke: 'none', strokeWidth: null },
+    { fill: 'none', stroke: 'rgba(0, 0, 0, 1)', strokeWidth: '12700' },
+  ])
+  assert.equal(result.domFacts.unchangedUpdates, 0)
+  assert.equal(result.domFacts.staleIgnored, true)
+  assert.equal(result.domFacts.reusedTitle, true)
+  assert.deepEqual(result.domFacts.diagnosticCodes, [
+    'unsupported-custom-geometry',
+    'unsupported-graphic-frame',
+  ])
+  assert.equal(result.domMountedAtPeak, 2)
+  assert.equal(result.domMountedAfterScroll, 1)
+  assert.equal(result.domMountedAfterDispose, 0)
   assert.match(result.pixelHash, /^[0-9a-f]{8}$/)
   assert.deepEqual(result.pixelSamples.background, [255, 255, 255, 255])
   assert.deepEqual(result.pixelSamples.imageLeft, [255, 0, 255, 255])

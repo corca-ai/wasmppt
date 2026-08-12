@@ -52,6 +52,14 @@ fn resolves_inheritance_theme_groups_geometry_images_and_diagnostics() {
         .find(|element| element.name == "Title")
         .unwrap();
     assert_eq!(title.text, "Actual title");
+    assert_eq!(
+        title.alternative_text.as_deref(),
+        Some("Quarterly report title")
+    );
+    assert_eq!(
+        title.hyperlink.as_deref(),
+        Some("https://example.com/report")
+    );
     assert_eq!(title.transform.bounds.origin.x, 1_000_000);
     assert_eq!(title.transform.bounds.size.width, 8_000_000);
     assert_eq!(title.group_transforms.len(), 1);
@@ -83,6 +91,10 @@ fn resolves_inheritance_theme_groups_geometry_images_and_diagnostics() {
     assert_eq!(
         (crop.left, crop.top, crop.right, crop.bottom),
         (1000, 2000, 3000, 4000)
+    );
+    assert_eq!(
+        photo.alternative_text.as_deref(),
+        Some("Quarterly report photo")
     );
 
     assert!(

@@ -1,17 +1,44 @@
 //! Compact backend-neutral display lists lowered from resolved slides.
 
 use wasmppt_layout::{
-    ElementKind, EmuRect, EmuSize, Fill, GroupTransform, PresetGeometry, ResolvedSlide, RgbaColor,
-    Stroke, Transform,
+    ElementKind, EmuRect, EmuSize, Fill, GroupTransform, PresetGeometry, ResolveDiagnosticCode,
+    ResolveOutput, ResolvedSlide, RgbaColor, Stroke, Transform,
 };
 
-pub const DISPLAY_LIST_VERSION: u16 = 1;
+pub const DISPLAY_LIST_VERSION: u16 = 2;
 const MAGIC: &[u8; 4] = b"WPDL";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImageResource {
     pub part_name: Option<String>,
     pub relationship_id: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SemanticKind {
+    Shape,
+    Image,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SemanticElement {
+    pub first_command: u32,
+    pub command_count: u32,
+    pub shape_id: u32,
+    pub z_order: u32,
+    pub kind: SemanticKind,
+    pub bounds: EmuRect,
+    pub name: String,
+    pub alternative_text: Option<String>,
+    pub hyperlink: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisplayDiagnostic {
+    pub code: ResolveDiagnosticCode,
+    pub part_name: String,
+    pub shape_id: Option<u32>,
+    pub message: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -51,10 +78,32 @@ pub struct DisplayList {
     pub group_transforms: Vec<GroupTransform>,
     pub strings: Vec<String>,
     pub images: Vec<ImageResource>,
+    pub semantics: Vec<SemanticElement>,
+    pub diagnostics: Vec<DisplayDiagnostic>,
 }
 
 impl DisplayList {
     pub fn from_slide(slide: &ResolvedSlide) -> Self {
+        Self::lower(slide, Vec::new())
+    }
+
+    pub fn from_resolve(output: &ResolveOutput) -> Self {
+        Self::lower(
+            &output.slide,
+            output
+                .diagnostics
+                .iter()
+                .map(|diagnostic| DisplayDiagnostic {
+                    code: diagnostic.code,
+                    part_name: diagnostic.part_name.clone(),
+                    shape_id: diagnostic.shape_id,
+                    message: diagnostic.message.clone(),
+                })
+                .collect(),
+        )
+    }
+
+    fn lower(slide: &ResolvedSlide, diagnostics: Vec<DisplayDiagnostic>) -> Self {
         let mut list = Self {
             size: slide.size,
             commands: vec![DisplayCommand::Clear {
@@ -63,8 +112,11 @@ impl DisplayList {
             group_transforms: Vec::new(),
             strings: Vec::new(),
             images: Vec::new(),
+            semantics: Vec::new(),
+            diagnostics,
         };
         for element in &slide.elements {
+            let first_command = list.commands.len() as u32;
             for transform in &element.group_transforms {
                 let index = list.group_transforms.len() as u32;
                 list.group_transforms.push(*transform);
@@ -116,6 +168,20 @@ impl DisplayList {
             for _ in &element.group_transforms {
                 list.commands.push(DisplayCommand::PopGroup);
             }
+            list.semantics.push(SemanticElement {
+                first_command,
+                command_count: list.commands.len() as u32 - first_command,
+                shape_id: element.id,
+                z_order: element.z_order,
+                kind: match &element.kind {
+                    ElementKind::Shape { .. } => SemanticKind::Shape,
+                    ElementKind::Image { .. } => SemanticKind::Image,
+                },
+                bounds: element.transform.bounds,
+                name: element.name.clone(),
+                alternative_text: element.alternative_text.clone(),
+                hyperlink: element.hyperlink.clone(),
+            });
         }
         list
     }
@@ -132,6 +198,8 @@ impl DisplayList {
         push_u32(&mut bytes, self.group_transforms.len() as u32);
         push_u32(&mut bytes, self.strings.len() as u32);
         push_u32(&mut bytes, self.images.len() as u32);
+        push_u32(&mut bytes, self.semantics.len() as u32);
+        push_u32(&mut bytes, self.diagnostics.len() as u32);
         for command in &self.commands {
             encode_command(&mut bytes, command);
         }
@@ -148,6 +216,36 @@ impl DisplayList {
             );
             push_blob(&mut bytes, image.relationship_id.as_bytes());
         }
+        for semantic in &self.semantics {
+            push_u32(&mut bytes, semantic.first_command);
+            push_u32(&mut bytes, semantic.command_count);
+            push_u32(&mut bytes, semantic.shape_id);
+            push_u32(&mut bytes, semantic.z_order);
+            bytes.push(match semantic.kind {
+                SemanticKind::Shape => 1,
+                SemanticKind::Image => 2,
+            });
+            encode_rect(&mut bytes, semantic.bounds);
+            push_blob(&mut bytes, semantic.name.as_bytes());
+            push_blob(
+                &mut bytes,
+                semantic
+                    .alternative_text
+                    .as_deref()
+                    .unwrap_or_default()
+                    .as_bytes(),
+            );
+            push_blob(
+                &mut bytes,
+                semantic.hyperlink.as_deref().unwrap_or_default().as_bytes(),
+            );
+        }
+        for diagnostic in &self.diagnostics {
+            bytes.push(diagnostic_code(diagnostic.code));
+            push_u32(&mut bytes, diagnostic.shape_id.unwrap_or(u32::MAX));
+            push_blob(&mut bytes, diagnostic.part_name.as_bytes());
+            push_blob(&mut bytes, diagnostic.message.as_bytes());
+        }
         bytes
     }
 
@@ -158,6 +256,20 @@ impl DisplayList {
             .fold(0xcbf29ce484222325, |hash, byte| {
                 (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
             })
+    }
+}
+
+fn diagnostic_code(code: ResolveDiagnosticCode) -> u8 {
+    match code {
+        ResolveDiagnosticCode::MissingDependency => 1,
+        ResolveDiagnosticCode::InvalidXml => 2,
+        ResolveDiagnosticCode::InvalidValue => 3,
+        ResolveDiagnosticCode::UnsupportedGraphicFrame => 4,
+        ResolveDiagnosticCode::UnsupportedCustomGeometry => 5,
+        ResolveDiagnosticCode::UnsupportedFill => 6,
+        ResolveDiagnosticCode::UnsupportedEffect => 7,
+        ResolveDiagnosticCode::MissingImage => 8,
+        _ => 255,
     }
 }
 

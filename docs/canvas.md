@@ -18,9 +18,10 @@ indices, and group-stack balance before execution. `CanvasDisplayListRenderer` t
 the common display-list semantics on Canvas 2D:
 
 - preset paths, fills, strokes, rotation, flips, and nested group transforms;
+- linear gradients, bounded custom paths, outer shadows, connectors, and line ends;
 - relationship-addressed images with PowerPoint source cropping;
-- resolved text size, color, family, emphasis, paragraph breaks, alignment, and
-  text-frame margins through an explicit font resolver and target-canvas measurement;
+- shared WPDL v4 paragraph/run layout for mixed styles, script-specific theme fonts,
+  bullets, indentation, spacing, wrapping, autofit, alignment and text-frame anchoring;
 - deterministic cache eviction and disposal for decoded images.
 
 Canvas 2D and `OffscreenCanvasRenderingContext2D` expose the same core drawing and text
@@ -37,7 +38,8 @@ resolver reports whether the requested face is exact instead of disguising a fal
 Supplied web fonts are loaded before canvas use through the
 [CSS Font Loading API](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/font).
 
-`measureTextBatch` groups requests by the final CSS font and measures them on the target
+`measureTextBatch` groups requests by the final CSS font and deduplicates identical
+font/text pairs before measuring them on the target
 canvas. Korean, Han, Hiragana, and Katakana text may wrap at character boundaries; newline
 and Latin whitespace behavior remain deterministic. Tests cover an exact supplied-font host,
 documented missing-font fallback, Korean wrapping, and mixed-order batched measurement.
@@ -45,8 +47,10 @@ documented missing-font fallback, Korean wrapping, and mixed-order batched measu
 ## Lazy viewer and resource ownership
 
 `VirtualizedCanvasViewer.setVisibleSlides` mounts canvases only for the visible indices. A new
-viewport revision aborts stale resolution and drawing work. Neighbor scenes may be prefetched,
-but the scene LRU and decoded-image LRU both have explicit byte budgets. Evicted image objects
+viewport revision aborts stale resolution and drawing work. Visible slides complete before
+neighbor prefetch begins. The scene LRU and decoded-image LRU both have explicit byte budgets.
+`WasmpptWorkerClient` also deduplicates in-flight raw and converted resources per presentation
+and part name and exposes its bounded resident-byte count. Evicted image objects
 are closed when their host resource supports `close()`. `dispose()` aborts work, removes every
 canvas, clears both caches, and releases listeners owned by the mounted canvas elements.
 
@@ -57,7 +61,8 @@ DOM, and custom viewers can feed the same bounded primitive.
 ## Telemetry and verification
 
 Each render reports separate durations for slide resolution, font loading and measurement,
-display execution, and media decode, plus the command count. The browser integration gate
+display execution, and media decode, plus command count and decoded-image cache bytes. The browser
+gate records first-visible-slide raw samples separately from injection and per-stage samples. It
 runs the real Wasm module in a module Worker, transfers a two-slide PPTX, resolves only slide
 zero, draws shapes, nested transforms, fills, strokes, text, an image crop, verifies cache
 cleanup and bounded mounted canvases, and records a pixel fingerprint. Higher-fidelity visual
@@ -65,9 +70,10 @@ baselines and per-slide tolerance reports belong to the compatibility-gate slice
 
 ## Current boundary
 
-The baseline supports WPDL v3 while retaining v1/v2 decoding. Mixed formatting within one text
-frame, PowerPoint-exact shaping and glyph metrics, custom geometry, gradients, effects, and
-native SmartArt drawing remain incomplete. EMF/WMF supports common GDI records through the lazy
+The renderer supports WPDL v4 while retaining v1-v3 decoding. PowerPoint-exact shaping,
+curved custom paths, pattern fills, effect DAGs, and native SmartArt drawing remain incomplete.
+PNG/JPEG metadata is inspected before decode, byte and pixel limits are enforced, and browser
+decode applies EXIF orientation. EMF/WMF supports common GDI records through the lazy
 SVG converter; malformed or unsupported record streams fall back to an unavailable-image region.
 Other unsupported preserved graphics render a labeled placeholder and retain their stable
 diagnostic instead of disappearing. Canvas output is a bitmap and therefore is not the

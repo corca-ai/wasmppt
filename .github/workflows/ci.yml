@@ -152,7 +152,7 @@ jobs:
         run: |
           cargo run --locked -p wasmppt-cli -- resolve fixtures/render/basic.pptx 0 \
             | tee target/native-display-signature.txt
-          grep 'signature 43e5ba4501300db3' target/native-display-signature.txt
+          grep 'signature eea3224806b18899' target/native-display-signature.txt
       - name: Publish per-slide visual report
         uses: actions/upload-artifact@v7
         with:

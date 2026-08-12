@@ -102,6 +102,7 @@ test('presentation, display lists, and lazy resources cross the Worker boundary 
   assert.equal(await resolving, displayList)
 
   const readingResource = client.presentationResource(11, 'ppt/media/photo.png')
+  const duplicateResource = client.presentationResource(11, 'ppt/media/photo.png')
   const resourceRequest = worker.messages[2]
   assert.deepEqual(resourceRequest, {
     version: WORKER_PROTOCOL_VERSION,
@@ -118,9 +119,13 @@ test('presentation, display lists, and lazy resources cross the Worker boundary 
     partName: 'ppt/media/photo.png',
     bytes: resource,
   })
-  assert.equal(await readingResource, resource)
+  assert.equal((await readingResource).byteLength, resource.byteLength)
+  assert.equal((await duplicateResource).byteLength, resource.byteLength)
+  assert.equal(worker.messages.filter((message) => message.type === 'presentation-resource').length, 1)
+  assert.equal(client.resourceCacheBytes, resource.byteLength)
 
   const readingMetafile = client.presentationMetafileSvg(11, 'ppt/media/diagram.emf')
+  const duplicateMetafile = client.presentationMetafileSvg(11, 'ppt/media/diagram.emf')
   const metafileRequest = worker.messages[3]
   assert.deepEqual(metafileRequest, {
     version: WORKER_PROTOCOL_VERSION,
@@ -137,7 +142,18 @@ test('presentation, display lists, and lazy resources cross the Worker boundary 
     partName: 'ppt/media/diagram.emf',
     bytes: svg,
   })
-  assert.equal(await readingMetafile, svg)
+  assert.deepEqual(new Uint8Array(await readingMetafile), new Uint8Array(svg))
+  assert.deepEqual(new Uint8Array(await duplicateMetafile), new Uint8Array(svg))
+  assert.equal(worker.messages.filter((message) => message.type === 'presentation-metafile-svg').length, 1)
+  const releasing = client.releasePresentation(11)
+  const releaseRequest = worker.messages.at(-1)
+  worker.respond({
+    version: WORKER_PROTOCOL_VERSION,
+    id: releaseRequest.id,
+    type: 'presentation-released',
+  })
+  await releasing
+  assert.equal(client.resourceCacheBytes, 0)
   client.terminate()
 })
 

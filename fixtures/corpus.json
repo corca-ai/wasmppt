@@ -22,7 +22,7 @@
     {
       "id": "render-basic-pptx",
       "path": "fixtures/render/basic.pptx",
-      "sha256": "9ba93862877760ba94fb3d62ee954d7c326711c5283f83d22b8a8574ecf2fed7",
+      "sha256": "593ace28888ccfc9a988526018483f2c531b51cef682fc4d1fc3e548dd2eaf85",
       "provenance": "generated-in-repository",
       "generator": "cargo run -p wasmppt-native --example write_render_fixture -- fixtures/render/basic.pptx",
       "license": "Apache-2.0",

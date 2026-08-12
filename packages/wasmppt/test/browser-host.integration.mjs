@@ -19,6 +19,12 @@ const pptxBrowserDirectory = join(
 const performanceBudgets = JSON.parse(
   await readFile(join(workspaceDirectory, 'benchmarks/budgets.json'), 'utf8'),
 )
+const renderCorpus = JSON.parse(
+  await readFile(join(workspaceDirectory, 'fixtures/render/corpus.json'), 'utf8'),
+)
+const featureRegions = Object.fromEntries(
+  renderCorpus.presentations[0].features.map((feature) => [feature.id, feature.region]),
+)
 
 const routes = new Map([
   ['/dist/worker-client.js', [join(packageDirectory, 'dist/worker-client.js'), 'text/javascript']],
@@ -380,12 +386,30 @@ try {
       new CanvasDisplayListRenderer(0),
       { sceneCacheBytes: displayBytes.byteLength * 2, prefetchNeighbors: 0 },
     )
+    const firstVisibleStarted = performance.now()
     await viewer.setVisibleSlides([0, 1])
+    const firstVisibleSlideSamplesMs = [performance.now() - firstVisibleStarted]
     const mountedAtPeak = viewer.mountedSlideCount
     await viewer.setVisibleSlides([1])
     const mountedAfterScroll = viewer.mountedSlideCount
     const cachedSceneBytes = viewer.cachedSceneBytes
     viewer.dispose()
+    for (let iteration = 1; iteration < 5; iteration += 1) {
+      const sampleRoot = document.createElement('div')
+      document.body.append(sampleRoot)
+      const sampleViewer = new VirtualizedCanvasViewer(
+        { resolveSlide: async () => displayBytes.slice(0) },
+        opened.handle,
+        sampleRoot,
+        new CanvasDisplayListRenderer(0),
+        { prefetchNeighbors: 0 },
+      )
+      const sampleStarted = performance.now()
+      await sampleViewer.setVisibleSlides([0])
+      firstVisibleSlideSamplesMs.push(performance.now() - sampleStarted)
+      sampleViewer.dispose()
+      sampleRoot.remove()
+    }
     const mountedAfterDispose = viewerRoot.querySelectorAll('canvas').length
     let staleAbortCount = 0
     const staleRoot = document.createElement('div')
@@ -433,6 +457,7 @@ try {
     const domMountedAfterScroll = domViewer.mountedSlideCount
     domViewer.dispose()
     const domMountedAfterDispose = domViewerRoot.children.length
+    const resourceCacheBytes = client.resourceCacheBytes
     await client.releasePresentation(opened.handle)
     renderer.clear()
     client.terminate()
@@ -457,6 +482,8 @@ try {
       mountedAfterScroll,
       mountedAfterDispose,
       cachedSceneBytes,
+      resourceCacheBytes,
+      firstVisibleSlideSamplesMs,
       displayByteLength: displayBytes.byteLength,
       staleAbortCount,
       staleResult,
@@ -476,13 +503,16 @@ try {
   const sortedWarmSamples = [...result.warmInjectionSamplesMs].sort((left, right) => left - right)
   const warmP50Ms = sortedWarmSamples[Math.ceil(sortedWarmSamples.length * 0.5) - 1]
   const warmP95Ms = sortedWarmSamples[Math.ceil(sortedWarmSamples.length * 0.95) - 1]
+  const sortedFirstVisibleSamples = [...result.firstVisibleSlideSamplesMs].sort((left, right) => left - right)
+  const firstVisibleP95Ms = sortedFirstVisibleSamples[Math.ceil(sortedFirstVisibleSamples.length * 0.95) - 1]
   assert(result.coldPrepareMs <= performanceBudgets.browserScalarWasm.maximumColdPrepareMs)
   assert(warmP95Ms <= performanceBudgets.browserScalarWasm.maximumWarmInjectionP95Ms)
+  assert(firstVisibleP95Ms <= performanceBudgets.browserScalarWasm.maximumFirstVisibleSlideMs)
   assert(result.residentBytes > 0)
   assert.deepEqual(result.zipSignature, [0x50, 0x4b])
   assert(result.outputBytes > 0)
   assert.equal(result.slideCount, 2)
-  assert.equal(result.commandCount, 10)
+  assert.equal(result.commandCount, 12)
   assert.equal(result.decodedImageBytesAfterClear, 0)
   assert.deepEqual(result.koreanLines, ['가나다', '라마바', '사'])
   assert(result.telemetry.displayExecutionMs >= 0)
@@ -529,7 +559,6 @@ try {
   assert.equal(result.domFacts.staleIgnored, true)
   assert.equal(result.domFacts.reusedTitle, true)
   assert.deepEqual(result.domFacts.diagnosticCodes, [
-    'unsupported-custom-geometry',
     'unsupported-graphic-frame',
   ])
   assert.equal(result.domMountedAtPeak, 2)
@@ -545,6 +574,7 @@ try {
   assert.equal(result.mountedAfterScroll, 1)
   assert.equal(result.mountedAfterDispose, 0)
   assert(result.cachedSceneBytes <= result.displayByteLength * 2)
+  assert(result.resourceCacheBytes > 0)
   assert.equal(result.staleAbortCount, 1)
   assert.equal(result.staleResult, 'AbortError')
   assert.deepEqual(result.staleMountedSlides, ['1'])
@@ -567,8 +597,13 @@ try {
     ([name, expected]) => !expected.every((byte, index) => result.pixelSamples[name][index] === byte),
   ).length
   const visualReport = {
-    schema: 1,
+    schema: 2,
     engine: 'chromium-canvas2d',
+    fixture: {
+      id: renderCorpus.presentations[0].id,
+      generator: renderCorpus.generator,
+      sha256: createHash('sha256').update(await readFile(join(workspaceDirectory, 'fixtures/render/basic.pptx'))).digest('hex'),
+    },
     viewport: { width: 640, height: 360 },
     slides: [
       {
@@ -588,8 +623,16 @@ try {
         passed: result.advancedFacts.coloredPixels > 10_000,
       },
     ],
+    features: [
+      { id: 'text', slideIndex: 0, region: featureRegions.text, metric: 'minimum-dark-pixels', actual: result.darkGroupPixels, tolerance: 100, passed: result.darkGroupPixels > 100 },
+      { id: 'shapes', slideIndex: 1, region: featureRegions.shapes, metric: 'minimum-colored-pixels', actual: result.advancedFacts.coloredPixels, tolerance: 10_000, passed: result.advancedFacts.coloredPixels > 10_000 },
+      { id: 'raster-images', slideIndex: 0, region: featureRegions['raster-images'], metric: 'sampled-pixel-differences', actual: sampledPixelDifferences, tolerance: 0, passed: sampledPixelDifferences === 0 },
+      { id: 'charts', slideIndex: 1, region: featureRegions.charts, metric: 'minimum-svg-paths', actual: result.advancedFacts.svgPathCount, tolerance: 10, passed: result.advancedFacts.svgPathCount > 10 },
+      { id: 'metafiles', slideIndex: 1, region: featureRegions.metafiles, metric: 'minimum-converted-bytes', actual: result.advancedFacts.metafileSvgBytes, tolerance: 1, passed: result.advancedFacts.metafileSvgBytes > 0 },
+    ],
   }
   assert(visualReport.slides.every((slide) => slide.passed))
+  assert(visualReport.features.every((feature) => feature.passed))
   await writeFile(
     join(visualDirectory, 'report.json'),
     `${JSON.stringify(visualReport, null, 2)}\n`,
@@ -624,6 +667,16 @@ try {
       coldPrepareMs: result.coldPrepareMs,
       warmInjectionSamplesMs: result.warmInjectionSamplesMs,
       summary: { warmInjectionP50Ms: warmP50Ms, warmInjectionP95Ms: warmP95Ms },
+      rendering: {
+        firstVisibleSlideSamplesMs: result.firstVisibleSlideSamplesMs,
+        summary: { firstVisibleSlideP95Ms: firstVisibleP95Ms },
+        stagesMs: result.telemetry,
+        cacheBytes: {
+          scene: result.cachedSceneBytes,
+          decodedImages: result.telemetry.cacheBytes.decodedImages,
+          resources: result.resourceCacheBytes,
+        },
+      },
       correctness: { zipSignature: result.zipSignature, outputBytes: result.outputBytes },
       comparison: {
         library: { name: 'pptx-browser', version: '4.1.4' },

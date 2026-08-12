@@ -57,7 +57,9 @@ Chromium module Worker with scalar Wasm, and Cloudflare workerd. It fails on p95
 peak RSS, scalar Wasm size, accounted Worker memory, loss of raw copies, any generation-time ZIP
 inflation, or correctness failure. Absolute budgets are intentionally broad enough for shared CI;
 tightening them is reviewed like an API change. Published artifacts contain the raw JSON and exact
-generated budget fixture for each revision.
+generated budget fixture for each revision. Browser reports additionally retain first-visible-slide
+samples, resolution/font/display/media stage timings, and scene/resource/decoded-image cache bytes.
+The visible set is awaited before neighbor prefetch can consume Worker or main-thread capacity.
 
 ## Comparisons and claims
 

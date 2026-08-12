@@ -57,6 +57,26 @@ pub struct RgbaColor {
 pub enum Fill {
     None,
     Solid(RgbaColor),
+    LinearGradient {
+        angle: i32,
+        stops: Vec<GradientStop>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GradientStop {
+    /// Position in DrawingML's 0..=100000 range.
+    pub position: i32,
+    pub color: RgbaColor,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LineEnd {
+    Triangle,
+    Stealth,
+    Diamond,
+    Oval,
+    Arrow,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -64,6 +84,30 @@ pub struct Stroke {
     pub color: RgbaColor,
     pub width: Emu,
     pub dash: Option<String>,
+    pub head_end: Option<LineEnd>,
+    pub tail_end: Option<LineEnd>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PathCommand {
+    MoveTo(EmuPoint),
+    LineTo(EmuPoint),
+    Close,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CustomPath {
+    pub size: EmuSize,
+    pub commands: Vec<PathCommand>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OuterShadow {
+    pub color: RgbaColor,
+    pub blur_radius: Emu,
+    pub distance: Emu,
+    /// Direction in OOXML 1/60000 degree units.
+    pub direction: i32,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -97,6 +141,48 @@ pub struct ResolvedTextStyle {
     pub margin_top: Emu,
     pub margin_right: Emu,
     pub margin_bottom: Emu,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TextAutofit {
+    #[default]
+    None,
+    ShrinkText,
+    ResizeShape,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedTextRun {
+    pub text: String,
+    pub style: ResolvedTextStyle,
+    pub east_asian_font_family: Option<String>,
+    pub complex_script_font_family: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedParagraph {
+    pub runs: Vec<ResolvedTextRun>,
+    pub alignment: TextAlignment,
+    pub bullet: Option<String>,
+    pub level: u8,
+    pub margin_left: Emu,
+    pub indent: Emu,
+    /// DrawingML percentage in thousandths of a percent, when present.
+    pub line_spacing: Option<i32>,
+    pub space_before: Option<i32>,
+    pub space_after: Option<i32>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedTextFrame {
+    pub paragraphs: Vec<ResolvedParagraph>,
+    pub vertical_alignment: TextVerticalAlignment,
+    pub margin_left: Emu,
+    pub margin_top: Emu,
+    pub margin_right: Emu,
+    pub margin_bottom: Emu,
+    pub wrap: bool,
+    pub autofit: TextAutofit,
 }
 
 impl Default for ResolvedTextStyle {
@@ -245,8 +331,12 @@ pub struct ResolvedElement {
     pub group_transforms: Vec<GroupTransform>,
     pub fill: Fill,
     pub stroke: Option<Stroke>,
+    pub custom_path: Option<CustomPath>,
+    pub outer_shadow: Option<OuterShadow>,
     pub text: String,
     pub text_style: ResolvedTextStyle,
+    /// Paragraph/run-preserving text model used by WPDL v4 renderers.
+    pub text_frame: Option<ResolvedTextFrame>,
     pub alternative_text: Option<String>,
     pub hyperlink: Option<String>,
     pub kind: ElementKind,

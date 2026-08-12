@@ -1,5 +1,7 @@
 import {
   ByteBudgetLru,
+  FontResolver,
+  buildRichTextLayout,
   decodeDisplayList,
   type DisplayScene,
   type SceneCommand,
@@ -20,6 +22,7 @@ export interface DomSvgRenderOptions {
   readonly slideIndex?: number
   readonly signal?: AbortSignal
   readonly imageResolver?: DomImageResolver
+  readonly fontResolver?: FontResolver
 }
 
 export interface DomSvgRenderResult {
@@ -99,7 +102,7 @@ export class DomSvgRenderer {
         options.imageResolver,
         signal,
       )
-      updateAccessibleOverlay(state, semantic, commands, scene)
+      await updateAccessibleOverlay(state, semantic, commands, scene, options.fontResolver)
       updatedElements += 1
     }
     removeMissing(state.graphicElements, retained)
@@ -227,13 +230,87 @@ async function renderGraphicCommands(
       if (command.kind === 'fill-preset') {
         setAttributes(path, { fill: cssColor(command.color), stroke: 'none' })
       } else {
+        const headMarker = command.headEnd === undefined
+          ? undefined
+          : appendLineEndMarker(state.definitions, `wasmppt-head-${semantic.shapeId}-${state.definitions.childElementCount}`, command.headEnd, command.color)
+        const tailMarker = command.tailEnd === undefined
+          ? undefined
+          : appendLineEndMarker(state.definitions, `wasmppt-tail-${semantic.shapeId}-${state.definitions.childElementCount}`, command.tailEnd, command.color)
         setAttributes(path, {
           fill: 'none',
           stroke: cssColor(command.color),
           'stroke-width': command.width,
           'stroke-dasharray': dashPattern(command.dash, command.width),
+          'marker-start': headMarker === undefined ? undefined : `url(#${headMarker})`,
+          'marker-end': tailMarker === undefined ? undefined : `url(#${tailMarker})`,
         })
       }
+      parent.append(path)
+    } else if (command.kind === 'fill-gradient-preset') {
+      const path = document.createElementNS(SVG_NAMESPACE, 'path')
+      const gradient = document.createElementNS(SVG_NAMESPACE, 'linearGradient')
+      gradient.id = `wasmppt-gradient-${semantic.shapeId}-${state.definitions.childElementCount}`
+      const radians = command.angle / 60_000 * Math.PI / 180
+      setAttributes(gradient, {
+        x1: `${50 - Math.cos(radians) * 50}%`,
+        y1: `${50 - Math.sin(radians) * 50}%`,
+        x2: `${50 + Math.cos(radians) * 50}%`,
+        y2: `${50 + Math.sin(radians) * 50}%`,
+      })
+      for (const value of command.stops) {
+        const stop = document.createElementNS(SVG_NAMESPACE, 'stop')
+        setAttributes(stop, { offset: `${value.position / 1_000}%`, 'stop-color': cssColor(value.color) })
+        gradient.append(stop)
+      }
+      state.definitions.append(gradient)
+      path.setAttribute('d', presetPath(command.geometry, command.transform.bounds.width, command.transform.bounds.height))
+      path.setAttribute('transform', shapeSvgTransform(command.transform))
+      setAttributes(path, { fill: `url(#${gradient.id})`, stroke: 'none' })
+      parent.append(path)
+    } else if (command.kind === 'draw-custom-path') {
+      const path = document.createElementNS(SVG_NAMESPACE, 'path')
+      path.setAttribute('d', command.path.map((part) => part.kind === 'close' ? 'Z' : `${part.kind === 'move-to' ? 'M' : 'L'} ${part.x} ${part.y}`).join(' '))
+      const bounds = command.transform.bounds
+      path.setAttribute('transform', `translate(${bounds.x} ${bounds.y}) scale(${bounds.width / command.pathWidth} ${bounds.height / command.pathHeight})`)
+      let customFill = 'none'
+      if (command.fill.kind === 'solid') customFill = cssColor(command.fill.color)
+      else if (command.fill.kind === 'linear-gradient') {
+        const gradient = document.createElementNS(SVG_NAMESPACE, 'linearGradient')
+        gradient.id = `wasmppt-custom-gradient-${semantic.shapeId}-${state.definitions.childElementCount}`
+        const radians = command.fill.angle / 60_000 * Math.PI / 180
+        setAttributes(gradient, {
+          x1: `${50 - Math.cos(radians) * 50}%`, y1: `${50 - Math.sin(radians) * 50}%`,
+          x2: `${50 + Math.cos(radians) * 50}%`, y2: `${50 + Math.sin(radians) * 50}%`,
+        })
+        for (const value of command.fill.stops) {
+          const stop = document.createElementNS(SVG_NAMESPACE, 'stop')
+          setAttributes(stop, { offset: `${value.position / 1_000}%`, 'stop-color': cssColor(value.color) })
+          gradient.append(stop)
+        }
+        state.definitions.append(gradient)
+        customFill = `url(#${gradient.id})`
+      }
+      setAttributes(path, {
+        fill: customFill,
+        stroke: command.stroke === undefined ? 'none' : cssColor(command.stroke.color),
+        'stroke-width': command.stroke?.width ?? 0,
+        'vector-effect': 'non-scaling-stroke',
+      })
+      parent.append(path)
+    } else if (command.kind === 'draw-outer-shadow') {
+      const path = document.createElementNS(SVG_NAMESPACE, 'path')
+      const filter = document.createElementNS(SVG_NAMESPACE, 'filter')
+      filter.id = `wasmppt-shadow-${semantic.shapeId}-${state.definitions.childElementCount}`
+      setAttributes(filter, { x: '-50%', y: '-50%', width: '200%', height: '200%' })
+      const blur = document.createElementNS(SVG_NAMESPACE, 'feGaussianBlur')
+      blur.setAttribute('stdDeviation', String(command.blurRadius / EMU_PER_CSS_PIXEL))
+      filter.append(blur)
+      state.definitions.append(filter)
+      const radians = command.direction / 60_000 * Math.PI / 180
+      const bounds = command.transform.bounds
+      path.setAttribute('d', presetPath(command.geometry, bounds.width, bounds.height))
+      path.setAttribute('transform', `${shapeSvgTransform(command.transform)} translate(${Math.cos(radians) * command.distance} ${Math.sin(radians) * command.distance})`)
+      setAttributes(path, { fill: cssColor(command.color), filter: `url(#${filter.id})` })
       parent.append(path)
     } else if (command.kind === 'draw-image') {
       const resource = required(scene.images, command.resource)
@@ -272,6 +349,25 @@ async function renderGraphicCommands(
       appendUnsupportedGraphic(parent, command.transform, unsupportedGraphicLabel(command.feature))
     }
   }
+}
+
+function appendLineEndMarker(
+  definitions: SVGDefsElement,
+  id: string,
+  kind: 'triangle' | 'stealth' | 'diamond' | 'oval' | 'arrow',
+  color: { readonly red: number; readonly green: number; readonly blue: number; readonly alpha: number },
+): string {
+  const marker = document.createElementNS(SVG_NAMESPACE, 'marker')
+  setAttributes(marker, { id, markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: 'auto-start-reverse', markerUnits: 'strokeWidth' })
+  const shape = kind === 'oval'
+    ? document.createElementNS(SVG_NAMESPACE, 'ellipse')
+    : document.createElementNS(SVG_NAMESPACE, 'path')
+  if (shape instanceof SVGEllipseElement) setAttributes(shape, { cx: 4, cy: 4, rx: 3, ry: 2.5 })
+  else shape.setAttribute('d', kind === 'diamond' ? 'M0 4 4 0 8 4 4 8Z' : 'M0 0 8 4 0 8 2 4Z')
+  shape.setAttribute('fill', cssColor(color))
+  marker.append(shape)
+  definitions.append(marker)
+  return id
 }
 
 function unsupportedGraphicLabel(
@@ -316,18 +412,23 @@ function appendUnsupportedGraphic(
   parent.append(group)
 }
 
-function updateAccessibleOverlay(
+async function updateAccessibleOverlay(
   state: SlideDomState,
   semantic: SceneSemanticElement,
   commands: readonly SceneCommand[],
   scene: DisplayScene,
-): void {
+  fontResolver: FontResolver | undefined,
+): Promise<void> {
   const textCommand = commands.find(
     (command): command is Extract<SceneCommand, { readonly kind: 'draw-text' }> =>
       command.kind === 'draw-text',
   )
+  const richTextCommand = commands.find(
+    (command): command is Extract<SceneCommand, { readonly kind: 'draw-rich-text' }> =>
+      command.kind === 'draw-rich-text',
+  )
   if (
-    textCommand === undefined &&
+    textCommand === undefined && richTextCommand === undefined &&
     semantic.hyperlink === undefined &&
     semantic.alternativeText === undefined
   ) {
@@ -361,7 +462,29 @@ function updateAccessibleOverlay(
     element.removeAttribute('role')
   }
   element.setAttribute('aria-label', semantic.alternativeText ?? semantic.name)
-  element.textContent = textCommand === undefined ? '' : required(scene.strings, textCommand.text)
+  if (textCommand !== undefined) element.textContent = required(scene.strings, textCommand.text)
+  else if (richTextCommand !== undefined) {
+    const measureCanvas = document.createElement('canvas')
+    const measureContext = measureCanvas.getContext('2d')
+    if (measureContext === null) throw new Error('Canvas 2D is unavailable for rich text layout')
+    const plan = await buildRichTextLayout(measureContext, richTextCommand, fontResolver)
+    const originX = richTextCommand.bounds.x / EMU_PER_CSS_PIXEL
+    const originY = richTextCommand.bounds.y / EMU_PER_CSS_PIXEL
+    element.replaceChildren(...plan.runs.map((run) => {
+      const span = document.createElement('span')
+      span.textContent = run.text
+      Object.assign(span.style, {
+        position: 'absolute',
+        left: `${run.x - originX}px`,
+        top: `${run.baseline - originY}px`,
+        transform: 'translateY(-0.82em)',
+        font: run.font.css,
+        color: cssColor(run.color),
+        whiteSpace: 'pre',
+      })
+      return span
+    }))
+  } else element.textContent = ''
   const groupTransforms = commands
     .filter(
       (command): command is Extract<SceneCommand, { readonly kind: 'push-group' }> =>
@@ -372,8 +495,9 @@ function updateAccessibleOverlay(
     (current, group) => multiply(current, groupMatrix(group)),
     identityMatrix(),
   )
-  const bounds = textCommand?.bounds ?? semantic.bounds
-  const textStyle = textCommand?.style
+  const bounds = textCommand?.bounds ?? richTextCommand?.bounds ?? semantic.bounds
+  const richFirstStyle = richTextCommand?.frame.paragraphs[0]?.runs[0]?.style
+  const textStyle = textCommand?.style ?? richFirstStyle
   const positioned = multiply(matrix, translation(bounds.x, bounds.y))
   Object.assign(element.style, {
     position: 'absolute',
@@ -384,7 +508,7 @@ function updateAccessibleOverlay(
     transformOrigin: '0 0',
     transform: cssMatrix(toCssPixels(positioned)),
     boxSizing: 'border-box',
-    display: 'flex',
+    display: richTextCommand === undefined ? 'flex' : 'block',
     flexDirection: 'column',
     justifyContent:
       textStyle?.verticalAlignment === 'center'
@@ -392,7 +516,9 @@ function updateAccessibleOverlay(
         : textStyle?.verticalAlignment === 'bottom'
           ? 'flex-end'
           : 'flex-start',
-    padding: textStyle === undefined
+    padding: richTextCommand !== undefined
+      ? '0'
+      : textStyle === undefined
       ? '0'
       : `${textStyle.marginTop / EMU_PER_CSS_PIXEL}px ${textStyle.marginRight / EMU_PER_CSS_PIXEL}px ${textStyle.marginBottom / EMU_PER_CSS_PIXEL}px ${textStyle.marginLeft / EMU_PER_CSS_PIXEL}px`,
     color:
@@ -417,6 +543,7 @@ export interface VirtualizedDomViewerOptions {
   readonly sceneCacheBytes?: number
   readonly prefetchNeighbors?: number
   readonly imageResolver?: DomImageResolver
+  readonly fontResolver?: FontResolver
 }
 
 export interface DomSceneResolver {
@@ -436,6 +563,7 @@ export class VirtualizedDomViewer {
   readonly #cache: ByteBudgetLru<number, DisplayScene>
   readonly #prefetch: number
   readonly #imageResolver: DomImageResolver | undefined
+  readonly #fontResolver: FontResolver | undefined
   readonly #hosts = new Map<number, HTMLDivElement>()
   #abort = new AbortController()
   #revision = 0
@@ -455,6 +583,7 @@ export class VirtualizedDomViewer {
     this.#cache = new ByteBudgetLru(options.sceneCacheBytes ?? 16 * 1024 * 1024)
     this.#prefetch = options.prefetchNeighbors ?? 1
     this.#imageResolver = options.imageResolver
+    this.#fontResolver = options.fontResolver
   }
 
   get mountedSlideCount(): number {
@@ -491,6 +620,7 @@ export class VirtualizedDomViewer {
           slideIndex: index,
           signal,
           imageResolver: this.#imageResolver,
+          fontResolver: this.#fontResolver,
         })
       }),
     )

@@ -12,6 +12,7 @@ test('benchmark matrix and all three release hosts remain machine-checkable', ()
   assert.equal(fixtures.scenarios.length * fixtures.slideCounts.length, 9)
   assert(budgets.native.maximumPeakResidentBytes > 0)
   assert(budgets.browserScalarWasm.maximumBinaryBytes > 0)
+  assert(budgets.browserScalarWasm.maximumFirstVisibleSlideMs > 0)
   assert(budgets.cloudflareWorkerd.maximumWarmRequestP95Ms > 0)
   for (const name of ['coldTemplateCompile', 'warmInjection', 'firstSlide', 'visibleSlides', 'allSlides']) {
     assert(budgets.native.maximumP95Ns[name] > 0)

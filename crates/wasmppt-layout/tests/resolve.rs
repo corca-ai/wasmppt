@@ -119,11 +119,15 @@ fn resolves_inheritance_theme_groups_geometry_images_and_diagnostics() {
             .iter()
             .any(|element| element.name == "Layout decoration")
     );
-    assert!(
-        output.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code == ResolveDiagnosticCode::UnsupportedCustomGeometry
-        })
-    );
+    let custom = output
+        .slide
+        .elements
+        .iter()
+        .find(|element| element.name == "Custom")
+        .unwrap();
+    assert!(custom.custom_path.is_some());
+    assert!(matches!(custom.fill, Fill::LinearGradient { .. }));
+    assert!(custom.outer_shadow.is_some());
     assert!(
         output.diagnostics.iter().any(|diagnostic| {
             diagnostic.code == ResolveDiagnosticCode::UnsupportedGraphicFrame

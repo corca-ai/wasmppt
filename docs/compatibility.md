@@ -22,7 +22,8 @@ and covers metadata and visible-token text, image replacement, repeated table ro
 control through one browser workflow.
 
 The current generated render fixture covers text, raster image
-relationships and crops, groups and transforms, fills and strokes, tables, charts and an embedded
+relationships and crops, groups and transforms, mixed text runs, gradients, bounded custom paths,
+shadows and line ends, tables, charts and an embedded
 workbook, SmartArt and EMF detection, animation, transition, and 3D diagnostics. Synthetic POTM
 tests cover VBA and macro Action removal; unknown extension parts and markup are checked for
 verbatim survival after unrelated edits. The reviewed UTF-8 text corpus separately pins Korean/CJK,
@@ -48,15 +49,15 @@ Every CI run performs these independent gates:
 
 The fuzz targets live under `crates/wasmppt-opc/fuzz`. They cover arbitrary ZIP opening and
 inflation, relationship graphs and extension markup, raw XML tokenization, lazy slide/geometry
-resolution, and template binding compilation. Image byte/pixel budgets remain host responsibilities
-until a decoded image metadata core is introduced; render hosts already enforce decoded-image byte
-budgets.
+resolution, and template binding compilation. Browser hosts inspect PNG/JPEG dimensions and EXIF
+orientation before decode and enforce both compressed-byte and decoded-pixel limits.
 
 ## Visual reports
 
 The real Chromium integration writes `target/visual-report/report.json` plus one actual PNG per
-slide. Each slide records its pixel fingerprint, the exact comparison measure, declared tolerance,
-and pass/fail state. Slide one has zero tolerance for stable sampled background, group-fill, and
+slide. Schema 2 also records scored regions for text, shapes, raster images, charts, and metafiles;
+each feature has an explicit metric, tolerance, actual value, and pass/fail state. Each slide records
+its pixel fingerprint. Slide one has zero tolerance for stable sampled background, group-fill, and
 cropped-image colors. Slide two requires a declared minimum amount of non-background output for its
 table and chart commands. CI uploads this directory as a revision-addressed artifact and fails when
 the report or screenshots are absent.
@@ -82,7 +83,7 @@ required licensed runner is unavailable; the workflow does not silently skip tha
 
 ## Diagnostics and policy evolution
 
-WPDL v2 and v3 transport resolver diagnostics unchanged to Canvas and DOM/SVG. New diagnostic variants
+WPDL v2 through v4 transport resolver diagnostics unchanged to Canvas and DOM/SVG. New diagnostic variants
 append stable numeric wire codes. Unknown future codes decode as `unknown`, so older frontends fail
 honestly without corrupting the scene. Security-limit regressions and unknown-markup loss are test
 failures, never benchmark tradeoffs.

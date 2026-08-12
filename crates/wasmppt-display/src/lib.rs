@@ -1,13 +1,14 @@
 //! Compact backend-neutral display lists lowered from resolved slides.
 
 use wasmppt_layout::{
-    ChartKind, ElementKind, EmuPoint, EmuRect, EmuSize, Fill, GroupTransform, PreservedFeature,
-    PresetGeometry, ResolveDiagnosticCode, ResolveOutput, ResolvedChart, ResolvedSlide,
-    ResolvedTable, ResolvedTextStyle, RgbaColor, Stroke, TextAlignment, TextVerticalAlignment,
-    Transform,
+    ChartKind, CustomPath, ElementKind, EmuPoint, EmuRect, EmuSize, Fill, GradientStop,
+    GroupTransform, LineEnd, OuterShadow, PathCommand, PreservedFeature, PresetGeometry,
+    ResolveDiagnosticCode, ResolveOutput, ResolvedChart, ResolvedSlide, ResolvedTable,
+    ResolvedTextFrame, ResolvedTextStyle, RgbaColor, Stroke, TextAlignment, TextAutofit,
+    TextVerticalAlignment, Transform,
 };
 
-pub const DISPLAY_LIST_VERSION: u16 = 3;
+pub const DISPLAY_LIST_VERSION: u16 = 4;
 const MAGIC: &[u8; 4] = b"WPDL";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -75,6 +76,27 @@ pub enum DisplayCommand {
         bounds: EmuRect,
         style: ResolvedTextStyle,
     },
+    DrawRichText {
+        bounds: EmuRect,
+        frame: ResolvedTextFrame,
+    },
+    FillGradientPreset {
+        geometry: PresetGeometry,
+        transform: Transform,
+        angle: i32,
+        stops: Vec<GradientStop>,
+    },
+    DrawCustomPath {
+        path: CustomPath,
+        transform: Transform,
+        fill: Fill,
+        stroke: Option<Stroke>,
+    },
+    DrawOuterShadow {
+        geometry: PresetGeometry,
+        transform: Transform,
+        shadow: OuterShadow,
+    },
     DrawUnsupported {
         transform: Transform,
         feature: PreservedFeature,
@@ -135,19 +157,44 @@ impl DisplayList {
             }
             match &element.kind {
                 ElementKind::Shape { geometry } => {
-                    if let Fill::Solid(color) = element.fill {
-                        list.commands.push(DisplayCommand::FillPreset {
+                    if let Some(shadow) = element.outer_shadow {
+                        list.commands.push(DisplayCommand::DrawOuterShadow {
                             geometry: *geometry,
                             transform: element.transform,
-                            color,
+                            shadow,
                         });
                     }
-                    if let Some(stroke) = &element.stroke {
-                        list.commands.push(DisplayCommand::StrokePreset {
-                            geometry: *geometry,
+                    if let Some(path) = &element.custom_path {
+                        list.commands.push(DisplayCommand::DrawCustomPath {
+                            path: path.clone(),
                             transform: element.transform,
-                            stroke: stroke.clone(),
+                            fill: element.fill.clone(),
+                            stroke: element.stroke.clone(),
                         });
+                    } else {
+                        match &element.fill {
+                            Fill::Solid(color) => list.commands.push(DisplayCommand::FillPreset {
+                                geometry: *geometry,
+                                transform: element.transform,
+                                color: *color,
+                            }),
+                            Fill::LinearGradient { angle, stops } => {
+                                list.commands.push(DisplayCommand::FillGradientPreset {
+                                    geometry: *geometry,
+                                    transform: element.transform,
+                                    angle: *angle,
+                                    stops: stops.clone(),
+                                });
+                            }
+                            Fill::None => {}
+                        }
+                        if let Some(stroke) = &element.stroke {
+                            list.commands.push(DisplayCommand::StrokePreset {
+                                geometry: *geometry,
+                                transform: element.transform,
+                                stroke: stroke.clone(),
+                            });
+                        }
                     }
                 }
                 ElementKind::Image {
@@ -175,7 +222,17 @@ impl DisplayList {
                     });
                 }
             }
-            if !element.text.is_empty() {
+            if let Some(frame) = element.text_frame.as_ref().filter(|frame| {
+                frame
+                    .paragraphs
+                    .iter()
+                    .any(|paragraph| !paragraph.runs.is_empty())
+            }) {
+                list.commands.push(DisplayCommand::DrawRichText {
+                    bounds: element.transform.bounds,
+                    frame: frame.clone(),
+                });
+            } else if !element.text.is_empty() {
                 let text = list.strings.len() as u32;
                 list.strings.push(element.text.clone());
                 list.commands.push(DisplayCommand::DrawText {
@@ -366,6 +423,8 @@ fn lower_table(list: &mut DisplayList, transform: Transform, table: &ResolvedTab
                     },
                     width: 9_525,
                     dash: None,
+                    head_end: None,
+                    tail_end: None,
                 },
             });
             if !cell.text.is_empty() {
@@ -499,6 +558,8 @@ fn lower_chart(list: &mut DisplayList, transform: Transform, chart: &ResolvedCha
                             color: series.color,
                             width: 19_050,
                             dash: None,
+                            head_end: None,
+                            tail_end: None,
                         },
                     });
                 }
@@ -588,6 +649,8 @@ fn encode_command(output: &mut Vec<u8>, command: &DisplayCommand) {
                 output,
                 stroke.dash.as_deref().unwrap_or_default().as_bytes(),
             );
+            output.push(line_end_code(stroke.head_end));
+            output.push(line_end_code(stroke.tail_end));
         }
         DisplayCommand::DrawImage {
             resource,
@@ -610,29 +673,7 @@ fn encode_command(output: &mut Vec<u8>, command: &DisplayCommand) {
             output.push(7);
             push_u32(output, *text);
             encode_rect(output, *bounds);
-            push_i32(output, style.font_size);
-            encode_color(output, style.color);
-            push_blob(
-                output,
-                style.font_family.as_deref().unwrap_or_default().as_bytes(),
-            );
-            output.push(u8::from(style.bold));
-            output.push(u8::from(style.italic));
-            output.push(match style.alignment {
-                TextAlignment::Left => 1,
-                TextAlignment::Center => 2,
-                TextAlignment::Right => 3,
-                TextAlignment::Justify => 4,
-            });
-            output.push(match style.vertical_alignment {
-                TextVerticalAlignment::Top => 1,
-                TextVerticalAlignment::Center => 2,
-                TextVerticalAlignment::Bottom => 3,
-            });
-            push_i64(output, style.margin_left);
-            push_i64(output, style.margin_top);
-            push_i64(output, style.margin_right);
-            push_i64(output, style.margin_bottom);
+            encode_text_style(output, style);
         }
         DisplayCommand::DrawUnsupported { transform, feature } => {
             output.push(8);
@@ -644,6 +685,190 @@ fn encode_command(output: &mut Vec<u8>, command: &DisplayCommand) {
                 PreservedFeature::UnknownGraphicFrame => 4,
             });
         }
+        DisplayCommand::DrawRichText { bounds, frame } => {
+            output.push(9);
+            encode_rect(output, *bounds);
+            output.push(vertical_alignment_code(frame.vertical_alignment));
+            push_i64(output, frame.margin_left);
+            push_i64(output, frame.margin_top);
+            push_i64(output, frame.margin_right);
+            push_i64(output, frame.margin_bottom);
+            output.push(u8::from(frame.wrap));
+            output.push(match frame.autofit {
+                TextAutofit::None => 0,
+                TextAutofit::ShrinkText => 1,
+                TextAutofit::ResizeShape => 2,
+            });
+            push_u32(output, frame.paragraphs.len() as u32);
+            for paragraph in &frame.paragraphs {
+                output.push(text_alignment_code(paragraph.alignment));
+                push_blob(
+                    output,
+                    paragraph.bullet.as_deref().unwrap_or_default().as_bytes(),
+                );
+                output.push(paragraph.level);
+                push_i64(output, paragraph.margin_left);
+                push_i64(output, paragraph.indent);
+                push_i32(output, paragraph.line_spacing.unwrap_or(i32::MIN));
+                push_i32(output, paragraph.space_before.unwrap_or(i32::MIN));
+                push_i32(output, paragraph.space_after.unwrap_or(i32::MIN));
+                push_u32(output, paragraph.runs.len() as u32);
+                for run in &paragraph.runs {
+                    push_blob(output, run.text.as_bytes());
+                    encode_text_style(output, &run.style);
+                    push_blob(
+                        output,
+                        run.east_asian_font_family
+                            .as_deref()
+                            .unwrap_or_default()
+                            .as_bytes(),
+                    );
+                    push_blob(
+                        output,
+                        run.complex_script_font_family
+                            .as_deref()
+                            .unwrap_or_default()
+                            .as_bytes(),
+                    );
+                }
+            }
+        }
+        DisplayCommand::FillGradientPreset {
+            geometry,
+            transform,
+            angle,
+            stops,
+        } => {
+            output.push(10);
+            output.push(geometry_code(*geometry));
+            encode_transform(output, *transform);
+            push_i32(output, *angle);
+            encode_gradient_stops(output, stops);
+        }
+        DisplayCommand::DrawCustomPath {
+            path,
+            transform,
+            fill,
+            stroke,
+        } => {
+            output.push(11);
+            encode_transform(output, *transform);
+            push_i64(output, path.size.width);
+            push_i64(output, path.size.height);
+            push_u32(output, path.commands.len() as u32);
+            for command in &path.commands {
+                match command {
+                    PathCommand::MoveTo(point) => {
+                        output.push(1);
+                        push_i64(output, point.x);
+                        push_i64(output, point.y);
+                    }
+                    PathCommand::LineTo(point) => {
+                        output.push(2);
+                        push_i64(output, point.x);
+                        push_i64(output, point.y);
+                    }
+                    PathCommand::Close => output.push(3),
+                }
+            }
+            encode_fill(output, fill);
+            output.push(u8::from(stroke.is_some()));
+            if let Some(stroke) = stroke {
+                encode_stroke(output, stroke);
+            }
+        }
+        DisplayCommand::DrawOuterShadow {
+            geometry,
+            transform,
+            shadow,
+        } => {
+            output.push(12);
+            output.push(geometry_code(*geometry));
+            encode_transform(output, *transform);
+            encode_color(output, shadow.color);
+            push_i64(output, shadow.blur_radius);
+            push_i64(output, shadow.distance);
+            push_i32(output, shadow.direction);
+        }
+    }
+}
+
+fn encode_fill(output: &mut Vec<u8>, fill: &Fill) {
+    match fill {
+        Fill::None => output.push(0),
+        Fill::Solid(color) => {
+            output.push(1);
+            encode_color(output, *color);
+        }
+        Fill::LinearGradient { angle, stops } => {
+            output.push(2);
+            push_i32(output, *angle);
+            encode_gradient_stops(output, stops);
+        }
+    }
+}
+
+fn encode_gradient_stops(output: &mut Vec<u8>, stops: &[GradientStop]) {
+    push_u32(output, stops.len() as u32);
+    for stop in stops {
+        push_i32(output, stop.position);
+        encode_color(output, stop.color);
+    }
+}
+
+fn encode_stroke(output: &mut Vec<u8>, stroke: &Stroke) {
+    encode_color(output, stroke.color);
+    push_i64(output, stroke.width);
+    push_blob(
+        output,
+        stroke.dash.as_deref().unwrap_or_default().as_bytes(),
+    );
+    output.push(line_end_code(stroke.head_end));
+    output.push(line_end_code(stroke.tail_end));
+}
+
+fn line_end_code(value: Option<LineEnd>) -> u8 {
+    match value {
+        None => 0,
+        Some(LineEnd::Triangle) => 1,
+        Some(LineEnd::Stealth) => 2,
+        Some(LineEnd::Diamond) => 3,
+        Some(LineEnd::Oval) => 4,
+        Some(LineEnd::Arrow) => 5,
+    }
+}
+
+fn encode_text_style(output: &mut Vec<u8>, style: &ResolvedTextStyle) {
+    push_i32(output, style.font_size);
+    encode_color(output, style.color);
+    push_blob(
+        output,
+        style.font_family.as_deref().unwrap_or_default().as_bytes(),
+    );
+    output.push(u8::from(style.bold));
+    output.push(u8::from(style.italic));
+    output.push(text_alignment_code(style.alignment));
+    output.push(vertical_alignment_code(style.vertical_alignment));
+    push_i64(output, style.margin_left);
+    push_i64(output, style.margin_top);
+    push_i64(output, style.margin_right);
+    push_i64(output, style.margin_bottom);
+}
+
+fn text_alignment_code(alignment: TextAlignment) -> u8 {
+    match alignment {
+        TextAlignment::Left => 1,
+        TextAlignment::Center => 2,
+        TextAlignment::Right => 3,
+        TextAlignment::Justify => 4,
+    }
+}
+
+fn vertical_alignment_code(alignment: TextVerticalAlignment) -> u8 {
+    match alignment {
+        TextVerticalAlignment::Top => 1,
+        TextVerticalAlignment::Center => 2,
+        TextVerticalAlignment::Bottom => 3,
     }
 }
 

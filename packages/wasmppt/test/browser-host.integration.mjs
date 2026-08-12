@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { arch, cpus, platform, release } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -25,6 +25,29 @@ const renderCorpus = JSON.parse(
 const featureRegions = Object.fromEntries(
   renderCorpus.presentations[0].features.map((feature) => [feature.id, feature.region]),
 )
+
+const benchmarkFixtureDirectory = join(workspaceDirectory, 'target/benchmark-fixtures')
+await mkdir(benchmarkFixtureDirectory, { recursive: true })
+for (const slides of [10, 50, 200]) {
+  const fixture = join(benchmarkFixtureDirectory, `mixed-${slides}.potx`)
+  try {
+    await access(fixture)
+  } catch {
+    execFileSync('cargo', [
+      'run',
+      '--quiet',
+      '--locked',
+      '-p',
+      'wasmppt-native',
+      '--example',
+      'write_benchmark_fixture',
+      '--',
+      'mixed',
+      String(slides),
+      fixture,
+    ], { cwd: workspaceDirectory, stdio: 'inherit' })
+  }
+}
 
 const routes = new Map([
   ['/dist/worker-client.js', [join(packageDirectory, 'dist/worker-client.js'), 'text/javascript']],
@@ -67,7 +90,7 @@ const routes = new Map([
 ])
 for (const slides of [10, 50, 200]) {
   routes.set(`/benchmark-mixed-${slides}.potx`, [
-    join(workspaceDirectory, `target/benchmark-fixtures/mixed-${slides}.potx`),
+    join(benchmarkFixtureDirectory, `mixed-${slides}.potx`),
     'application/octet-stream',
   ])
 }

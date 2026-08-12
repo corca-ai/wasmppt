@@ -197,6 +197,39 @@ export class WasmpptEngine {
 if (Symbol.dispose) WasmpptEngine.prototype[Symbol.dispose] = WasmpptEngine.prototype.free;
 
 /**
+ * Stable signature used to compare native and Wasm display-list structure.
+ * @param {Uint8Array} presentation
+ * @param {number} slide_index
+ * @returns {string}
+ */
+export function display_list_signature(presentation, slide_index) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passArray8ToWasm0(presentation, wasm.__wbindgen_export);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.display_list_signature(retptr, ptr0, len0, slide_index);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+        var ptr2 = r0;
+        var len2 = r1;
+        if (r3) {
+            ptr2 = 0; len2 = 0;
+            throw takeObject(r2);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+        wasm.__wbindgen_export3(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * Returns the engine package version embedded in the Wasm module.
  * @returns {string}
  */
@@ -214,6 +247,33 @@ export function engine_version() {
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
         wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * Resolve one slide to the compact backend-neutral display-list wire format.
+ * @param {Uint8Array} presentation
+ * @param {number} slide_index
+ * @returns {Uint8Array}
+ */
+export function resolve_display_list(presentation, slide_index) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passArray8ToWasm0(presentation, wasm.__wbindgen_export);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.resolve_display_list(retptr, ptr0, len0, slide_index);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+        if (r3) {
+            throw takeObject(r2);
+        }
+        var v2 = getArrayU8FromWasm0(r0, r1).slice();
+        wasm.__wbindgen_export3(r0, r1 * 1, 1);
+        return v2;
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
     }
 }
 function __wbg_get_imports() {

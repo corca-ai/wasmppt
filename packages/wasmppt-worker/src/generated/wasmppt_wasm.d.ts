@@ -45,9 +45,19 @@ export class WasmpptEngine {
 }
 
 /**
+ * Stable signature used to compare native and Wasm display-list structure.
+ */
+export function display_list_signature(presentation: Uint8Array, slide_index: number): string;
+
+/**
  * Returns the engine package version embedded in the Wasm module.
  */
 export function engine_version(): string;
+
+/**
+ * Resolve one slide to the compact backend-neutral display-list wire format.
+ */
+export function resolve_display_list(presentation: Uint8Array, slide_index: number): Uint8Array;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -55,9 +65,11 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_enginecapabilities_free: (a: number, b: number) => void;
     readonly __wbg_wasmpptengine_free: (a: number, b: number) => void;
+    readonly display_list_signature: (a: number, b: number, c: number, d: number) => void;
     readonly engine_version: (a: number) => void;
     readonly enginecapabilities_simd: (a: number) => number;
     readonly enginecapabilities_threads: (a: number) => number;
+    readonly resolve_display_list: (a: number, b: number, c: number, d: number) => void;
     readonly wasmpptengine_capabilities: (a: number) => number;
     readonly wasmpptengine_generate_text: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmpptengine_new: () => number;

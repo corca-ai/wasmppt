@@ -29,14 +29,26 @@ const routes = new Map([
     '/fixture.potx',
     [join(workspaceDirectory, 'fixtures/host-adapters/minimal.potx'), 'application/octet-stream'],
   ],
+  [
+    '/render-fixture.pptx',
+    [join(workspaceDirectory, 'fixtures/render/basic.pptx'), 'application/octet-stream'],
+  ],
 ])
 
 const workerSource = `
-import init, { WasmpptEngine } from '/wasm/wasmppt_wasm.js';
+import init, { WasmpptEngine, display_list_signature } from '/wasm/wasmppt_wasm.js';
 import { installWorkerRuntime } from '/dist/worker-runtime.js';
 try {
   await init({ module_or_path: new URL('/wasm/wasmppt_wasm_bg.wasm', self.location.href) });
   installWorkerRuntime(self, new WasmpptEngine());
+  self.addEventListener('message', (event) => {
+    if (event.data?.type === 'host-display-signature') {
+      self.postMessage({
+        type: 'host-display-signature-result',
+        signature: display_list_signature(new Uint8Array(event.data.presentation), event.data.slideIndex),
+      });
+    }
+  });
   self.postMessage({ type: 'host-ready' });
 } catch (error) {
   self.postMessage({ type: 'host-init-error', message: error instanceof Error ? error.stack : String(error) });
@@ -117,18 +129,34 @@ try {
     const prepared = await prepare
     const output = new Uint8Array(await client.generate(prepared.handle))
     await client.release(prepared.handle)
+    const renderFixture = await fetch('/render-fixture.pptx').then((response) => response.arrayBuffer())
+    const displaySignature = await new Promise((resolvePromise, reject) => {
+      const timer = setTimeout(() => reject(new Error('display signature timed out')), 10_000)
+      worker.addEventListener('message', (event) => {
+        if (event.data?.type === 'host-display-signature-result') {
+          clearTimeout(timer)
+          resolvePromise(event.data.signature)
+        }
+      })
+      worker.postMessage(
+        { type: 'host-display-signature', presentation: renderFixture, slideIndex: 0 },
+        [renderFixture],
+      )
+    })
     client.terminate()
     return {
       transferredByteLength,
       residentBytes: prepared.residentBytes,
-      signature: [...output.subarray(0, 2)],
+      zipSignature: [...output.subarray(0, 2)],
       outputBytes: output.byteLength,
+      displaySignature,
     }
   })
   assert.equal(result.transferredByteLength, 0, 'template ArrayBuffer was cloned, not transferred')
   assert(result.residentBytes > 0)
-  assert.deepEqual(result.signature, [0x50, 0x4b])
+  assert.deepEqual(result.zipSignature, [0x50, 0x4b])
   assert(result.outputBytes > 0)
+  assert.equal(result.displaySignature, 'a53592cdd09d0945')
   assert.deepEqual(errors, [])
   console.log(`browser host fixture ok: ${result.outputBytes} output bytes`)
 } finally {

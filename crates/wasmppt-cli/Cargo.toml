@@ -17,6 +17,8 @@ path = "src/main.rs"
 default = []
 
 [dependencies]
+wasmppt-display.workspace = true
+wasmppt-layout.workspace = true
 wasmppt-opc.workspace = true
 wasmppt-pml.workspace = true
 wasmppt-template.workspace = true

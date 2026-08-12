@@ -4,6 +4,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use js_sys::Array;
 use wasm_bindgen::prelude::*;
+use wasmppt_display::DisplayList;
+use wasmppt_layout::PresentationDocument;
 use wasmppt_opc::ZipArchive;
 use wasmppt_template::{InjectionData, PreparedTemplate, TemplateCompiler};
 
@@ -11,6 +13,25 @@ use wasmppt_template::{InjectionData, PreparedTemplate, TemplateCompiler};
 #[wasm_bindgen]
 pub fn engine_version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
+}
+
+/// Resolve one slide to the compact backend-neutral display-list wire format.
+#[wasm_bindgen]
+pub fn resolve_display_list(presentation: &[u8], slide_index: u32) -> Result<Vec<u8>, JsError> {
+    let deck = PresentationDocument::open(presentation.to_vec()).map_err(js_error)?;
+    let resolved = deck.resolve_slide(slide_index as usize).map_err(js_error)?;
+    Ok(DisplayList::from_slide(&resolved.slide).encode())
+}
+
+/// Stable signature used to compare native and Wasm display-list structure.
+#[wasm_bindgen]
+pub fn display_list_signature(presentation: &[u8], slide_index: u32) -> Result<String, JsError> {
+    let deck = PresentationDocument::open(presentation.to_vec()).map_err(js_error)?;
+    let resolved = deck.resolve_slide(slide_index as usize).map_err(js_error)?;
+    Ok(format!(
+        "{:016x}",
+        DisplayList::from_slide(&resolved.slide).structural_signature()
+    ))
 }
 
 /// Runtime-independent capabilities. Correctness always uses the scalar path.

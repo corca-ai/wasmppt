@@ -18,6 +18,8 @@ This is the canonical index for living `wasmppt` documentation.
   text, images, tables, slides, macro stripping, streaming, and validation.
 - [Runtime host adapters](hosts.md) — native files, opaque Wasm handles, browser
   Worker protocol, Cloudflare/R2 streaming, cache and memory budgets.
+- [Lazy slide resolution](rendering.md) — theme/master/layout inheritance,
+  geometry and diagnostics, dependency invalidation, and binary display lists.
 - [Documentation guide](metadoc.md) — how documentation is organized, written,
   linked, and linted.
 

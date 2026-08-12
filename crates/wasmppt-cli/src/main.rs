@@ -1,5 +1,7 @@
 use std::{env, fs, io::BufWriter, path::Path};
 
+use wasmppt_display::DisplayList;
+use wasmppt_layout::PresentationDocument;
 use wasmppt_opc::{DiagnosticCode, PackageGraph, WriteSink, ZipArchive};
 use wasmppt_template::{InjectionData, PreparedTemplate, TemplateCompiler};
 use wasmppt_xml::XmlDocument;
@@ -37,10 +39,48 @@ fn run() -> Result<(), String> {
             }
             validate(Path::new(&input))
         }
+        Some("resolve") => {
+            let input = arguments
+                .next()
+                .ok_or("resolve requires INPUT and SLIDE_INDEX")?;
+            let slide_index = arguments
+                .next()
+                .ok_or("resolve requires INPUT and SLIDE_INDEX")?
+                .parse::<usize>()
+                .map_err(|_| "SLIDE_INDEX must be a non-negative integer")?;
+            if arguments.next().is_some() {
+                return Err("resolve accepts exactly INPUT and SLIDE_INDEX".to_owned());
+            }
+            resolve(Path::new(&input), slide_index)
+        }
         Some(command) => Err(format!(
-            "unknown command {command:?}; use convert or validate"
+            "unknown command {command:?}; use convert, validate, or resolve"
         )),
     }
+}
+
+fn resolve(input: &Path, slide_index: usize) -> Result<(), String> {
+    let bytes =
+        fs::read(input).map_err(|error| format!("cannot read {}: {error}", input.display()))?;
+    let deck = PresentationDocument::open(bytes).map_err(|error| error.to_string())?;
+    let resolved = deck
+        .resolve_slide(slide_index)
+        .map_err(|error| error.to_string())?;
+    let display = DisplayList::from_slide(&resolved.slide);
+    println!(
+        "resolved slide {slide_index}: {} commands, {} diagnostics, {} parsed parts, signature {:016x}",
+        display.commands.len(),
+        resolved.diagnostics.len(),
+        resolved.trace.parsed_xml_parts.len(),
+        display.structural_signature()
+    );
+    for diagnostic in &resolved.diagnostics {
+        eprintln!(
+            "render {:?} {} shape {:?}: {}",
+            diagnostic.code, diagnostic.part_name, diagnostic.shape_id, diagnostic.message
+        );
+    }
+    Ok(())
 }
 
 fn convert(input: &Path, output: &Path) -> Result<(), String> {

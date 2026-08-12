@@ -90,7 +90,8 @@ CI runs the same gates. Runtime compatibility, security, visual, and performance
 will be added as the corresponding architecture slices become executable.
 
 The compatibility job converts a pinned real POTX and validates its PPTX output with the
-Microsoft Open XML SDK wrapper under `tools/openxml-validator`.
+Microsoft Open XML SDK wrapper under `tools/openxml-validator`. It also resolves slides
+from the generated output and the pinned real-world Apache POI `SampleShow.pptx` fixture.
 
 Run the package parser fuzz target separately with `cargo-fuzz`:
 

@@ -76,7 +76,10 @@ jobs:
       - name: Regenerate Wasm host artifacts
         run: |
           npm run build:wasm-hosts
-          git diff --exit-code -- packages/wasmppt-worker/src/generated
+          git diff --exit-code -- \
+            packages/wasmppt-worker/src/generated/wasmppt_wasm.js \
+            packages/wasmppt-worker/src/generated/wasmppt_wasm.d.ts \
+            packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm.d.ts
       - name: Execute the shared native fixture
         env:
           WASMPPT_HOST_FIXTURE: fixtures/host-adapters/minimal.potx
@@ -112,6 +115,11 @@ jobs:
             --output target/compat/bug59273.potx
           echo "a69207b33c69e171dd35fab165e498802a46759bca24f5eb614deb3503aa5ee6  target/compat/bug59273.potx" \
             | sha256sum --check --strict
+          curl --fail --location --silent --show-error \
+            https://raw.githubusercontent.com/apache/poi/fe4184d649c0f7950e3a610c7dbc0591b7a52e3e/test-data/slideshow/SampleShow.pptx \
+            --output target/compat/SampleShow.pptx
+          echo "bfb4b2f07c9233afd2f32aa5781d849d0c7d225bf03721a10becf487b481d828  target/compat/SampleShow.pptx" \
+            | sha256sum --check --strict
       - name: Convert real POTX through a forward-only sink
         run: |
           cargo run --locked -p wasmppt-cli -- validate target/compat/bug59273.potx
@@ -122,6 +130,10 @@ jobs:
         run: >-
           dotnet run --project tools/openxml-validator/OpenXmlValidator.csproj
           --configuration Release -- target/compat/generated.pptx
+      - name: Resolve a real-world slide without silent fallback
+        run: |
+          cargo run --locked -p wasmppt-cli -- resolve target/compat/generated.pptx 0
+          cargo run --locked -p wasmppt-cli -- resolve target/compat/SampleShow.pptx 0
 
   licenses:
     runs-on: ubuntu-latest

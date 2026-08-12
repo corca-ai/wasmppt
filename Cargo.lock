@@ -397,6 +397,8 @@ dependencies = [
 name = "wasmppt-cli"
 version = "0.0.0"
 dependencies = [
+ "wasmppt-display",
+ "wasmppt-layout",
  "wasmppt-opc",
  "wasmppt-pml",
  "wasmppt-template",
@@ -414,7 +416,9 @@ dependencies = [
 name = "wasmppt-layout"
 version = "0.0.0"
 dependencies = [
+ "wasmppt-opc",
  "wasmppt-pml",
+ "wasmppt-xml",
 ]
 
 [[package]]

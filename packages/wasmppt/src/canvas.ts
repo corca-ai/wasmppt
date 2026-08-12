@@ -560,12 +560,32 @@ export function wrapText(
       line = ''
       continue
     }
+    if (isSoftWhitespace(token)) {
+      if (line === '') continue
+      if (measure(line + token) > maxWidth) {
+        lines.push(line.trimEnd())
+        line = ''
+      } else {
+        line += token
+      }
+      continue
+    }
     const candidate = line + token
     if (line !== '' && measure(candidate) > maxWidth) {
       lines.push(line.trimEnd())
-      line = token.trimStart()
-    } else {
-      line = candidate
+      line = ''
+    }
+    if (measure(token) <= maxWidth) {
+      line += token
+      continue
+    }
+    const fragments = splitTokenToFit(token, maxWidth, measure)
+    for (const [index, fragment] of fragments.entries()) {
+      line = fragment
+      if (index + 1 < fragments.length) {
+        lines.push(line)
+        line = ''
+      }
     }
   }
   if (line !== '' || lines.length === 0) lines.push(line.trimEnd())
@@ -686,8 +706,8 @@ export async function buildRichTextLayout(
         ? resolved[resolvedIndex] ?? await resolver.resolve(run.text)
         : resolved[resolvedIndex++]!
       const tokens = command.frame.wrap ? lineBreakTokens(run.text) : [run.text]
-      for (const token of tokens) {
-        if (token === '\n') {
+      for (const rawToken of tokens) {
+        if (rawToken === '\n') {
           lines.push({
             runs: lineRuns.splice(0),
             height: applyLineSpacing(lineHeight || 1, paragraph.lineSpacing),
@@ -703,37 +723,59 @@ export async function buildRichTextLayout(
           continue
         }
         const spacing = pointsToCssPixels(run.style.characterSpacing / 100)
-        const width = token === '\t'
+        const rawWidth = rawToken === '\t'
           ? nextTabWidth(lineWidth, paragraph.tabs)
-          : (measurementLookup.get(`${font.css}\0${token}`) ?? 0) + characterGapCount(token) * spacing
-        if (command.frame.wrap && lineRuns.length > 0 && lineWidth + width > available) {
-          lines.push({
-            runs: lineRuns.splice(0),
-            height: applyLineSpacing(lineHeight || 1, paragraph.lineSpacing),
-            alignment: paragraph.alignment,
-            before: firstLine ? paragraphBefore : 0,
-            after: 0,
-            left,
+          : (measurementLookup.get(`${font.css}\0${rawToken}`) ?? 0) +
+            characterGapCount(rawToken) * spacing
+        const measureToken = (value: string): number => {
+          context.font = font.css
+          return context.measureText(value).width + characterGapCount(value) * spacing
+        }
+        const fragments = command.frame.wrap && !isSoftWhitespace(rawToken) &&
+            rawToken !== '\t' && rawWidth > available
+          ? splitTokenToFit(rawToken, available, measureToken)
+          : [rawToken]
+        for (const token of fragments) {
+          const width = token === rawToken ? rawWidth : measureToken(token)
+          const softWhitespace = isSoftWhitespace(token)
+          if (command.frame.wrap && softWhitespace && lineRuns.length === 0) continue
+          if (command.frame.wrap && lineRuns.length > 0 && lineWidth + width > available) {
+            while (lineRuns.length > 0 && isSoftWhitespace(lineRuns[lineRuns.length - 1]!.text)) {
+              lineWidth -= lineRuns.pop()!.width
+            }
+            lineHeight = lineRuns.reduce(
+              (height, existing) => Math.max(height, existing.fontSize * 1.2),
+              0,
+            )
+            lines.push({
+              runs: lineRuns.splice(0),
+              height: applyLineSpacing(lineHeight || 1, paragraph.lineSpacing),
+              alignment: paragraph.alignment,
+              before: firstLine ? paragraphBefore : 0,
+              after: 0,
+              left,
+              direction: paragraph.direction,
+            })
+            firstLine = false
+            lineWidth = 0
+            lineHeight = 0
+            if (softWhitespace) continue
+          }
+          lineRuns.push({
+            text: token === '\t' ? '' : token,
+            width,
+            font,
+            color: run.style.color,
+            underline: run.style.underline,
+            strike: run.style.strike,
+            characterSpacing: spacing,
+            fontSize: pointsToCssPixels(run.style.fontSize / 100),
+            baselineShift: run.style.baseline / 100_000,
             direction: paragraph.direction,
           })
-          firstLine = false
-          lineWidth = 0
-          lineHeight = 0
+          lineWidth += width
+          lineHeight = Math.max(lineHeight, pointsToCssPixels(run.style.fontSize / 100) * 1.2)
         }
-        lineRuns.push({
-          text: token === '\t' ? '' : token,
-          width,
-          font,
-          color: run.style.color,
-          underline: run.style.underline,
-          strike: run.style.strike,
-          characterSpacing: spacing,
-          fontSize: pointsToCssPixels(run.style.fontSize / 100),
-          baselineShift: run.style.baseline / 100_000,
-          direction: paragraph.direction,
-        })
-        lineWidth += width
-        lineHeight = Math.max(lineHeight, pointsToCssPixels(run.style.fontSize / 100) * 1.2)
       }
     }
     lines.push({
@@ -2176,25 +2218,35 @@ function quoteFontFamily(family: string): string {
 function lineBreakTokens(text: string): readonly string[] {
   const tokens: string[] = []
   let latin = ''
+  let whitespace = ''
   let opening = ''
+  const flushLatin = (): void => {
+    if (latin !== '') tokens.push(latin)
+    latin = ''
+  }
+  const flushWhitespace = (): void => {
+    if (whitespace !== '') tokens.push(whitespace)
+    whitespace = ''
+  }
   for (const character of text) {
     if (character === '\n') {
-      if (latin !== '') tokens.push(latin)
-      latin = ''
+      flushLatin()
+      flushWhitespace()
       if (opening !== '') tokens.push(opening)
       opening = ''
       tokens.push(character)
     } else if (character === '\t') {
-      if (latin !== '') tokens.push(latin)
-      latin = ''
+      flushLatin()
+      flushWhitespace()
       if (opening !== '') tokens.push(opening)
       opening = ''
       tokens.push(character)
     } else if (/\s/u.test(character)) {
-      latin += character
+      flushLatin()
+      whitespace += character
     } else if (/\p{Script=Han}|\p{Script=Hangul}|\p{Script=Hiragana}|\p{Script=Katakana}/u.test(character)) {
-      if (latin !== '') tokens.push(latin)
-      latin = ''
+      flushLatin()
+      flushWhitespace()
       if (/[（［｛〈《「『【〔〖〘〚]/u.test(character)) {
         opening += character
       } else if (/[）］｝〉》」』】〕〗〙〛、。，．？！：；]/u.test(character) && tokens.length > 0) {
@@ -2205,13 +2257,40 @@ function lineBreakTokens(text: string): readonly string[] {
         opening = ''
       }
     } else {
+      flushWhitespace()
       latin += opening + character
       opening = ''
     }
   }
   if (opening !== '') latin += opening
-  if (latin !== '') tokens.push(latin)
+  flushLatin()
+  flushWhitespace()
   return tokens
+}
+
+function isSoftWhitespace(token: string): boolean {
+  return token !== '\n' && token !== '\t' && /^\s+$/u.test(token)
+}
+
+function splitTokenToFit(
+  token: string,
+  maxWidth: number,
+  measure: (candidate: string) => number,
+): readonly string[] {
+  if (!(maxWidth > 0)) return [token]
+  const fragments: string[] = []
+  let fragment = ''
+  for (const character of token) {
+    const candidate = fragment + character
+    if (fragment !== '' && measure(candidate) > maxWidth) {
+      fragments.push(fragment)
+      fragment = character
+    } else {
+      fragment = candidate
+    }
+  }
+  if (fragment !== '') fragments.push(fragment)
+  return fragments
 }
 
 function characterGapCount(text: string): number {

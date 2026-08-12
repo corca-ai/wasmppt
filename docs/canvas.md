@@ -42,9 +42,10 @@ Supplied web fonts are loaded before canvas use through the
 
 `measureTextBatch` groups requests by the final CSS font and deduplicates identical
 font/text pairs before measuring them on the target
-canvas. Korean, Han, Hiragana, and Katakana text may wrap at character boundaries; newline
-and Latin whitespace behavior remain deterministic. Tests cover an exact supplied-font host,
-documented missing-font fallback, Korean wrapping, and mixed-order batched measurement.
+canvas. Korean, Han, Hiragana, and Katakana text may wrap at character boundaries. Latin text
+wraps at whitespace first and falls back to character boundaries when one token exceeds the
+frame width; newlines remain deterministic. Tests cover an exact supplied-font host, documented
+missing-font fallback, Korean and Latin wrapping, and mixed-order batched measurement.
 
 ## Lazy viewer and resource ownership
 

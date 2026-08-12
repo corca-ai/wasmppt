@@ -9,6 +9,7 @@ use wasmppt_opc::{
     CompressionMethod, Entry, EntryOptions, OutputSink, PackageGraph, ReadAt, RelationshipTarget,
     RewriteMode, StreamingZipWriter, VecSink, WriteStats, ZipArchive, ZipWriter,
 };
+use wasmppt_pml::SlideView;
 use wasmppt_xml::{TokenKind, XmlDocument, decode_entities};
 
 use crate::{BindingKind, BindingTarget, RelationshipAction, TemplatePlan};
@@ -27,6 +28,34 @@ pub struct ImageData {
     pub extension: String,
     pub content_type: String,
     pub crop: Option<ImageCrop>,
+    pub fit: ImageFitPolicy,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ImageFitPolicy {
+    #[default]
+    Preserve,
+    Cover,
+    Contain,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct RichTextRunData {
+    pub text: String,
+    pub bold: Option<bool>,
+    pub italic: Option<bool>,
+    pub underline: Option<bool>,
+    pub font_size: Option<i32>,
+    pub color: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SemanticShapeData {
+    pub visible: Option<bool>,
+    pub copies: Option<u32>,
+    pub rich_text: Option<Vec<RichTextRunData>>,
+    pub hyperlink: Option<String>,
+    pub fill_color: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -50,6 +79,8 @@ pub struct InjectionData {
     table_rows: BTreeMap<String, Vec<BTreeMap<String, String>>>,
     slide_copies: BTreeMap<String, usize>,
     charts: BTreeMap<String, ChartData>,
+    semantic_shapes: BTreeMap<String, SemanticShapeData>,
+    notes: BTreeMap<String, String>,
 }
 
 impl InjectionData {
@@ -105,6 +136,28 @@ impl InjectionData {
 
     pub fn with_chart(mut self, chart_part_name: impl Into<String>, chart: ChartData) -> Self {
         self.set_chart(chart_part_name, chart);
+        self
+    }
+
+    pub fn set_semantic_shape(&mut self, id: impl Into<String>, shape: SemanticShapeData) {
+        self.semantic_shapes.insert(id.into(), shape);
+    }
+
+    pub fn with_semantic_shape(mut self, id: impl Into<String>, shape: SemanticShapeData) -> Self {
+        self.set_semantic_shape(id, shape);
+        self
+    }
+
+    pub fn set_notes(&mut self, slide_part_name: impl Into<String>, text: impl Into<String>) {
+        self.notes.insert(slide_part_name.into(), text.into());
+    }
+
+    pub fn with_notes(
+        mut self,
+        slide_part_name: impl Into<String>,
+        text: impl Into<String>,
+    ) -> Self {
+        self.set_notes(slide_part_name, text);
         self
     }
 }
@@ -179,6 +232,22 @@ struct ChartPlan {
 }
 
 #[derive(Clone, Debug)]
+struct SemanticShapePlan {
+    part_name: String,
+    shape_range: Range<usize>,
+    shape_id_range: Option<Range<usize>>,
+    paragraph_content_range: Option<Range<usize>>,
+    fill_color_range: Option<Range<usize>>,
+    hyperlink_target: Option<(String, Range<usize>)>,
+}
+
+#[derive(Clone, Debug)]
+struct NotesPlan {
+    part_name: String,
+    text_ranges: Vec<Range<usize>>,
+}
+
+#[derive(Clone, Debug)]
 struct SlideRecord {
     part_name: String,
     slide_id: u32,
@@ -245,6 +314,9 @@ pub struct PreparedTemplate {
     image_plans: HashMap<String, ImagePlan>,
     table_plans: HashMap<String, TablePlan>,
     chart_plans: HashMap<String, ChartPlan>,
+    semantic_shape_plans: HashMap<String, SemanticShapePlan>,
+    notes_plans: HashMap<String, NotesPlan>,
+    maximum_shape_ids: HashMap<String, u32>,
     slide_deck: SlideDeckPlan,
 }
 
@@ -261,6 +333,9 @@ pub struct GenerateStats {
     pub zip: WriteStats,
     pub rewritten_entries: u64,
     pub removed_entries: u64,
+    pub dirty_uncompressed_bytes: u64,
+    pub peak_dirty_entry_bytes: u64,
+    pub maximum_output_chunk_bytes: u64,
 }
 
 #[derive(Debug)]
@@ -270,6 +345,9 @@ pub struct GenerationCursor {
     rewritten_entries: u64,
     removed_entries: u64,
     finish_started: bool,
+    dirty_uncompressed_bytes: u64,
+    peak_dirty_entry_bytes: u64,
+    maximum_output_chunk_bytes: u64,
 }
 
 #[derive(Debug)]
@@ -321,6 +399,7 @@ impl GenerationCursor {
             }
             output.extend(chunk);
         }
+        self.maximum_output_chunk_bytes = self.maximum_output_chunk_bytes.max(output.len() as u64);
         Ok(output)
     }
 
@@ -333,6 +412,9 @@ impl GenerationCursor {
             zip: self.writer.stats(),
             rewritten_entries: self.rewritten_entries,
             removed_entries: self.removed_entries,
+            dirty_uncompressed_bytes: self.dirty_uncompressed_bytes,
+            peak_dirty_entry_bytes: self.peak_dirty_entry_bytes,
+            maximum_output_chunk_bytes: self.maximum_output_chunk_bytes,
         })
     }
 }
@@ -373,6 +455,9 @@ impl PreparedTemplate {
         let table_plans = prepare_table_plans(&archive, &plan)?;
         let chart_plans = prepare_chart_plans(&archive)?;
         let slide_deck = prepare_slide_deck(&archive)?;
+        let (semantic_shape_plans, maximum_shape_ids) =
+            prepare_semantic_shape_plans(&archive, &plan)?;
+        let notes_plans = prepare_notes_plans(&archive)?;
         let image_relationship_parts = image_plans
             .values()
             .map(|plan| plan.relationship_part.as_str())
@@ -382,6 +467,17 @@ impl PreparedTemplate {
             .flat_map(|plan| {
                 std::iter::once(plan.chart_part.as_str()).chain(plan.workbook_part.as_deref())
             })
+            .collect::<HashSet<_>>();
+        let semantic_parts = semantic_shape_plans
+            .values()
+            .flat_map(|plan| {
+                std::iter::once(plan.part_name.as_str()).chain(
+                    plan.hyperlink_target
+                        .as_ref()
+                        .map(|(part, _)| part.as_str()),
+                )
+            })
+            .chain(notes_plans.values().map(|plan| plan.part_name.as_str()))
             .collect::<HashSet<_>>();
         let mut cached_parts = HashMap::new();
         let mut static_patches = HashMap::new();
@@ -393,7 +489,8 @@ impl PreparedTemplate {
                 || entry.name.ends_with(".rels")
                 || entry.name.ends_with(".xml")
                 || binding_parts.contains(entry.name.as_str())
-                || chart_parts.contains(entry.name.as_str());
+                || chart_parts.contains(entry.name.as_str())
+                || semantic_parts.contains(entry.name.as_str());
             if !scan {
                 continue;
             }
@@ -413,6 +510,7 @@ impl PreparedTemplate {
                 || entry.name == slide_deck.presentation_part
                 || entry.name == slide_deck.relationship_part
                 || chart_parts.contains(entry.name.as_str())
+                || semantic_parts.contains(entry.name.as_str())
                 || slide_deck.used_slide_parts.contains(&entry.name)
                 || slide_deck.used_slide_parts.iter().any(|part| {
                     relationship_part_name(part).as_deref() == Some(entry.name.as_str())
@@ -433,6 +531,9 @@ impl PreparedTemplate {
             image_plans,
             table_plans,
             chart_plans,
+            semantic_shape_plans,
+            notes_plans,
+            maximum_shape_ids,
             slide_deck,
         })
     }
@@ -455,6 +556,145 @@ impl PreparedTemplate {
         source.saturating_add(cached)
     }
 
+    fn append_v2_patches(
+        &self,
+        data: &InjectionData,
+        dynamic: &mut HashMap<String, Vec<Patch>>,
+    ) -> Result<(), GenerateError> {
+        let mut next_ids = self
+            .maximum_shape_ids
+            .iter()
+            .map(|(part, value)| (part.clone(), value.saturating_add(1)))
+            .collect::<HashMap<_, _>>();
+        for (id, value) in &data.semantic_shapes {
+            let plan = self.semantic_shape_plans.get(id).ok_or_else(|| {
+                GenerateError::new(
+                    GenerateErrorCode::InvalidTemplate,
+                    format!("no semantic shape binding named {id}"),
+                )
+            })?;
+            validate_semantic_shape(value)?;
+            let source = self.cached_part(&plan.part_name)?;
+            let mut local = Vec::new();
+            if let Some(runs) = &value.rich_text {
+                let range = plan.paragraph_content_range.clone().ok_or_else(|| {
+                    GenerateError::new(
+                        GenerateErrorCode::InvalidTemplate,
+                        format!("semantic shape {id} has no writable paragraph"),
+                    )
+                })?;
+                local.push(Patch {
+                    range,
+                    replacement: rich_text_xml(runs).into_bytes(),
+                });
+            }
+            if let Some(color) = &value.fill_color {
+                let range = plan.fill_color_range.clone().ok_or_else(|| {
+                    GenerateError::new(
+                        GenerateErrorCode::InvalidTemplate,
+                        format!("semantic shape {id} has no writable solid fill"),
+                    )
+                })?;
+                local.push(Patch {
+                    range,
+                    replacement: color.as_bytes().to_vec(),
+                });
+            }
+            let copies = value.copies.unwrap_or(1) as usize;
+            if value.visible == Some(false) || copies == 0 {
+                dynamic
+                    .entry(plan.part_name.clone())
+                    .or_default()
+                    .push(Patch {
+                        range: plan.shape_range.clone(),
+                        replacement: Vec::new(),
+                    });
+            } else if copies > 1 {
+                let base = source.get(plan.shape_range.clone()).ok_or_else(|| {
+                    GenerateError::new(
+                        GenerateErrorCode::InvalidBindingRange,
+                        "semantic shape range is invalid",
+                    )
+                })?;
+                let relative = relative_patches(local, plan.shape_range.start)?;
+                let first = apply_patches(base, relative.clone())?;
+                let mut replacement = first;
+                let id_range = plan.shape_id_range.clone().ok_or_else(|| {
+                    GenerateError::new(
+                        GenerateErrorCode::InvalidTemplate,
+                        "repeated semantic shape has no cNvPr id",
+                    )
+                })?;
+                let relative_id =
+                    id_range.start - plan.shape_range.start..id_range.end - plan.shape_range.start;
+                let next = next_ids.entry(plan.part_name.clone()).or_insert(1);
+                for _ in 1..copies {
+                    let mut patches = relative.clone();
+                    patches.push(Patch {
+                        range: relative_id.clone(),
+                        replacement: next.to_string().into_bytes(),
+                    });
+                    replacement.extend(apply_patches(base, patches)?);
+                    *next = next.checked_add(1).ok_or_else(|| {
+                        GenerateError::new(GenerateErrorCode::InvalidTemplate, "shape ID exhausted")
+                    })?;
+                }
+                dynamic
+                    .entry(plan.part_name.clone())
+                    .or_default()
+                    .push(Patch {
+                        range: plan.shape_range.clone(),
+                        replacement,
+                    });
+            } else {
+                dynamic
+                    .entry(plan.part_name.clone())
+                    .or_default()
+                    .extend(local);
+            }
+            if let Some(hyperlink) = &value.hyperlink {
+                let (relationship_part, target_range) =
+                    plan.hyperlink_target.as_ref().ok_or_else(|| {
+                        GenerateError::new(
+                            GenerateErrorCode::InvalidTemplate,
+                            format!("semantic shape {id} has no writable hyperlink relationship"),
+                        )
+                    })?;
+                dynamic
+                    .entry(relationship_part.clone())
+                    .or_default()
+                    .push(Patch {
+                        range: target_range.clone(),
+                        replacement: escape_xml_attribute(hyperlink).into_bytes(),
+                    });
+            }
+        }
+        for (slide, notes) in &data.notes {
+            let plan = self.notes_plans.get(slide).ok_or_else(|| {
+                GenerateError::new(
+                    GenerateErrorCode::InvalidTemplate,
+                    format!("slide {slide} has no writable notes part"),
+                )
+            })?;
+            let Some(first) = plan.text_ranges.first() else {
+                return Err(GenerateError::new(
+                    GenerateErrorCode::InvalidTemplate,
+                    format!("notes part {} has no text range", plan.part_name),
+                ));
+            };
+            let patches = dynamic.entry(plan.part_name.clone()).or_default();
+            patches.push(Patch {
+                range: first.clone(),
+                replacement: escape_xml_text(notes).into_bytes(),
+            });
+            patches.extend(plan.text_ranges.iter().skip(1).cloned().map(|range| Patch {
+                range,
+                replacement: Vec::new(),
+            }));
+        }
+        Ok(())
+    }
+
     pub fn generate(&self, data: &InjectionData) -> Result<GenerateOutput, GenerateError> {
         let (sink, stats) = self.generate_to(data, VecSink::new())?;
         Ok(GenerateOutput {
@@ -475,6 +715,7 @@ impl PreparedTemplate {
         let mut new_media = BTreeMap::<String, (&ImageData, EntryOptions)>::new();
         let mut replaced_media = HashSet::new();
         let mut image_types = BTreeMap::<String, String>::new();
+        self.append_v2_patches(data, &mut dynamic)?;
         let active_table_bindings = self
             .table_plans
             .iter()
@@ -486,6 +727,14 @@ impl PreparedTemplate {
                 continue;
             }
             if active_table_bindings.contains(binding.id.as_str()) {
+                continue;
+            }
+            if data.semantic_shapes.get(&binding.id).is_some_and(|shape| {
+                shape.visible == Some(false)
+                    || shape.copies == Some(0)
+                    || shape.copies.is_some_and(|copies| copies > 1)
+                    || (binding.kind == BindingKind::Text && shape.rich_text.is_some())
+            }) {
                 continue;
             }
             match binding.kind {
@@ -532,7 +781,11 @@ impl PreparedTemplate {
                             range: image_plan.relationship_target_range.clone(),
                             replacement: escape_xml_attribute(&relative_target).into_bytes(),
                         });
-                    if let Some(crop) = image.crop {
+                    let crop = image.crop.or(match image.fit {
+                        ImageFitPolicy::Contain => Some(ImageCrop::default()),
+                        ImageFitPolicy::Preserve | ImageFitPolicy::Cover => None,
+                    });
+                    if let Some(crop) = crop {
                         dynamic
                             .entry(binding.part_name.clone())
                             .or_default()
@@ -660,6 +913,8 @@ impl PreparedTemplate {
         let mut writer = ZipWriter::new(sink);
         let mut rewritten_entries = 0;
         let mut removed_entries = 0;
+        let mut dirty_uncompressed_bytes = 0_u64;
+        let mut peak_dirty_entry_bytes = 0_u64;
         for entry in self.archive.entries() {
             if self.removed_parts.contains(&entry.name)
                 || replaced_media.contains(&entry.name)
@@ -683,12 +938,22 @@ impl PreparedTemplate {
                 .collect::<Vec<_>>();
             patches.extend(dynamic_edits.into_iter().flatten().cloned());
             let rewritten = apply_patches(self.cached_part(&entry.name)?, patches)?;
+            record_dirty_bytes(
+                &mut dirty_uncompressed_bytes,
+                &mut peak_dirty_entry_bytes,
+                rewritten.len(),
+            );
             writer
                 .write_entry(&entry.name, &rewritten, &options_from_entry(entry))
                 .map_err(package_error)?;
             rewritten_entries += 1;
         }
         for (name, (image, options)) in new_media {
+            record_dirty_bytes(
+                &mut dirty_uncompressed_bytes,
+                &mut peak_dirty_entry_bytes,
+                image.bytes.len(),
+            );
             writer
                 .write_entry(&name, &image.bytes, &options)
                 .map_err(package_error)?;
@@ -716,6 +981,11 @@ impl PreparedTemplate {
                     .cloned(),
             );
             let bytes = apply_patches(self.cached_part(&clone.source_part)?, patches)?;
+            record_dirty_bytes(
+                &mut dirty_uncompressed_bytes,
+                &mut peak_dirty_entry_bytes,
+                bytes.len(),
+            );
             writer
                 .write_entry(&clone.part_name, &bytes, &options_from_entry(source_entry))
                 .map_err(package_error)?;
@@ -739,6 +1009,11 @@ impl PreparedTemplate {
                 patches.extend(dynamic.get(&source_rels).into_iter().flatten().cloned());
                 let bytes = apply_patches(self.cached_part(&source_rels)?, patches)?;
                 let bytes = strip_notes_relationships(&bytes)?;
+                record_dirty_bytes(
+                    &mut dirty_uncompressed_bytes,
+                    &mut peak_dirty_entry_bytes,
+                    bytes.len(),
+                );
                 writer
                     .write_entry(&clone_rels, &bytes, &options_from_entry(entry))
                     .map_err(package_error)?;
@@ -752,6 +1027,9 @@ impl PreparedTemplate {
                 zip: zip_stats,
                 rewritten_entries,
                 removed_entries,
+                dirty_uncompressed_bytes,
+                peak_dirty_entry_bytes,
+                maximum_output_chunk_bytes: 0,
             },
         ))
     }
@@ -763,6 +1041,7 @@ impl PreparedTemplate {
         let mut new_media = BTreeMap::<String, (ImageData, EntryOptions)>::new();
         let mut replaced_media = HashSet::new();
         let mut image_types = BTreeMap::<String, String>::new();
+        self.append_v2_patches(data, &mut dynamic)?;
         let active_table_bindings = self
             .table_plans
             .iter()
@@ -773,6 +1052,14 @@ impl PreparedTemplate {
             if data.slide_copies.get(&binding.part_name) == Some(&0)
                 || active_table_bindings.contains(binding.id.as_str())
             {
+                continue;
+            }
+            if data.semantic_shapes.get(&binding.id).is_some_and(|shape| {
+                shape.visible == Some(false)
+                    || shape.copies == Some(0)
+                    || shape.copies.is_some_and(|copies| copies > 1)
+                    || (binding.kind == BindingKind::Text && shape.rich_text.is_some())
+            }) {
                 continue;
             }
             match binding.kind {
@@ -812,7 +1099,11 @@ impl PreparedTemplate {
                             range: image_plan.relationship_target_range.clone(),
                             replacement: escape_xml_attribute(&relative_target).into_bytes(),
                         });
-                    if let Some(crop) = image.crop {
+                    let crop = image.crop.or(match image.fit {
+                        ImageFitPolicy::Contain => Some(ImageCrop::default()),
+                        ImageFitPolicy::Preserve | ImageFitPolicy::Cover => None,
+                    });
+                    if let Some(crop) = crop {
                         dynamic
                             .entry(binding.part_name.clone())
                             .or_default()
@@ -1026,12 +1317,25 @@ impl PreparedTemplate {
                 rewritten_entries += 1;
             }
         }
+        let (dirty_uncompressed_bytes, peak_dirty_entry_bytes) =
+            entries
+                .iter()
+                .fold((0_u64, 0_u64), |(total, peak), entry| match entry {
+                    GenerationEntry::Raw(_) => (total, peak),
+                    GenerationEntry::Owned { bytes, .. } => (
+                        total.saturating_add(bytes.len() as u64),
+                        peak.max(bytes.len() as u64),
+                    ),
+                });
         Ok(GenerationCursor {
             writer: StreamingZipWriter::new(self.archive.source().clone()),
             entries,
             rewritten_entries,
             removed_entries,
             finish_started: false,
+            dirty_uncompressed_bytes,
+            peak_dirty_entry_bytes,
+            maximum_output_chunk_bytes: 0,
         })
     }
 
@@ -1201,6 +1505,231 @@ impl PreparedTemplate {
         }
         Ok(operations)
     }
+}
+
+fn prepare_semantic_shape_plans(
+    archive: &ZipArchive<wasmppt_opc::MemorySource>,
+    template: &TemplatePlan,
+) -> Result<(HashMap<String, SemanticShapePlan>, HashMap<String, u32>), GenerateError> {
+    let mut output = HashMap::new();
+    let mut maximum_ids = HashMap::new();
+    let mut parts = template
+        .bindings
+        .iter()
+        .map(|binding| binding.part_name.as_str())
+        .collect::<HashSet<_>>();
+    for part_name in parts.drain() {
+        let entry = archive.entry(part_name).ok_or_else(|| {
+            GenerateError::new(
+                GenerateErrorCode::InvalidTemplate,
+                "binding part is missing",
+            )
+        })?;
+        let bytes = archive.read_entry(entry).map_err(package_error)?;
+        let slide = SlideView::parse(bytes.clone())
+            .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+        maximum_ids.insert(
+            part_name.to_owned(),
+            slide
+                .shapes()
+                .iter()
+                .filter_map(|shape| shape.id)
+                .max()
+                .unwrap_or(0),
+        );
+        for binding in template
+            .bindings
+            .iter()
+            .filter(|binding| binding.part_name == part_name)
+        {
+            let Some(shape) = slide.shapes().iter().find(|shape| {
+                binding.shape_id.is_some_and(|id| shape.id == Some(id))
+                    || binding
+                        .shape_name
+                        .as_deref()
+                        .is_some_and(|name| shape.name.as_deref() == Some(name))
+            }) else {
+                continue;
+            };
+            let document = slide.document();
+            let within = |token: &wasmppt_xml::Token| {
+                token.range.start >= shape.source_range.start
+                    && token.range.end <= shape.source_range.end
+            };
+            let mut shape_id_range = None;
+            let mut fill_color_range = None;
+            let mut paragraph_content_range = None;
+            let mut hyperlink_id = None;
+            for (index, token) in document.tokens().iter().enumerate() {
+                if !within(token) {
+                    continue;
+                }
+                let TokenKind::Start {
+                    name,
+                    attributes,
+                    empty,
+                } = &token.kind
+                else {
+                    continue;
+                };
+                if name.local == "cNvPr" {
+                    shape_id_range = document
+                        .attribute(attributes, None, "id")
+                        .map(|value| value.value_range.clone());
+                } else if name.local == "srgbClr" && fill_color_range.is_none() {
+                    fill_color_range = document
+                        .attribute(attributes, None, "val")
+                        .map(|value| value.value_range.clone());
+                } else if name.local == "hlinkClick" {
+                    hyperlink_id = attributes
+                        .iter()
+                        .find(|attribute| attribute.name.local == "id")
+                        .map(|attribute| attribute.value.clone());
+                } else if name.local == "p" && paragraph_content_range.is_none() && !empty {
+                    if let Some(end) = matching_end(document, index) {
+                        paragraph_content_range =
+                            Some(token.range.end..document.tokens()[end].range.start);
+                    }
+                }
+            }
+            let hyperlink_target = hyperlink_id
+                .as_deref()
+                .and_then(|id| find_relationship_target_range(archive, part_name, id).transpose())
+                .transpose()?;
+            output.insert(
+                binding.id.clone(),
+                SemanticShapePlan {
+                    part_name: part_name.to_owned(),
+                    shape_range: shape.source_range.clone(),
+                    shape_id_range,
+                    paragraph_content_range,
+                    fill_color_range,
+                    hyperlink_target,
+                },
+            );
+        }
+    }
+    Ok((output, maximum_ids))
+}
+
+fn prepare_notes_plans(
+    archive: &ZipArchive<wasmppt_opc::MemorySource>,
+) -> Result<HashMap<String, NotesPlan>, GenerateError> {
+    let mut output = HashMap::new();
+    for slide in archive
+        .entries()
+        .iter()
+        .filter(|entry| entry.name.starts_with("ppt/slides/slide") && entry.name.ends_with(".xml"))
+    {
+        let Some(rels_name) = relationship_part_name(&slide.name) else {
+            continue;
+        };
+        let Some(rels_entry) = archive.entry(&rels_name) else {
+            continue;
+        };
+        let rels = archive.read_entry(rels_entry).map_err(package_error)?;
+        let document = XmlDocument::parse(rels)
+            .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+        let target = document.tokens().iter().find_map(|token| {
+            let TokenKind::Start {
+                name, attributes, ..
+            } = &token.kind
+            else {
+                return None;
+            };
+            if name.local != "Relationship" {
+                return None;
+            }
+            let kind = document.attribute(attributes, None, "Type")?;
+            kind.value.ends_with("/notesSlide").then(|| {
+                document
+                    .attribute(attributes, None, "Target")
+                    .and_then(|target| resolve_target(Some(&slide.name), &target.value))
+            })?
+        });
+        let Some(part_name) = target else {
+            continue;
+        };
+        let Some(entry) = archive.entry(&part_name) else {
+            continue;
+        };
+        let bytes = archive.read_entry(entry).map_err(package_error)?;
+        let document = XmlDocument::parse(bytes)
+            .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+        let text_ranges = document
+            .tokens()
+            .iter()
+            .filter(|token| matches!(&token.kind, TokenKind::Text | TokenKind::Cdata))
+            .map(|token| {
+                if matches!(&token.kind, TokenKind::Cdata) {
+                    token.range.start + 9..token.range.end - 3
+                } else {
+                    token.range.clone()
+                }
+            })
+            .collect();
+        output.insert(
+            slide.name.clone(),
+            NotesPlan {
+                part_name,
+                text_ranges,
+            },
+        );
+    }
+    Ok(output)
+}
+
+fn find_relationship_target_range(
+    archive: &ZipArchive<wasmppt_opc::MemorySource>,
+    source_part: &str,
+    relationship_id: &str,
+) -> Result<Option<(String, Range<usize>)>, GenerateError> {
+    let Some(part_name) = relationship_part_name(source_part) else {
+        return Ok(None);
+    };
+    let Some(entry) = archive.entry(&part_name) else {
+        return Ok(None);
+    };
+    let bytes = archive.read_entry(entry).map_err(package_error)?;
+    let document = XmlDocument::parse(bytes)
+        .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+    Ok(document.tokens().iter().find_map(|token| {
+        let TokenKind::Start {
+            name, attributes, ..
+        } = &token.kind
+        else {
+            return None;
+        };
+        (name.local == "Relationship"
+            && document
+                .attribute(attributes, None, "Id")
+                .is_some_and(|id| id.value == relationship_id))
+        .then(|| {
+            document
+                .attribute(attributes, None, "Target")
+                .map(|target| (part_name.clone(), target.value_range.clone()))
+        })?
+    }))
+}
+
+fn matching_end(document: &XmlDocument, start: usize) -> Option<usize> {
+    let token = document.tokens().get(start)?;
+    let TokenKind::Start { name, empty, .. } = &token.kind else {
+        return None;
+    };
+    if *empty {
+        return Some(start);
+    }
+    document
+        .tokens()
+        .iter()
+        .enumerate()
+        .skip(start + 1)
+        .find_map(|(index, candidate)| {
+            matches!(&candidate.kind, TokenKind::End { name: end }
+            if candidate.depth == token.depth && end.local == name.local)
+            .then_some(index)
+        })
 }
 
 fn prepare_image_plans(
@@ -2154,6 +2683,130 @@ fn validate_image(image: &ImageData) -> Result<(), GenerateError> {
         ));
     }
     Ok(())
+}
+
+fn validate_semantic_shape(value: &SemanticShapeData) -> Result<(), GenerateError> {
+    if value.copies.is_some_and(|copies| copies > 10_000) {
+        return Err(GenerateError::new(
+            GenerateErrorCode::InvalidTemplate,
+            "semantic shape copies exceed 10000",
+        ));
+    }
+    if let Some(runs) = &value.rich_text {
+        if runs.len() > 10_000 {
+            return Err(GenerateError::new(
+                GenerateErrorCode::InvalidTemplate,
+                "rich text run count exceeds 10000",
+            ));
+        }
+        for run in runs {
+            if run
+                .font_size
+                .is_some_and(|size| !(100..=40_000).contains(&size))
+            {
+                return Err(GenerateError::new(
+                    GenerateErrorCode::InvalidTemplate,
+                    "rich text font size is outside 1..400 points",
+                ));
+            }
+            if run
+                .color
+                .as_ref()
+                .is_some_and(|color| !valid_hex_color(color))
+            {
+                return Err(GenerateError::new(
+                    GenerateErrorCode::InvalidTemplate,
+                    "rich text color must be six hexadecimal digits",
+                ));
+            }
+        }
+    }
+    if value
+        .fill_color
+        .as_ref()
+        .is_some_and(|color| !valid_hex_color(color))
+    {
+        return Err(GenerateError::new(
+            GenerateErrorCode::InvalidTemplate,
+            "shape fill color must be six hexadecimal digits",
+        ));
+    }
+    if value.hyperlink.as_ref().is_some_and(|link| {
+        !(link.starts_with("https://")
+            || link.starts_with("http://")
+            || link.starts_with("mailto:")
+            || link.starts_with("tel:"))
+    }) {
+        return Err(GenerateError::new(
+            GenerateErrorCode::InvalidTemplate,
+            "shape hyperlink uses an unsupported scheme",
+        ));
+    }
+    Ok(())
+}
+
+fn valid_hex_color(color: &str) -> bool {
+    color.len() == 6 && color.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn rich_text_xml(runs: &[RichTextRunData]) -> String {
+    let mut output = String::new();
+    for run in runs {
+        output.push_str("<a:r><a:rPr");
+        if let Some(value) = run.bold {
+            output.push_str(if value { " b=\"1\"" } else { " b=\"0\"" });
+        }
+        if let Some(value) = run.italic {
+            output.push_str(if value { " i=\"1\"" } else { " i=\"0\"" });
+        }
+        if let Some(value) = run.underline {
+            output.push_str(if value { " u=\"sng\"" } else { " u=\"none\"" });
+        }
+        if let Some(value) = run.font_size {
+            output.push_str(&format!(" sz=\"{value}\""));
+        }
+        if run.color.is_none() {
+            output.push_str("/>");
+        } else {
+            output.push('>');
+            output.push_str("<a:solidFill><a:srgbClr val=\"");
+            output.push_str(run.color.as_deref().unwrap_or_default());
+            output.push_str("\"/></a:solidFill></a:rPr>");
+        }
+        output.push_str("<a:t>");
+        output.push_str(&escape_xml_text(&run.text));
+        output.push_str("</a:t></a:r>");
+    }
+    output
+}
+
+fn relative_patches(patches: Vec<Patch>, offset: usize) -> Result<Vec<Patch>, GenerateError> {
+    patches
+        .into_iter()
+        .map(|patch| {
+            let start = patch.range.start.checked_sub(offset).ok_or_else(|| {
+                GenerateError::new(
+                    GenerateErrorCode::InvalidBindingRange,
+                    "patch precedes shape",
+                )
+            })?;
+            let end = patch.range.end.checked_sub(offset).ok_or_else(|| {
+                GenerateError::new(
+                    GenerateErrorCode::InvalidBindingRange,
+                    "patch precedes shape",
+                )
+            })?;
+            Ok(Patch {
+                range: start..end,
+                replacement: patch.replacement,
+            })
+        })
+        .collect()
+}
+
+fn record_dirty_bytes(total: &mut u64, peak: &mut u64, length: usize) {
+    *total = total.saturating_add(length as u64);
+    *peak = (*peak).max(length as u64);
 }
 
 fn relationship_part_name(source: &str) -> Option<String> {

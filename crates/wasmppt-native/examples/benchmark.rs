@@ -126,6 +126,7 @@ fn injection_data(scenario: &str, slides: usize) -> InjectionData {
                     extension: "png".into(),
                     content_type: "image/png".into(),
                     crop: None,
+                    fit: Default::default(),
                 },
             );
         }

@@ -12,7 +12,8 @@ mod payload;
 
 pub use inject::{
     ChartData, ChartSeriesData, GenerateError, GenerateErrorCode, GenerateOutput, GenerateStats,
-    GenerationCursor, ImageCrop, ImageData, InjectionData, PreparedTemplate,
+    GenerationCursor, ImageCrop, ImageData, ImageFitPolicy, InjectionData, PreparedTemplate,
+    RichTextRunData, SemanticShapeData,
 };
 pub use payload::{INJECTION_SCHEMA_VERSION, InjectionDecodeError};
 

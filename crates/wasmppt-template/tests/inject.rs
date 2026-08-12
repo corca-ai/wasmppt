@@ -6,7 +6,7 @@ use wasmppt_opc::WriteSink;
 use wasmppt_opc::{CompressionMethod, EntryOptions, PackageGraph, VecSink, ZipArchive, ZipWriter};
 use wasmppt_template::{
     ChartData, ChartSeriesData, GenerateErrorCode, ImageCrop, ImageData, InjectionData,
-    PreparedTemplate, TemplateCompiler,
+    PreparedTemplate, RichTextRunData, SemanticShapeData, TemplateCompiler,
 };
 
 const ADVANCED_FIXTURE: &[u8] = include_bytes!("../../../fixtures/render/basic.pptx");
@@ -162,7 +162,10 @@ fn clone_template() -> Vec<u8> {
             "ppt/slides/_rels/slide1.xml.rels",
             br#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rLink" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com" TargetMode="External"/><Relationship Id="rNotes" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide1.xml"/></Relationships>"#,
         ),
-        ("ppt/notesSlides/notesSlide1.xml", b"<notes future=\"yes\"/>"),
+        (
+            "ppt/notesSlides/notesSlide1.xml",
+            br#"<p:notes xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Old notes</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:notes>"#,
+        ),
         ("ppt/opaque.bin", b"opaque"),
     ];
     for (name, bytes) in entries {
@@ -212,6 +215,93 @@ fn potm_generation_strips_macros_and_injects_escaped_unicode() {
             | wasmppt_opc::DiagnosticCode::InvalidRelationshipsXml
             | wasmppt_opc::DiagnosticCode::InvalidContentTypesXml
     )));
+}
+
+#[test]
+fn generation_v2_repeats_conditions_and_rich_text_transactionally() {
+    let bytes = template(
+        "application/vnd.openxmlformats-officedocument.presentationml.template.main+xml",
+        false,
+    );
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let prepared = PreparedTemplate::new(bytes, plan).unwrap();
+    let data = InjectionData::new().with_semantic_shape(
+        "name",
+        SemanticShapeData {
+            copies: Some(2),
+            rich_text: Some(vec![RichTextRunData {
+                text: "중요 & safe".to_owned(),
+                bold: Some(true),
+                color: Some("FF0000".to_owned()),
+                ..RichTextRunData::default()
+            }]),
+            ..SemanticShapeData::default()
+        },
+    );
+    let buffered = prepared.generate(&data).unwrap();
+    let mut cursor = prepared.generate_cursor(&data).unwrap();
+    let mut streamed = Vec::new();
+    while !cursor.is_done() {
+        streamed.extend(cursor.pull(7).unwrap());
+    }
+    assert_eq!(streamed, buffered.bytes);
+    let output = ZipArchive::from_bytes(buffered.bytes).unwrap();
+    let slide = String::from_utf8(
+        output
+            .read_entry(output.entry("ppt/slides/slide1.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(slide.matches("중요 &amp; safe").count(), 2);
+    assert!(slide.contains("id=\"2\""));
+    assert!(slide.contains("id=\"4\""));
+    assert_eq!(slide.matches("val=\"FF0000\"").count(), 2);
+
+    let hidden = InjectionData::new().with_semantic_shape(
+        "name",
+        SemanticShapeData {
+            visible: Some(false),
+            ..SemanticShapeData::default()
+        },
+    );
+    let hidden = prepared.generate(&hidden).unwrap();
+    let output = ZipArchive::from_bytes(hidden.bytes).unwrap();
+    let slide = String::from_utf8(
+        output
+            .read_entry(output.entry("ppt/slides/slide1.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(!slide.contains("Greeting"));
+}
+
+#[test]
+fn generation_v2_writes_notes_by_slide_part() {
+    let bytes = clone_template();
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let data = InjectionData::new()
+        .with_text("name", "Ada")
+        .with_notes("ppt/slides/slide1.xml", "Private & clear");
+    let output = PreparedTemplate::new(bytes, plan)
+        .unwrap()
+        .generate(&data)
+        .unwrap();
+    let archive = ZipArchive::from_bytes(output.bytes).unwrap();
+    let notes = String::from_utf8(
+        archive
+            .read_entry(archive.entry("ppt/notesSlides/notesSlide1.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(notes.contains("Private &amp; clear"));
 }
 
 #[test]
@@ -286,6 +376,7 @@ fn image_replacement_updates_media_relationship_crop_and_content_type() {
                 right: 300,
                 bottom: 400,
             }),
+            fit: Default::default(),
         },
     );
     let generated = PreparedTemplate::new(bytes, plan)

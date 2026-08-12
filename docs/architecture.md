@@ -190,12 +190,13 @@ relationship actions. The implemented generation inputs are:
 - text replacement with explicit run-style policy;
 - image replacement with crop and relationship policy;
 - repeated rows identified by `table_id.field` text bindings;
-- deterministic slide exclusion and cloning by slide part name; and
+- deterministic slide exclusion and cloning by slide part name;
 - complete category and series replacement for a supported chart part, including its cache
-  and related embedded workbook.
+  and related embedded workbook;
+- conditional/repeated semantic shapes with deterministic IDs and rich text/basic style; and
+- writable safe hyperlinks, image-fit policy, and notes addressed by slide part.
 
-Hyperlinks and speaker notes are preserved but do not have writable bindings. SmartArt editing
-remains unsupported because it requires coordinated diagram and fallback-image updates.
+SmartArt editing remains unsupported because it requires coordinated diagram and fallback-image updates.
 
 ### TemplatePlan
 

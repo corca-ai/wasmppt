@@ -108,6 +108,8 @@ pub struct TextRun {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ShapeView {
+    /// Exact byte range of the complete `p:sp` or `p:pic` element.
+    pub source_range: Range<usize>,
     pub id: Option<u32>,
     pub name: Option<String>,
     pub description: Option<String>,
@@ -152,6 +154,7 @@ impl SlideView {
                             token.depth,
                             name.local.clone(),
                             ShapeView {
+                                source_range: token.range.start..token.range.end,
                                 id: None,
                                 name: None,
                                 description: None,
@@ -238,7 +241,7 @@ impl SlideView {
                     {
                         text_depth = None;
                     }
-                    if let Some((depth, end_local, _)) = &shape {
+                    if let Some((depth, end_local, current)) = &mut shape {
                         if token.depth == *depth
                             && name.local == *end_local
                             && namespace_is(
@@ -247,6 +250,7 @@ impl SlideView {
                                 &[PML_TRANSITIONAL, PML_STRICT],
                             )
                         {
+                            current.source_range.end = token.range.end;
                             shapes.push(shape.take().expect("shape exists").2);
                         }
                     }

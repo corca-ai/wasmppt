@@ -261,7 +261,7 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
   const semantics: SceneSemanticElement[] = []
   for (let index = 0; index < semanticCount; index += 1) {
     const firstCommand = reader.u32()
-    const commandCount = reader.u32()
+    const semanticCommandCount = reader.u32()
     const shapeId = reader.u32()
     const zOrder = reader.u32()
     const kindCode = reader.u8()
@@ -270,12 +270,12 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
     const name = reader.utf8Blob()
     const alternativeText = reader.utf8Blob()
     const hyperlink = reader.utf8Blob()
-    if (firstCommand + commandCount > commands.length) {
+    if (firstCommand + semanticCommandCount > commands.length) {
       throw new Error('semantic element command range is out of bounds')
     }
     semantics.push({
       firstCommand,
-      commandCount,
+      commandCount: semanticCommandCount,
       shapeId,
       zOrder,
       kind: semanticKind(kindCode),
@@ -362,7 +362,7 @@ export class FontResolver {
       eastAsian: options.theme?.eastAsian ?? 'Noto Sans CJK KR',
       complexScript: options.theme?.complexScript ?? 'Noto Sans Arabic',
     }
-    this.#substitutions = Object.freeze({ ...(options.substitutions ?? {}) })
+    this.#substitutions = Object.freeze({ ...options.substitutions })
     this.#webFonts = new Map((options.webFonts ?? []).map((font) => [font.family, font]))
     this.#fallback = {
       latin: options.fallback?.latin ?? 'sans-serif',
@@ -439,7 +439,7 @@ export function measureTextBatch(
   context: Pick<CanvasRenderingContext2D, 'font' | 'measureText'>,
   requests: readonly TextMeasureRequest[],
 ): readonly number[] {
-  const widths = new Array<number>(requests.length)
+  const widths = Array.from({ length: requests.length }, () => 0)
   const batches = new Map<string, Map<string, number[]>>()
   requests.forEach((request, index) => {
     let texts = batches.get(request.font)

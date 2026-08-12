@@ -27,3 +27,5 @@ path and browser rendering path are both demonstrably fast.
 - A fast path must prove its invalidation boundary or fall back to a safe path.
 - Treat compatibility, peak memory, binary size, and latency as tested contracts.
 - Update the relevant documentation in the same change as an architectural or API change.
+- Run `npm run precommit` before handing off a change; enable the tracked hook with
+  `npm run hooks:install` once per clone.

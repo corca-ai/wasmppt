@@ -95,16 +95,16 @@ test('RTL, emoji, and deliberately missing-font corpus cases select stable fallb
 test('text measurement is grouped by exact font without changing result order', () => {
   const assigned = []
   const context = {
-    _font: '',
+    fontValue: '',
     get font() {
-      return this._font
+      return this.fontValue
     },
     set font(value) {
-      this._font = value
+      this.fontValue = value
       assigned.push(value)
     },
     measureText(value) {
-      return { width: value.length * (this._font === '20px Exact Korean' ? 2 : 1) }
+      return { width: value.length * (this.fontValue === '20px Exact Korean' ? 2 : 1) }
     },
   }
   let measurementCount = 0

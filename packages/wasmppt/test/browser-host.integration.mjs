@@ -367,7 +367,9 @@ try {
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
     let pixelHash = 0x811c9dc5
     for (const byte of pixels) pixelHash = Math.imul(pixelHash ^ byte, 0x01000193) >>> 0
-    const pixelAt = (x, y) => [...pixels.slice((y * canvas.width + x) * 4, (y * canvas.width + x) * 4 + 4)]
+    const pixelAt = (x, y) => Array.from(
+      pixels.slice((y * canvas.width + x) * 4, (y * canvas.width + x) * 4 + 4),
+    )
     let darkGroupPixels = 0
     for (let y = 45; y < 115; y += 1) {
       for (let x = 95; x < 610; x += 1) {
@@ -500,10 +502,10 @@ try {
     }
   })
   assert.equal(result.transferredByteLength, 0, 'template ArrayBuffer was cloned, not transferred')
-  const sortedWarmSamples = [...result.warmInjectionSamplesMs].sort((left, right) => left - right)
+  const sortedWarmSamples = result.warmInjectionSamplesMs.toSorted((left, right) => left - right)
   const warmP50Ms = sortedWarmSamples[Math.ceil(sortedWarmSamples.length * 0.5) - 1]
   const warmP95Ms = sortedWarmSamples[Math.ceil(sortedWarmSamples.length * 0.95) - 1]
-  const sortedFirstVisibleSamples = [...result.firstVisibleSlideSamplesMs].sort((left, right) => left - right)
+  const sortedFirstVisibleSamples = result.firstVisibleSlideSamplesMs.toSorted((left, right) => left - right)
   const firstVisibleP95Ms = sortedFirstVisibleSamples[Math.ceil(sortedFirstVisibleSamples.length * 0.95) - 1]
   assert(result.coldPrepareMs <= performanceBudgets.browserScalarWasm.maximumColdPrepareMs)
   assert(warmP95Ms <= performanceBudgets.browserScalarWasm.maximumWarmInjectionP95Ms)
@@ -689,8 +691,8 @@ try {
         semanticDifference: 'Both paint Canvas; comparator eligibility requires that the text-heavy slide contain non-white pixels.',
         samplesMs: result.pptxBrowserComparison.samplesMs,
         summary: {
-          p50Ms: [...result.pptxBrowserComparison.samplesMs].sort((a, b) => a - b)[4],
-          p95Ms: [...result.pptxBrowserComparison.samplesMs].sort((a, b) => a - b)[9],
+          p50Ms: result.pptxBrowserComparison.samplesMs.toSorted((a, b) => a - b)[4],
+          p95Ms: result.pptxBrowserComparison.samplesMs.toSorted((a, b) => a - b)[9],
         },
         correctness: {
           ...result.pptxBrowserComparison.correctness,

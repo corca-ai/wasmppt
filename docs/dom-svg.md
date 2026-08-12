@@ -16,6 +16,10 @@ WPDL version 2 added two side tables without changing Canvas drawing commands:
 - diagnostics carry the same stable code, source part, optional shape ID, and message emitted by
   the Rust resolver.
 
+WPDL version 3 added effective text-frame styling and preserved-graphic placeholders. WPDL
+version 4 adds paragraph/run-preserving rich text, linear gradients, bounded move/line/close
+custom paths, outer shadows, and connector line ends. The decoder retains v1-v3 compatibility.
+
 The resolver reads `cNvPr` description/title attributes and hyperlink relationships. External
 links are retained in the scene. The browser exposes clickable `http`, `https`, `mailto`, and
 `tel` links; unsafe schemes remain available as selection metadata but are not activated.
@@ -31,10 +35,13 @@ links are retained in the scene. The browser exposes clickable `http`, `https`, 
 - `data-selection-id`, source shape ID, reading order, and command range support editor and
   selection integrations.
 
-Preset geometry, fills, strokes, group transforms, rotations, flips, and source-cropped images
-are projected from the display list. The Canvas and SVG integration fixture asserts the same
-resolved title fill, stroke width, image bounds, and transform command range. Features that are
-not lowered by the shared core have identical diagnostic codes in both backends.
+Preset and bounded custom geometry, solid and linear-gradient fills, strokes, outer shadows,
+connector line ends, group transforms, rotations, flips, and source-cropped images are projected
+from the display list. DOM text and Canvas use the same rich-text layout planner for mixed runs,
+font resolution, wrapping, margins, alignment, and vertical anchoring. The Canvas and SVG
+integration fixture asserts the same resolved title fill, stroke width, image bounds, and
+transform command range. Features that are not lowered by the shared core have identical
+diagnostic codes in both backends.
 
 ## Incremental updates and virtualization
 
@@ -48,9 +55,7 @@ change aborts stale work, and `dispose()` removes every mounted slide and cached
 
 ## Deliberate limits
 
-WPDL version 3 adds effective text-frame styling and preserved-graphic placeholder commands.
-DOM text therefore shares size, family, color, emphasis, alignment, margins, and paragraph
-breaks with Canvas. Mixed run styling, PowerPoint-exact shaping, custom geometry, gradients,
-effects, and native SmartArt rendering are added only when the common resolver and display model
-can describe them. Until then, both rendering backends preserve the package source and surface
-the same explicit diagnostic and visible placeholder rather than silently dropping content.
+PowerPoint-exact shaping, curve segments in custom geometry, pattern fills, general effect DAGs,
+and native SmartArt rendering remain unsupported. Both rendering backends preserve the package
+source and surface the same explicit diagnostic and visible placeholder for unsupported graphics
+rather than silently dropping content.

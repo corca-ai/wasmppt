@@ -305,6 +305,7 @@ dependencies = [
  "crc32fast",
  "flate2",
  "proptest",
+ "wasmppt-xml",
 ]
 
 [[package]]

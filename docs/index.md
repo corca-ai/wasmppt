@@ -10,6 +10,8 @@ This is the canonical index for living `wasmppt` documentation.
   feature policy, profiles, and verification commands.
 - [OPC and ZIP substrate](opc.md) — implemented lazy ZIP indexing, raw-copy
   rewriting, security limits, determinism, and memory budgets.
+- [Loss-aware OOXML graph](ooxml.md) — namespace-aware source ranges, content
+  types, relationships, conformance detection, diagnostics, and typed views.
 - [Documentation guide](metadoc.md) — how documentation is organized, written,
   linked, and linted.
 

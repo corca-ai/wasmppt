@@ -18,4 +18,11 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "package_graph"
+path = "fuzz_targets/package_graph.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]

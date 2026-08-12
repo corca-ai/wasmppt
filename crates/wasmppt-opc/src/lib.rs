@@ -8,12 +8,17 @@
 //! must not introduce browser, JavaScript, or Cloudflare dependencies here.
 
 mod error;
+mod graph;
 mod io;
 mod limits;
 mod read;
 mod write;
 
 pub use error::{Error, ErrorCode, Result};
+pub use graph::{
+    Conformance, Diagnostic, DiagnosticCode, GraphError, PackageGraph, Part, PartId, Relationship,
+    RelationshipTarget, TraversalLimit,
+};
 pub use io::{MemorySource, OutputSink, ReadAt, VecSink, WriteSink};
 pub use limits::PackageLimits;
 pub use read::{CompressionMethod, Entry, ZipArchive};

@@ -89,10 +89,13 @@ Run the package parser fuzz target separately with `cargo-fuzz`:
 
 ```sh
 cargo fuzz run --fuzz-dir crates/wasmppt-opc/fuzz open_package
+cargo fuzz run --fuzz-dir crates/wasmppt-opc/fuzz package_graph
 ```
 
 ## Related documents
 
 - Return to the [documentation index](index.md) for the complete project map.
 - Read the [OPC and ZIP substrate](opc.md) contract before changing package I/O.
+- Read the [loss-aware OOXML graph](ooxml.md) contract before changing XML or
+  relationship handling.
 - Follow the [documentation guide](metadoc.md) when changing development documentation.

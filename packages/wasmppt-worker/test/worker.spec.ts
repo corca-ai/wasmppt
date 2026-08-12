@@ -6,6 +6,7 @@ declare global {
     interface Env {
       HOST_FIXTURE: number[]
       RENDER_FIXTURE: number[]
+      DOGFOOD_FIXTURE: number[]
       WORKER_P95_BUDGET_MS: number
       WORKER_MEMORY_BUDGET_BYTES: number
     }
@@ -29,7 +30,7 @@ describe('wasmppt workerd adapter', () => {
     )
     const output = new Uint8Array(await response.arrayBuffer())
     expect([...output.subarray(0, 2)]).toEqual([0x50, 0x4b])
-    expect(Number(response.headers.get('x-wasmppt-output-bytes'))).toBe(output.byteLength)
+    expect(response.headers.get('x-wasmppt-output-mode')).toBe('pull-stream')
   })
 
   it('reads the same fixture through ranged R2 binding calls', async () => {
@@ -45,6 +46,21 @@ describe('wasmppt workerd adapter', () => {
     const state = await health.json<{ readonly cachedPlanBytes: number }>()
     expect(state.cachedPlanBytes).toBeGreaterThan(0)
     expect(state.cachedPlanBytes).toBeLessThanOrEqual(32 * 1024 * 1024)
+  })
+
+  it('accepts the shared structured payload for an R2 template', async () => {
+    await env.TEMPLATES.put('report.potx', new Uint8Array(env.DOGFOOD_FIXTURE))
+    const response = await exports.default.fetch(
+      new Request('https://wasmppt.test/v1/generate?r2=report.potx', {
+        method: 'POST',
+        headers: { 'content-type': 'application/vnd.corca.wasmppt.injection-v1' },
+        body: dogfoodPayload(),
+      }),
+    )
+    expect(response.status).toBe(200)
+    const output = new Uint8Array(await response.arrayBuffer())
+    expect([...output.subarray(0, 2)]).toEqual([0x50, 0x4b])
+    expect(output.byteLength).toBeGreaterThan(2_000)
   })
 
   it('rejects an advertised body larger than the bounded input budget', async () => {
@@ -103,3 +119,54 @@ describe('wasmppt workerd adapter', () => {
 })
 
 export {}
+
+function dogfoodPayload(): Uint8Array {
+  const chunks: Uint8Array[] = []
+  const encoder = new TextEncoder()
+  const u32 = (value: number): void => {
+    const bytes = new Uint8Array(4)
+    new DataView(bytes.buffer).setUint32(0, value, true)
+    chunks.push(bytes)
+  }
+  const bytes = (value: Uint8Array): void => {
+    u32(value.byteLength)
+    chunks.push(value)
+  }
+  const string = (value: string): void => bytes(encoder.encode(value))
+
+  chunks.push(new Uint8Array([0x57, 0x50, 0x50, 0x44]))
+  u32(1)
+  u32(2)
+  string('subtitle'); string('generated in workerd')
+  string('title'); string('structured Generation API v1')
+  u32(1)
+  string('hero'); string('png'); string('image/png')
+  chunks.push(Uint8Array.of(0))
+  bytes(Uint8Array.from(atob(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XHI4ZAAAAABJRU5ErkJggg==',
+  ), (value) => value.charCodeAt(0)))
+  u32(1)
+  string('metrics')
+  u32(2)
+  const rows: readonly (readonly [string, string])[] = [
+    ['Latency', '12 ms'],
+    ['Throughput', '4,200 slides/s'],
+  ]
+  for (const [label, value] of rows) {
+    u32(2)
+    string('label'); string(label)
+    string('value'); string(value)
+  }
+  u32(1)
+  string('ppt/slides/slide2.xml'); u32(1)
+  u32(0)
+
+  const length = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0)
+  const output = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) {
+    output.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return output
+}

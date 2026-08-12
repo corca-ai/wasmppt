@@ -10,9 +10,16 @@ controlled self-hosted machines.
 
 `fixtures/corpus.json` records a stable ID, SHA-256, provenance, SPDX license, and redistribution
 policy for every committed or downloaded deck. Generated fixtures include their exact generator
-command. Third-party Apache POI fixtures are fetch-only and pinned by commit plus hash. A Node test
+command. Third-party Apache POI fixtures are fetch-only and pinned by commit plus hash. Run
+`node scripts/fetch-corpus.mjs target/corpus` to fetch and verify them from the manifest. A Node test
 fails when a committed byte changes without updating its provenance record, or when a fixture
 omits any policy field.
+
+The pinned real-template set currently includes POTX conversion, a general sample show, a
+master/layout deck, a chart deck, and a LibreOffice-produced deck. CI validates and resolves every
+PPTX at slide zero without silent fallback. The checked-in dogfood POTX is generated in-repository
+and covers metadata and visible-token text, image replacement, repeated table rows, and slide-copy
+control through one browser workflow.
 
 The current generated render fixture covers text, raster image
 relationships and crops, groups and transforms, fills and strokes, tables, charts and an embedded

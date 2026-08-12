@@ -2,8 +2,8 @@ use std::io::{self, Write};
 
 use proptest::prelude::*;
 use wasmppt_opc::{
-    CompressionMethod, EntryOptions, ErrorCode, PackageLimits, RewriteMode, VecSink, WriteSink,
-    ZipArchive, ZipWriter, rewrite_archive, rewrite_archive_to_vec,
+    CompressionMethod, EntryOptions, ErrorCode, PackageLimits, RewriteMode, StreamingZipWriter,
+    VecSink, WriteSink, ZipArchive, ZipWriter, rewrite_archive, rewrite_archive_to_vec,
 };
 
 fn fixture() -> Vec<u8> {
@@ -163,6 +163,55 @@ fn rewrite_accepts_a_sink_that_cannot_seek() {
     let output = sink.into_inner().0;
     let result = ZipArchive::from_bytes(output).unwrap();
     assert_eq!(result.entries().len(), 2);
+}
+
+#[test]
+fn pull_writer_matches_the_forward_only_writer_for_tiny_chunks() {
+    let source = fixture();
+    let archive = ZipArchive::from_bytes(source.clone()).unwrap();
+    let first = archive.entry("ppt/slides/slide1.xml").unwrap().clone();
+    let second = archive.entry("[Content_Types].xml").unwrap().clone();
+
+    let mut expected = ZipWriter::new(VecSink::new());
+    expected
+        .raw_copy(&archive, &first, RewriteMode::Preserve)
+        .unwrap();
+    expected
+        .write_entry(
+            &second.name,
+            b"<Types><Default/></Types>",
+            &EntryOptions::deterministic(CompressionMethod::Deflate),
+        )
+        .unwrap();
+    let expected = expected.finish().unwrap().0.into_inner();
+
+    let mut writer = StreamingZipWriter::new(archive.source().clone());
+    let mut output = Vec::new();
+    writer
+        .start_raw_copy(&first, RewriteMode::Preserve)
+        .unwrap();
+    while writer.entry_active() {
+        output.extend(writer.pull(7).unwrap());
+    }
+    writer
+        .start_entry(
+            second.name,
+            b"<Types><Default/></Types>".to_vec(),
+            EntryOptions::deterministic(CompressionMethod::Deflate),
+        )
+        .unwrap();
+    while writer.entry_active() {
+        output.extend(writer.pull(7).unwrap());
+    }
+    writer.start_finish().unwrap();
+    while !writer.is_done() {
+        output.extend(writer.pull(7).unwrap());
+    }
+
+    assert_eq!(output, expected);
+    assert_eq!(writer.stats().entries, 2);
+    assert_eq!(writer.stats().raw_copied_entries, 1);
+    assert_eq!(writer.stats().recompressed_entries, 1);
 }
 
 #[test]

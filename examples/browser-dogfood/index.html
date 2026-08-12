@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Generate PPTX files locally in your browser with wasmppt.">
+    <link rel="icon" href="data:,">
+    <title>wasmppt playground</title>
+    <link rel="stylesheet" href="./style.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <a class="eyebrow" href="https://github.com/corca-ai/wasmppt">corca-ai / wasmppt</a>
+        <h1>PowerPoint generation,<br><em>inside your browser.</em></h1>
+        <p>Compile a POTX or POTM once, inject structured data, and stream a macro-free PPTX. Files never leave this page.</p>
+      </header>
+
+      <section class="card controls" aria-labelledby="template-heading">
+        <div class="step"><span>01</span><h2 id="template-heading">Choose a template</h2></div>
+        <label class="drop-zone">
+          <strong>Use your own POTX or POTM</strong>
+          <span>or keep the bundled report template</span>
+          <input id="template" type="file" accept=".potx,.potm,.pptx">
+        </label>
+        <button id="prepare" type="button">Compile template</button>
+      </section>
+
+      <section class="card" aria-labelledby="bindings-heading">
+        <div class="step"><span>02</span><h2 id="bindings-heading">Fill bindings</h2></div>
+        <div id="bindings" class="bindings"><p class="muted">Compile a template to discover its bindings.</p></div>
+        <details>
+          <summary>Tables, slide copies, and charts</summary>
+          <p class="hint">Advanced values use the Generation API v1 object shape.</p>
+          <textarea id="advanced" rows="11" spellcheck="false">{
+  "tables": {
+    "metrics": [
+      { "label": "Latency p95", "value": "12 ms" },
+      { "label": "Throughput", "value": "4,200 slides/s" }
+    ]
+  },
+  "slides": { "ppt/slides/slide2.xml": 1 },
+  "charts": {}
+}</textarea>
+        </details>
+        <button id="generate" type="button" disabled>Generate PPTX</button>
+      </section>
+
+      <aside class="status" aria-live="polite">
+        <div><span class="pulse"></span><strong id="status">Loading WebAssembly…</strong></div>
+        <dl>
+          <div><dt>Compile</dt><dd id="compile-time">—</dd></div>
+          <div><dt>Generate</dt><dd id="generate-time">—</dd></div>
+          <div><dt>Output</dt><dd id="output-size">—</dd></div>
+        </dl>
+        <pre id="diagnostics"></pre>
+      </aside>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

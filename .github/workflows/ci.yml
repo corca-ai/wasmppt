@@ -151,6 +151,50 @@ jobs:
           path: target/visual-report
           if-no-files-found: error
 
+  pages-dogfood:
+    needs: wasm-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install JavaScript dependencies
+        run: npm ci
+      - name: Download the shared Wasm host artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: wasm-host-${{ github.sha }}
+          path: packages/wasmppt-worker/src/generated
+      - name: Install browser runtime
+        run: npx playwright install --with-deps chromium
+      - name: Build and exercise the static dogfood application
+        run: |
+          npm run build:pages
+          npm run test:pages
+      - name: Upload GitHub Pages artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: target/pages
+
+  pages-deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: pages-dogfood
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy dogfood application to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
+
   documentation:
     runs-on: ubuntu-latest
     steps:
@@ -164,22 +208,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
-      - name: Fetch pinned Apache POI POTX fixture
-        run: |
-          mkdir -p target/compat
-          curl --fail --location --silent --show-error \
-            https://raw.githubusercontent.com/apache/poi/fe4184d649c0f7950e3a610c7dbc0591b7a52e3e/test-data/slideshow/bug59273.potx \
-            --output target/compat/bug59273.potx
-          echo "a69207b33c69e171dd35fab165e498802a46759bca24f5eb614deb3503aa5ee6  target/compat/bug59273.potx" \
-            | sha256sum --check --strict
-          curl --fail --location --silent --show-error \
-            https://raw.githubusercontent.com/apache/poi/fe4184d649c0f7950e3a610c7dbc0591b7a52e3e/test-data/slideshow/SampleShow.pptx \
-            --output target/compat/SampleShow.pptx
-          echo "bfb4b2f07c9233afd2f32aa5781d849d0c7d225bf03721a10becf487b481d828  target/compat/SampleShow.pptx" \
-            | sha256sum --check --strict
+      - name: Fetch and verify the pinned Apache POI corpus
+        run: node scripts/fetch-corpus.mjs target/compat
       - name: Convert real POTX through a forward-only sink
         run: |
           cargo run --locked -p wasmppt-cli -- validate target/compat/bug59273.potx
@@ -194,7 +230,15 @@ jobs:
       - name: Resolve a real-world slide without silent fallback
         run: |
           cargo run --locked -p wasmppt-cli -- resolve target/compat/generated.pptx 0
-          cargo run --locked -p wasmppt-cli -- resolve target/compat/SampleShow.pptx 0
+          for deck in \
+            target/compat/SampleShow.pptx \
+            target/compat/WithMaster.pptx \
+            target/compat/bar-chart.pptx \
+            target/compat/LIBRE_OFFICE-100610-0.pptx
+          do
+            cargo run --locked -p wasmppt-cli -- validate "$deck"
+            cargo run --locked -p wasmppt-cli -- resolve "$deck" 0
+          done
 
   licenses:
     runs-on: ubuntu-latest

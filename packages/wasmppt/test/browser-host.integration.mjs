@@ -22,6 +22,7 @@ const performanceBudgets = JSON.parse(
 
 const routes = new Map([
   ['/dist/worker-client.js', [join(packageDirectory, 'dist/worker-client.js'), 'text/javascript']],
+  ['/dist/injection.js', [join(packageDirectory, 'dist/injection.js'), 'text/javascript']],
   ['/dist/protocol.js', [join(packageDirectory, 'dist/protocol.js'), 'text/javascript']],
   ['/dist/canvas.js', [join(packageDirectory, 'dist/canvas.js'), 'text/javascript']],
   ['/dist/dom-svg.js', [join(packageDirectory, 'dist/dom-svg.js'), 'text/javascript']],

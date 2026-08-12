@@ -80,6 +80,22 @@ Cache identity includes:
 `reuse_decision` compares every field and every completeness proof. Any mismatch returns
 `Recompile`; stale plans are never used with a warning.
 
+## Generation API v1 preparation
+
+The browser adapter exposes compilation as `WasmpptWorkerClient.prepare(template, options)`.
+The input `ArrayBuffer` is transferred to the Worker. A successful result contains:
+
+- an opaque prepared-template handle and its conservative resident byte weight;
+- the versioned binary `TemplatePlan`, suitable for an application-owned plan store;
+- discovered binding descriptors with kind, source part, authoring source, shape ID, and
+  shape name where available; and
+- stable compilation diagnostics for authoring tools.
+
+`PrepareOptions` selects macro, compatibility, compression, and visible-token policies. Passing
+the returned plan into a later `prepare` call skips binding discovery only after the Rust core
+decodes the plan and verifies its source-template identity. Option tags and binary plan schema
+are stable inputs to cache identity; JavaScript object property order is not.
+
 ## Storage boundary
 
 The Rust core exposes only a generic binary plan-store capability. Native files,

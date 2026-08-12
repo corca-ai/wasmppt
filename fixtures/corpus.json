@@ -11,6 +11,15 @@
       "redistribution": "allowed"
     },
     {
+      "id": "dogfood-report-potx",
+      "path": "fixtures/dogfood/report.potx",
+      "sha256": "a5b518c1f8e6a7e8cd7627ba103ddf30a5582ccd2432e64dbee28b576ff67516",
+      "provenance": "generated-in-repository",
+      "generator": "cargo run -p wasmppt-native --example write_dogfood_fixture -- fixtures/dogfood/report.potx",
+      "license": "Apache-2.0",
+      "redistribution": "allowed"
+    },
+    {
       "id": "render-basic-pptx",
       "path": "fixtures/render/basic.pptx",
       "sha256": "f370c06e7a9bc191dc2f6b13782a04c8a9e5fa6fe7658328e7d06a0865af15c9",
@@ -40,6 +49,30 @@
       "id": "apache-poi-sampleshow-pptx",
       "url": "https://raw.githubusercontent.com/apache/poi/fe4184d649c0f7950e3a610c7dbc0591b7a52e3e/test-data/slideshow/SampleShow.pptx",
       "sha256": "bfb4b2f07c9233afd2f32aa5781d849d0c7d225bf03721a10becf487b481d828",
+      "provenance": "apache-poi-test-data-pinned-commit",
+      "license": "Apache-2.0",
+      "redistribution": "fetch-only"
+    },
+    {
+      "id": "apache-poi-with-master-pptx",
+      "url": "https://raw.githubusercontent.com/apache/poi/fe4184d649c0f7950e3a610c7dbc0591b7a52e3e/test-data/slideshow/WithMaster.pptx",
+      "sha256": "54ae7677fd2813a815160cc72bd8960a4e482690dfc369b392868521c9b61549",
+      "provenance": "apache-poi-test-data-pinned-commit",
+      "license": "Apache-2.0",
+      "redistribution": "fetch-only"
+    },
+    {
+      "id": "apache-poi-bar-chart-pptx",
+      "url": "https://raw.githubusercontent.com/apache/poi/fe4184d649c0f7950e3a610c7dbc0591b7a52e3e/test-data/slideshow/bar-chart.pptx",
+      "sha256": "79e1d218bfb2903e8dc8425a6b1997d9c1976f5a5f025bada85b0c47b5777969",
+      "provenance": "apache-poi-test-data-pinned-commit",
+      "license": "Apache-2.0",
+      "redistribution": "fetch-only"
+    },
+    {
+      "id": "apache-poi-libreoffice-pptx",
+      "url": "https://raw.githubusercontent.com/apache/poi/fe4184d649c0f7950e3a610c7dbc0591b7a52e3e/test-data/slideshow/LIBRE_OFFICE-100610-0.pptx",
+      "sha256": "3691e1902a2590f34ed9b846a84469d9095e1556f7d3d81cb1c4a429145fd596",
       "provenance": "apache-poi-test-data-pinned-commit",
       "license": "Apache-2.0",
       "redistribution": "fetch-only"

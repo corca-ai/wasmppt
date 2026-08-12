@@ -11,10 +11,12 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "build:pages": "npm run build --workspace @corca-ai/wasmppt && node scripts/build-pages.mjs",
     "build:wasm-hosts": "sh scripts/build-wasm-hosts.sh",
     "check": "npm run check --workspaces --if-present && npm run check:core-boundary",
     "check:core-boundary": "node scripts/check-core-boundary.mjs",
     "lint:docs": "awiki lint -root docs",
+    "test:pages": "node packages/wasmppt/test/pages-smoke.mjs",
     "test": "node --test scripts/*.test.mjs && npm run test --workspaces --if-present"
   },
   "devDependencies": {

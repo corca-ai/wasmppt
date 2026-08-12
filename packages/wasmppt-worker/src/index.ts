@@ -3,6 +3,7 @@ export const packageName = '@corca-ai/wasmppt-worker' as const
 
 export interface WorkerMemoryBudget {
   readonly maxInputBytes: number
+  readonly maxPayloadBytes: number
   readonly maxOutputBytes: number
   readonly maxOutputChunkBytes: number
   readonly maxCachedPlanBytes: number
@@ -11,6 +12,7 @@ export interface WorkerMemoryBudget {
 
 export const DEFAULT_WORKER_MEMORY_BUDGET: WorkerMemoryBudget = Object.freeze({
   maxInputBytes: 16 * 1024 * 1024,
+  maxPayloadBytes: 16 * 1024 * 1024,
   maxOutputBytes: 32 * 1024 * 1024,
   maxOutputChunkBytes: 256 * 1024,
   maxCachedPlanBytes: 32 * 1024 * 1024,
@@ -20,11 +22,11 @@ export const DEFAULT_WORKER_MEMORY_BUDGET: WorkerMemoryBudget = Object.freeze({
 export interface WorkerEngine {
   prepare(template: Uint8Array): number
   prepared_weight(handle: number): bigint
-  generate_text(handle: number, ids: readonly string[], values: readonly string[]): number
-  output_len(handle: number): number
-  output_chunk(handle: number, offset: number, length: number): Uint8Array
+  start_generation_payload(handle: number, payload: Uint8Array): number
+  generation_pull(handle: number, maximumBytes: number): Uint8Array
+  generation_done(handle: number): boolean
   release_template(handle: number): boolean
-  release_output(handle: number): boolean
+  release_generation(handle: number): boolean
 }
 
 interface CachedPlan {
@@ -177,31 +179,23 @@ export function createWasmpptWorker(
           }
         }
 
-        const bindings = parseTextBindings(request.headers.get('x-wasmppt-bindings'))
-        const entries = Object.entries(bindings)
-        let outputHandle: number
+        const payload = source.cacheKey !== undefined && isInjectionPayload(request)
+          ? await readBoundedBody(request, budget.maxPayloadBytes, 'injection payload')
+          : encodeTextPayload(parseTextBindings(request.headers.get('x-wasmppt-bindings')))
+        let generationHandle: number
         try {
-          outputHandle = engine.generate_text(
-            cached.handle,
-            entries.map(([id]) => id),
-            entries.map(([, value]) => value),
-          )
+          generationHandle = engine.start_generation_payload(cached.handle, payload)
         } finally {
           if (releaseTemplate) engine.release_template(cached.handle)
         }
 
-        const outputLength = engine.output_len(outputHandle)
-        if (outputLength > budget.maxOutputBytes) {
-          engine.release_output(outputHandle)
-          throw new HttpError(413, 'generated presentation exceeds maxOutputBytes')
-        }
-        return new Response(outputStream(engine, outputHandle, outputLength, budget), {
+        return new Response(outputStream(engine, generationHandle, budget), {
           headers: {
             'content-type':
               'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-            'x-wasmppt-output-bytes': String(outputLength),
+            'x-wasmppt-output-mode': 'pull-stream',
             'x-wasmppt-accounted-memory-bytes': String(
-              budget.maxInputBytes + budget.maxOutputBytes + budget.maxCachedPlanBytes,
+              accountedMemoryBytes(budget),
             ),
           },
         })
@@ -229,15 +223,19 @@ async function readTemplate(
       cacheKey: `r2:${r2Key}:${source.etag}`,
     }
   }
-  return { bytes: await readBoundedBody(request, budget.maxInputBytes) }
+  return { bytes: await readBoundedBody(request, budget.maxInputBytes, 'request body') }
 }
 
-async function readBoundedBody(request: Request, maxBytes: number): Promise<Uint8Array> {
+async function readBoundedBody(
+  request: Request,
+  maxBytes: number,
+  label: string,
+): Promise<Uint8Array> {
   const contentLength = request.headers.get('content-length')
   if (contentLength !== null && Number(contentLength) > maxBytes) {
-    throw new HttpError(413, 'request body exceeds maxInputBytes')
+    throw new HttpError(413, `${label} exceeds its configured byte limit`)
   }
-  if (request.body === null) throw new HttpError(400, 'request body is required')
+  if (request.body === null) throw new HttpError(400, `${label} is required`)
   const reader = request.body.getReader()
   const chunks: Uint8Array[] = []
   let length = 0
@@ -246,7 +244,7 @@ async function readBoundedBody(request: Request, maxBytes: number): Promise<Uint
       const { done, value } = await reader.read()
       if (done) break
       length += value.byteLength
-      if (length > maxBytes) throw new HttpError(413, 'request body exceeds maxInputBytes')
+      if (length > maxBytes) throw new HttpError(413, `${label} exceeds its configured byte limit`)
       chunks.push(value)
     }
   } finally {
@@ -261,30 +259,40 @@ async function readBoundedBody(request: Request, maxBytes: number): Promise<Uint
   return output
 }
 
+function isInjectionPayload(request: Request): boolean {
+  return request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() ===
+    'application/vnd.corca.wasmppt.injection-v1'
+}
+
 function outputStream(
   engine: WorkerEngine,
   handle: number,
-  length: number,
   budget: WorkerMemoryBudget,
 ): ReadableStream<Uint8Array> {
-  let offset = 0
+  let outputBytes = 0
   let released = false
   const release = (): void => {
     if (released) return
     released = true
-    engine.release_output(handle)
+    engine.release_generation(handle)
   }
   return new ReadableStream<Uint8Array>({
     pull(controller) {
       try {
-        if (offset === length) {
+        if (engine.generation_done(handle)) {
           release()
           controller.close()
           return
         }
-        const chunkLength = Math.min(budget.maxOutputChunkBytes, length - offset)
-        controller.enqueue(engine.output_chunk(handle, offset, chunkLength))
-        offset += chunkLength
+        const chunk = engine.generation_pull(handle, budget.maxOutputChunkBytes)
+        if (chunk.byteLength === 0 && !engine.generation_done(handle)) {
+          throw new Error('Wasm generation cursor made no progress')
+        }
+        outputBytes += chunk.byteLength
+        if (outputBytes > budget.maxOutputBytes) {
+          throw new HttpError(413, 'generated presentation exceeds maxOutputBytes')
+        }
+        controller.enqueue(chunk)
       } catch (error) {
         release()
         controller.error(error)
@@ -316,14 +324,47 @@ function parseTextBindings(header: string | null): Readonly<Record<string, strin
   return Object.freeze(output)
 }
 
+function encodeTextPayload(bindings: Readonly<Record<string, string>>): Uint8Array {
+  const encoder = new TextEncoder()
+  const entries = Object.entries(bindings).sort(([left], [right]) => left.localeCompare(right))
+  const encoded = entries.map(([id, value]) => [encoder.encode(id), encoder.encode(value)] as const)
+  const length = 8 + 4 + encoded.reduce((sum, [id, value]) => sum + 8 + id.length + value.length, 0) + 16
+  const output = new Uint8Array(length)
+  const view = new DataView(output.buffer)
+  output.set([0x57, 0x50, 0x50, 0x44], 0)
+  view.setUint32(4, 1, true)
+  view.setUint32(8, entries.length, true)
+  let offset = 12
+  for (const [id, value] of encoded) {
+    view.setUint32(offset, id.length, true)
+    offset += 4
+    output.set(id, offset)
+    offset += id.length
+    view.setUint32(offset, value.length, true)
+    offset += 4
+    output.set(value, offset)
+    offset += value.length
+  }
+  return output
+}
+
 function validatedBudget(overrides: Partial<WorkerMemoryBudget> | undefined): WorkerMemoryBudget {
   const budget = Object.freeze({ ...DEFAULT_WORKER_MEMORY_BUDGET, ...overrides })
   for (const [name, value] of Object.entries(budget)) assertPositiveSafeInteger(value, name)
-  const accounted = budget.maxInputBytes + budget.maxOutputBytes + budget.maxCachedPlanBytes
+  const accounted = accountedMemoryBytes(budget)
   if (accounted >= 128 * 1024 * 1024) {
-    throw new RangeError('configured input + output + plan cache budget must stay below 128 MiB')
+    throw new RangeError(
+      'configured input + payload + dirty output + output chunk + plan cache budget must stay below 128 MiB',
+    )
   }
   return budget
+}
+
+function accountedMemoryBytes(budget: WorkerMemoryBudget): number {
+  // A cursor never retains the completed archive, but all dirty entries can coexist while
+  // generation starts. maxOutputBytes is therefore the conservative dirty-entry ceiling.
+  return budget.maxInputBytes + budget.maxOutputBytes +
+    budget.maxPayloadBytes + budget.maxOutputChunkBytes + budget.maxCachedPlanBytes
 }
 
 function assertPositiveSafeInteger(value: number, name: string): void {

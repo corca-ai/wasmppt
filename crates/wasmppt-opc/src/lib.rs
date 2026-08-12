@@ -23,7 +23,8 @@ pub use io::{MemorySource, OutputSink, ReadAt, VecSink, WriteSink};
 pub use limits::PackageLimits;
 pub use read::{CompressionMethod, Entry, ZipArchive};
 pub use write::{
-    EntryOptions, RewriteMode, WriteStats, ZipWriter, rewrite_archive, rewrite_archive_to_vec,
+    EntryOptions, RewriteMode, StreamingZipWriter, WriteStats, ZipWriter, rewrite_archive,
+    rewrite_archive_to_vec,
 };
 
 /// The package version of this crate.

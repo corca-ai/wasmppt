@@ -1,9 +1,13 @@
 import {
   WORKER_PROTOCOL_VERSION,
+  type TemplateBinding,
+  type TemplateCompilerOptions,
+  type TemplateDiagnostic,
   type TextBindings,
   type WorkerRequest,
   type WorkerResponse,
 } from './protocol.js'
+import { encodeInjectionData, type GenerationData } from './injection.js'
 
 export interface WorkerLike {
   postMessage(message: WorkerRequest, transfer?: readonly Transferable[]): void
@@ -17,6 +21,13 @@ export interface WorkerLike {
 export interface PreparedBrowserTemplate {
   readonly handle: number
   readonly residentBytes: number
+  readonly plan: ArrayBuffer
+  readonly bindings: readonly TemplateBinding[]
+  readonly diagnostics: readonly TemplateDiagnostic[]
+}
+
+export interface PrepareOptions extends TemplateCompilerOptions {
+  readonly plan?: ArrayBuffer
 }
 
 export interface GenerateOptions {
@@ -66,19 +77,32 @@ export class WasmpptWorkerClient {
     worker.addEventListener('messageerror', this.#onCrash)
   }
 
-  async prepare(template: ArrayBuffer): Promise<PreparedBrowserTemplate> {
+  async prepare(template: ArrayBuffer, options: PrepareOptions = {}): Promise<PreparedBrowserTemplate> {
     this.#assertOpen()
     const id = this.#allocateId()
     const result = new Promise<WorkerResponse>((resolve, reject) => {
       this.#pending.set(id, { kind: 'prepare', resolve, reject })
     })
-    this.#worker.postMessage(
-      { version: WORKER_PROTOCOL_VERSION, id, type: 'prepare', template },
-      [template],
-    )
+    const { plan, ...compilerOptions } = options
+    const transfer: Transferable[] = [template]
+    if (plan !== undefined) transfer.push(plan)
+    this.#worker.postMessage({
+      version: WORKER_PROTOCOL_VERSION,
+      id,
+      type: 'prepare',
+      template,
+      options: compilerOptions,
+      ...(plan === undefined ? {} : { plan }),
+    }, transfer)
     const response = await result
     if (response.type !== 'prepared') throw new Error('invalid prepare response')
-    return { handle: response.templateHandle, residentBytes: response.residentBytes }
+    return {
+      handle: response.templateHandle,
+      residentBytes: response.residentBytes,
+      plan: response.plan,
+      bindings: response.bindings,
+      diagnostics: response.diagnostics,
+    }
   }
 
   async openPresentation(
@@ -138,7 +162,7 @@ export class WasmpptWorkerClient {
 
   generateStream(
     templateHandle: number,
-    text: TextBindings = {},
+    data: GenerationData | TextBindings = {},
     options: GenerateOptions = {},
   ): ReadableStream<Uint8Array> {
     this.#assertOpen()
@@ -152,6 +176,7 @@ export class WasmpptWorkerClient {
         start: (controller) => controller.error(abortError()),
       })
     }
+    const payload = encodeInjectionData(normalizeGenerationData(data))
     return new ReadableStream<Uint8Array>({
       start: (controller) => {
         const abort = (): void => {
@@ -174,9 +199,9 @@ export class WasmpptWorkerClient {
           id,
           type: 'generate',
           templateHandle,
-          text,
+          payload,
           chunkBytes,
-        })
+        }, [payload])
       },
       cancel: () => {
         this.#worker.postMessage({
@@ -191,12 +216,12 @@ export class WasmpptWorkerClient {
 
   async generate(
     templateHandle: number,
-    text: TextBindings = {},
+    data: GenerationData | TextBindings = {},
     options: GenerateOptions = {},
   ): Promise<ArrayBuffer> {
     const chunks: Uint8Array[] = []
     let length = 0
-    for await (const chunk of this.generateStream(templateHandle, text, options)) {
+    for await (const chunk of this.generateStream(templateHandle, data, options)) {
       chunks.push(chunk)
       length += chunk.byteLength
     }
@@ -345,4 +370,10 @@ function remoteError(response: Extract<WorkerResponse, { readonly type: 'error' 
 
 function abortError(): DOMException {
   return new DOMException('wasmppt generation was cancelled', 'AbortError')
+}
+
+function normalizeGenerationData(data: GenerationData | TextBindings): GenerationData {
+  const values = Object.values(data)
+  if (values.every((value) => typeof value === 'string')) return { text: data as TextBindings }
+  return data as GenerationData
 }

@@ -10,11 +10,48 @@ source hash and completeness flags, opens the ZIP index, caches only parts that 
 dirty, resolves image relationship and crop ranges, compiles repeated table-row ranges,
 indexes slide IDs and relationships, and computes the static macro-removal patches.
 
-`generate` and `generate_to` do not rescan the package. A warm generation applies data to
+`generate`, `generate_to`, and `generate_cursor` do not rescan the package. A warm generation applies data to
 the cached ranges, recompresses only dirty or new entries, and raw-copies every unchanged
 compressed payload. `generate_to` accepts the forward-only `OutputSink` capability and
 does not require seeking. Its statistics distinguish raw copies, rewrites, and removals;
 unchanged entries always record zero inflation and zero recompression.
+
+`generate_cursor` is the bounded pull path used by Wasm hosts. Each `pull(maximum_bytes)` call
+returns at most the requested bytes. Unchanged compressed payloads are copied directly from the
+source package into the returned chunk; no complete output archive is retained. Dirty entry bytes
+are prepared as a working set and each entry's compressed form is retained only while that entry
+is drained. The final central directory is emitted last.
+
+## Structured Generation API v1
+
+Browser callers pass one `GenerationData` object to `generateStream` or `generate`:
+
+```ts
+{
+  text: { title: 'Q3 report' },
+  images: {
+    hero: { bytes: pngBytes, extension: 'png', contentType: 'image/png' }
+  },
+  tables: { metrics: [{ label: 'Latency', value: '12 ms' }] },
+  slides: { 'ppt/slides/slide2.xml': 2 },
+  charts: {
+    'ppt/charts/chart1.xml': {
+      categories: ['Q1', 'Q2'],
+      series: [{ name: 'Revenue', values: [10, 14] }]
+    }
+  }
+}
+```
+
+The adapter deterministically encodes this object into the little-endian `WPPD` binary payload
+schema. Image bytes cross the Wasm boundary directly, without JSON or base64. Rust and TypeScript
+share a golden payload test, and the decoder rejects unknown schema versions, excessive counts,
+non-finite chart values, truncation, and trailing data. A flat string record remains a temporary
+text-only compatibility shorthand.
+
+Cloudflare clients send these same bytes as the body of an R2-template generation request with
+media type `application/vnd.corca.wasmppt.injection-v1`; no host-specific payload translation is
+required.
 
 ## Text and table data
 

@@ -22,6 +22,11 @@ Changed entries are encoded as Stored or raw Deflate data. They are compressed i
 temporary buffer before their header is emitted, which keeps the public output capability
 strictly forward-only.
 
+`StreamingZipWriter` implements the same deterministic format as `ZipWriter` through bounded
+pulls. It streams raw entry payloads straight from `ReadAt`, retains only the active changed
+entry's compressed bytes, and emits the central directory after all entries. A byte-for-byte
+parity test drains it in seven-byte chunks; template generation separately tests one-byte pulls.
+
 ## Deterministic mode
 
 Deterministic rewrites:
@@ -56,8 +61,9 @@ bytes, the bounded central directory (32 MiB by default), short local-header buf
 `MemorySource`, used for browser `ArrayBuffer` input, retains the caller-provided package
 buffer once.
 
-Raw-copy rewriting adds a fixed 64 KiB copy buffer plus `O(entry count + metadata)` central
-records. Writing a changed entry temporarily retains its input and compressed output;
+Push-based raw-copy rewriting adds a fixed 64 KiB copy buffer plus `O(entry count + metadata)`
+central records. The pull writer replaces that fixed copy buffer with the host-requested output
+chunk. Writing a changed entry temporarily retains its input and compressed output;
 reading an entry temporarily retains compressed plus uncompressed bytes. Default limits
 cap a package at 10,000 entries, 512 MiB compressed total, 2 GiB uncompressed total, and
 256 MiB per inflated entry. Hosts with tighter memory ceilings SHOULD supply lower limits.

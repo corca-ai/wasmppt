@@ -62,8 +62,7 @@ export class WasmpptEngine {
         return EngineCapabilities.__wrap(ret);
     }
     /**
-     * Generate into an engine-owned output buffer and return an opaque handle.
-     * Hosts drain that buffer in bounded transferable chunks.
+     * Text-only compatibility entry point returning a pull cursor handle.
      * @param {number} template_handle
      * @param {Array<any>} ids
      * @param {Array<any>} values
@@ -84,6 +83,48 @@ export class WasmpptEngine {
             wasm.__wbindgen_add_to_stack_pointer(16);
             heap[stack_pointer++] = undefined;
             heap[stack_pointer++] = undefined;
+        }
+    }
+    /**
+     * @param {number} generation_handle
+     * @returns {boolean}
+     */
+    generation_done(generation_handle) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.wasmpptengine_generation_done(retptr, this.__wbg_ptr, generation_handle);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0 !== 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {number} generation_handle
+     * @param {number} maximum_bytes
+     * @returns {Uint8Array}
+     */
+    generation_pull(generation_handle, maximum_bytes) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.wasmpptengine_generation_pull(retptr, this.__wbg_ptr, generation_handle, maximum_bytes);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+            if (r3) {
+                throw takeObject(r2);
+            }
+            var v1 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export3(r0, r1 * 1, 1);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
         }
     }
     constructor() {
@@ -115,50 +156,6 @@ export class WasmpptEngine {
         }
     }
     /**
-     * Copy one bounded chunk into a JavaScript `Uint8Array`.
-     * @param {number} output_handle
-     * @param {number} offset
-     * @param {number} length
-     * @returns {Uint8Array}
-     */
-    output_chunk(output_handle, offset, length) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.wasmpptengine_output_chunk(retptr, this.__wbg_ptr, output_handle, offset, length);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
-            if (r3) {
-                throw takeObject(r2);
-            }
-            var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export3(r0, r1 * 1, 1);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * @param {number} output_handle
-     * @returns {number}
-     */
-    output_len(output_handle) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.wasmpptengine_output_len(retptr, this.__wbg_ptr, output_handle);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-            if (r2) {
-                throw takeObject(r1);
-            }
-            return r0 >>> 0;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
      * Compile an immutable template and return an opaque instance-local handle.
      * @param {Uint8Array} template
      * @returns {number}
@@ -176,6 +173,119 @@ export class WasmpptEngine {
                 throw takeObject(r1);
             }
             return r0 >>> 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Compile with explicit stable v1 option tags.
+     * @param {Uint8Array} template
+     * @param {number} macro_policy
+     * @param {number} compatibility
+     * @param {number} compression
+     * @param {boolean} allow_visible_tokens
+     * @returns {number}
+     */
+    prepare_with_options(template, macro_policy, compatibility, compression, allow_visible_tokens) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passArray8ToWasm0(template, wasm.__wbindgen_export);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.wasmpptengine_prepare_with_options(retptr, this.__wbg_ptr, ptr0, len0, macro_policy, compatibility, compression, allow_visible_tokens);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0 >>> 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Restore a previously compiled plan after verifying its source identity.
+     * @param {Uint8Array} template
+     * @param {Uint8Array} plan
+     * @returns {number}
+     */
+    prepare_with_plan(template, plan) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passArray8ToWasm0(template, wasm.__wbindgen_export);
+            const len0 = WASM_VECTOR_LEN;
+            const ptr1 = passArray8ToWasm0(plan, wasm.__wbindgen_export);
+            const len1 = WASM_VECTOR_LEN;
+            wasm.wasmpptengine_prepare_with_plan(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0 >>> 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Return compact binding tuples: id, kind, part, source, shape ID, shape name.
+     * @param {number} handle
+     * @returns {Array<any>}
+     */
+    prepared_bindings(handle) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.wasmpptengine_prepared_bindings(retptr, this.__wbg_ptr, handle);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return takeObject(r0);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Return compact diagnostic tuples: code, binding ID, part, message.
+     * @param {number} handle
+     * @returns {Array<any>}
+     */
+    prepared_diagnostics(handle) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.wasmpptengine_prepared_diagnostics(retptr, this.__wbg_ptr, handle);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return takeObject(r0);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {number} handle
+     * @returns {Uint8Array}
+     */
+    prepared_plan(handle) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.wasmpptengine_prepared_plan(retptr, this.__wbg_ptr, handle);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+            if (r3) {
+                throw takeObject(r2);
+            }
+            var v1 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export3(r0, r1 * 1, 1);
+            return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
@@ -222,8 +332,8 @@ export class WasmpptEngine {
      * @param {number} handle
      * @returns {boolean}
      */
-    release_output(handle) {
-        const ret = wasm.wasmpptengine_release_output(this.__wbg_ptr, handle);
+    release_generation(handle) {
+        const ret = wasm.wasmpptengine_release_generation(this.__wbg_ptr, handle);
         return ret !== 0;
     }
     /**
@@ -262,6 +372,29 @@ export class WasmpptEngine {
             var v1 = getArrayU8FromWasm0(r0, r1).slice();
             wasm.__wbindgen_export3(r0, r1 * 1, 1);
             return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Generate from the versioned binary structured-injection payload.
+     * @param {number} template_handle
+     * @param {Uint8Array} payload
+     * @returns {number}
+     */
+    start_generation_payload(template_handle, payload) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passArray8ToWasm0(payload, wasm.__wbindgen_export);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.wasmpptengine_start_generation_payload(retptr, this.__wbg_ptr, template_handle, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0 >>> 0;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
@@ -371,9 +504,48 @@ function __wbg_get_imports() {
             const ret = getObject(arg0)[arg1 >>> 0];
             return addHeapObject(ret);
         },
+        __wbg_instanceof_Error_61d8a02a0f3383a1: function(arg0) {
+            let result;
+            try {
+                result = getObject(arg0) instanceof Error;
+            } catch (_) {
+                result = false;
+            }
+            const ret = result;
+            return ret;
+        },
         __wbg_length_ecfa2c63d3d0d82c: function(arg0) {
             const ret = getObject(arg0).length;
             return ret;
+        },
+        __wbg_message_c141d5e68716b595: function(arg0) {
+            const ret = getObject(arg0).message;
+            return addHeapObject(ret);
+        },
+        __wbg_new_116be93542d39019: function() {
+            const ret = new Array();
+            return addHeapObject(ret);
+        },
+        __wbg_new_358857d90afd5a2d: function(arg0, arg1) {
+            const ret = new Error(getStringFromWasm0(arg0, arg1));
+            return addHeapObject(ret);
+        },
+        __wbg_push_adb0107829f02d75: function(arg0, arg1) {
+            const ret = getObject(arg0).push(getObject(arg1));
+            return ret;
+        },
+        __wbg_set_name_7a2a05b77a392440: function(arg0, arg1, arg2) {
+            getObject(arg0).name = getStringFromWasm0(arg1, arg2);
+        },
+        __wbindgen_cast_0000000000000001: function(arg0) {
+            // Cast intrinsic for `F64 -> Externref`.
+            const ret = arg0;
+            return addHeapObject(ret);
+        },
+        __wbindgen_cast_0000000000000002: function(arg0, arg1) {
+            // Cast intrinsic for `Ref(String) -> Externref`.
+            const ret = getStringFromWasm0(arg0, arg1);
+            return addHeapObject(ret);
         },
         __wbindgen_object_drop_ref: function(arg0) {
             takeObject(arg0);

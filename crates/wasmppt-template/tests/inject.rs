@@ -493,6 +493,31 @@ fn generation_streams_to_a_non_seekable_sink() {
 }
 
 #[test]
+fn pull_generation_matches_buffered_generation_for_one_byte_chunks() {
+    let bytes = template(
+        "application/vnd.openxmlformats-officedocument.presentationml.template.main+xml",
+        false,
+    );
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let prepared = PreparedTemplate::new(bytes, plan).unwrap();
+    let data = InjectionData::new().with_text("name", "스트리밍 & parity");
+    let expected = prepared.generate(&data).unwrap();
+    let mut cursor = prepared.generate_cursor(&data).unwrap();
+    let mut actual = Vec::new();
+    while !cursor.is_done() {
+        let chunk = cursor.pull(1).unwrap();
+        assert!(chunk.len() <= 1);
+        actual.extend(chunk);
+    }
+    assert_eq!(actual, expected.bytes);
+    assert_eq!(cursor.stats().unwrap().zip, expected.zip_stats);
+}
+
+#[test]
 fn chart_injection_updates_cache_and_embedded_workbook_atomically() {
     let bytes = ADVANCED_FIXTURE.to_vec();
     let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();

@@ -18,6 +18,8 @@ This is the canonical index for living `wasmppt` documentation.
   text, images, tables, slides, macro stripping, streaming, and validation.
 - [Runtime host adapters](hosts.md) — native files, opaque Wasm handles, browser
   Worker protocol, Cloudflare/R2 streaming, cache and memory budgets.
+- [Browser dogfood playground](playground.md) — local template compilation, binding
+  discovery, structured injection, streamed downloads, and GitHub Pages deployment.
 - [Lazy slide resolution](rendering.md) — theme/master/layout inheritance,
   geometry and diagnostics, dependency invalidation, and binary display lists.
 - [Browser Canvas renderer](canvas.md) — Worker-owned lazy resolution, Canvas

@@ -75,6 +75,8 @@ npm run build
 npm run build:wasm-hosts
 npm test --workspace @corca-ai/wasmppt-worker
 npm run test:browser --workspace @corca-ai/wasmppt
+npm run build:pages
+npm run test:pages
 node benchmarks/run.mjs --ci
 awiki lint -root docs
 ```
@@ -103,6 +105,12 @@ per-slide report under `target/visual-report`; release ground truth uses the con
 PowerPoint, LibreOffice, and Keynote workflow described in [compatibility gates](compatibility.md).
 The performance-contract job publishes native, browser, and workerd raw samples and enforces the
 budgets and correctness rules in the [performance contract](performance.md).
+
+`npm run build:pages` assembles the static dogfood application under `target/pages` from the
+checked-in Wasm host bindings, browser package, and dogfood POTX. `npm run test:pages` serves that
+directory and uses real Chrome to compile the bundled template and download a generated PPTX.
+CI reuses the single revision-bound Wasm artifact for this gate and deploys the exact tested static
+directory to GitHub Pages on `main`. See the [browser dogfood playground](playground.md).
 
 Run the package parser fuzz target separately with `cargo-fuzz`:
 

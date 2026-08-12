@@ -20,10 +20,12 @@ filesystem adapter does not duplicate ZIP or OOXML logic.
 `WasmpptEngine` is an instance-local opaque-handle table. Its narrow ABI supports:
 
 - copying one typed-array template into Wasm and compiling it once;
+- compiling with explicit policies or restoring a source-verified binary plan;
+- querying discovered bindings, diagnostics, and the binary plan;
 - querying a conservative prepared-template byte weight;
-- generating from parallel binding ID/value arrays;
-- draining output by bounded `Uint8Array` chunks;
-- explicitly releasing template and output handles.
+- generating from a versioned structured binary payload;
+- pulling ZIP output by bounded `Uint8Array` chunks; and
+- explicitly releasing template, presentation, and generation-cursor handles.
 
 The scalar artifact is always correct. SIMD and threads are reported as optional runtime
 capabilities; neither changes document semantics or enables a code path without a scalar
@@ -35,16 +37,17 @@ version must equal the Rust `wasm-bindgen` dependency.
 
 ## Browser Worker protocol
 
-Protocol version 1 uses monotonically allocated request IDs and discriminated messages
+Protocol version 2 uses monotonically allocated request IDs and discriminated messages
 for prepare, generate, release, cancel, progress, chunk, success, and error events. The
 main thread transfers the input `ArrayBuffer`, so ownership moves to the module Worker
-instead of paying a structured-clone copy. Generated chunks are also transferred.
+instead of paying a structured-clone copy. Generation data uses the versioned `WPPD` binary
+payload so image bytes need no base64 conversion. Generated chunks are also transferred.
 
 `WasmpptWorkerClient` owns every pending Promise and stream controller. Explicit
 termination, Worker `error`, and `messageerror` reject all pending operations. Cancellation
 is cooperative: a pre-aborted request fails before dispatch, and an in-flight request is
-observed when the Worker yields between output chunks. Synchronous Rust preparation or
-generation cannot be interrupted in the middle; applications requiring a hard CPU cancel
+observed when the Worker yields between output pulls. Preparation and dirty-entry preparation
+are synchronous; applications requiring a hard CPU cancel during those phases
 should terminate that Worker, which deterministically rejects every pending request.
 
 ## Cloudflare Workers
@@ -54,16 +57,24 @@ request stream or from `?r2=KEY` through the `TEMPLATES` R2 binding. `R2Template
 uses ranged binding reads, not Cloudflare's REST API. The response is a
 `ReadableStream<Uint8Array>` drained from the Wasm output handle in bounded chunks.
 
-The default explicitly accounted budget is 80 MiB:
+For an R2 template, clients may send the same structured Generation API v1 bytes used by the
+browser as an `application/vnd.corca.wasmppt.injection-v1` request body. Direct-template request
+bodies continue to accept the `x-wasmppt-bindings` text-only header as a compatibility path because
+the body itself contains the template. New structured integrations SHOULD store templates in R2.
+
+The default explicitly accounted ceiling is 96.25 MiB:
 
 | Component | Limit |
 | --- | ---: |
 | Request or R2 input | 16 MiB |
-| Generated output | 32 MiB |
+| Structured injection payload | 16 MiB |
+| Dirty-entry working set / output safety ceiling | 32 MiB |
 | Immutable prepared-plan cache | 32 MiB |
 | Output chunk | 256 KiB |
 
-Configuration rejects an input + output + cache total at or above 128 MiB. Cloudflare
+The completed archive is never retained by the adapter. The 32 MiB output limit is nevertheless
+counted conservatively because dirty entry bytes may coexist when a generation cursor starts.
+Configuration rejects an input + payload + dirty output + chunk + cache total at or above 128 MiB. Cloudflare
 documents 128 MB per isolate including JavaScript and WebAssembly memory, so the accounted
 budget deliberately leaves headroom for runtime and transient allocations. The response
 exposes the accounted ceiling in `x-wasmppt-accounted-memory-bytes` for integration tests.
@@ -93,5 +104,6 @@ npm run check:core-boundary
 ```
 
 The browser integration uses a real module Worker and asserts that the caller's
-`ArrayBuffer.byteLength` becomes zero immediately after transfer. The workerd integration
-tests request bodies, R2, streaming PPTX output, cache accounting, and oversized input.
+`ArrayBuffer.byteLength` becomes zero immediately after transfer. The browser and Pages tests
+also compile the bundled POTX and consume a real pull stream. The workerd integration tests
+request bodies, R2, streaming PPTX output, cache accounting, and oversized input.

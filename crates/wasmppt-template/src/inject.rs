@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     ops::Range,
     sync::Arc,
 };
@@ -7,7 +7,7 @@ use std::{
 use sha2::{Digest, Sha256};
 use wasmppt_opc::{
     CompressionMethod, Entry, EntryOptions, OutputSink, PackageGraph, ReadAt, RelationshipTarget,
-    RewriteMode, VecSink, WriteStats, ZipArchive, ZipWriter,
+    RewriteMode, StreamingZipWriter, VecSink, WriteStats, ZipArchive, ZipWriter,
 };
 use wasmppt_xml::{TokenKind, XmlDocument, decode_entities};
 
@@ -261,6 +261,80 @@ pub struct GenerateStats {
     pub zip: WriteStats,
     pub rewritten_entries: u64,
     pub removed_entries: u64,
+}
+
+#[derive(Debug)]
+pub struct GenerationCursor {
+    writer: StreamingZipWriter<wasmppt_opc::MemorySource>,
+    entries: VecDeque<GenerationEntry>,
+    rewritten_entries: u64,
+    removed_entries: u64,
+    finish_started: bool,
+}
+
+#[derive(Debug)]
+enum GenerationEntry {
+    Raw(Entry),
+    Owned {
+        name: String,
+        bytes: Vec<u8>,
+        options: EntryOptions,
+    },
+}
+
+impl GenerationCursor {
+    pub fn pull(&mut self, maximum_bytes: usize) -> Result<Vec<u8>, GenerateError> {
+        if maximum_bytes == 0 {
+            return Err(GenerateError::new(
+                GenerateErrorCode::Package,
+                "generation chunk size must be positive",
+            ));
+        }
+        let mut output = Vec::with_capacity(maximum_bytes);
+        while output.len() < maximum_bytes && !self.writer.is_done() {
+            if !self.writer.entry_active() && !self.finish_started {
+                match self.entries.pop_front() {
+                    Some(GenerationEntry::Raw(entry)) => self
+                        .writer
+                        .start_raw_copy(&entry, RewriteMode::Preserve)
+                        .map_err(package_error)?,
+                    Some(GenerationEntry::Owned {
+                        name,
+                        bytes,
+                        options,
+                    }) => self
+                        .writer
+                        .start_entry(name, bytes, options)
+                        .map_err(package_error)?,
+                    None => {
+                        self.writer.start_finish().map_err(package_error)?;
+                        self.finish_started = true;
+                    }
+                }
+            }
+            let chunk = self
+                .writer
+                .pull(maximum_bytes - output.len())
+                .map_err(package_error)?;
+            if chunk.is_empty() && self.writer.is_done() {
+                break;
+            }
+            output.extend(chunk);
+        }
+        Ok(output)
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.writer.is_done()
+    }
+
+    pub fn stats(&self) -> Option<GenerateStats> {
+        self.is_done().then(|| GenerateStats {
+            zip: self.writer.stats(),
+            rewritten_entries: self.rewritten_entries,
+            removed_entries: self.removed_entries,
+        })
+    }
 }
 
 impl PreparedTemplate {
@@ -680,6 +754,285 @@ impl PreparedTemplate {
                 removed_entries,
             },
         ))
+    }
+
+    /// Prepare a resumable package cursor. No complete output buffer is retained.
+    pub fn generate_cursor(&self, data: &InjectionData) -> Result<GenerationCursor, GenerateError> {
+        let slide_operations = self.prepare_slide_operations(&data.slide_copies)?;
+        let mut dynamic = HashMap::<String, Vec<Patch>>::new();
+        let mut new_media = BTreeMap::<String, (ImageData, EntryOptions)>::new();
+        let mut replaced_media = HashSet::new();
+        let mut image_types = BTreeMap::<String, String>::new();
+        let active_table_bindings = self
+            .table_plans
+            .iter()
+            .filter(|(id, _)| data.table_rows.contains_key(*id))
+            .flat_map(|(_, plan)| plan.bindings.iter().map(|binding| binding.id.as_str()))
+            .collect::<HashSet<_>>();
+        for binding in &self.plan.bindings {
+            if data.slide_copies.get(&binding.part_name) == Some(&0)
+                || active_table_bindings.contains(binding.id.as_str())
+            {
+                continue;
+            }
+            match binding.kind {
+                BindingKind::Text => {
+                    let value = data
+                        .text
+                        .get(&binding.id)
+                        .ok_or_else(|| missing_value(&binding.id))?;
+                    dynamic
+                        .entry(binding.part_name.clone())
+                        .or_default()
+                        .extend(text_patches(
+                            binding,
+                            value,
+                            self.cached_part(&binding.part_name)?,
+                        )?);
+                }
+                BindingKind::Image => {
+                    let image = data
+                        .images
+                        .get(&binding.id)
+                        .ok_or_else(|| missing_value(&binding.id))?;
+                    validate_image(image)?;
+                    let image_plan = self.image_plans.get(&binding.id).ok_or_else(|| {
+                        GenerateError::new(
+                            GenerateErrorCode::InvalidTemplate,
+                            format!("image plan missing for {}", binding.id),
+                        )
+                    })?;
+                    let extension = image.extension.to_ascii_lowercase();
+                    let media_name = format!("ppt/media/wasmppt-{}.{}", binding.id, extension);
+                    let relative_target = format!("../media/wasmppt-{}.{}", binding.id, extension);
+                    dynamic
+                        .entry(image_plan.relationship_part.clone())
+                        .or_default()
+                        .push(Patch {
+                            range: image_plan.relationship_target_range.clone(),
+                            replacement: escape_xml_attribute(&relative_target).into_bytes(),
+                        });
+                    if let Some(crop) = image.crop {
+                        dynamic
+                            .entry(binding.part_name.clone())
+                            .or_default()
+                            .extend(crop_patches(&image_plan.crop, crop));
+                    }
+                    image_types.insert(extension, image.content_type.clone());
+                    if image_plan.original_reference_count == 1 {
+                        replaced_media.insert(image_plan.original_media_part.clone());
+                    }
+                    new_media.insert(
+                        media_name,
+                        (
+                            image.clone(),
+                            EntryOptions::deterministic(CompressionMethod::Stored),
+                        ),
+                    );
+                }
+            }
+        }
+        for (id, rows) in &data.table_rows {
+            let table = self.table_plans.get(id).ok_or_else(|| {
+                GenerateError::new(
+                    GenerateErrorCode::InvalidTemplate,
+                    format!("no repeated table row named {id}"),
+                )
+            })?;
+            let source = self.cached_part(&table.part_name)?;
+            let template_row = source.get(table.row_range.clone()).ok_or_else(|| {
+                GenerateError::new(
+                    GenerateErrorCode::InvalidBindingRange,
+                    "table row range is invalid",
+                )
+            })?;
+            let mut replacement = Vec::new();
+            for row in rows {
+                let mut row_patches = Vec::new();
+                for binding in &table.bindings {
+                    let field = binding
+                        .id
+                        .strip_prefix(id)
+                        .and_then(|value| value.strip_prefix('.'))
+                        .ok_or_else(|| {
+                            GenerateError::new(
+                                GenerateErrorCode::InvalidTemplate,
+                                "table binding prefix mismatch",
+                            )
+                        })?;
+                    let value = row.get(field).ok_or_else(|| missing_value(&binding.id))?;
+                    for mut patch in text_patches(binding, value, source)? {
+                        patch.range = patch.range.start - table.row_range.start
+                            ..patch.range.end - table.row_range.start;
+                        row_patches.push(patch);
+                    }
+                }
+                replacement.extend(apply_patches(template_row, row_patches)?);
+            }
+            dynamic
+                .entry(table.part_name.clone())
+                .or_default()
+                .push(Patch {
+                    range: table.row_range.clone(),
+                    replacement,
+                });
+        }
+        for (part_name, chart) in &data.charts {
+            validate_chart_data(chart)?;
+            let chart_plan = self.chart_plans.get(part_name).ok_or_else(|| {
+                GenerateError::new(
+                    GenerateErrorCode::InvalidChart,
+                    format!("no supported chart part named {part_name}"),
+                )
+            })?;
+            let chart_source = self.cached_part(&chart_plan.chart_part)?;
+            dynamic
+                .entry(chart_plan.chart_part.clone())
+                .or_default()
+                .push(Patch {
+                    range: 0..chart_source.len(),
+                    replacement: rewrite_chart_cache(chart_source, chart)?,
+                });
+            if let Some(workbook_part) = &chart_plan.workbook_part {
+                let workbook_source = self.cached_part(workbook_part)?;
+                dynamic
+                    .entry(workbook_part.clone())
+                    .or_default()
+                    .push(Patch {
+                        range: 0..workbook_source.len(),
+                        replacement: rewrite_embedded_workbook(workbook_source, chart)?,
+                    });
+            }
+        }
+        if !image_types.is_empty() {
+            dynamic
+                .entry("[Content_Types].xml".to_owned())
+                .or_default()
+                .extend(content_type_patches(
+                    self.cached_part("[Content_Types].xml")?,
+                    &image_types,
+                )?);
+        }
+        if !slide_operations.presentation_patches.is_empty() {
+            dynamic.insert(
+                self.slide_deck.presentation_part.clone(),
+                slide_operations.presentation_patches.clone(),
+            );
+        }
+        if !slide_operations.relationship_patches.is_empty() {
+            dynamic.insert(
+                self.slide_deck.relationship_part.clone(),
+                slide_operations.relationship_patches.clone(),
+            );
+        }
+        if !slide_operations.content_type_patches.is_empty() {
+            dynamic
+                .entry("[Content_Types].xml".to_owned())
+                .or_default()
+                .extend(slide_operations.content_type_patches.clone());
+        }
+
+        let mut entries = VecDeque::new();
+        let mut rewritten_entries = 0;
+        let mut removed_entries = 0;
+        for entry in self.archive.entries() {
+            if self.removed_parts.contains(&entry.name)
+                || replaced_media.contains(&entry.name)
+                || slide_operations.removed_parts.contains(&entry.name)
+            {
+                removed_entries += 1;
+                continue;
+            }
+            let static_edits = self.static_patches.get(&entry.name);
+            let dynamic_edits = dynamic.get(&entry.name);
+            if static_edits.is_none() && dynamic_edits.is_none() {
+                entries.push_back(GenerationEntry::Raw(entry.clone()));
+                continue;
+            }
+            let mut patches = static_edits
+                .into_iter()
+                .flatten()
+                .cloned()
+                .collect::<Vec<_>>();
+            patches.extend(dynamic_edits.into_iter().flatten().cloned());
+            entries.push_back(GenerationEntry::Owned {
+                name: entry.name.clone(),
+                bytes: apply_patches(self.cached_part(&entry.name)?, patches)?,
+                options: options_from_entry(entry),
+            });
+            rewritten_entries += 1;
+        }
+        for (name, (image, options)) in new_media {
+            entries.push_back(GenerationEntry::Owned {
+                name,
+                bytes: image.bytes,
+                options,
+            });
+            rewritten_entries += 1;
+        }
+        for clone in slide_operations.clones {
+            let source_entry = self.archive.entry(&clone.source_part).ok_or_else(|| {
+                GenerateError::new(
+                    GenerateErrorCode::InvalidTemplate,
+                    "clone source slide is missing",
+                )
+            })?;
+            let mut patches = self
+                .static_patches
+                .get(&clone.source_part)
+                .into_iter()
+                .flatten()
+                .cloned()
+                .collect::<Vec<_>>();
+            patches.extend(
+                dynamic
+                    .get(&clone.source_part)
+                    .into_iter()
+                    .flatten()
+                    .cloned(),
+            );
+            entries.push_back(GenerationEntry::Owned {
+                name: clone.part_name,
+                bytes: apply_patches(self.cached_part(&clone.source_part)?, patches)?,
+                options: options_from_entry(source_entry),
+            });
+            rewritten_entries += 1;
+            if let (Some(source_rels), Some(clone_rels)) =
+                (clone.source_relationship_part, clone.relationship_part)
+            {
+                let entry = self.archive.entry(&source_rels).ok_or_else(|| {
+                    GenerateError::new(
+                        GenerateErrorCode::InvalidTemplate,
+                        "clone source relationships are missing",
+                    )
+                })?;
+                let mut patches = self
+                    .static_patches
+                    .get(&source_rels)
+                    .into_iter()
+                    .flatten()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                patches.extend(dynamic.get(&source_rels).into_iter().flatten().cloned());
+                let bytes = strip_notes_relationships(&apply_patches(
+                    self.cached_part(&source_rels)?,
+                    patches,
+                )?)?;
+                entries.push_back(GenerationEntry::Owned {
+                    name: clone_rels,
+                    bytes,
+                    options: options_from_entry(entry),
+                });
+                rewritten_entries += 1;
+            }
+        }
+        Ok(GenerationCursor {
+            writer: StreamingZipWriter::new(self.archive.source().clone()),
+            entries,
+            rewritten_entries,
+            removed_entries,
+            finish_started: false,
+        })
     }
 
     fn cached_part(&self, name: &str) -> Result<&[u8], GenerateError> {

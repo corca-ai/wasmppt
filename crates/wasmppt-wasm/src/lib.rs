@@ -2,12 +2,16 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use js_sys::Array;
+use js_sys::{Array, Error as JavaScriptError};
 use wasm_bindgen::prelude::*;
 use wasmppt_display::DisplayList;
 use wasmppt_layout::PresentationDocument;
 use wasmppt_opc::ZipArchive;
-use wasmppt_template::{InjectionData, PreparedTemplate, TemplateCompiler};
+use wasmppt_template::{
+    BindingDiagnostic, BindingDiagnosticCode, BindingKind, BindingSource, CompatibilityProfile,
+    CompilerOptions, CompressionProfile, GenerateErrorCode, GenerationCursor, InjectionData,
+    MacroPolicy, PreparedTemplate, TemplateCompiler, TemplatePlan,
+};
 
 /// Returns the engine package version embedded in the Wasm module.
 #[wasm_bindgen]
@@ -58,9 +62,15 @@ impl EngineCapabilities {
 #[wasm_bindgen]
 pub struct WasmpptEngine {
     next_handle: u32,
-    templates: HashMap<u32, PreparedTemplate>,
+    templates: HashMap<u32, PreparedRecord>,
     presentations: HashMap<u32, PresentationDocument>,
-    outputs: HashMap<u32, Vec<u8>>,
+    generations: HashMap<u32, GenerationCursor>,
+}
+
+#[derive(Debug)]
+struct PreparedRecord {
+    template: PreparedTemplate,
+    diagnostics: Vec<BindingDiagnostic>,
 }
 
 impl Default for WasmpptEngine {
@@ -69,7 +79,7 @@ impl Default for WasmpptEngine {
             next_handle: 1,
             templates: HashMap::new(),
             presentations: HashMap::new(),
-            outputs: HashMap::new(),
+            generations: HashMap::new(),
         }
     }
 }
@@ -93,19 +103,99 @@ impl WasmpptEngine {
 
     /// Compile an immutable template and return an opaque instance-local handle.
     pub fn prepare(&mut self, template: &[u8]) -> Result<u32, JsError> {
+        self.prepare_default(template).map_err(js_value_as_js_error)
+    }
+
+    /// Compile with explicit stable v1 option tags.
+    pub fn prepare_with_options(
+        &mut self,
+        template: &[u8],
+        macro_policy: u8,
+        compatibility: u8,
+        compression: u8,
+        allow_visible_tokens: bool,
+    ) -> Result<u32, JsValue> {
+        let options = CompilerOptions {
+            macro_policy: decode_macro_policy(macro_policy)?,
+            compatibility: decode_compatibility(compatibility)?,
+            compression: decode_compression(compression)?,
+            allow_visible_tokens,
+        };
+        self.compile_template(template, options)
+    }
+
+    /// Restore a previously compiled plan after verifying its source identity.
+    pub fn prepare_with_plan(&mut self, template: &[u8], plan: &[u8]) -> Result<u32, JsValue> {
         let bytes: Arc<[u8]> = template.to_vec().into();
-        let archive = ZipArchive::from_bytes(bytes.clone()).map_err(js_error)?;
-        let compiled = TemplateCompiler::new(Default::default())
-            .compile(&archive)
-            .map_err(js_error)?;
-        let prepared = PreparedTemplate::new(bytes, compiled.plan).map_err(js_error)?;
+        let plan =
+            TemplatePlan::decode(plan).map_err(|error| coded_error("WasmpptPlanError", error))?;
+        let prepared = PreparedTemplate::new(bytes, plan)
+            .map_err(|error| coded_error(generate_error_name(error.code()), error))?;
         let handle = self.allocate_handle()?;
-        self.templates.insert(handle, prepared);
+        self.templates.insert(
+            handle,
+            PreparedRecord {
+                template: prepared,
+                diagnostics: Vec::new(),
+            },
+        );
         Ok(handle)
     }
 
     pub fn prepared_weight(&self, handle: u32) -> Result<u64, JsError> {
         Ok(self.template(handle)?.estimated_resident_bytes())
+    }
+
+    pub fn prepared_plan(&self, handle: u32) -> Result<Vec<u8>, JsValue> {
+        Ok(self.template_record(handle)?.template.plan().encode())
+    }
+
+    /// Return compact binding tuples: id, kind, part, source, shape ID, shape name.
+    pub fn prepared_bindings(&self, handle: u32) -> Result<Array, JsValue> {
+        let output = Array::new();
+        for binding in &self.template_record(handle)?.template.plan().bindings {
+            let row = Array::new();
+            row.push(&binding.id.clone().into());
+            row.push(&binding_kind_name(binding.kind).into());
+            row.push(&binding.part_name.clone().into());
+            row.push(&binding_source_name(binding.source).into());
+            row.push(&binding.shape_id.map(JsValue::from).unwrap_or(JsValue::NULL));
+            row.push(
+                &binding
+                    .shape_name
+                    .clone()
+                    .map(JsValue::from)
+                    .unwrap_or(JsValue::NULL),
+            );
+            output.push(&row);
+        }
+        Ok(output)
+    }
+
+    /// Return compact diagnostic tuples: code, binding ID, part, message.
+    pub fn prepared_diagnostics(&self, handle: u32) -> Result<Array, JsValue> {
+        let output = Array::new();
+        for diagnostic in &self.template_record(handle)?.diagnostics {
+            let row = Array::new();
+            row.push(&binding_diagnostic_name(diagnostic.code).into());
+            row.push(
+                &diagnostic
+                    .binding_id
+                    .clone()
+                    .map(JsValue::from)
+                    .unwrap_or(JsValue::NULL),
+            );
+            row.push(
+                &diagnostic
+                    .part_name
+                    .clone()
+                    .map(JsValue::from)
+                    .unwrap_or(JsValue::NULL),
+            );
+            row.push(&diagnostic.message.clone().into());
+            output.push(&row);
+        }
+        Ok(output)
     }
 
     /// Index a presentation once and retain its compressed package behind an opaque handle.
@@ -134,8 +224,7 @@ impl WasmpptEngine {
         Ok(DisplayList::from_resolve(&resolved).encode())
     }
 
-    /// Generate into an engine-owned output buffer and return an opaque handle.
-    /// Hosts drain that buffer in bounded transferable chunks.
+    /// Text-only compatibility entry point returning a pull cursor handle.
     pub fn generate_text(
         &mut self,
         template_handle: u32,
@@ -159,38 +248,39 @@ impl WasmpptEngine {
                 .ok_or_else(|| JsError::new("binding value is not a string"))?;
             data.insert_text(id, value);
         }
-        let bytes = self
-            .template(template_handle)?
-            .generate(&data)
-            .map_err(js_error)?
-            .bytes;
-        let output_handle = self.allocate_handle()?;
-        self.outputs.insert(output_handle, bytes);
-        Ok(output_handle)
+        self.start_generation(template_handle, &data)
+            .map_err(js_value_as_js_error)
     }
 
-    pub fn output_len(&self, output_handle: u32) -> Result<u32, JsError> {
-        let length = self.output(output_handle)?.len();
-        u32::try_from(length)
-            .map_err(|_| JsError::new("output exceeds the Wasm 32-bit address space"))
+    /// Generate from the versioned binary structured-injection payload.
+    pub fn start_generation_payload(
+        &mut self,
+        template_handle: u32,
+        payload: &[u8],
+    ) -> Result<u32, JsValue> {
+        let data = InjectionData::decode(payload)
+            .map_err(|error| coded_error("WasmpptPayloadError", error))?;
+        self.start_generation(template_handle, &data)
     }
 
-    /// Copy one bounded chunk into a JavaScript `Uint8Array`.
-    pub fn output_chunk(
-        &self,
-        output_handle: u32,
-        offset: u32,
-        length: u32,
-    ) -> Result<Vec<u8>, JsError> {
-        let output = self.output(output_handle)?;
-        let start = offset as usize;
-        let end = start
-            .checked_add(length as usize)
-            .ok_or_else(|| JsError::new("output chunk range overflows"))?;
-        let bytes = output
-            .get(start..end)
-            .ok_or_else(|| JsError::new("output chunk range is out of bounds"))?;
-        Ok(bytes.to_vec())
+    pub fn generation_pull(
+        &mut self,
+        generation_handle: u32,
+        maximum_bytes: u32,
+    ) -> Result<Vec<u8>, JsValue> {
+        self.generations
+            .get_mut(&generation_handle)
+            .ok_or_else(|| coded_error("WasmpptHandleError", "unknown generation handle"))?
+            .pull(maximum_bytes as usize)
+            .map_err(|error| coded_error(generate_error_name(error.code()), error))
+    }
+
+    pub fn generation_done(&self, generation_handle: u32) -> Result<bool, JsValue> {
+        Ok(self
+            .generations
+            .get(&generation_handle)
+            .ok_or_else(|| coded_error("WasmpptHandleError", "unknown generation handle"))?
+            .is_done())
     }
 
     pub fn release_template(&mut self, handle: u32) -> bool {
@@ -201,8 +291,8 @@ impl WasmpptEngine {
         self.presentations.remove(&handle).is_some()
     }
 
-    pub fn release_output(&mut self, handle: u32) -> bool {
-        self.outputs.remove(&handle).is_some()
+    pub fn release_generation(&mut self, handle: u32) -> bool {
+        self.generations.remove(&handle).is_some()
     }
 }
 
@@ -213,7 +303,7 @@ impl WasmpptEngine {
             self.next_handle = self.next_handle.wrapping_add(1).max(1);
             if !self.templates.contains_key(&handle)
                 && !self.presentations.contains_key(&handle)
-                && !self.outputs.contains_key(&handle)
+                && !self.generations.contains_key(&handle)
             {
                 return Ok(handle);
             }
@@ -224,14 +314,57 @@ impl WasmpptEngine {
     fn template(&self, handle: u32) -> Result<&PreparedTemplate, JsError> {
         self.templates
             .get(&handle)
+            .map(|record| &record.template)
             .ok_or_else(|| JsError::new("unknown template handle"))
     }
 
-    fn output(&self, handle: u32) -> Result<&[u8], JsError> {
-        self.outputs
+    fn template_record(&self, handle: u32) -> Result<&PreparedRecord, JsValue> {
+        self.templates
             .get(&handle)
-            .map(Vec::as_slice)
-            .ok_or_else(|| JsError::new("unknown output handle"))
+            .ok_or_else(|| coded_error("WasmpptHandleError", "unknown template handle"))
+    }
+
+    fn prepare_default(&mut self, template: &[u8]) -> Result<u32, JsValue> {
+        self.compile_template(template, CompilerOptions::default())
+    }
+
+    fn compile_template(
+        &mut self,
+        template: &[u8],
+        options: CompilerOptions,
+    ) -> Result<u32, JsValue> {
+        let bytes: Arc<[u8]> = template.to_vec().into();
+        let archive = ZipArchive::from_bytes(bytes.clone())
+            .map_err(|error| coded_error("WasmpptPackageError", error))?;
+        let compiled = TemplateCompiler::new(options)
+            .compile(&archive)
+            .map_err(|error| coded_error("WasmpptCompileError", error))?;
+        let prepared = PreparedTemplate::new(bytes, compiled.plan)
+            .map_err(|error| coded_error(generate_error_name(error.code()), error))?;
+        let handle = self.allocate_handle()?;
+        self.templates.insert(
+            handle,
+            PreparedRecord {
+                template: prepared,
+                diagnostics: compiled.diagnostics,
+            },
+        );
+        Ok(handle)
+    }
+
+    fn start_generation(
+        &mut self,
+        template_handle: u32,
+        data: &InjectionData,
+    ) -> Result<u32, JsValue> {
+        let cursor = self
+            .template_record(template_handle)?
+            .template
+            .generate_cursor(data)
+            .map_err(|error| coded_error(generate_error_name(error.code()), error))?;
+        let handle = self.allocate_handle()?;
+        self.generations.insert(handle, cursor);
+        Ok(handle)
     }
 
     fn presentation(&self, handle: u32) -> Result<&PresentationDocument, JsError> {
@@ -243,4 +376,94 @@ impl WasmpptEngine {
 
 fn js_error(error: impl std::fmt::Display) -> JsError {
     JsError::new(&error.to_string())
+}
+
+fn coded_error(name: &str, error: impl std::fmt::Display) -> JsValue {
+    let js_error = JavaScriptError::new(&error.to_string());
+    js_error.set_name(name);
+    js_error.into()
+}
+
+fn js_value_as_js_error(error: JsValue) -> JsError {
+    let message = error
+        .dyn_ref::<JavaScriptError>()
+        .and_then(|error| error.message().as_string())
+        .unwrap_or_else(|| "wasmppt preparation failed".to_owned());
+    JsError::new(&message)
+}
+
+fn decode_macro_policy(value: u8) -> Result<MacroPolicy, JsValue> {
+    match value {
+        0 => Ok(MacroPolicy::Strip),
+        1 => Ok(MacroPolicy::Reject),
+        2 => Ok(MacroPolicy::PreserveAsPptm),
+        _ => Err(coded_error(
+            "WasmpptOptionError",
+            "invalid macro policy tag",
+        )),
+    }
+}
+
+fn decode_compatibility(value: u8) -> Result<CompatibilityProfile, JsValue> {
+    match value {
+        0 => Ok(CompatibilityProfile::PowerPoint2016),
+        1 => Ok(CompatibilityProfile::Microsoft365),
+        _ => Err(coded_error(
+            "WasmpptOptionError",
+            "invalid compatibility profile tag",
+        )),
+    }
+}
+
+fn decode_compression(value: u8) -> Result<CompressionProfile, JsValue> {
+    match value {
+        0 => Ok(CompressionProfile::BalancedDeflate6),
+        1 => Ok(CompressionProfile::StoreMedia),
+        _ => Err(coded_error(
+            "WasmpptOptionError",
+            "invalid compression profile tag",
+        )),
+    }
+}
+
+const fn binding_kind_name(value: BindingKind) -> &'static str {
+    match value {
+        BindingKind::Text => "text",
+        BindingKind::Image => "image",
+    }
+}
+
+const fn binding_source_name(value: BindingSource) -> &'static str {
+    match value {
+        BindingSource::VisibleToken => "visible-token",
+        BindingSource::ShapeMetadata => "shape-metadata",
+        BindingSource::Manifest => "manifest",
+    }
+}
+
+const fn binding_diagnostic_name(value: BindingDiagnosticCode) -> &'static str {
+    match value {
+        BindingDiagnosticCode::MissingTarget => "missing-target",
+        BindingDiagnosticCode::DuplicateId => "duplicate-id",
+        BindingDiagnosticCode::AmbiguousTarget => "ambiguous-target",
+        BindingDiagnosticCode::UnsupportedKind => "unsupported-kind",
+        BindingDiagnosticCode::InvalidManifest => "invalid-manifest",
+        BindingDiagnosticCode::InvalidSlide => "invalid-slide",
+        _ => "unknown",
+    }
+}
+
+const fn generate_error_name(value: GenerateErrorCode) -> &'static str {
+    match value {
+        GenerateErrorCode::InvalidTemplate => "WasmpptInvalidTemplateError",
+        GenerateErrorCode::IncompletePlan => "WasmpptIncompletePlanError",
+        GenerateErrorCode::PlanMismatch => "WasmpptPlanMismatchError",
+        GenerateErrorCode::MissingValue => "WasmpptMissingValueError",
+        GenerateErrorCode::InvalidBindingRange => "WasmpptBindingRangeError",
+        GenerateErrorCode::Package => "WasmpptPackageError",
+        GenerateErrorCode::Xml => "WasmpptXmlError",
+        GenerateErrorCode::InvalidImage => "WasmpptImageError",
+        GenerateErrorCode::InvalidChart => "WasmpptChartError",
+        _ => "WasmpptGenerateError",
+    }
 }

@@ -8,11 +8,13 @@ use wasmppt_pml::{ShapeView, SlideView};
 use wasmppt_xml::{TokenKind, XmlDocument};
 
 mod inject;
+mod payload;
 
 pub use inject::{
     ChartData, ChartSeriesData, GenerateError, GenerateErrorCode, GenerateOutput, GenerateStats,
-    ImageCrop, ImageData, InjectionData, PreparedTemplate,
+    GenerationCursor, ImageCrop, ImageData, InjectionData, PreparedTemplate,
 };
+pub use payload::{INJECTION_SCHEMA_VERSION, InjectionDecodeError};
 
 pub const PLAN_SCHEMA_VERSION: u32 = 1;
 pub const BINDING_SCHEMA_VERSION: u32 = 1;

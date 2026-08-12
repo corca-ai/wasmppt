@@ -93,6 +93,38 @@ pub struct ZipWriter<S> {
     stats: WriteStats,
 }
 
+/// Pull-based ZIP writer for hosts that must apply output backpressure.
+///
+/// One changed entry is compressed when it becomes current. Unchanged payloads
+/// remain in the source and are copied directly into each requested chunk.
+#[derive(Debug)]
+pub struct StreamingZipWriter<R> {
+    source: R,
+    entries: Vec<WrittenEntry>,
+    names: HashSet<String>,
+    archive_comment: Vec<u8>,
+    current: Option<StreamingEntry>,
+    final_bytes: Option<(Vec<u8>, usize)>,
+    position: u64,
+    stats: WriteStats,
+    done: bool,
+}
+
+#[derive(Debug)]
+struct StreamingEntry {
+    header: Vec<u8>,
+    header_offset: usize,
+    payload: StreamingPayload,
+    metadata: WrittenEntry,
+    raw_copied: bool,
+}
+
+#[derive(Debug)]
+enum StreamingPayload {
+    Raw { offset: u64, remaining: u64 },
+    Owned { bytes: Vec<u8>, offset: usize },
+}
+
 impl<S: OutputSink> ZipWriter<S> {
     pub fn new(sink: S) -> Self {
         Self {
@@ -358,6 +390,305 @@ impl<S: OutputSink> ZipWriter<S> {
     }
 }
 
+impl<R: ReadAt> StreamingZipWriter<R> {
+    pub fn new(source: R) -> Self {
+        Self {
+            source,
+            entries: Vec::new(),
+            names: HashSet::new(),
+            archive_comment: Vec::new(),
+            current: None,
+            final_bytes: None,
+            position: 0,
+            stats: WriteStats::default(),
+            done: false,
+        }
+    }
+
+    pub fn set_comment(&mut self, comment: &[u8]) -> Result<()> {
+        self.ensure_idle()?;
+        ensure_u16("archive comment", comment.len())?;
+        self.archive_comment.clear();
+        self.archive_comment.extend_from_slice(comment);
+        Ok(())
+    }
+
+    pub fn position(&self) -> u64 {
+        self.position
+    }
+
+    pub fn entry_active(&self) -> bool {
+        self.current.is_some()
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.done
+    }
+
+    pub fn stats(&self) -> WriteStats {
+        self.stats
+    }
+
+    pub fn start_raw_copy(&mut self, entry: &Entry, mode: RewriteMode) -> Result<()> {
+        self.ensure_idle()?;
+        validate_name(&entry.name)?;
+        let compressed_size = ensure_u32("compressed entry size", entry.compressed_size)?;
+        let uncompressed_size = ensure_u32("uncompressed entry size", entry.uncompressed_size)?;
+        let local_header_offset = ensure_u32("local header offset", self.position)?;
+        let metadata = RawMetadata::from_entry(entry, mode);
+        ensure_metadata_lengths(
+            entry.name.len(),
+            metadata.local_extra.len(),
+            metadata.central_extra.len(),
+            metadata.comment.len(),
+        )?;
+        self.reserve_name(&entry.name)?;
+        let flags = normalized_flags(entry.flags);
+        let header = local_header_bytes(
+            &entry.name,
+            flags,
+            entry.compression,
+            entry.crc32,
+            compressed_size,
+            uncompressed_size,
+            metadata.modified_time,
+            metadata.modified_date,
+            metadata.local_extra,
+            metadata.version_needed,
+        )?;
+        self.current = Some(StreamingEntry {
+            header,
+            header_offset: 0,
+            payload: StreamingPayload::Raw {
+                offset: entry.compressed_range().start,
+                remaining: entry.compressed_size,
+            },
+            metadata: WrittenEntry {
+                name: entry.name.clone(),
+                flags,
+                compression: entry.compression,
+                crc32: entry.crc32,
+                compressed_size,
+                uncompressed_size,
+                modified_time: metadata.modified_time,
+                modified_date: metadata.modified_date,
+                version_made_by: metadata.version_made_by,
+                version_needed: metadata.version_needed,
+                internal_attributes: metadata.internal_attributes,
+                external_attributes: metadata.external_attributes,
+                central_extra: metadata.central_extra.to_vec(),
+                comment: metadata.comment.to_vec(),
+                local_header_offset,
+            },
+            raw_copied: true,
+        });
+        Ok(())
+    }
+
+    pub fn start_entry(
+        &mut self,
+        name: String,
+        bytes: Vec<u8>,
+        options: EntryOptions,
+    ) -> Result<()> {
+        self.ensure_idle()?;
+        validate_name(&name)?;
+        ensure_metadata_lengths(
+            name.len(),
+            options.local_extra.len(),
+            options.central_extra.len(),
+            options.comment.len(),
+        )?;
+        let uncompressed_size = ensure_u32("uncompressed entry size", bytes.len() as u64)?;
+        let crc32 = crc32fast::hash(&bytes);
+        let compressed = match options.compression {
+            CompressionMethod::Stored => bytes,
+            CompressionMethod::Deflate => {
+                let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(6));
+                encoder.write_all(&bytes).map_err(|error| {
+                    Error::new(ErrorCode::Io, format!("failed to deflate {name}: {error}"))
+                })?;
+                encoder.finish().map_err(|error| {
+                    Error::new(ErrorCode::Io, format!("failed to finish {name}: {error}"))
+                })?
+            }
+            CompressionMethod::Unsupported(code) => {
+                return Err(Error::new(
+                    ErrorCode::UnsupportedCompression,
+                    format!("cannot encode compression method {code} for {name}"),
+                ));
+            }
+        };
+        let compressed_size = ensure_u32("compressed entry size", compressed.len() as u64)?;
+        let local_header_offset = ensure_u32("local header offset", self.position)?;
+        self.reserve_name(&name)?;
+        let flags = UTF8_FLAG;
+        let needed = version_needed(options.compression);
+        let header = local_header_bytes(
+            &name,
+            flags,
+            options.compression,
+            crc32,
+            compressed_size,
+            uncompressed_size,
+            options.modified_time,
+            options.modified_date,
+            &options.local_extra,
+            needed,
+        )?;
+        self.current = Some(StreamingEntry {
+            header,
+            header_offset: 0,
+            payload: StreamingPayload::Owned {
+                bytes: compressed,
+                offset: 0,
+            },
+            metadata: WrittenEntry {
+                name,
+                flags,
+                compression: options.compression,
+                crc32,
+                compressed_size,
+                uncompressed_size,
+                modified_time: options.modified_time,
+                modified_date: options.modified_date,
+                version_made_by: 20,
+                version_needed: needed,
+                internal_attributes: options.internal_attributes,
+                external_attributes: options.external_attributes,
+                central_extra: options.central_extra,
+                comment: options.comment,
+                local_header_offset,
+            },
+            raw_copied: false,
+        });
+        Ok(())
+    }
+
+    /// Finish package metadata after the last entry has drained.
+    pub fn start_finish(&mut self) -> Result<()> {
+        self.ensure_idle()?;
+        if self.final_bytes.is_some() || self.done {
+            return Err(Error::new(
+                ErrorCode::InvalidField,
+                "ZIP stream finish was already started",
+            ));
+        }
+        let central_offset = ensure_u32("central-directory offset", self.position)?;
+        let mut final_bytes = Vec::new();
+        for entry in &self.entries {
+            final_bytes.extend_from_slice(&central_header_bytes(entry)?);
+        }
+        let central_size = ensure_u32("central-directory size", final_bytes.len() as u64)?;
+        let entry_count = ensure_u16("entry count", self.entries.len())?;
+        let comment_len = ensure_u16("archive comment", self.archive_comment.len())?;
+        push_u32(&mut final_bytes, EOCD_SIGNATURE);
+        push_u16(&mut final_bytes, 0);
+        push_u16(&mut final_bytes, 0);
+        push_u16(&mut final_bytes, entry_count);
+        push_u16(&mut final_bytes, entry_count);
+        push_u32(&mut final_bytes, central_size);
+        push_u32(&mut final_bytes, central_offset);
+        push_u16(&mut final_bytes, comment_len);
+        final_bytes.extend_from_slice(&self.archive_comment);
+        self.final_bytes = Some((final_bytes, 0));
+        Ok(())
+    }
+
+    /// Pull no more than `maximum_bytes`. An empty chunk means the writer is
+    /// idle between entries or completely finished.
+    pub fn pull(&mut self, maximum_bytes: usize) -> Result<Vec<u8>> {
+        if maximum_bytes == 0 {
+            return Err(Error::new(
+                ErrorCode::InvalidField,
+                "ZIP stream chunk size must be positive",
+            ));
+        }
+        let mut output = Vec::with_capacity(maximum_bytes);
+        if let Some(current) = &mut self.current {
+            append_slice(
+                &mut output,
+                maximum_bytes,
+                &current.header,
+                &mut current.header_offset,
+            );
+            if current.header_offset == current.header.len() && output.len() < maximum_bytes {
+                match &mut current.payload {
+                    StreamingPayload::Raw { offset, remaining } => {
+                        let amount = usize::try_from(
+                            (*remaining).min((maximum_bytes - output.len()) as u64),
+                        )
+                        .expect("bounded raw-copy amount fits usize");
+                        let start = output.len();
+                        output.resize(start + amount, 0);
+                        self.source.read_at(*offset, &mut output[start..])?;
+                        *offset += amount as u64;
+                        *remaining -= amount as u64;
+                    }
+                    StreamingPayload::Owned { bytes, offset } => {
+                        append_slice(&mut output, maximum_bytes, bytes, offset);
+                    }
+                }
+            }
+            if streaming_entry_done(current) {
+                let finished = self.current.take().expect("current entry exists");
+                self.position =
+                    self.position
+                        .checked_add(output.len() as u64)
+                        .ok_or_else(|| {
+                            Error::new(ErrorCode::LimitExceeded, "output position overflow")
+                        })?;
+                self.stats.entries += 1;
+                if finished.raw_copied {
+                    self.stats.raw_copied_entries += 1;
+                    self.stats.raw_copied_bytes += u64::from(finished.metadata.compressed_size);
+                } else {
+                    self.stats.recompressed_entries +=
+                        u64::from(finished.metadata.compression == CompressionMethod::Deflate);
+                }
+                self.entries.push(finished.metadata);
+                return Ok(output);
+            }
+        } else if let Some((bytes, offset)) = &mut self.final_bytes {
+            append_slice(&mut output, maximum_bytes, bytes, offset);
+            if *offset == bytes.len() {
+                self.done = true;
+            }
+        }
+        self.position = self
+            .position
+            .checked_add(output.len() as u64)
+            .ok_or_else(|| Error::new(ErrorCode::LimitExceeded, "output position overflow"))?;
+        Ok(output)
+    }
+
+    fn ensure_idle(&self) -> Result<()> {
+        if self.current.is_some() || self.final_bytes.is_some() || self.done {
+            return Err(Error::new(
+                ErrorCode::InvalidField,
+                "ZIP stream is not ready for another entry",
+            ));
+        }
+        Ok(())
+    }
+
+    fn reserve_name(&mut self, name: &str) -> Result<()> {
+        if self.entries.len() >= usize::from(u16::MAX) {
+            return Err(Error::new(
+                ErrorCode::UnsupportedZip64,
+                "entry count requires ZIP64",
+            ));
+        }
+        if !self.names.insert(name.to_owned()) {
+            return Err(Error::new(
+                ErrorCode::DuplicateEntry,
+                format!("duplicate ZIP entry: {name}"),
+            ));
+        }
+        Ok(())
+    }
+}
+
 struct RawMetadata<'a> {
     modified_time: u16,
     modified_date: u16,
@@ -485,6 +816,84 @@ fn ensure_u32(label: &str, value: u64) -> Result<u32> {
             format!("{label} requires ZIP64: {value}"),
         )
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn local_header_bytes(
+    name: &str,
+    flags: u16,
+    compression: CompressionMethod,
+    crc32: u32,
+    compressed_size: u32,
+    uncompressed_size: u32,
+    modified_time: u16,
+    modified_date: u16,
+    extra: &[u8],
+    version_needed: u16,
+) -> Result<Vec<u8>> {
+    let mut header = Vec::with_capacity(30 + name.len() + extra.len());
+    push_u32(&mut header, LOCAL_SIGNATURE);
+    push_u16(&mut header, version_needed);
+    push_u16(&mut header, flags);
+    push_u16(&mut header, compression.code());
+    push_u16(&mut header, modified_time);
+    push_u16(&mut header, modified_date);
+    push_u32(&mut header, crc32);
+    push_u32(&mut header, compressed_size);
+    push_u32(&mut header, uncompressed_size);
+    push_u16(&mut header, ensure_u16("entry name", name.len())?);
+    push_u16(&mut header, ensure_u16("local extra", extra.len())?);
+    header.extend_from_slice(name.as_bytes());
+    header.extend_from_slice(extra);
+    Ok(header)
+}
+
+fn central_header_bytes(entry: &WrittenEntry) -> Result<Vec<u8>> {
+    let mut header =
+        Vec::with_capacity(46 + entry.name.len() + entry.central_extra.len() + entry.comment.len());
+    push_u32(&mut header, CENTRAL_SIGNATURE);
+    push_u16(&mut header, entry.version_made_by);
+    push_u16(&mut header, entry.version_needed);
+    push_u16(&mut header, entry.flags);
+    push_u16(&mut header, entry.compression.code());
+    push_u16(&mut header, entry.modified_time);
+    push_u16(&mut header, entry.modified_date);
+    push_u32(&mut header, entry.crc32);
+    push_u32(&mut header, entry.compressed_size);
+    push_u32(&mut header, entry.uncompressed_size);
+    push_u16(&mut header, ensure_u16("entry name", entry.name.len())?);
+    push_u16(
+        &mut header,
+        ensure_u16("central extra", entry.central_extra.len())?,
+    );
+    push_u16(
+        &mut header,
+        ensure_u16("entry comment", entry.comment.len())?,
+    );
+    push_u16(&mut header, 0);
+    push_u16(&mut header, entry.internal_attributes);
+    push_u32(&mut header, entry.external_attributes);
+    push_u32(&mut header, entry.local_header_offset);
+    header.extend_from_slice(entry.name.as_bytes());
+    header.extend_from_slice(&entry.central_extra);
+    header.extend_from_slice(&entry.comment);
+    Ok(header)
+}
+
+fn append_slice(output: &mut Vec<u8>, maximum: usize, bytes: &[u8], offset: &mut usize) {
+    let amount = (bytes.len() - *offset).min(maximum - output.len());
+    output.extend_from_slice(&bytes[*offset..*offset + amount]);
+    *offset += amount;
+}
+
+fn streaming_entry_done(entry: &StreamingEntry) -> bool {
+    if entry.header_offset != entry.header.len() {
+        return false;
+    }
+    match &entry.payload {
+        StreamingPayload::Raw { remaining, .. } => *remaining == 0,
+        StreamingPayload::Owned { bytes, offset } => *offset == bytes.len(),
+    }
 }
 
 fn push_u16(bytes: &mut Vec<u8>, value: u16) {

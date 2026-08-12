@@ -40,8 +40,17 @@ test('prepare transfers the caller-owned ArrayBuffer', async () => {
     type: 'prepared',
     templateHandle: 7,
     residentBytes: 32,
+    plan: new ArrayBuffer(8),
+    bindings: [],
+    diagnostics: [],
   })
-  assert.deepEqual(await pending, { handle: 7, residentBytes: 32 })
+  assert.deepEqual(await pending, {
+    handle: 7,
+    residentBytes: 32,
+    plan: new ArrayBuffer(8),
+    bindings: [],
+    diagnostics: [],
+  })
   client.terminate()
 })
 
@@ -122,14 +131,24 @@ test('runtime cancellation is observed between transferable output chunks', asyn
   }
   const scope = new Scope()
   const output = new Uint8Array(12)
+  let offset = 0
   installWorkerRuntime(scope, {
     prepare: () => 1,
+    prepare_with_options: () => 1,
+    prepare_with_plan: () => 1,
     prepared_weight: () => 1n,
-    generate_text: () => 2,
-    output_len: () => output.byteLength,
-    output_chunk: (_handle, offset, length) => output.slice(offset, offset + length),
+    prepared_plan: () => new Uint8Array(),
+    prepared_bindings: () => [],
+    prepared_diagnostics: () => [],
+    start_generation_payload: () => 2,
+    generation_done: () => offset === output.byteLength,
+    generation_pull: (_handle, length) => {
+      const chunk = output.slice(offset, offset + length)
+      offset += chunk.byteLength
+      return chunk
+    },
     release_template: () => true,
-    release_output: () => true,
+    release_generation: () => true,
   })
   scope.dispatchEvent(
     new MessageEvent('message', {
@@ -138,7 +157,7 @@ test('runtime cancellation is observed between transferable output chunks', asyn
         id: 42,
         type: 'generate',
         templateHandle: 1,
-        text: {},
+        payload: new ArrayBuffer(28),
         chunkBytes: 4,
       },
     }),

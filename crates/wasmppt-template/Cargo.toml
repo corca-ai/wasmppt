@@ -13,6 +13,7 @@ publish = false
 default = []
 
 [dependencies]
+sha2.workspace = true
 wasmppt-opc.workspace = true
 wasmppt-pml.workspace = true
 wasmppt-xml.workspace = true

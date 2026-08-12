@@ -73,5 +73,7 @@ cargo fuzz run --fuzz-dir crates/wasmppt-opc/fuzz package_graph
 
 - See the [system architecture](architecture.md) for the full mutation and rendering
   design.
+- See [template bindings and TemplatePlan](bindings.md) for the authoring contract
+  built on these source ranges.
 - See the [development guide](develop.md) for repository verification commands.
 - Return to the [documentation index](index.md) for the project map.

@@ -12,6 +12,8 @@ This is the canonical index for living `wasmppt` documentation.
   rewriting, security limits, determinism, and memory budgets.
 - [Loss-aware OOXML graph](ooxml.md) — namespace-aware source ranges, content
   types, relationships, conformance detection, diagnostics, and typed views.
+- [Template bindings and TemplatePlan](bindings.md) — PowerPoint authoring,
+  split-run tokens, manifests, diagnostics, serialization, and cache identity.
 - [Documentation guide](metadoc.md) — how documentation is organized, written,
   linked, and linted.
 

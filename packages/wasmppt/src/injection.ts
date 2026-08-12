@@ -1,4 +1,4 @@
-export const INJECTION_SCHEMA_VERSION = 1 as const
+export const INJECTION_SCHEMA_VERSION = 2 as const
 
 export interface ImageCrop {
   readonly left: number
@@ -12,6 +12,24 @@ export interface ImageBinding {
   readonly extension: string
   readonly contentType: string
   readonly crop?: ImageCrop
+  readonly fit?: 'preserve' | 'cover' | 'contain'
+}
+
+export interface RichTextRunBinding {
+  readonly text: string
+  readonly bold?: boolean
+  readonly italic?: boolean
+  readonly underline?: boolean
+  readonly fontSize?: number
+  readonly color?: string
+}
+
+export interface SemanticShapeBinding {
+  readonly visible?: boolean
+  readonly copies?: number
+  readonly richText?: readonly RichTextRunBinding[]
+  readonly hyperlink?: string
+  readonly fillColor?: string
 }
 
 export interface ChartSeries {
@@ -24,12 +42,20 @@ export interface ChartBinding {
   readonly series: readonly ChartSeries[]
 }
 
+export interface TablePolicyBinding {
+  readonly maximumRows: number
+  readonly overflow: 'fail' | 'clip' | 'shrink'
+}
+
 export interface GenerationData {
   readonly text?: Readonly<Record<string, string>>
   readonly images?: Readonly<Record<string, ImageBinding>>
   readonly tables?: Readonly<Record<string, readonly Readonly<Record<string, string>>[]>>
   readonly slides?: Readonly<Record<string, number>>
   readonly charts?: Readonly<Record<string, ChartBinding>>
+  readonly semanticShapes?: Readonly<Record<string, SemanticShapeBinding>>
+  readonly notes?: Readonly<Record<string, string>>
+  readonly tablePolicies?: Readonly<Record<string, TablePolicyBinding>>
 }
 
 /** Encode one structured generation request without JSON or base64 on the Wasm boundary. */
@@ -62,6 +88,7 @@ export function encodeInjectionData(data: GenerationData = {}): ArrayBuffer {
       writer.i32(image.crop.bottom, `${id}.crop.bottom`)
     }
     writer.sizedBytes(image.bytes)
+    writer.u8(image.fit === 'cover' ? 1 : image.fit === 'contain' ? 2 : 0)
   }
 
   const tables = sortedEntries(data.tables)
@@ -99,6 +126,51 @@ export function encodeInjectionData(data: GenerationData = {}): ArrayBuffer {
       for (const value of series.values) writer.f64(value, `${partName} series value`)
     }
   }
+
+
+  const semanticShapes = sortedEntries(data.semanticShapes)
+  writer.count(semanticShapes.length, 'semantic shape bindings')
+  for (const [id, shape] of semanticShapes) {
+    writer.string(id)
+    writer.optionalBoolean(shape.visible)
+    writer.optionalU32(shape.copies, `${id}.copies`)
+    if (shape.richText === undefined) {
+      writer.u8(0)
+    } else {
+      writer.u8(1)
+      writer.count(shape.richText.length, `${id}.richText`)
+      for (const run of shape.richText) {
+        writer.string(run.text)
+        writer.optionalBoolean(run.bold)
+        writer.optionalBoolean(run.italic)
+        writer.optionalBoolean(run.underline)
+        writer.optionalI32(run.fontSize, `${id}.richText.fontSize`)
+        writer.optionalString(run.color)
+      }
+    }
+    writer.optionalString(shape.hyperlink)
+    writer.optionalString(shape.fillColor)
+  }
+
+  const notes = sortedEntries(data.notes)
+  writer.count(notes.length, 'notes bindings')
+  for (const [slidePart, value] of notes) {
+    writer.string(slidePart)
+    writer.string(value)
+  }
+  const tablePolicies = sortedEntries(data.tablePolicies)
+  writer.count(tablePolicies.length, 'table policies')
+  for (const [id, policy] of tablePolicies) {
+    writer.string(id)
+    if (policy.maximumRows < 1) throw new RangeError(`${id}.maximumRows must be positive`)
+    writer.u32(policy.maximumRows, `${id}.maximumRows`)
+    const overflowTag = policy.overflow === 'fail' ? 0
+      : policy.overflow === 'clip' ? 1
+        : policy.overflow === 'shrink' ? 2
+          : undefined
+    if (overflowTag === undefined) throw new TypeError(`${id}.overflow is invalid`)
+    writer.u8(overflowTag)
+  }
   return writer.finish()
 }
 
@@ -126,6 +198,25 @@ class BinaryWriter {
     const bytes = new Uint8Array(4)
     new DataView(bytes.buffer).setInt32(0, value, true)
     this.bytes(bytes)
+  }
+
+  optionalBoolean(value: boolean | undefined): void {
+    this.u8(value === undefined ? 0 : value ? 2 : 1)
+  }
+
+  optionalU32(value: number | undefined, label: string): void {
+    this.u8(value === undefined ? 0 : 1)
+    if (value !== undefined) this.u32(value, label)
+  }
+
+  optionalI32(value: number | undefined, label: string): void {
+    this.u8(value === undefined ? 0 : 1)
+    if (value !== undefined) this.i32(value, label)
+  }
+
+  optionalString(value: string | undefined): void {
+    this.u8(value === undefined ? 0 : 1)
+    if (value !== undefined) this.string(value)
   }
 
   f64(value: number, label: string): void {

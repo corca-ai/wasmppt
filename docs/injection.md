@@ -13,7 +13,8 @@ indexes slide IDs and relationships, and computes the static macro-removal patch
 `generate`, `generate_to`, and `generate_cursor` do not rescan the package. A warm generation applies data to
 the cached ranges, recompresses only dirty or new entries, and raw-copies every unchanged
 compressed payload. `generate_to` accepts the forward-only `OutputSink` capability and
-does not require seeking. Its statistics distinguish raw copies, rewrites, and removals;
+does not require seeking. Its statistics distinguish raw copies, rewrites, removals,
+total dirty bytes, the largest dirty entry, and the largest emitted host chunk;
 unchanged entries always record zero inflation and zero recompression.
 
 `generate_cursor` is the bounded pull path used by Wasm hosts. Each `pull(maximum_bytes)` call
@@ -22,7 +23,7 @@ source package into the returned chunk; no complete output archive is retained. 
 are prepared as a working set and each entry's compressed form is retained only while that entry
 is drained. The final central directory is emitted last.
 
-## Structured Generation API v1
+## Structured Generation API v2
 
 Browser callers pass one `GenerationData` object to `generateStream` or `generate`:
 
@@ -33,24 +34,35 @@ Browser callers pass one `GenerationData` object to `generateStream` or `generat
     hero: { bytes: pngBytes, extension: 'png', contentType: 'image/png' }
   },
   tables: { metrics: [{ label: 'Latency', value: '12 ms' }] },
+  tablePolicies: { metrics: { maximumRows: 12, overflow: 'shrink' } },
   slides: { 'ppt/slides/slide2.xml': 2 },
   charts: {
-    'ppt/charts/chart1.xml': {
+    sales: {
       categories: ['Q1', 'Q2'],
       series: [{ name: 'Revenue', values: [10, 14] }]
     }
-  }
+  },
+  semanticShapes: {
+    callout: {
+      visible: true,
+      copies: 2,
+      richText: [{ text: 'Priority', bold: true, color: 'FF0000' }],
+      hyperlink: 'https://example.com',
+      fillColor: 'FFF2CC'
+    }
+  },
+  notes: { 'ppt/slides/slide1.xml': 'Speaker-only context' }
 }
 ```
 
 The adapter deterministically encodes this object into the little-endian `WPPD` binary payload
 schema. Image bytes cross the Wasm boundary directly, without JSON or base64. Rust and TypeScript
-share a golden payload test, and the decoder rejects unknown schema versions, excessive counts,
+share a golden WPPD v2 payload test; Rust continues to decode WPPD v1. The decoder rejects unknown schema versions, excessive counts,
 non-finite chart values, truncation, and trailing data. A flat string record remains a temporary
 text-only compatibility shorthand.
 
 Cloudflare clients send these same bytes as the body of an R2-template generation request with
-media type `application/vnd.corca.wasmppt.injection-v1`; no host-specific payload translation is
+media type `application/vnd.corca.wasmppt.injection-v2`; no host-specific payload translation is
 required.
 
 ## Text and table data
@@ -63,6 +75,12 @@ Bindings named `table_id.field` inside the same `<a:tr>` define a repeated table
 Call `set_table_rows("table_id", rows)` with one map per output row. The complete original
 row markup is cloned for each record, so cell properties and unsupported row extensions
 survive while bound text ranges change.
+
+`tablePolicies` makes overflow intentional. `fail` rejects the request transactionally,
+`clip` emits only the declared capacity, and `shrink` keeps all rows while scaling cloned row
+heights to the declared capacity. A zero capacity is invalid. Continuation-slide pagination is
+not implicit; authors use the existing deterministic slide repetition API when a table must span
+slides.
 
 ## Images
 
@@ -77,12 +95,24 @@ crop values in DrawingML's 1/1000-percent units. The compiler resolves `a:blip/@
 to its slide relationship. Generation writes a deterministic media part, rewrites that
 relationship target, updates or inserts `a:srcRect`, and adds or corrects the content-type
 default. The old media part is removed only when the source graph proves it has one
-reference. External hyperlinks and unrelated relationships remain unchanged.
+reference. `fit` selects preserve, cover, or contain behavior; an explicit crop remains
+authoritative. External hyperlinks and unrelated relationships remain unchanged.
+
+## Semantic shapes and notes
+
+`semanticShapes` addresses an existing Alt Text/manifest/visible-token binding ID rather than
+an OOXML part or shape ID. Generation validates every operation before output, can exclude or
+repeat the complete shape, allocates deterministic slide-local shape IDs, writes mixed rich-text
+runs, updates an existing safe hyperlink relationship, and changes an existing solid fill.
+Unknown markup inside repeated shapes remains intact. `notes` addresses a source slide part and
+updates its related notes-slide text without cloning or sharing notes accidentally.
 
 ## Chart data
 
-`set_chart("ppt/charts/chart1.xml", data)` replaces complete categories and series for a
-supported chart. Generation validates dimensions and finite numeric values, then updates both
+Set a chart graphic frame's Alt Text Description to `wasmppt:chart:sales`, then call
+`set_chart("sales", data)`. The compiler resolves that stable authoring name to the chart
+relationship and part once; raw part names remain accepted as a low-level compatibility path.
+Generation validates dimensions and finite numeric values, then updates both
 the chart's text/category/number caches and the related embedded workbook worksheet in the same
 output. Cache formulas and workbook cell ranges are resized consistently. See
 [tables, charts, and advanced content](advanced-content.md) for read and render coverage.
@@ -114,10 +144,11 @@ its compressed bytes survive verbatim.
 
 ## Validation
 
-Rust tests cover POTX, synthetic POTM stripping, split-run text, escaping, Unicode, image
+Rust tests cover WPPD v1/v2, POTX, Strict POTX targeted editing, synthetic POTM stripping, split-run text, escaping, Unicode, image
 media/relationships/crops/content types, repeated table rows, deterministic slide clones,
 slide exclusion, hyperlinks, notes, opaque parts, malformed bindings, and a non-seekable
-sink.
+sink, semantic conditions/repetition/rich text, named chart bindings, explicit table overflow,
+notes edits, and buffered/streaming parity.
 
 CI also downloads [Apache POI's](https://github.com/apache/poi) Apache-licensed
 `bug59273.potx` at a pinned SHA-256,

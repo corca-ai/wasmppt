@@ -8,6 +8,7 @@ import {
   type SceneDiagnostic,
   type SceneGroupTransform,
   type SceneImage,
+  type ScenePathCommand,
   type SceneSemanticElement,
   type SceneTransform,
 } from './canvas.js'
@@ -258,9 +259,33 @@ async function renderGraphicCommands(
       path.setAttribute('transform', shapeSvgTransform(command.transform))
       setAttributes(path, { fill: `url(#${gradientId})`, stroke: 'none' })
       parent.append(path)
+    } else if (command.kind === 'fill-radial-gradient-preset') {
+      const path = document.createElementNS(SVG_NAMESPACE, 'path')
+      const gradientId = appendRadialGradient(
+        state.definitions,
+        `wasmppt-radial-${semantic.shapeId}-${state.definitions.childElementCount}`,
+        command.stops,
+      )
+      path.setAttribute('d', presetPath(command.geometry, command.transform.bounds.width, command.transform.bounds.height))
+      path.setAttribute('transform', shapeSvgTransform(command.transform))
+      setAttributes(path, { fill: `url(#${gradientId})`, stroke: 'none' })
+      parent.append(path)
+    } else if (command.kind === 'fill-pattern-preset') {
+      const path = document.createElementNS(SVG_NAMESPACE, 'path')
+      const patternId = appendPattern(
+        state.definitions,
+        `wasmppt-pattern-${semantic.shapeId}-${state.definitions.childElementCount}`,
+        command.preset,
+        command.foreground,
+        command.background,
+      )
+      path.setAttribute('d', presetPath(command.geometry, command.transform.bounds.width, command.transform.bounds.height))
+      path.setAttribute('transform', shapeSvgTransform(command.transform))
+      setAttributes(path, { fill: `url(#${patternId})`, stroke: 'none' })
+      parent.append(path)
     } else if (command.kind === 'draw-custom-path') {
       const path = document.createElementNS(SVG_NAMESPACE, 'path')
-      path.setAttribute('d', command.path.map((part) => part.kind === 'close' ? 'Z' : `${part.kind === 'move-to' ? 'M' : 'L'} ${part.x} ${part.y}`).join(' '))
+      path.setAttribute('d', customPathData(command.path))
       const bounds = command.transform.bounds
       path.setAttribute('transform', `translate(${bounds.x} ${bounds.y}) scale(${bounds.width / command.pathWidth} ${bounds.height / command.pathHeight})`)
       let customFill = 'none'
@@ -273,6 +298,22 @@ async function renderGraphicCommands(
           command.fill.stops,
         )
         customFill = `url(#${gradientId})`
+      } else if (command.fill.kind === 'radial-gradient') {
+        const gradientId = appendRadialGradient(
+          state.definitions,
+          `wasmppt-custom-radial-${semantic.shapeId}-${state.definitions.childElementCount}`,
+          command.fill.stops,
+        )
+        customFill = `url(#${gradientId})`
+      } else if (command.fill.kind === 'pattern') {
+        const patternId = appendPattern(
+          state.definitions,
+          `wasmppt-custom-pattern-${semantic.shapeId}-${state.definitions.childElementCount}`,
+          command.fill.preset,
+          command.fill.foreground,
+          command.fill.background,
+        )
+        customFill = `url(#${patternId})`
       }
       setAttributes(path, {
         fill: customFill,
@@ -362,6 +403,52 @@ function appendLinearGradient(
     gradient.append(stop)
   }
   definitions.append(gradient)
+  return id
+}
+
+function appendRadialGradient(
+  definitions: SVGDefsElement,
+  id: string,
+  stops: readonly { readonly position: number; readonly color: Parameters<typeof cssColor>[0] }[],
+): string {
+  const gradient = document.createElementNS(SVG_NAMESPACE, 'radialGradient')
+  gradient.id = id
+  for (const value of stops) {
+    const stop = document.createElementNS(SVG_NAMESPACE, 'stop')
+    setAttributes(stop, { offset: `${value.position / 1_000}%`, 'stop-color': cssColor(value.color) })
+    gradient.append(stop)
+  }
+  definitions.append(gradient)
+  return id
+}
+
+function appendPattern(
+  definitions: SVGDefsElement,
+  id: string,
+  preset: string,
+  foreground: Parameters<typeof cssColor>[0],
+  background: Parameters<typeof cssColor>[0],
+): string {
+  const pattern = document.createElementNS(SVG_NAMESPACE, 'pattern')
+  setAttributes(pattern, { id, width: 8, height: 8, patternUnits: 'userSpaceOnUse' })
+  const backdrop = document.createElementNS(SVG_NAMESPACE, 'rect')
+  setAttributes(backdrop, { width: 8, height: 8, fill: cssColor(background) })
+  pattern.append(backdrop)
+  const path = document.createElementNS(SVG_NAMESPACE, 'path')
+  const vertical = /Vert|vert/u.test(preset)
+  const horizontal = /Horz|horz/u.test(preset)
+  path.setAttribute('d', vertical && horizontal
+    ? 'M 4 0 V 8 M 0 4 H 8'
+    : vertical
+      ? 'M 4 0 V 8'
+      : horizontal
+        ? 'M 0 4 H 8'
+        : /DnDiag|dnDiag/u.test(preset)
+          ? 'M -2 0 L 8 10 M 6 -2 L 10 2'
+          : 'M -2 8 L 8 -2 M 6 10 L 10 6')
+  setAttributes(path, { fill: 'none', stroke: cssColor(foreground), 'stroke-width': 1 })
+  pattern.append(path)
+  definitions.append(pattern)
   return id
 }
 
@@ -484,20 +571,38 @@ async function updateAccessibleOverlay(
     const plan = await buildRichTextLayout(measureContext, richTextCommand, fontResolver)
     const originX = richTextCommand.bounds.x / EMU_PER_CSS_PIXEL
     const originY = richTextCommand.bounds.y / EMU_PER_CSS_PIXEL
-    element.replaceChildren(...plan.runs.map((run) => {
+    const layoutX = plan.layoutBounds.x / EMU_PER_CSS_PIXEL
+    const layoutY = plan.layoutBounds.y / EMU_PER_CSS_PIXEL
+    const wrapper = document.createElement('span')
+    Object.assign(wrapper.style, {
+      position: 'absolute',
+      left: `${layoutX - originX}px`,
+      top: `${layoutY - originY}px`,
+      width: `${plan.layoutBounds.width / EMU_PER_CSS_PIXEL}px`,
+      height: `${plan.layoutBounds.height / EMU_PER_CSS_PIXEL}px`,
+      transformOrigin: '50% 50%',
+      transform: plan.rotationDegrees === 0 ? 'none' : `rotate(${plan.rotationDegrees}deg)`,
+    })
+    wrapper.replaceChildren(...plan.runs.map((run) => {
       const span = document.createElement('span')
       span.textContent = run.text
       Object.assign(span.style, {
         position: 'absolute',
-        left: `${run.x - originX}px`,
-        top: `${run.baseline - originY}px`,
+        left: `${run.x - layoutX}px`,
+        top: `${run.baseline - layoutY}px`,
         transform: 'translateY(-0.82em)',
         font: run.font.css,
         color: cssColor(run.color),
+        direction: run.direction,
+        letterSpacing: `${run.characterSpacing}px`,
+        textDecoration: [run.underline ? 'underline' : '', run.strike ? 'line-through' : '']
+          .filter(Boolean)
+          .join(' ') || 'none',
         whiteSpace: 'pre',
       })
       return span
     }))
+    element.replaceChildren(wrapper)
   } else element.textContent = ''
   const groupTransforms = commands
     .filter(
@@ -706,11 +811,59 @@ function presetPath(geometry: number, width: number, height: number): string {
   if (geometry === 9) {
     return `M ${width / 4} 0 L ${(width * 3) / 4} 0 L ${width} ${height / 2} L ${(width * 3) / 4} ${height} L ${width / 4} ${height} L 0 ${height / 2} Z`
   }
+  if (geometry === 10 || geometry === 11 || geometry === 12) {
+    const count = geometry === 10 ? 5 : geometry === 11 ? 8 : 10
+    const points = Array.from({ length: count }, (_, index) => {
+      const angle = -Math.PI / 2 + index * Math.PI * 2 / count
+      const radius = geometry === 12 && index % 2 === 1 ? 0.22 : 0.5
+      return `${width / 2 + Math.cos(angle) * width * radius} ${height / 2 + Math.sin(angle) * height * radius}`
+    })
+    return `M ${points.join(' L ')} Z`
+  }
+  if (geometry === 13) return `M ${width * 0.35} 0 L ${width * 0.65} 0 L ${width * 0.65} ${height * 0.35} L ${width} ${height * 0.35} L ${width} ${height * 0.65} L ${width * 0.65} ${height * 0.65} L ${width * 0.65} ${height} L ${width * 0.35} ${height} L ${width * 0.35} ${height * 0.65} L 0 ${height * 0.65} L 0 ${height * 0.35} L ${width * 0.35} ${height * 0.35} Z`
+  if (geometry === 14) return `M 0 0 L ${width * 0.65} 0 L ${width} ${height / 2} L ${width * 0.65} ${height} L 0 ${height} L ${width * 0.35} ${height / 2} Z`
+  if (geometry === 15) return `M 0 ${height * 0.3} L ${width * 0.6} ${height * 0.3} L ${width * 0.6} 0 L ${width} ${height / 2} L ${width * 0.6} ${height} L ${width * 0.6} ${height * 0.7} L 0 ${height * 0.7} Z`
+  if (geometry === 16) return `M ${width} ${height * 0.3} L ${width * 0.4} ${height * 0.3} L ${width * 0.4} 0 L 0 ${height / 2} L ${width * 0.4} ${height} L ${width * 0.4} ${height * 0.7} L ${width} ${height * 0.7} Z`
+  if (geometry === 17) return `M ${width * 0.3} ${height} L ${width * 0.3} ${height * 0.4} L 0 ${height * 0.4} L ${width / 2} 0 L ${width} ${height * 0.4} L ${width * 0.7} ${height * 0.4} L ${width * 0.7} ${height} Z`
+  if (geometry === 18) return `M ${width * 0.3} 0 L ${width * 0.3} ${height * 0.6} L 0 ${height * 0.6} L ${width / 2} ${height} L ${width} ${height * 0.6} L ${width * 0.7} ${height * 0.6} L ${width * 0.7} 0 Z`
+  if (geometry === 19) return `M ${width * 0.2} 0 L ${width * 0.8} 0 L ${width} ${height} L 0 ${height} Z`
   if (geometry === 2) {
     const radius = Math.min(Math.abs(width), Math.abs(height)) / 8
     return `M ${radius} 0 H ${width - radius} Q ${width} 0 ${width} ${radius} V ${height - radius} Q ${width} ${height} ${width - radius} ${height} H ${radius} Q 0 ${height} 0 ${height - radius} V ${radius} Q 0 0 ${radius} 0 Z`
   }
   return `M 0 0 H ${width} V ${height} H 0 Z`
+}
+
+function customPathData(path: readonly ScenePathCommand[]): string {
+  const output: string[] = []
+  let currentX = 0
+  let currentY = 0
+  for (const part of path) {
+    if (part.kind === 'close') {
+      output.push('Z')
+    } else if (part.kind === 'move-to' || part.kind === 'line-to') {
+      output.push(`${part.kind === 'move-to' ? 'M' : 'L'} ${part.x} ${part.y}`)
+      currentX = part.x
+      currentY = part.y
+    } else if (part.kind === 'quadratic-to') {
+      output.push(`Q ${part.controlX} ${part.controlY} ${part.x} ${part.y}`)
+      currentX = part.x
+      currentY = part.y
+    } else if (part.kind === 'cubic-to') {
+      output.push(`C ${part.control1X} ${part.control1Y} ${part.control2X} ${part.control2Y} ${part.x} ${part.y}`)
+      currentX = part.x
+      currentY = part.y
+    } else {
+      const start = part.startAngle / 60_000 * Math.PI / 180
+      const sweep = part.sweepAngle / 60_000 * Math.PI / 180
+      const centerX = currentX - part.widthRadius * Math.cos(start)
+      const centerY = currentY - part.heightRadius * Math.sin(start)
+      currentX = centerX + part.widthRadius * Math.cos(start + sweep)
+      currentY = centerY + part.heightRadius * Math.sin(start + sweep)
+      output.push(`A ${part.widthRadius} ${part.heightRadius} 0 ${Math.abs(sweep) > Math.PI ? 1 : 0} ${sweep >= 0 ? 1 : 0} ${currentX} ${currentY}`)
+    }
+  }
+  return output.join(' ')
 }
 
 function shapeSvgTransform(transform: SceneTransform): string {

@@ -10,6 +10,8 @@
       "allSlides": 500000000
     },
     "maximumPeakResidentBytes": 536870912,
+    "maximumPeakDirtyEntryBytes": 33554432,
+    "maximumOutputChunkBytes": 65536,
     "minimumRawCopiedEntries": 1,
     "maximumInflatedEntries": 0
   },
@@ -17,7 +19,9 @@
     "maximumColdPrepareMs": 1000,
     "maximumWarmInjectionP95Ms": 500,
     "maximumBinaryBytes": 2097152,
-    "maximumFirstVisibleSlideMs": 500
+    "maximumFirstVisibleSlideMs": 500,
+    "maximumRapidScrollAverageMs": 100,
+    "maximumStronglyReferencedSlides": 3
   },
   "cloudflareWorkerd": {
     "maximumWarmRequestP95Ms": 1000,

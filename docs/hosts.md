@@ -66,8 +66,9 @@ request stream or from `?r2=KEY` through the `TEMPLATES` R2 binding. `R2Template
 uses ranged binding reads, not Cloudflare's REST API. The response is a
 `ReadableStream<Uint8Array>` drained from the Wasm output handle in bounded chunks.
 
-For an R2 template, clients may send the same structured Generation API v1 bytes used by the
-browser as an `application/vnd.corca.wasmppt.injection-v1` request body. Direct-template request
+For an R2 template, clients may send the same structured Generation API v2 bytes used by the
+browser as an `application/vnd.corca.wasmppt.injection-v2` request body. The v1 media type remains
+accepted during migration. Direct-template request
 bodies continue to accept the `x-wasmppt-bindings` text-only header as a compatibility path because
 the body itself contains the template. New structured integrations SHOULD store templates in R2.
 

@@ -1,7 +1,7 @@
 # Browser Dogfood Playground
 
 The public [wasmppt playground](https://corca-ai.github.io/wasmppt/) is the smallest end-to-end
-consumer of Generation API v1. It is a static GitHub Pages application: no presentation or image
+consumer of Generation API v2. It is a static GitHub Pages application: no presentation or image
 is uploaded to a server.
 
 ## Workflow

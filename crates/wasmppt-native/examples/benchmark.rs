@@ -9,8 +9,10 @@ use std::{
 use flate2::{Compression, read::ZlibDecoder, write::ZlibEncoder};
 use wasmppt_display::DisplayList;
 use wasmppt_layout::PresentationDocument;
-use wasmppt_opc::{WriteStats, ZipArchive};
-use wasmppt_template::{ImageData, InjectionData, PreparedTemplate, TemplateCompiler};
+use wasmppt_opc::ZipArchive;
+use wasmppt_template::{
+    GenerateStats, ImageData, InjectionData, PreparedTemplate, TemplateCompiler,
+};
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -45,23 +47,34 @@ fn main() {
     let mut output = None;
     for _ in 0..iterations {
         let start = Instant::now();
-        let generated = prepared.generate(&data).unwrap();
+        let generated = prepared
+            .generate_to(&data, wasmppt_opc::VecSink::new())
+            .unwrap();
         warm.push(start.elapsed().as_nanos() as u64);
         output = Some(generated);
     }
-    let generated = output.unwrap();
-    verify_generated_output(&generated.bytes, &scenario, slides);
-    let deck = PresentationDocument::open(generated.bytes.clone()).unwrap();
+    let (sink, generation_stats) = output.unwrap();
+    let generated_bytes = sink.into_inner();
+    verify_generated_output(&generated_bytes, &scenario, slides);
+    let deck = PresentationDocument::open(generated_bytes.clone()).unwrap();
     assert_eq!(deck.slide_count(), slides);
-    assert_eq!(&generated.bytes[..2], b"PK");
+    assert_eq!(&generated_bytes[..2], b"PK");
+
+    let mut cursor = prepared.generate_cursor(&data).unwrap();
+    let mut streamed = Vec::new();
+    while !cursor.is_done() {
+        streamed.extend(cursor.pull(64 * 1024).unwrap());
+    }
+    assert_eq!(streamed, generated_bytes);
+    let streaming_stats = cursor.stats().unwrap();
 
     let mut first = Vec::with_capacity(iterations);
     let mut visible = Vec::with_capacity(iterations);
     let mut all = Vec::with_capacity(iterations);
     for _ in 0..iterations {
-        first.push(measure_resolution(&generated.bytes, 1));
-        visible.push(measure_resolution(&generated.bytes, slides.min(3)));
-        all.push(measure_resolution(&generated.bytes, slides));
+        first.push(measure_resolution(&generated_bytes, 1));
+        visible.push(measure_resolution(&generated_bytes, slides.min(3)));
+        all.push(measure_resolution(&generated_bytes, slides));
     }
     let display = DisplayList::from_resolve(&deck.resolve_slide(0).unwrap()).encode();
     assert!(display.starts_with(b"WPDL"));
@@ -69,9 +82,10 @@ fn main() {
         &scenario,
         slides,
         bytes.len(),
-        generated.bytes.len(),
+        generated_bytes.len(),
         prepared.estimated_resident_bytes(),
-        generated.zip_stats,
+        generation_stats,
+        streaming_stats.maximum_output_chunk_bytes,
         &cold,
         &warm,
         &first,
@@ -126,6 +140,7 @@ fn injection_data(scenario: &str, slides: usize) -> InjectionData {
                     extension: "png".into(),
                     content_type: "image/png".into(),
                     crop: None,
+                    fit: Default::default(),
                 },
             );
         }
@@ -224,7 +239,8 @@ fn print_result(
     input: usize,
     output: usize,
     resident: u64,
-    stats: WriteStats,
+    stats: GenerateStats,
+    maximum_output_chunk_bytes: u64,
     cold: &[u64],
     warm: &[u64],
     first: &[u64],
@@ -232,13 +248,17 @@ fn print_result(
     all: &[u64],
 ) {
     println!(
-        "{{\"schema\":1,\"scenario\":\"{scenario}\",\"slides\":{slides},\"iterations\":{},\"inputBytes\":{input},\"outputBytes\":{output},\"estimatedResidentBytes\":{resident},\"copies\":{{\"input\":1,\"output\":1}},\"zip\":{{\"entries\":{},\"rawCopiedEntries\":{},\"rawCopiedBytes\":{},\"inflatedEntries\":{},\"recompressedEntries\":{}}},\"samplesNs\":{{\"coldTemplateCompile\":[{}],\"warmInjection\":[{}],\"firstSlide\":[{}],\"visibleSlides\":[{}],\"allSlides\":[{}]}}}}",
+        "{{\"schema\":1,\"scenario\":\"{scenario}\",\"slides\":{slides},\"iterations\":{},\"inputBytes\":{input},\"outputBytes\":{output},\"estimatedResidentBytes\":{resident},\"copies\":{{\"input\":1,\"output\":1}},\"zip\":{{\"entries\":{},\"rawCopiedEntries\":{},\"rawCopiedBytes\":{},\"inflatedEntries\":{},\"recompressedEntries\":{}}},\"generation\":{{\"rewrittenEntries\":{},\"removedEntries\":{},\"dirtyUncompressedBytes\":{},\"peakDirtyEntryBytes\":{},\"maximumOutputChunkBytes\":{maximum_output_chunk_bytes}}},\"samplesNs\":{{\"coldTemplateCompile\":[{}],\"warmInjection\":[{}],\"firstSlide\":[{}],\"visibleSlides\":[{}],\"allSlides\":[{}]}}}}",
         cold.len(),
-        stats.entries,
-        stats.raw_copied_entries,
-        stats.raw_copied_bytes,
-        stats.inflated_entries,
-        stats.recompressed_entries,
+        stats.zip.entries,
+        stats.zip.raw_copied_entries,
+        stats.zip.raw_copied_bytes,
+        stats.zip.inflated_entries,
+        stats.zip.recompressed_entries,
+        stats.rewritten_entries,
+        stats.removed_entries,
+        stats.dirty_uncompressed_bytes,
+        stats.peak_dirty_entry_bytes,
         array(cold),
         array(warm),
         array(first),

@@ -1,15 +1,17 @@
 {
   "schema": 1,
-  "displayListVersion": 4,
+  "displayListVersion": 5,
   "features": [
-    { "id": "text", "read": "paragraph-run-v4", "preserve": "yes", "edit": "text-binding", "render": "canvas-dom-mixed-runs" },
+    { "id": "text", "read": "paragraph-run-v5-rtl-tabs-vertical", "preserve": "yes", "edit": "text-binding", "render": "canvas-dom-shared-layout" },
     { "id": "images-raster", "read": "yes", "preserve": "yes", "edit": "image-binding", "render": "canvas-svg" },
-    { "id": "tables", "read": "cells-spans-sizing-solid-fill", "preserve": "yes", "edit": "repeat-bound-row", "render": "canvas-svg-basic" },
-    { "id": "charts-column-bar-line", "read": "cache-and-workbook-link", "preserve": "yes", "edit": "cache-and-workbook-atomic", "render": "canvas-svg-basic" },
-    { "id": "charts-pie-area-scatter-other", "read": "cache-and-workbook-link", "preserve": "yes", "edit": "cache-and-workbook-atomic", "render": "diagnostic-only" },
-    { "id": "preset-geometry", "read": "nine-common-presets", "preserve": "yes", "edit": "no", "render": "canvas-svg" },
-    { "id": "custom-geometry", "read": "move-line-close", "preserve": "yes", "edit": "no", "render": "canvas-svg-bounded" },
-    { "id": "gradients-patterns", "read": "linear-gradient-pattern-detected", "preserve": "yes", "edit": "no", "render": "linear-gradient-canvas-svg" },
+    { "id": "images-svg-gif", "read": "bounded-metadata", "preserve": "yes", "edit": "image-binding", "render": "lazy-safe-svg-first-gif-frame" },
+    { "id": "audio-video", "read": "relationship-and-poster", "preserve": "yes", "edit": "no", "render": "poster-or-non-activating-placeholder" },
+    { "id": "tables", "read": "rich-cells-merges-borders-banding", "preserve": "yes", "edit": "repeat-row-fail-clip-shrink", "render": "canvas-svg-shared-grid" },
+    { "id": "charts-column-bar-line", "read": "cache-and-workbook-link", "preserve": "yes", "edit": "cache-and-workbook-atomic", "render": "canvas-svg-2d" },
+    { "id": "charts-pie-area-scatter-other", "read": "pie-doughnut-area-scatter-bubble-combination", "preserve": "yes", "edit": "named-cache-and-workbook-atomic", "render": "canvas-svg-2d" },
+    { "id": "preset-geometry", "read": "nineteen-common-presets", "preserve": "yes", "edit": "no", "render": "canvas-svg" },
+    { "id": "custom-geometry", "read": "move-line-quadratic-cubic-arc-close", "preserve": "yes", "edit": "no", "render": "canvas-svg-bounded" },
+    { "id": "gradients-patterns", "read": "linear-radial-path-pattern", "preserve": "yes", "edit": "no", "render": "canvas-svg" },
     { "id": "shadows-effects", "read": "outer-shadow-effect-dag-detected", "preserve": "yes", "edit": "no", "render": "outer-shadow-canvas-svg" },
     { "id": "connectors-line-ends", "read": "preset-and-five-line-ends", "preserve": "yes", "edit": "no", "render": "canvas-svg" },
     { "id": "smartart", "read": "relationships-detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
@@ -18,6 +20,7 @@
     { "id": "transition", "read": "detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
     { "id": "3d", "read": "detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
     { "id": "ole-active-content", "read": "detected", "preserve": "policy-dependent", "edit": "no", "render": "never-activate" },
-    { "id": "vba", "read": "detected", "preserve": "pptm-policy-only", "edit": "no", "render": "never-execute" }
+    { "id": "vba", "read": "detected", "preserve": "pptm-policy-only", "edit": "no", "render": "never-execute" },
+    { "id": "strict-ooxml", "read": "namespace-and-relationship-aware", "preserve": "yes", "edit": "bounded", "render": "same-resolver" }
   ]
 }

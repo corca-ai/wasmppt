@@ -15,6 +15,7 @@ test('structured injection payload is deterministic and versioned', () => {
       },
     },
     tables: { revenue: [{ region: '서울' }] },
+    tablePolicies: { revenue: { maximumRows: 12, overflow: 'clip' } },
     slides: { 'ppt/slides/slide2.xml': 3 },
     charts: {
       'ppt/charts/chart1.xml': {
@@ -23,7 +24,7 @@ test('structured injection payload is deterministic and versioned', () => {
       },
     },
   }))
-  assert.deepEqual([...payload.subarray(0, 8)], [0x57, 0x50, 0x50, 0x44, 1, 0, 0, 0])
+  assert.deepEqual([...payload.subarray(0, 8)], [0x57, 0x50, 0x50, 0x44, 2, 0, 0, 0])
   assert.equal(toHex(payload), GOLDEN_HEX)
 })
 
@@ -38,9 +39,17 @@ test('structured injection payload rejects unsafe numeric values', () => {
     }),
     /must be finite/,
   )
+  assert.throws(
+    () => encodeInjectionData({ tablePolicies: { metrics: { maximumRows: 0, overflow: 'fail' } } }),
+    /must be positive/,
+  )
+  assert.throws(
+    () => encodeInjectionData({ tablePolicies: { metrics: { maximumRows: 1, overflow: 'clone' } } }),
+    /overflow is invalid/,
+  )
 })
 
-const GOLDEN_HEX = '575050440100000001000000050000007469746c6510000000ebb684eab8b020ebb3b4eab3a0ec849c01000000040000006865726f03000000706e6709000000696d6167652f706e670101000000020000000300000004000000030000000102030100000007000000726576656e7565010000000100000006000000726567696f6e06000000ec849cec9ab801000000150000007070742f736c696465732f736c696465322e786d6c0300000001000000150000007070742f6368617274732f6368617274312e786d6c02000000020000005131020000005132010000000500000053616c657302000000000000000000f83f0000000000000440'
+const GOLDEN_HEX = '575050440200000001000000050000007469746c6510000000ebb684eab8b020ebb3b4eab3a0ec849c01000000040000006865726f03000000706e6709000000696d6167652f706e67010100000002000000030000000400000003000000010203000100000007000000726576656e7565010000000100000006000000726567696f6e06000000ec849cec9ab801000000150000007070742f736c696465732f736c696465322e786d6c0300000001000000150000007070742f6368617274732f6368617274312e786d6c02000000020000005131020000005132010000000500000053616c657302000000000000000000f83f000000000000044000000000000000000100000007000000726576656e75650c00000001'
 
 function toHex(bytes) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')

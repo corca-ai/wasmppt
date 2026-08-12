@@ -1,6 +1,6 @@
 # Template Bindings and TemplatePlan
 
-This document is the version 1 authoring and caching contract for compiled PowerPoint
+This document is the version 2 authoring and caching contract for compiled PowerPoint
 templates.
 
 ## Authoring bindings
@@ -80,7 +80,7 @@ Cache identity includes:
 `reuse_decision` compares every field and every completeness proof. Any mismatch returns
 `Recompile`; stale plans are never used with a warning.
 
-## Generation API v1 preparation
+## Generation API v2 preparation
 
 The browser adapter exposes compilation as `WasmpptWorkerClient.prepare(template, options)`.
 The input `ArrayBuffer` is transferred to the Worker. A successful result contains:
@@ -95,6 +95,13 @@ The input `ArrayBuffer` is transferred to the Worker. A successful result contai
 the returned plan into a later `prepare` call skips binding discovery only after the Rust core
 decodes the plan and verifies its source-template identity. Option tags and binary plan schema
 are stable inputs to cache identity; JavaScript object property order is not.
+
+WPPD v2 reuses those stable binding IDs for conditional/repeated shapes, rich text, safe
+hyperlinks, basic solid-fill edits, image-fit policies, and notes. Applications do not need to
+persist shape IDs or relationship part names. A chart frame Description such as
+`wasmppt:chart:sales` also compiles to the related chart and workbook, so `charts.sales` is a
+stable transactional update. The v1 decoder remains supported for migration;
+v2 invalid combinations fail before any output entry is written.
 
 ## Storage boundary
 

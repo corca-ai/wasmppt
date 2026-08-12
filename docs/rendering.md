@@ -29,21 +29,21 @@ The first resolver implements:
 - slide size in integer English Metric Units (EMU);
 - theme color schemes, master/override color maps, `srgbClr`, `sysClr`, and
   `schemeClr`;
-- tint, shade, luminance modifier/offset, and alpha color transforms;
-- master and layout background and non-placeholder shapes;
-- slide placeholder inheritance from layout and master by type/index;
+- tint, shade, luminance/saturation/hue, RGB, inversion, grayscale, and alpha transforms;
+- master/layout backgrounds, background references, non-placeholder shapes, and show-master flags;
+- slide placeholder inheritance, nine text-style levels, and header/footer placeholders;
 - nested group transform chains without converting coordinates to pixels;
 - source-layer z-order, transforms, flips and 1/60000-degree rotation;
-- solid/no and linear-gradient fills, line color, width, dash and line ends, image
+- solid/no, linear/radial gradient and pattern fills, line color, width, dash and line ends, image
   relationships and source crops;
-- rectangle, rounded rectangle, ellipse, line, triangle, right triangle, diamond,
-  parallelogram, and hexagon preset geometry;
+- nineteen common preset geometries including polygons, stars, arrows, plus and chevron;
 - paragraph/run-preserving text with mixed font size, Latin/East-Asian/complex-script
   families, color and emphasis; bullets, indentation, spacing and alignment; and
-  text-frame margins, vertical anchoring, wrapping and autofit mode;
-- bounded move/line/close custom paths and outer shadows.
+  RTL, tabs, character spacing, baseline shifts, decoration, vertical flow, text-frame
+  margins, vertical anchoring, wrapping and autofit mode;
+- bounded move/line/quadratic/cubic/arc/close custom paths and outer shadows.
 
-Unsupported graphic frames, pattern fills, curved custom paths, and effect DAGs produce
+Unsupported graphic frames and effect DAGs produce
 explicit `ResolveDiagnostic` values. Source OOXML remains untouched, so a later backend
 or fallback can recover it. The resolver never silently claims those features were drawn.
 
@@ -68,7 +68,9 @@ slide 2, and vice versa. Media invalidation reaches only its referencing slide.
 - semantic command ranges for source shape IDs, reading order, accessible names, and links;
 - resolver diagnostics shared without reinterpretation by every rendering backend.
 
-WPDL version 4 adds paragraph/run-preserving rich text, linear gradients, bounded custom
+WPDL version 5 adds RTL/tab/vertical text metadata, decoration and spacing, curved custom
+paths, radial gradients, patterns, and the expanded preset set. WPDL version 4 adds
+paragraph/run-preserving rich text, linear gradients, bounded custom
 paths, outer shadows, connectors, and arrowheads. Version 3 extends `DrawText` with the
 effective text-frame style and adds an
 explicit preserved-graphic placeholder command. Version 1 and 2 scenes still decode

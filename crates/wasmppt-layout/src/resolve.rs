@@ -4,13 +4,14 @@ use wasmppt_opc::{MemorySource, PackageGraph, PartId, RelationshipTarget, ZipArc
 use wasmppt_xml::{Attribute, TokenKind, XmlDocument, decode_entities};
 
 use crate::{
-    ChartKind, ChartSeries, CustomPath, ElementKind, EmuPoint, EmuSize, Fill, GradientStop,
-    GroupTransform, ImageCrop, LayoutError, LineEnd, OuterShadow, PathCommand, Placeholder,
-    PreservedFeature, PresetGeometry, ResolutionTrace, ResolveDiagnostic, ResolveDiagnosticCode,
-    ResolveOutput, ResolvedChart, ResolvedElement, ResolvedParagraph, ResolvedSlide, ResolvedTable,
-    ResolvedTableCell, ResolvedTableRow, ResolvedTextFrame, ResolvedTextRun, ResolvedTextStyle,
-    RgbaColor, SourceLevel, Stroke, TextAlignment, TextAutofit, TextVerticalAlignment, Transform,
-    plain_i64,
+    ChartGrouping, ChartKind, ChartSeries, CustomPath, ElementKind, EmuPoint, EmuSize, Fill,
+    GradientStop, GroupTransform, ImageCrop, LayoutError, LineEnd, OuterShadow, PathCommand,
+    Placeholder, PreservedFeature, PresetGeometry, PropertyProvenance, ResolutionTrace,
+    ResolveDiagnostic, ResolveDiagnosticCode, ResolveOutput, ResolvedChart, ResolvedElement,
+    ResolvedParagraph, ResolvedSlide, ResolvedTable, ResolvedTableCell, ResolvedTableRow,
+    ResolvedTextFrame, ResolvedTextRun, ResolvedTextStyle, ResolvedTextTab, RgbaColor, SourceLevel,
+    Stroke, TableCellBorders, TextAlignment, TextAutofit, TextDirection, TextFlow,
+    TextTabAlignment, TextVerticalAlignment, Transform, plain_i64,
 };
 
 const WHITE: RgbaColor = RgbaColor {
@@ -48,6 +49,7 @@ struct RawShape {
     geometry: Option<PresetGeometry>,
     image_relationship_id: Option<String>,
     crop: ImageCrop,
+    provenance: Vec<PropertyProvenance>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -68,6 +70,8 @@ struct RawParagraph {
     line_spacing: Option<i32>,
     space_before: Option<i32>,
     space_after: Option<i32>,
+    direction: TextDirection,
+    tabs: Vec<ResolvedTextTab>,
 }
 
 #[derive(Clone, Debug)]
@@ -75,6 +79,7 @@ struct RawTextFrame {
     paragraphs: Vec<RawParagraph>,
     wrap: bool,
     autofit: TextAutofit,
+    flow: TextFlow,
 }
 
 #[derive(Debug, Default)]
@@ -83,6 +88,11 @@ struct ParsedPart {
     background: Option<RgbaColor>,
     diagnostics: Vec<(ResolveDiagnosticCode, Option<u32>, String)>,
     text_styles: MasterTextStyles,
+    show_master_shapes: Option<bool>,
+    show_header: Option<bool>,
+    show_footer: Option<bool>,
+    show_date_time: Option<bool>,
+    show_slide_number: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -92,6 +102,10 @@ struct PartialTextStyle {
     font_family: Option<String>,
     bold: Option<bool>,
     italic: Option<bool>,
+    underline: Option<bool>,
+    strike: Option<bool>,
+    character_spacing: Option<i32>,
+    baseline: Option<i32>,
     alignment: Option<TextAlignment>,
     vertical_alignment: Option<TextVerticalAlignment>,
     margin_left: Option<i64>,
@@ -102,6 +116,25 @@ struct PartialTextStyle {
 }
 
 impl PartialTextStyle {
+    fn has_values(&self) -> bool {
+        self.font_size.is_some()
+            || self.color.is_some()
+            || self.font_family.is_some()
+            || self.bold.is_some()
+            || self.italic.is_some()
+            || self.underline.is_some()
+            || self.strike.is_some()
+            || self.character_spacing.is_some()
+            || self.baseline.is_some()
+            || self.alignment.is_some()
+            || self.vertical_alignment.is_some()
+            || self.margin_left.is_some()
+            || self.margin_top.is_some()
+            || self.margin_right.is_some()
+            || self.margin_bottom.is_some()
+            || self.bullet.is_some()
+    }
+
     fn overlay(&mut self, other: &Self) {
         macro_rules! replace_some {
             ($field:ident) => {
@@ -115,6 +148,10 @@ impl PartialTextStyle {
         replace_some!(font_family);
         replace_some!(bold);
         replace_some!(italic);
+        replace_some!(underline);
+        replace_some!(strike);
+        replace_some!(character_spacing);
+        replace_some!(baseline);
         replace_some!(alignment);
         replace_some!(vertical_alignment);
         replace_some!(margin_left);
@@ -137,6 +174,10 @@ impl PartialTextStyle {
         fill_missing!(font_family);
         fill_missing!(bold);
         fill_missing!(italic);
+        fill_missing!(underline);
+        fill_missing!(strike);
+        fill_missing!(character_spacing);
+        fill_missing!(baseline);
         fill_missing!(alignment);
         fill_missing!(vertical_alignment);
         fill_missing!(margin_left);
@@ -154,6 +195,10 @@ impl PartialTextStyle {
             font_family: self.font_family.clone(),
             bold: self.bold.unwrap_or(defaults.bold),
             italic: self.italic.unwrap_or(defaults.italic),
+            underline: self.underline.unwrap_or(defaults.underline),
+            strike: self.strike.unwrap_or(defaults.strike),
+            character_spacing: self.character_spacing.unwrap_or(defaults.character_spacing),
+            baseline: self.baseline.unwrap_or(defaults.baseline),
             alignment: self.alignment.unwrap_or(defaults.alignment),
             vertical_alignment: self
                 .vertical_alignment
@@ -166,11 +211,24 @@ impl PartialTextStyle {
     }
 }
 
+#[derive(Clone, Debug)]
+struct TextStyleLevels {
+    levels: [PartialTextStyle; 9],
+}
+
+impl Default for TextStyleLevels {
+    fn default() -> Self {
+        Self {
+            levels: std::array::from_fn(|_| PartialTextStyle::default()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 struct MasterTextStyles {
-    title: PartialTextStyle,
-    body: PartialTextStyle,
-    other: PartialTextStyle,
+    title: TextStyleLevels,
+    body: TextStyleLevels,
+    other: TextStyleLevels,
 }
 
 #[derive(Clone, Debug)]
@@ -280,14 +338,21 @@ pub fn resolve_slide_parts(
             diagnostics: &mut diagnostics,
             trace: &mut trace,
         };
-        if let Some((part, parsed, _)) = &master {
-            append_non_placeholder(
-                &mut elements,
-                &mut element_resolver,
-                parsed,
-                SourceLevel::Master,
-                *part,
-            );
+        let show_master_shapes = slide.show_master_shapes.unwrap_or(true)
+            && layout
+                .as_ref()
+                .and_then(|(_, part, _)| part.show_master_shapes)
+                .unwrap_or(true);
+        if show_master_shapes {
+            if let Some((part, parsed, _)) = &master {
+                append_non_placeholder(
+                    &mut elements,
+                    &mut element_resolver,
+                    parsed,
+                    SourceLevel::Master,
+                    *part,
+                );
+            }
         }
         if let Some((part, parsed, _)) = &layout {
             append_non_placeholder(
@@ -297,6 +362,28 @@ pub fn resolve_slide_parts(
                 SourceLevel::Layout,
                 *part,
             );
+            append_unmaterialized_placeholders(
+                &mut elements,
+                &mut element_resolver,
+                parsed,
+                SourceLevel::Layout,
+                *part,
+                &slide,
+                None,
+            );
+        }
+        if show_master_shapes {
+            if let Some((part, parsed, _)) = &master {
+                append_unmaterialized_placeholders(
+                    &mut elements,
+                    &mut element_resolver,
+                    parsed,
+                    SourceLevel::Master,
+                    *part,
+                    &slide,
+                    layout.as_ref().map(|(_, part, _)| part),
+                );
+            }
         }
         for raw in &slide.shapes {
             let inherited_layout = raw.placeholder.as_ref().and_then(|placeholder| {
@@ -315,9 +402,9 @@ pub fn resolve_slide_parts(
             });
             let mut merged = merge_shape(raw, inherited_layout, inherited_master);
             if let Some((_, master_part, _)) = &master {
-                let master_style =
+                let master_styles =
                     master_text_style_for(&master_part.text_styles, merged.placeholder.as_ref());
-                merged.text_style.fill_missing_from(master_style);
+                apply_master_text_styles(&mut merged, master_styles);
             }
             elements.push(resolve_element(
                 &merged,
@@ -414,6 +501,52 @@ fn append_non_placeholder(
     }
 }
 
+fn append_unmaterialized_placeholders(
+    output: &mut Vec<ResolvedElement>,
+    resolver: &mut ElementResolver<'_>,
+    part: &ParsedPart,
+    source: SourceLevel,
+    part_id: PartId,
+    slide: &ParsedPart,
+    nearer: Option<&ParsedPart>,
+) {
+    let part_name = resolver
+        .graph
+        .part_name(resolver.graph.part(part_id))
+        .to_owned();
+    for shape in &part.shapes {
+        let Some(placeholder) = &shape.placeholder else {
+            continue;
+        };
+        let enabled = match placeholder.kind.as_str() {
+            "hdr" => slide.show_header.or(part.show_header).unwrap_or(true),
+            "ftr" => slide.show_footer.or(part.show_footer).unwrap_or(true),
+            "dt" => slide.show_date_time.or(part.show_date_time).unwrap_or(true),
+            "sldNum" => slide
+                .show_slide_number
+                .or(part.show_slide_number)
+                .unwrap_or(true),
+            _ => false,
+        };
+        if !enabled
+            || slide
+                .shapes
+                .iter()
+                .any(|candidate| placeholder_matches(placeholder, candidate.placeholder.as_ref()))
+            || nearer.is_some_and(|nearer| {
+                nearer.shapes.iter().any(|candidate| {
+                    placeholder_matches(placeholder, candidate.placeholder.as_ref())
+                })
+            })
+        {
+            continue;
+        }
+        output.push(resolve_element(
+            shape, resolver, source, part_id, &part_name,
+        ));
+    }
+}
+
 struct ElementResolver<'a> {
     archive: &'a ZipArchive<MemorySource>,
     graph: &'a PackageGraph,
@@ -445,10 +578,7 @@ fn resolve_element(
                     resolver.trace.visited_parts.push(name.clone());
                     name
                 });
-                if matches!(
-                    chart.kind,
-                    ChartKind::Pie | ChartKind::Area | ChartKind::Scatter | ChartKind::Other
-                ) {
+                if chart.kind == ChartKind::Other {
                     resolver.diagnostics.push(ResolveDiagnostic {
                         code: ResolveDiagnosticCode::UnsupportedChartKind,
                         part_name,
@@ -470,7 +600,10 @@ fn resolve_element(
                 });
                 ResolvedChart {
                     kind: ChartKind::Other,
+                    grouping: ChartGrouping::Standard,
                     series: Vec::new(),
+                    title: None,
+                    show_legend: false,
                     embedded_workbook: None,
                 }
             });
@@ -531,6 +664,21 @@ fn resolved_element(
         id: shape.id,
         name: shape.name.clone(),
         source,
+        provenance: if shape.provenance.is_empty() {
+            [
+                "transform",
+                "geometry",
+                "fill",
+                "stroke",
+                "text",
+                "text-style",
+            ]
+            .into_iter()
+            .map(|property| PropertyProvenance { property, source })
+            .collect()
+        } else {
+            shape.provenance.clone()
+        },
         z_order: 0,
         placeholder: shape.placeholder.clone(),
         transform: shape.transform.unwrap_or_default(),
@@ -602,6 +750,8 @@ fn resolve_text_frame(frame: &RawTextFrame, inherited: &PartialTextStyle) -> Res
                     line_spacing: paragraph.line_spacing,
                     space_before: paragraph.space_before,
                     space_after: paragraph.space_after,
+                    direction: paragraph.direction,
+                    tabs: paragraph.tabs.clone(),
                 }
             })
             .collect(),
@@ -612,6 +762,7 @@ fn resolve_text_frame(frame: &RawTextFrame, inherited: &PartialTextStyle) -> Res
         margin_bottom: base.margin_bottom,
         wrap: frame.wrap,
         autofit: frame.autofit,
+        flow: frame.flow,
     }
 }
 
@@ -686,17 +837,80 @@ fn merge_shape(local: &RawShape, layout: Option<&RawShape>, master: Option<&RawS
             .or_else(|| master.and_then(|shape| shape.geometry)),
         image_relationship_id: local.image_relationship_id.clone(),
         crop: local.crop,
+        provenance: [
+            (
+                "transform",
+                local.transform.is_some(),
+                layout.is_some_and(|shape| shape.transform.is_some()),
+                master.is_some_and(|shape| shape.transform.is_some()),
+            ),
+            (
+                "geometry",
+                local.geometry.is_some(),
+                layout.is_some_and(|shape| shape.geometry.is_some()),
+                master.is_some_and(|shape| shape.geometry.is_some()),
+            ),
+            (
+                "fill",
+                local.fill.is_some(),
+                layout.is_some_and(|shape| shape.fill.is_some()),
+                master.is_some_and(|shape| shape.fill.is_some()),
+            ),
+            (
+                "stroke",
+                local.stroke.is_some(),
+                layout.is_some_and(|shape| shape.stroke.is_some()),
+                master.is_some_and(|shape| shape.stroke.is_some()),
+            ),
+            (
+                "text",
+                local.text.is_some(),
+                layout.is_some_and(|shape| shape.text.is_some()),
+                master.is_some_and(|shape| shape.text.is_some()),
+            ),
+            (
+                "text-style",
+                local.text_style.has_values(),
+                layout.is_some_and(|shape| shape.text_style.has_values()),
+                master.is_some_and(|shape| shape.text_style.has_values()),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(property, local_value, layout_value, master_value)| {
+            let source = if local_value {
+                Some(SourceLevel::Slide)
+            } else if layout_value {
+                Some(SourceLevel::Layout)
+            } else if master_value {
+                Some(SourceLevel::Master)
+            } else {
+                None
+            }?;
+            Some(PropertyProvenance { property, source })
+        })
+        .collect(),
     }
 }
 
 fn master_text_style_for<'a>(
     styles: &'a MasterTextStyles,
     placeholder: Option<&Placeholder>,
-) -> &'a PartialTextStyle {
+) -> &'a TextStyleLevels {
     match placeholder.map(|placeholder| placeholder.kind.as_str()) {
         Some("title" | "ctrTitle") => &styles.title,
         Some("body" | "obj" | "subTitle") | None => &styles.body,
         _ => &styles.other,
+    }
+}
+
+fn apply_master_text_styles(shape: &mut RawShape, styles: &TextStyleLevels) {
+    shape.text_style.fill_missing_from(&styles.levels[0]);
+    if let Some(frame) = &mut shape.text_frame {
+        for paragraph in &mut frame.paragraphs {
+            paragraph
+                .style
+                .fill_missing_from(&styles.levels[paragraph.level as usize]);
+        }
     }
 }
 
@@ -729,6 +943,23 @@ fn parse_drawing_part(document: &XmlDocument, theme: &Theme) -> ParsedPart {
         text_styles: parse_master_text_styles(document, theme),
         ..ParsedPart::default()
     };
+    for token in document.tokens() {
+        let TokenKind::Start {
+            name, attributes, ..
+        } = &token.kind
+        else {
+            continue;
+        };
+        if matches!(name.local.as_str(), "sld" | "sldLayout") {
+            parsed.show_master_shapes = plain(attributes, "showMasterSp").map(ooxml_bool);
+        }
+        if name.local == "hf" {
+            parsed.show_header = plain(attributes, "hdr").map(ooxml_bool);
+            parsed.show_footer = plain(attributes, "ftr").map(ooxml_bool);
+            parsed.show_date_time = plain(attributes, "dt").map(ooxml_bool);
+            parsed.show_slide_number = plain(attributes, "sldNum").map(ooxml_bool);
+        }
+    }
     let mut groups = Vec::<(usize, GroupTransform)>::new();
     for (index, token) in document.tokens().iter().enumerate() {
         match &token.kind {
@@ -886,6 +1117,10 @@ fn parse_graphic_frame(
 fn parse_table(document: &XmlDocument, start: usize, end: usize, theme: &Theme) -> ResolvedTable {
     let mut column_widths = Vec::new();
     let mut rows = Vec::new();
+    let mut first_row = false;
+    let mut first_column = false;
+    let mut banded_rows = false;
+    let mut banded_columns = false;
     for index in start..=end {
         let TokenKind::Start {
             name, attributes, ..
@@ -893,7 +1128,12 @@ fn parse_table(document: &XmlDocument, start: usize, end: usize, theme: &Theme) 
         else {
             continue;
         };
-        if name.local == "gridCol" {
+        if name.local == "tblPr" {
+            first_row = plain(attributes, "firstRow").is_some_and(ooxml_bool);
+            first_column = plain(attributes, "firstCol").is_some_and(ooxml_bool);
+            banded_rows = plain(attributes, "bandRow").is_some_and(ooxml_bool);
+            banded_columns = plain(attributes, "bandCol").is_some_and(ooxml_bool);
+        } else if name.local == "gridCol" {
             column_widths.push(plain_i64(attributes, "w").unwrap_or(0));
         } else if name.local == "tr" {
             let Some(row_end) = element_end(document, index) else {
@@ -916,28 +1156,32 @@ fn parse_table(document: &XmlDocument, start: usize, end: usize, theme: &Theme) 
                 }
                 let cell_end = element_end(document, cell_index).unwrap_or(cell_index);
                 let text = collect_text(document, cell_index, cell_end);
-                let fill = (cell_index..=cell_end)
-                    .find_map(|fill_index| {
-                        matches!(
-                            &document.tokens()[fill_index].kind,
-                            TokenKind::Start { name, .. } if name.local == "solidFill"
-                        )
-                        .then(|| {
-                            parse_color(
-                                document,
-                                fill_index,
-                                element_end(document, fill_index).unwrap_or(fill_index),
-                                theme,
-                            )
-                        })
-                        .flatten()
-                    })
-                    .unwrap_or(WHITE);
+                let direct_fill =
+                    find_direct_table_cell_fill(document, cell_index, cell_end, theme);
+                let row_number = rows.len();
+                let column_number = cells.len();
+                let fill = direct_fill.unwrap_or_else(|| {
+                    let accent = theme.colors.get("accent1").copied().unwrap_or(WHITE);
+                    if (first_row && row_number == 0) || (first_column && column_number == 0) {
+                        accent
+                    } else if (banded_rows && row_number % 2 == 1)
+                        || (banded_columns && column_number % 2 == 1)
+                    {
+                        apply_color_transform(accent, "tint", 85_000)
+                    } else {
+                        WHITE
+                    }
+                });
                 cells.push(ResolvedTableCell {
                     text,
+                    text_frame: parse_text_frame(document, cell_index, cell_end, theme)
+                        .map(|frame| resolve_text_frame(&frame, &PartialTextStyle::default())),
                     row_span: plain_u32(cell_attributes, "rowSpan").unwrap_or(1),
                     column_span: plain_u32(cell_attributes, "gridSpan").unwrap_or(1),
+                    horizontal_merge: plain(cell_attributes, "hMerge").is_some_and(ooxml_bool),
+                    vertical_merge: plain(cell_attributes, "vMerge").is_some_and(ooxml_bool),
                     fill,
+                    borders: parse_table_cell_borders(document, cell_index, cell_end, theme),
                 });
             }
             rows.push(ResolvedTableRow {
@@ -949,21 +1193,98 @@ fn parse_table(document: &XmlDocument, start: usize, end: usize, theme: &Theme) 
     ResolvedTable {
         column_widths,
         rows,
+        first_row,
+        first_column,
+        banded_rows,
+        banded_columns,
     }
 }
 
+fn find_direct_table_cell_fill(
+    document: &XmlDocument,
+    start: usize,
+    end: usize,
+    theme: &Theme,
+) -> Option<RgbaColor> {
+    let properties = (start..=end).find(|index| {
+        matches!(
+            &document.tokens()[*index].kind,
+            TokenKind::Start { name, .. } if name.local == "tcPr"
+        )
+    })?;
+    let properties_end = element_end(document, properties)
+        .unwrap_or(properties)
+        .min(end);
+    (properties..=properties_end).find_map(|fill_index| {
+        matches!(
+            &document.tokens()[fill_index].kind,
+            TokenKind::Start { name, .. } if name.local == "solidFill"
+        )
+        .then(|| {
+            parse_color(
+                document,
+                fill_index,
+                element_end(document, fill_index).unwrap_or(fill_index),
+                theme,
+            )
+        })
+        .flatten()
+    })
+}
+
+fn parse_table_cell_borders(
+    document: &XmlDocument,
+    start: usize,
+    end: usize,
+    theme: &Theme,
+) -> TableCellBorders {
+    let mut borders = TableCellBorders::default();
+    for index in start..=end {
+        let TokenKind::Start {
+            name, attributes, ..
+        } = &document.tokens()[index].kind
+        else {
+            continue;
+        };
+        let target = match name.local.as_str() {
+            "lnL" => &mut borders.left,
+            "lnR" => &mut borders.right,
+            "lnT" => &mut borders.top,
+            "lnB" => &mut borders.bottom,
+            _ => continue,
+        };
+        let border_end = element_end(document, index).unwrap_or(index).min(end);
+        if document.tokens()[index..=border_end].iter().any(
+            |token| matches!(&token.kind, TokenKind::Start { name, .. } if name.local == "noFill"),
+        ) {
+            *target = None;
+            continue;
+        }
+        *target = Some(Stroke {
+            color: parse_color(document, index, border_end, theme).unwrap_or(BLACK),
+            width: plain_i64(attributes, "w").unwrap_or(9_525),
+            dash: nearest_dash(document, index, border_end),
+            head_end: None,
+            tail_end: None,
+        });
+    }
+    borders
+}
+
 fn parse_chart(document: &XmlDocument) -> ResolvedChart {
-    let mut kind = ChartKind::Other;
+    let mut kinds = Vec::new();
     for token in document.tokens() {
         let TokenKind::Start { name, .. } = &token.kind else {
             continue;
         };
-        kind = match name.local.as_str() {
+        let kind = match name.local.as_str() {
             "lineChart" => ChartKind::Line,
-            "pieChart" | "pie3DChart" | "doughnutChart" => ChartKind::Pie,
-            "areaChart" | "area3DChart" => ChartKind::Area,
+            "pieChart" => ChartKind::Pie,
+            "doughnutChart" => ChartKind::Doughnut,
+            "areaChart" => ChartKind::Area,
             "scatterChart" => ChartKind::Scatter,
-            "barChart" | "bar3DChart" => {
+            "bubbleChart" => ChartKind::Bubble,
+            "barChart" => {
                 let bar_direction = document.tokens().iter().find_map(|candidate| {
                     let TokenKind::Start {
                         name, attributes, ..
@@ -983,8 +1304,15 @@ fn parse_chart(document: &XmlDocument) -> ResolvedChart {
             }
             _ => continue,
         };
-        break;
+        if !kinds.contains(&kind) {
+            kinds.push(kind);
+        }
     }
+    let kind = match kinds.as_slice() {
+        [] => ChartKind::Other,
+        [kind] => *kind,
+        _ => ChartKind::Combination,
+    };
     let palette = [
         RgbaColor {
             red: 68,
@@ -1017,6 +1345,41 @@ fn parse_chart(document: &XmlDocument) -> ResolvedChart {
             alpha: 255,
         },
     ];
+    let grouping = document
+        .tokens()
+        .iter()
+        .find_map(|token| {
+            let TokenKind::Start {
+                name, attributes, ..
+            } = &token.kind
+            else {
+                return None;
+            };
+            (name.local == "grouping").then(|| match plain(attributes, "val") {
+                Some("stacked") => ChartGrouping::Stacked,
+                Some("percentStacked") => ChartGrouping::PercentStacked,
+                _ => ChartGrouping::Standard,
+            })
+        })
+        .unwrap_or_default();
+    let title = document
+        .tokens()
+        .iter()
+        .enumerate()
+        .find_map(|(index, token)| {
+            let TokenKind::Start { name, .. } = &token.kind else {
+                return None;
+            };
+            if name.local != "title" {
+                return None;
+            }
+            let end = element_end(document, index)?;
+            let text = collect_text(document, index, end);
+            (!text.is_empty()).then_some(text)
+        });
+    let show_legend = document.tokens().iter().any(
+        |token| matches!(&token.kind, TokenKind::Start { name, .. } if name.local == "legend"),
+    );
     let mut series = Vec::new();
     for (index, token) in document.tokens().iter().enumerate() {
         let TokenKind::Start { name, .. } = &token.kind else {
@@ -1032,21 +1395,34 @@ fn parse_chart(document: &XmlDocument) -> ResolvedChart {
             .into_iter()
             .next()
             .unwrap_or_else(|| format!("Series {}", series.len() + 1));
-        let categories = child_cache_values(document, index, end, &["cat", "xVal"]);
+        let categories = child_cache_values(document, index, end, &["cat"]);
+        let x_values = child_cache_values(document, index, end, &["xVal"])
+            .into_iter()
+            .filter_map(|value| value.parse::<f64>().ok())
+            .collect();
         let values = child_cache_values(document, index, end, &["val", "yVal"])
+            .into_iter()
+            .filter_map(|value| value.parse::<f64>().ok())
+            .collect();
+        let bubble_sizes = child_cache_values(document, index, end, &["bubbleSize"])
             .into_iter()
             .filter_map(|value| value.parse::<f64>().ok())
             .collect();
         series.push(ChartSeries {
             name,
             categories,
+            x_values,
             values,
+            bubble_sizes,
             color: palette[series.len() % palette.len()],
         });
     }
     ResolvedChart {
         kind,
+        grouping,
         series,
+        title,
+        show_legend,
         embedded_workbook: None,
     }
 }
@@ -1279,7 +1655,7 @@ fn parse_shape(
                     "noFill" => shape.fill = Some(Fill::None),
                     "gradFill" => {
                         let fill_end = element_end(document, index).unwrap_or(index).min(end);
-                        shape.fill = parse_linear_gradient(document, index, fill_end, theme);
+                        shape.fill = parse_gradient_fill(document, index, fill_end, theme);
                         if shape.fill.is_none() {
                             diagnostics.push((
                                 ResolveDiagnosticCode::UnsupportedFill,
@@ -1289,11 +1665,17 @@ fn parse_shape(
                             ));
                         }
                     }
-                    "pattFill" => diagnostics.push((
-                        ResolveDiagnosticCode::UnsupportedFill,
-                        Some(shape.id),
-                        "pattern fill requires a renderer fallback".to_owned(),
-                    )),
+                    "pattFill" => {
+                        let fill_end = element_end(document, index).unwrap_or(index).min(end);
+                        shape.fill = parse_pattern_fill(document, index, fill_end, theme);
+                        if shape.fill.is_none() {
+                            diagnostics.push((
+                                ResolveDiagnosticCode::UnsupportedFill,
+                                Some(shape.id),
+                                "invalid pattern fill requires a renderer fallback".to_owned(),
+                            ));
+                        }
+                    }
                     "headEnd" if inside_line => {
                         if let Some(stroke) = &mut shape.stroke {
                             stroke.head_end = plain(attributes, "type").and_then(line_end);
@@ -1310,6 +1692,12 @@ fn parse_shape(
                             .find(|attribute| attribute.name.local == "embed")
                             .map(|attribute| attribute.value.clone());
                     }
+                    "audioFile" | "videoFile" | "media" => diagnostics.push((
+                        ResolveDiagnosticCode::UnsupportedActiveContent,
+                        Some(shape.id),
+                        "media is preserved and its poster may render, but playback is never activated"
+                            .to_owned(),
+                    )),
                     "srcRect" => {
                         shape.crop = ImageCrop {
                             left: plain_i32(attributes, "l").unwrap_or(0),
@@ -1374,7 +1762,7 @@ fn parse_shape(
     shape
 }
 
-fn parse_linear_gradient(
+fn parse_gradient_fill(
     document: &XmlDocument,
     start: usize,
     end: usize,
@@ -1402,7 +1790,50 @@ fn parse_linear_gradient(
         }
     }
     stops.sort_unstable_by_key(|stop| stop.position);
-    (stops.len() >= 2).then_some(Fill::LinearGradient { angle, stops })
+    (stops.len() >= 2).then(|| {
+        let radial = (start..=end).any(|index| {
+            matches!(
+                &document.tokens()[index].kind,
+                TokenKind::Start { name, .. } if name.local == "path"
+            )
+        });
+        if radial {
+            Fill::RadialGradient { stops }
+        } else {
+            Fill::LinearGradient { angle, stops }
+        }
+    })
+}
+
+fn parse_pattern_fill(
+    document: &XmlDocument,
+    start: usize,
+    end: usize,
+    theme: &Theme,
+) -> Option<Fill> {
+    let TokenKind::Start { attributes, .. } = &document.tokens()[start].kind else {
+        return None;
+    };
+    let color = |container: &str| {
+        (start..=end).find_map(|index| {
+            let TokenKind::Start { name, .. } = &document.tokens()[index].kind else {
+                return None;
+            };
+            (name.local == container).then(|| {
+                parse_color(
+                    document,
+                    index,
+                    element_end(document, index).unwrap_or(index).min(end),
+                    theme,
+                )
+            })?
+        })
+    };
+    Some(Fill::Pattern {
+        preset: plain(attributes, "prst").unwrap_or("pct5").to_owned(),
+        foreground: color("fgClr").unwrap_or(BLACK),
+        background: color("bgClr").unwrap_or(WHITE),
+    })
 }
 
 fn parse_custom_path(document: &XmlDocument, start: usize, end: usize) -> Option<CustomPath> {
@@ -1450,8 +1881,49 @@ fn parse_custom_path(document: &XmlDocument, start: usize, end: usize) -> Option
                     });
                 }
             }
+            "quadBezTo" | "cubicBezTo" => {
+                let command_end = element_end(document, index).unwrap_or(index).min(path_end);
+                let points = (index..=command_end)
+                    .filter_map(|candidate| {
+                        let TokenKind::Start {
+                            name, attributes, ..
+                        } = &document.tokens()[candidate].kind
+                        else {
+                            return None;
+                        };
+                        (name.local == "pt").then(|| EmuPoint {
+                            x: plain_i64(attributes, "x").unwrap_or(0),
+                            y: plain_i64(attributes, "y").unwrap_or(0),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                if name.local == "quadBezTo" && points.len() >= 2 {
+                    commands.push(PathCommand::QuadraticTo {
+                        control: points[0],
+                        end: points[1],
+                    });
+                } else if name.local == "cubicBezTo" && points.len() >= 3 {
+                    commands.push(PathCommand::CubicTo {
+                        control1: points[0],
+                        control2: points[1],
+                        end: points[2],
+                    });
+                } else {
+                    return None;
+                }
+            }
+            "arcTo" => {
+                let TokenKind::Start { attributes, .. } = &document.tokens()[index].kind else {
+                    continue;
+                };
+                commands.push(PathCommand::ArcTo {
+                    width_radius: plain_i64(attributes, "wR").unwrap_or(0).abs(),
+                    height_radius: plain_i64(attributes, "hR").unwrap_or(0).abs(),
+                    start_angle: plain_i32(attributes, "stAng").unwrap_or(0),
+                    sweep_angle: plain_i32(attributes, "swAng").unwrap_or(0),
+                });
+            }
             "close" => commands.push(PathCommand::Close),
-            "arcTo" | "quadBezTo" | "cubicBezTo" => return None,
             _ => {}
         }
     }
@@ -1501,6 +1973,7 @@ fn parse_text_frame(
     let body_end = element_end(document, body).unwrap_or(end).min(end);
     let mut wrap = true;
     let mut autofit = TextAutofit::None;
+    let mut flow = TextFlow::Horizontal;
     for index in body..=body_end {
         let TokenKind::Start {
             name, attributes, ..
@@ -1509,7 +1982,14 @@ fn parse_text_frame(
             continue;
         };
         match name.local.as_str() {
-            "bodyPr" => wrap = plain(attributes, "wrap") != Some("none"),
+            "bodyPr" => {
+                wrap = plain(attributes, "wrap") != Some("none");
+                flow = match plain(attributes, "vert") {
+                    Some("vert" | "wordArtVert" | "eaVert") => TextFlow::Vertical,
+                    Some("vert270" | "wordArtVertRtl") => TextFlow::Vertical270,
+                    _ => TextFlow::Horizontal,
+                };
+            }
             "normAutofit" => autofit = TextAutofit::ShrinkText,
             "spAutoFit" => autofit = TextAutofit::ResizeShape,
             "noAutofit" => autofit = TextAutofit::None,
@@ -1535,6 +2015,7 @@ fn parse_text_frame(
         paragraphs,
         wrap,
         autofit,
+        flow,
     })
 }
 
@@ -1561,6 +2042,12 @@ fn parse_rich_paragraph(
             paragraph.line_spacing = spacing_value(document, index, property_end, "lnSpc");
             paragraph.space_before = spacing_value(document, index, property_end, "spcBef");
             paragraph.space_after = spacing_value(document, index, property_end, "spcAft");
+            paragraph.direction = if plain(attributes, "rtl").is_some_and(ooxml_bool) {
+                TextDirection::RightToLeft
+            } else {
+                TextDirection::LeftToRight
+            };
+            paragraph.tabs = parse_text_tabs(document, index, property_end);
             break;
         }
     }
@@ -1619,6 +2106,28 @@ fn parse_rich_paragraph(
         }
     }
     paragraph
+}
+
+fn parse_text_tabs(document: &XmlDocument, start: usize, end: usize) -> Vec<ResolvedTextTab> {
+    (start..=end)
+        .filter_map(|index| {
+            let TokenKind::Start {
+                name, attributes, ..
+            } = &document.tokens()[index].kind
+            else {
+                return None;
+            };
+            (name.local == "tab").then_some(ResolvedTextTab {
+                position: plain_i64(attributes, "pos").unwrap_or(0),
+                alignment: match plain(attributes, "algn") {
+                    Some("ctr") => TextTabAlignment::Center,
+                    Some("r") => TextTabAlignment::Right,
+                    Some("dec") => TextTabAlignment::Decimal,
+                    _ => TextTabAlignment::Left,
+                },
+            })
+        })
+        .collect()
 }
 
 fn spacing_value(document: &XmlDocument, start: usize, end: usize, container: &str) -> Option<i32> {
@@ -1739,15 +2248,25 @@ fn parse_master_text_styles(document: &XmlDocument, theme: &Theme) -> MasterText
         let Some(style_end) = element_end(document, index) else {
             continue;
         };
-        let level = (index + 1..=style_end).find(|candidate| {
-            matches!(
-                &document.tokens()[*candidate].kind,
-                TokenKind::Start { name, .. } if name.local == "lvl1pPr"
-            )
-        });
-        if let Some(level) = level {
-            let level_end = element_end(document, level).unwrap_or(level);
-            target.overlay(&parse_text_style_range(document, level, level_end, theme));
+        for level in 0..9 {
+            let local = format!("lvl{}pPr", level + 1);
+            let level_start = (index + 1..=style_end).find(|candidate| {
+                matches!(
+                    &document.tokens()[*candidate].kind,
+                    TokenKind::Start { name, .. } if name.local == local
+                )
+            });
+            if let Some(level_start) = level_start {
+                let level_end = element_end(document, level_start).unwrap_or(level_start);
+                target.levels[level].overlay(&parse_text_style_range(
+                    document,
+                    level_start,
+                    level_end,
+                    theme,
+                ));
+            } else if level > 0 {
+                target.levels[level] = target.levels[level - 1].clone();
+            }
         }
     }
     styles
@@ -1794,6 +2313,18 @@ fn parse_text_style_range(
                 if let Some(value) = plain(attributes, "i") {
                     style.italic = Some(ooxml_bool(value));
                 }
+                if let Some(value) = plain(attributes, "u") {
+                    style.underline = Some(value != "none");
+                }
+                if let Some(value) = plain(attributes, "strike") {
+                    style.strike = Some(!matches!(value, "noStrike" | "none"));
+                }
+                if let Some(value) = plain_i32(attributes, "spc") {
+                    style.character_spacing = Some(value);
+                }
+                if let Some(value) = plain_i32(attributes, "baseline") {
+                    style.baseline = Some(value.clamp(-100_000, 100_000));
+                }
             }
             "latin" if style.font_family.is_none() => {
                 style.font_family =
@@ -1805,6 +2336,10 @@ fn parse_text_style_range(
             }
             "buChar" => {
                 style.bullet = Some(Some(plain(attributes, "char").unwrap_or("•").to_owned()));
+            }
+            "buAutoNum" => {
+                let start = plain_u32(attributes, "startAt").unwrap_or(1);
+                style.bullet = Some(Some(format!("{start}.")));
             }
             "buNone" => style.bullet = Some(None),
             _ => {}
@@ -1956,9 +2491,14 @@ fn parse_background(document: &XmlDocument, theme: &Theme) -> Option<RgbaColor> 
     )?;
     let end = element_end(document, background)?;
     let fill = (background..=end).find(|index| {
-        matches!(&document.tokens()[*index].kind, TokenKind::Start { name, .. } if name.local == "solidFill")
+        matches!(&document.tokens()[*index].kind, TokenKind::Start { name, .. } if matches!(name.local.as_str(), "solidFill" | "bgRef"))
     })?;
-    parse_color(document, fill, element_end(document, fill)?, theme)
+    parse_color(
+        document,
+        fill,
+        element_end(document, fill).unwrap_or(fill).min(end),
+        theme,
+    )
 }
 
 fn parse_color(
@@ -1989,11 +2529,14 @@ fn parse_color(
                     color = theme.colors.get(mapped).copied();
                 }
             }
-            "tint" | "shade" | "lumMod" | "lumOff" | "alpha" => {
+            "tint" | "shade" | "lumMod" | "lumOff" | "satMod" | "satOff" | "hueMod" | "hueOff"
+            | "alpha" | "alphaMod" | "alphaOff" | "redMod" | "redOff" | "greenMod" | "greenOff"
+            | "blueMod" | "blueOff" => {
                 if let Some(value) = plain_i32(attributes, "val") {
                     transforms.push((name.local.clone(), value));
                 }
             }
+            "comp" | "inv" | "gray" => transforms.push((name.local.clone(), 0)),
             _ => {}
         }
     }
@@ -2010,20 +2553,107 @@ fn apply_color_transform(mut color: RgbaColor, kind: &str, value: i32) -> RgbaCo
         let component = component as i64;
         let output = match operation {
             "tint" => component + (255 - component) * scale / 100_000,
-            "shade" | "lumMod" => component * scale / 100_000,
-            "lumOff" => component + 255 * scale / 100_000,
+            "shade" => component * scale / 100_000,
             _ => component,
         };
         output.clamp(0, 255) as u8
     };
-    if kind == "alpha" {
-        color.alpha = ((255_i64 * scale) / 100_000) as u8;
-    } else {
-        color.red = channel(color.red, kind);
-        color.green = channel(color.green, kind);
-        color.blue = channel(color.blue, kind);
+    match kind {
+        "alpha" => color.alpha = ((255_i64 * scale) / 100_000) as u8,
+        "alphaMod" => color.alpha = ((i64::from(color.alpha) * scale) / 100_000) as u8,
+        "alphaOff" => {
+            color.alpha =
+                (i64::from(color.alpha) + 255 * value as i64 / 100_000).clamp(0, 255) as u8;
+        }
+        "inv" | "comp" => {
+            color.red = 255 - color.red;
+            color.green = 255 - color.green;
+            color.blue = 255 - color.blue;
+        }
+        "gray" => {
+            let gray = (u32::from(color.red) * 21
+                + u32::from(color.green) * 72
+                + u32::from(color.blue) * 7)
+                / 100;
+            color.red = gray as u8;
+            color.green = gray as u8;
+            color.blue = gray as u8;
+        }
+        "redMod" => color.red = channel(color.red, "shade"),
+        "greenMod" => color.green = channel(color.green, "shade"),
+        "blueMod" => color.blue = channel(color.blue, "shade"),
+        "redOff" => color.red = offset_channel(color.red, value),
+        "greenOff" => color.green = offset_channel(color.green, value),
+        "blueOff" => color.blue = offset_channel(color.blue, value),
+        "lumMod" | "lumOff" | "satMod" | "satOff" | "hueMod" | "hueOff" => {
+            let (mut hue, mut saturation, mut lightness) = rgb_to_hsl(color);
+            match kind {
+                "lumMod" => lightness *= value as f64 / 100_000.0,
+                "lumOff" => lightness += value as f64 / 100_000.0,
+                "satMod" => saturation *= value as f64 / 100_000.0,
+                "satOff" => saturation += value as f64 / 100_000.0,
+                "hueMod" => hue *= value as f64 / 100_000.0,
+                "hueOff" => hue += value as f64 / 60_000.0,
+                _ => {}
+            }
+            let alpha = color.alpha;
+            color = hsl_to_rgb(hue, saturation.clamp(0.0, 1.0), lightness.clamp(0.0, 1.0));
+            color.alpha = alpha;
+        }
+        _ => {
+            color.red = channel(color.red, kind);
+            color.green = channel(color.green, kind);
+            color.blue = channel(color.blue, kind);
+        }
     }
     color
+}
+
+fn offset_channel(channel: u8, value: i32) -> u8 {
+    (i64::from(channel) + 255 * value as i64 / 100_000).clamp(0, 255) as u8
+}
+
+fn rgb_to_hsl(color: RgbaColor) -> (f64, f64, f64) {
+    let red = f64::from(color.red) / 255.0;
+    let green = f64::from(color.green) / 255.0;
+    let blue = f64::from(color.blue) / 255.0;
+    let maximum = red.max(green).max(blue);
+    let minimum = red.min(green).min(blue);
+    let lightness = (maximum + minimum) / 2.0;
+    if (maximum - minimum).abs() < f64::EPSILON {
+        return (0.0, 0.0, lightness);
+    }
+    let delta = maximum - minimum;
+    let saturation = delta / (1.0 - (2.0 * lightness - 1.0).abs());
+    let hue = if maximum == red {
+        60.0 * ((green - blue) / delta).rem_euclid(6.0)
+    } else if maximum == green {
+        60.0 * ((blue - red) / delta + 2.0)
+    } else {
+        60.0 * ((red - green) / delta + 4.0)
+    };
+    (hue, saturation, lightness)
+}
+
+fn hsl_to_rgb(hue: f64, saturation: f64, lightness: f64) -> RgbaColor {
+    let chroma = (1.0 - (2.0 * lightness - 1.0).abs()) * saturation;
+    let sector = hue.rem_euclid(360.0) / 60.0;
+    let secondary = chroma * (1.0 - (sector.rem_euclid(2.0) - 1.0).abs());
+    let (red, green, blue) = match sector as u8 {
+        0 => (chroma, secondary, 0.0),
+        1 => (secondary, chroma, 0.0),
+        2 => (0.0, chroma, secondary),
+        3 => (0.0, secondary, chroma),
+        4 => (secondary, 0.0, chroma),
+        _ => (chroma, 0.0, secondary),
+    };
+    let match_value = lightness - chroma / 2.0;
+    RgbaColor {
+        red: ((red + match_value) * 255.0).round().clamp(0.0, 255.0) as u8,
+        green: ((green + match_value) * 255.0).round().clamp(0.0, 255.0) as u8,
+        blue: ((blue + match_value) * 255.0).round().clamp(0.0, 255.0) as u8,
+        alpha: 255,
+    }
 }
 
 fn append_diagnostics(output: &mut Vec<ResolveDiagnostic>, part_name: &str, parsed: &ParsedPart) {
@@ -2071,6 +2701,16 @@ fn preset_geometry(value: &str) -> Option<PresetGeometry> {
         "diamond" => Some(PresetGeometry::Diamond),
         "parallelogram" => Some(PresetGeometry::Parallelogram),
         "hexagon" => Some(PresetGeometry::Hexagon),
+        "pentagon" => Some(PresetGeometry::Pentagon),
+        "octagon" => Some(PresetGeometry::Octagon),
+        "star5" => Some(PresetGeometry::Star5),
+        "plus" => Some(PresetGeometry::Plus),
+        "chevron" => Some(PresetGeometry::Chevron),
+        "rightArrow" => Some(PresetGeometry::RightArrow),
+        "leftArrow" => Some(PresetGeometry::LeftArrow),
+        "upArrow" => Some(PresetGeometry::UpArrow),
+        "downArrow" => Some(PresetGeometry::DownArrow),
+        "trapezoid" => Some(PresetGeometry::Trapezoid),
         _ => None,
     }
 }
@@ -2155,16 +2795,101 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parses_every_supported_two_dimensional_chart_family() {
+        let cases = [
+            ("barChart", "<c:barDir val=\"col\"/>", ChartKind::Column),
+            ("barChart", "<c:barDir val=\"bar\"/>", ChartKind::Bar),
+            ("lineChart", "", ChartKind::Line),
+            ("pieChart", "", ChartKind::Pie),
+            ("doughnutChart", "", ChartKind::Doughnut),
+            ("areaChart", "", ChartKind::Area),
+            ("scatterChart", "", ChartKind::Scatter),
+            ("bubbleChart", "", ChartKind::Bubble),
+        ];
+        for (element, properties, expected) in cases {
+            let source = format!(
+                r#"<c:chartSpace xmlns:c="c" xmlns:a="a"><c:chart><c:title><a:p><a:r><a:t>Revenue</a:t></a:r></a:p></c:title><c:legend/><c:plotArea><c:{element}>{properties}<c:grouping val="stacked"/><c:ser><c:tx><c:v>Actual</c:v></c:tx><c:xVal><c:numRef><c:numCache><c:pt idx="0"><c:v>1</c:v></c:pt></c:numCache></c:numRef></c:xVal><c:yVal><c:numRef><c:numCache><c:pt idx="0"><c:v>2</c:v></c:pt></c:numCache></c:numRef></c:yVal><c:bubbleSize><c:numRef><c:numCache><c:pt idx="0"><c:v>3</c:v></c:pt></c:numCache></c:numRef></c:bubbleSize></c:ser></c:{element}></c:plotArea></c:chart></c:chartSpace>"#,
+            );
+            let document = XmlDocument::parse(source.into_bytes()).unwrap();
+            let chart = parse_chart(&document);
+            assert_eq!(chart.kind, expected);
+            assert_eq!(chart.grouping, ChartGrouping::Stacked);
+            assert_eq!(chart.title.as_deref(), Some("Revenue"));
+            assert!(chart.show_legend);
+            assert_eq!(chart.series[0].x_values, [1.0]);
+            assert_eq!(chart.series[0].values, [2.0]);
+            assert_eq!(chart.series[0].bubble_sizes, [3.0]);
+        }
+    }
+
+    #[test]
+    fn leaves_three_dimensional_charts_explicitly_unsupported() {
+        let document = XmlDocument::parse(
+            br#"<c:chartSpace xmlns:c="c"><c:chart><c:plotArea><c:pie3DChart/></c:plotArea></c:chart></c:chartSpace>"#
+                .as_slice(),
+        )
+        .unwrap();
+        assert_eq!(parse_chart(&document).kind, ChartKind::Other);
+    }
+
+    #[test]
+    fn recognizes_two_dimensional_combination_charts() {
+        let document = XmlDocument::parse(
+            br#"<c:chartSpace xmlns:c="c"><c:chart><c:plotArea><c:barChart><c:barDir val="col"/><c:ser><c:val><c:numLit><c:pt idx="0"><c:v>10</c:v></c:pt></c:numLit></c:val></c:ser></c:barChart><c:lineChart><c:ser><c:val><c:numLit><c:pt idx="0"><c:v>2</c:v></c:pt></c:numLit></c:val></c:ser></c:lineChart></c:plotArea></c:chart></c:chartSpace>"#.as_slice(),
+        )
+        .unwrap();
+        assert_eq!(parse_chart(&document).kind, ChartKind::Combination);
+    }
+
+    #[test]
+    fn parses_table_formatting_merges_and_rich_text_without_leaking_text_color() {
+        let source = br#"<a:tbl xmlns:a="a">
+          <a:tblPr firstRow="1" firstCol="1" bandRow="1" bandCol="0"/>
+          <a:tblGrid><a:gridCol w="100"/><a:gridCol w="200"/></a:tblGrid>
+          <a:tr h="50">
+            <a:tc gridSpan="2" rowSpan="2"><a:txBody><a:bodyPr/><a:p><a:r><a:rPr b="1"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:rPr><a:t>Header</a:t></a:r></a:p></a:txBody><a:tcPr><a:solidFill><a:srgbClr val="112233"/></a:solidFill><a:lnB w="12700"><a:solidFill><a:srgbClr val="445566"/></a:solidFill></a:lnB></a:tcPr></a:tc>
+            <a:tc hMerge="1"><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr/></a:tc>
+          </a:tr>
+          <a:tr h="60"><a:tc vMerge="1"><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr/></a:tc></a:tr>
+        </a:tbl>"#;
+        let document = XmlDocument::parse(source.as_slice()).unwrap();
+        let table = parse_table(
+            &document,
+            0,
+            element_end(&document, 0).unwrap(),
+            &Theme::default(),
+        );
+
+        assert_eq!(table.column_widths, [100, 200]);
+        assert!(table.first_row);
+        assert!(table.first_column);
+        assert!(table.banded_rows);
+        assert!(!table.banded_columns);
+        let header = &table.rows[0].cells[0];
+        assert_eq!(header.column_span, 2);
+        assert_eq!(header.row_span, 2);
+        assert_eq!(header.fill, parse_hex_color("112233").unwrap());
+        assert_eq!(header.borders.bottom.as_ref().unwrap().width, 12_700);
+        assert!(
+            header.text_frame.as_ref().unwrap().paragraphs[0].runs[0]
+                .style
+                .bold
+        );
+        assert!(table.rows[0].cells[1].horizontal_merge);
+        assert!(table.rows[1].cells[0].vertical_merge);
+    }
+
+    #[test]
     fn text_style_inheritance_keeps_text_fill_out_of_shape_fill() {
         let source = br#"<p:sp xmlns:p="p" xmlns:a="a">
           <p:spPr><a:solidFill><a:srgbClr val="112233"/></a:solidFill></p:spPr>
           <p:txBody>
-            <a:bodyPr anchor="ctr" lIns="100" tIns="200" rIns="300" bIns="400"/>
+            <a:bodyPr anchor="ctr" vert="vert270" lIns="100" tIns="200" rIns="300" bIns="400"/>
             <a:lstStyle><a:lvl1pPr algn="ctr"><a:buNone/><a:defRPr sz="3200">
               <a:solidFill><a:srgbClr val="445566"/></a:solidFill>
               <a:latin typeface="+mj-lt"/>
             </a:defRPr></a:lvl1pPr></a:lstStyle>
-            <a:p><a:r><a:rPr i="1"><a:solidFill><a:srgbClr val="92D050"/></a:solidFill></a:rPr><a:t>First</a:t></a:r></a:p>
+            <a:p><a:pPr rtl="1"><a:tabLst><a:tab pos="457200" algn="r"/></a:tabLst></a:pPr><a:r><a:rPr i="1" u="sng" strike="sngStrike" spc="120" baseline="30000"><a:solidFill><a:srgbClr val="92D050"/></a:solidFill></a:rPr><a:t>First</a:t></a:r></a:p>
             <a:p><a:r><a:t>Second</a:t></a:r></a:p>
           </p:txBody>
         </p:sp>"#;
@@ -2179,8 +2904,22 @@ mod tests {
         assert_eq!(shape.text.as_deref(), Some("First\nSecond"));
         let frame = shape.text_frame.as_ref().unwrap();
         assert_eq!(frame.paragraphs.len(), 2);
+        assert_eq!(frame.flow, TextFlow::Vertical270);
+        assert_eq!(frame.paragraphs[0].direction, TextDirection::RightToLeft);
+        assert_eq!(frame.paragraphs[0].tabs[0].position, 457_200);
+        assert_eq!(
+            frame.paragraphs[0].tabs[0].alignment,
+            TextTabAlignment::Right
+        );
         assert_eq!(frame.paragraphs[0].runs[0].text, "First");
         assert_eq!(frame.paragraphs[0].runs[0].style.italic, Some(true));
+        assert_eq!(frame.paragraphs[0].runs[0].style.underline, Some(true));
+        assert_eq!(frame.paragraphs[0].runs[0].style.strike, Some(true));
+        assert_eq!(
+            frame.paragraphs[0].runs[0].style.character_spacing,
+            Some(120)
+        );
+        assert_eq!(frame.paragraphs[0].runs[0].style.baseline, Some(30_000));
         assert_eq!(shape.text_style.font_size, Some(3_200));
         assert_eq!(shape.text_style.font_family.as_deref(), Some("Calibri"));
         assert_eq!(shape.text_style.alignment, Some(TextAlignment::Center));
@@ -2221,7 +2960,9 @@ mod tests {
             <a:custGeom><a:pathLst><a:path w="100" h="100">
               <a:moveTo><a:pt x="0" y="0"/></a:moveTo>
               <a:lnTo><a:pt x="100" y="0"/></a:lnTo>
-              <a:lnTo><a:pt x="50" y="100"/></a:lnTo><a:close/>
+              <a:quadBezTo><a:pt x="100" y="50"/><a:pt x="50" y="100"/></a:quadBezTo>
+              <a:cubicBezTo><a:pt x="40" y="90"/><a:pt x="10" y="60"/><a:pt x="0" y="50"/></a:cubicBezTo>
+              <a:arcTo wR="50" hR="50" stAng="10800000" swAng="5400000"/><a:close/>
             </a:path></a:pathLst></a:custGeom>
             <a:gradFill><a:gsLst>
               <a:gs pos="0"><a:srgbClr val="FF0000"><a:alpha val="50000"/></a:srgbClr></a:gs>
@@ -2252,11 +2993,44 @@ mod tests {
         assert_eq!(angle, 5_400_000);
         assert_eq!(stops.len(), 2);
         assert_eq!(stops[0].color.alpha, 127);
-        assert_eq!(shape.custom_path.unwrap().commands.len(), 4);
+        let commands = shape.custom_path.unwrap().commands;
+        assert_eq!(commands.len(), 6);
+        assert!(matches!(commands[2], PathCommand::QuadraticTo { .. }));
+        assert!(matches!(commands[3], PathCommand::CubicTo { .. }));
+        assert!(matches!(commands[4], PathCommand::ArcTo { .. }));
         let stroke = shape.stroke.unwrap();
         assert_eq!(stroke.head_end, Some(LineEnd::Triangle));
         assert_eq!(stroke.tail_end, Some(LineEnd::Diamond));
         assert_eq!(shape.outer_shadow.unwrap().distance, 200);
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parses_radial_pattern_and_common_preset_geometry() {
+        let radial = br#"<p:sp xmlns:p="p" xmlns:a="a"><p:spPr><a:prstGeom prst="star5"/><a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="FFFFFF"/></a:gs><a:gs pos="100000"><a:srgbClr val="000000"/></a:gs></a:gsLst><a:path path="circle"/></a:gradFill></p:spPr></p:sp>"#;
+        let document = XmlDocument::parse(radial.as_slice()).unwrap();
+        let shape = parse_shape(
+            &document,
+            0,
+            element_end(&document, 0).unwrap(),
+            Vec::new(),
+            &Theme::default(),
+            &mut Vec::new(),
+        );
+        assert_eq!(shape.geometry, Some(PresetGeometry::Star5));
+        assert!(matches!(shape.fill, Some(Fill::RadialGradient { .. })));
+
+        let pattern = br#"<p:sp xmlns:p="p" xmlns:a="a"><p:spPr><a:prstGeom prst="chevron"/><a:pattFill prst="cross"><a:fgClr><a:srgbClr val="FF0000"/></a:fgClr><a:bgClr><a:srgbClr val="00FF00"/></a:bgClr></a:pattFill></p:spPr></p:sp>"#;
+        let document = XmlDocument::parse(pattern.as_slice()).unwrap();
+        let shape = parse_shape(
+            &document,
+            0,
+            element_end(&document, 0).unwrap(),
+            Vec::new(),
+            &Theme::default(),
+            &mut Vec::new(),
+        );
+        assert_eq!(shape.geometry, Some(PresetGeometry::Chevron));
+        assert!(matches!(shape.fill, Some(Fill::Pattern { ref preset, .. }) if preset == "cross"));
     }
 }

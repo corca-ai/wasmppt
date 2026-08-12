@@ -113,6 +113,8 @@ function enforceNativeBudget(benchmarkReport, allBudgets) {
     assert(result.summary[name].p95Ns <= maximum, `${name} p95 ${result.summary[name].p95Ns}ns exceeds ${maximum}ns`)
   }
   assert(result.peakResidentBytes <= budget.maximumPeakResidentBytes)
+  assert(result.generation.peakDirtyEntryBytes <= budget.maximumPeakDirtyEntryBytes)
+  assert(result.generation.maximumOutputChunkBytes <= budget.maximumOutputChunkBytes)
   assert(result.zip.rawCopiedEntries >= budget.minimumRawCopiedEntries)
   assert(result.zip.inflatedEntries <= budget.maximumInflatedEntries)
   assert(benchmarkReport.artifacts.scalarWasmBytes <= allBudgets.browserScalarWasm.maximumBinaryBytes)

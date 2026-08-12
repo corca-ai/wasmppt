@@ -260,8 +260,9 @@ async function readBoundedBody(
 }
 
 function isInjectionPayload(request: Request): boolean {
-  return request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() ===
-    'application/vnd.corca.wasmppt.injection-v1'
+  const contentType = request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
+  return contentType === 'application/vnd.corca.wasmppt.injection-v2' ||
+    contentType === 'application/vnd.corca.wasmppt.injection-v1'
 }
 
 function outputStream(

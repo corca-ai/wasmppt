@@ -8,7 +8,7 @@ The first performance target is repeated generation of `.pptx` presentations fro
 compiled `.potm`/`.potx` templates. The first rendering target is a lazy slide scene
 pipeline with Canvas 2D and DOM/SVG backends.
 
-The project is pre-alpha. Generation API v1 and the rendering pipeline are implemented,
+The project is pre-alpha. Generation API v2 (with v1 decoding) and the rendering pipeline are implemented,
 but no stable semver API has been released yet.
 
 Try the browser-only [wasmppt playground](https://corca-ai.github.io/wasmppt/). It compiles

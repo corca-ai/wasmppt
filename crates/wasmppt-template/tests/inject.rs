@@ -3,10 +3,13 @@ use std::{
     io::{self, Write},
 };
 use wasmppt_opc::WriteSink;
-use wasmppt_opc::{CompressionMethod, EntryOptions, PackageGraph, VecSink, ZipArchive, ZipWriter};
+use wasmppt_opc::{
+    CompressionMethod, Conformance, EntryOptions, PackageGraph, VecSink, ZipArchive, ZipWriter,
+};
 use wasmppt_template::{
     ChartData, ChartSeriesData, GenerateErrorCode, ImageCrop, ImageData, InjectionData,
-    PreparedTemplate, TemplateCompiler,
+    PreparedTemplate, RichTextRunData, SemanticShapeData, TableOverflowPolicy, TablePolicyData,
+    TemplateCompiler,
 };
 
 const ADVANCED_FIXTURE: &[u8] = include_bytes!("../../../fixtures/render/basic.pptx");
@@ -63,6 +66,63 @@ fn template(main_type: &str, with_macro: bool) -> Vec<u8> {
         writer
             .write_entry("ppt/vbaData.xml", b"<vbaData/>", &options)
             .unwrap();
+    }
+    writer.finish().unwrap().0.into_inner()
+}
+
+fn strict_template() -> Vec<u8> {
+    let source = template(
+        "application/vnd.openxmlformats-officedocument.presentationml.template.main+xml",
+        false,
+    );
+    let archive = ZipArchive::from_bytes(source).unwrap();
+    let options = EntryOptions::deterministic(CompressionMethod::Deflate);
+    let mut writer = ZipWriter::new(VecSink::new());
+    for entry in archive.entries() {
+        let mut bytes = archive.read_entry(entry).unwrap();
+        if entry.name.ends_with(".xml") || entry.name.ends_with(".rels") {
+            let value = String::from_utf8(bytes).unwrap();
+            bytes = value
+                .replace(
+                    "http://schemas.openxmlformats.org/presentationml/2006/main",
+                    "http://purl.oclc.org/ooxml/presentationml/main",
+                )
+                .replace(
+                    "http://schemas.openxmlformats.org/drawingml/2006/main",
+                    "http://purl.oclc.org/ooxml/drawingml/main",
+                )
+                .replace(
+                    "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+                    "http://purl.oclc.org/ooxml/officeDocument/relationships",
+                )
+                .replace(
+                    "http://schemas.openxmlformats.org/package/2006/relationships",
+                    "http://purl.oclc.org/ooxml/package/relationships",
+                )
+                .replace(
+                    "http://schemas.openxmlformats.org/package/2006/content-types",
+                    "http://purl.oclc.org/ooxml/package/content-types",
+                )
+                .into_bytes();
+        }
+        writer.write_entry(&entry.name, &bytes, &options).unwrap();
+    }
+    writer.finish().unwrap().0.into_inner()
+}
+
+fn named_chart_template() -> Vec<u8> {
+    let archive = ZipArchive::from_bytes(ADVANCED_FIXTURE.to_vec()).unwrap();
+    let options = EntryOptions::deterministic(CompressionMethod::Deflate);
+    let mut writer = ZipWriter::new(VecSink::new());
+    for entry in archive.entries() {
+        let mut bytes = archive.read_entry(entry).unwrap();
+        if entry.name == "ppt/slides/slide2.xml" {
+            bytes = String::from_utf8(bytes)
+                .unwrap()
+                .replace("Quarterly sales chart", "wasmppt:chart:sales")
+                .into_bytes();
+        }
+        writer.write_entry(&entry.name, &bytes, &options).unwrap();
     }
     writer.finish().unwrap().0.into_inner()
 }
@@ -162,7 +222,10 @@ fn clone_template() -> Vec<u8> {
             "ppt/slides/_rels/slide1.xml.rels",
             br#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rLink" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com" TargetMode="External"/><Relationship Id="rNotes" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide1.xml"/></Relationships>"#,
         ),
-        ("ppt/notesSlides/notesSlide1.xml", b"<notes future=\"yes\"/>"),
+        (
+            "ppt/notesSlides/notesSlide1.xml",
+            br#"<p:notes xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Old notes</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:notes>"#,
+        ),
         ("ppt/opaque.bin", b"opaque"),
     ];
     for (name, bytes) in entries {
@@ -215,6 +278,93 @@ fn potm_generation_strips_macros_and_injects_escaped_unicode() {
 }
 
 #[test]
+fn generation_v2_repeats_conditions_and_rich_text_transactionally() {
+    let bytes = template(
+        "application/vnd.openxmlformats-officedocument.presentationml.template.main+xml",
+        false,
+    );
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let prepared = PreparedTemplate::new(bytes, plan).unwrap();
+    let data = InjectionData::new().with_semantic_shape(
+        "name",
+        SemanticShapeData {
+            copies: Some(2),
+            rich_text: Some(vec![RichTextRunData {
+                text: "중요 & safe".to_owned(),
+                bold: Some(true),
+                color: Some("FF0000".to_owned()),
+                ..RichTextRunData::default()
+            }]),
+            ..SemanticShapeData::default()
+        },
+    );
+    let buffered = prepared.generate(&data).unwrap();
+    let mut cursor = prepared.generate_cursor(&data).unwrap();
+    let mut streamed = Vec::new();
+    while !cursor.is_done() {
+        streamed.extend(cursor.pull(7).unwrap());
+    }
+    assert_eq!(streamed, buffered.bytes);
+    let output = ZipArchive::from_bytes(buffered.bytes).unwrap();
+    let slide = String::from_utf8(
+        output
+            .read_entry(output.entry("ppt/slides/slide1.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(slide.matches("중요 &amp; safe").count(), 2);
+    assert!(slide.contains("id=\"2\""));
+    assert!(slide.contains("id=\"4\""));
+    assert_eq!(slide.matches("val=\"FF0000\"").count(), 2);
+
+    let hidden = InjectionData::new().with_semantic_shape(
+        "name",
+        SemanticShapeData {
+            visible: Some(false),
+            ..SemanticShapeData::default()
+        },
+    );
+    let hidden = prepared.generate(&hidden).unwrap();
+    let output = ZipArchive::from_bytes(hidden.bytes).unwrap();
+    let slide = String::from_utf8(
+        output
+            .read_entry(output.entry("ppt/slides/slide1.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(!slide.contains("Greeting"));
+}
+
+#[test]
+fn generation_v2_writes_notes_by_slide_part() {
+    let bytes = clone_template();
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let data = InjectionData::new()
+        .with_text("name", "Ada")
+        .with_notes("ppt/slides/slide1.xml", "Private & clear");
+    let output = PreparedTemplate::new(bytes, plan)
+        .unwrap()
+        .generate(&data)
+        .unwrap();
+    let archive = ZipArchive::from_bytes(output.bytes).unwrap();
+    let notes = String::from_utf8(
+        archive
+            .read_entry(archive.entry("ppt/notesSlides/notesSlide1.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(notes.contains("Private &amp; clear"));
+}
+
+#[test]
 fn potx_conversion_preserves_notes_and_unknown_payloads() {
     let bytes = template(
         "application/vnd.openxmlformats-officedocument.presentationml.template.main+xml",
@@ -245,6 +395,45 @@ fn potx_conversion_preserves_notes_and_unknown_payloads() {
             .unwrap(),
         b"<notes future=\"yes\"/>"
     );
+}
+
+#[test]
+fn strict_template_targeted_edit_preserves_conformance_and_unknown_bytes() {
+    let bytes = strict_template();
+    let source = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    assert_eq!(
+        PackageGraph::build(&source).unwrap().conformance(),
+        Conformance::Strict
+    );
+    let opaque = source
+        .read_compressed(source.entry("ppt/opaque.bin").unwrap())
+        .unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&source)
+        .unwrap()
+        .plan;
+    let generated = PreparedTemplate::new(bytes, plan)
+        .unwrap()
+        .generate(&InjectionData::new().with_text("name", "엄격 & 안전"))
+        .unwrap();
+    assert_eq!(generated.zip_stats.inflated_entries, 0);
+    let output = ZipArchive::from_bytes(generated.bytes).unwrap();
+    let graph = PackageGraph::build(&output).unwrap();
+    assert_eq!(graph.conformance(), Conformance::Strict);
+    assert_eq!(
+        output
+            .read_compressed(output.entry("ppt/opaque.bin").unwrap())
+            .unwrap(),
+        opaque,
+    );
+    let slide = String::from_utf8(
+        output
+            .read_entry(output.entry("ppt/slides/slide1.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(slide.contains("엄격 &amp; 안전"));
+    assert!(slide.contains("http://purl.oclc.org/ooxml/presentationml/main"));
 }
 
 #[test]
@@ -286,6 +475,7 @@ fn image_replacement_updates_media_relationship_crop_and_content_type() {
                 right: 300,
                 bottom: 400,
             }),
+            fit: Default::default(),
         },
     );
     let generated = PreparedTemplate::new(bytes, plan)
@@ -364,6 +554,67 @@ fn table_row_repetition_preserves_row_markup_and_escapes_values() {
     assert!(slide.contains("Alpha"));
     assert!(slide.contains("B &amp; &lt;C&gt;"));
     assert!(!slide.contains("{{items."));
+}
+
+#[test]
+fn table_overflow_policies_fail_clip_or_shrink_before_emission() {
+    let bytes = table_template();
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let rows = (0..3)
+        .map(|index| {
+            BTreeMap::from([
+                ("name".to_owned(), format!("Row {index}")),
+                ("amount".to_owned(), index.to_string()),
+            ])
+        })
+        .collect::<Vec<_>>();
+    let prepared = PreparedTemplate::new(bytes, plan).unwrap();
+    let failed = prepared
+        .generate(
+            &InjectionData::new()
+                .with_table_rows("items", rows.clone())
+                .with_table_policy(
+                    "items",
+                    TablePolicyData {
+                        maximum_rows: 2,
+                        overflow: TableOverflowPolicy::Fail,
+                    },
+                ),
+        )
+        .unwrap_err();
+    assert_eq!(failed.code(), GenerateErrorCode::InvalidTable);
+
+    for (policy, expected_rows, expected_height) in [
+        (TableOverflowPolicy::Clip, 2, "h=\"1\""),
+        (TableOverflowPolicy::Shrink, 3, "h=\"1\""),
+    ] {
+        let generated = prepared
+            .generate(
+                &InjectionData::new()
+                    .with_table_rows("items", rows.clone())
+                    .with_table_policy(
+                        "items",
+                        TablePolicyData {
+                            maximum_rows: 2,
+                            overflow: policy,
+                        },
+                    ),
+            )
+            .unwrap();
+        let package = ZipArchive::from_bytes(generated.bytes).unwrap();
+        let slide = String::from_utf8(
+            package
+                .read_entry(package.entry("ppt/slides/slide1.xml").unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(slide.matches("<a:tr").count(), expected_rows);
+        assert!(slide.contains(expected_height));
+    }
 }
 
 #[test]
@@ -563,6 +814,42 @@ fn chart_injection_updates_cache_and_embedded_workbook_atomically() {
     assert!(sheet.contains("남부 &amp; 동부"));
     assert!(sheet.contains(">202.25<"));
     assert!(!sheet.contains(">64<"));
+}
+
+#[test]
+fn chart_injection_uses_stable_alt_text_metadata_instead_of_part_names() {
+    let bytes = named_chart_template();
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let compiled = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap();
+    let binding = compiled
+        .plan
+        .bindings
+        .iter()
+        .find(|binding| binding.id == "sales")
+        .expect("named chart binding");
+    assert_eq!(binding.kind, wasmppt_template::BindingKind::Chart);
+    let chart = ChartData {
+        categories: vec!["Q1".to_owned(), "Q2".to_owned()],
+        series: vec![ChartSeriesData {
+            name: "Revenue".to_owned(),
+            values: vec![12.0, 24.0],
+        }],
+    };
+    let output = PreparedTemplate::new(bytes, compiled.plan)
+        .unwrap()
+        .generate(&InjectionData::new().with_chart("sales", chart))
+        .unwrap();
+    let package = ZipArchive::from_bytes(output.bytes).unwrap();
+    let chart_xml = String::from_utf8(
+        package
+            .read_entry(package.entry("ppt/charts/chart1.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(chart_xml.contains("Revenue"));
+    assert!(chart_xml.contains(">24<"));
 }
 
 #[test]

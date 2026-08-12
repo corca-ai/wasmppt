@@ -108,11 +108,14 @@ pub struct TextRun {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ShapeView {
+    /// Exact byte range of the complete `p:sp`, `p:pic`, or `p:graphicFrame` element.
+    pub source_range: Range<usize>,
     pub id: Option<u32>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub text_runs: Vec<TextRun>,
     pub image_relationship_id: Option<String>,
+    pub chart_relationship_id: Option<String>,
     pub crop: Option<CropRect>,
 }
 
@@ -145,18 +148,20 @@ impl SlideView {
                     attributes,
                     empty,
                 } => {
-                    if matches!(name.local.as_str(), "sp" | "pic")
+                    if matches!(name.local.as_str(), "sp" | "pic" | "graphicFrame")
                         && namespace_is(&document, name.namespace, &[PML_TRANSITIONAL, PML_STRICT])
                     {
                         shape = Some((
                             token.depth,
                             name.local.clone(),
                             ShapeView {
+                                source_range: token.range.start..token.range.end,
                                 id: None,
                                 name: None,
                                 description: None,
                                 text_runs: Vec::new(),
                                 image_relationship_id: None,
+                                chart_relationship_id: None,
                                 crop: None,
                             },
                         ));
@@ -189,6 +194,20 @@ impl SlideView {
                                 .iter()
                                 .find(|attribute| {
                                     attribute.name.local == "embed"
+                                        && namespace_is(
+                                            &document,
+                                            attribute.name.namespace,
+                                            &[REL_TRANSITIONAL, REL_STRICT],
+                                        )
+                                })
+                                .map(|attribute| attribute.value.clone());
+                        }
+                    } else if name.local == "chart" {
+                        if let Some((_, _, current)) = &mut shape {
+                            current.chart_relationship_id = attributes
+                                .iter()
+                                .find(|attribute| {
+                                    attribute.name.local == "id"
                                         && namespace_is(
                                             &document,
                                             attribute.name.namespace,
@@ -238,7 +257,7 @@ impl SlideView {
                     {
                         text_depth = None;
                     }
-                    if let Some((depth, end_local, _)) = &shape {
+                    if let Some((depth, end_local, current)) = &mut shape {
                         if token.depth == *depth
                             && name.local == *end_local
                             && namespace_is(
@@ -247,6 +266,7 @@ impl SlideView {
                                 &[PML_TRANSITIONAL, PML_STRICT],
                             )
                         {
+                            current.source_range.end = token.range.end;
                             shapes.push(shape.take().expect("shape exists").2);
                         }
                     }

@@ -82,6 +82,12 @@ fn resolves_inheritance_theme_groups_geometry_images_and_diagnostics() {
         })
     );
     assert_eq!(title.stroke.as_ref().unwrap().width, 12_700);
+    assert!(
+        title
+            .provenance
+            .iter()
+            .any(|property| property.property == "transform")
+    );
 
     let photo = output
         .slide

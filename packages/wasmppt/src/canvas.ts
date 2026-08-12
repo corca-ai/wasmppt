@@ -40,6 +40,10 @@ export interface SceneTextStyle {
   readonly fontFamily?: string
   readonly bold: boolean
   readonly italic: boolean
+  readonly underline: boolean
+  readonly strike: boolean
+  readonly characterSpacing: number
+  readonly baseline: number
   readonly alignment: 'left' | 'center' | 'right' | 'justify'
   readonly verticalAlignment: 'top' | 'center' | 'bottom'
   readonly marginLeft: number
@@ -65,6 +69,13 @@ export interface SceneParagraph {
   readonly lineSpacing?: number
   readonly spaceBefore?: number
   readonly spaceAfter?: number
+  readonly direction: 'ltr' | 'rtl'
+  readonly tabs: readonly SceneTextTab[]
+}
+
+export interface SceneTextTab {
+  readonly position: number
+  readonly alignment: 'left' | 'center' | 'right' | 'decimal'
 }
 
 export interface SceneTextFrame {
@@ -76,6 +87,7 @@ export interface SceneTextFrame {
   readonly marginBottom: number
   readonly wrap: boolean
   readonly autofit: 'none' | 'shrink-text' | 'resize-shape'
+  readonly flow: 'horizontal' | 'vertical' | 'vertical-270'
 }
 
 export interface SceneGradientStop {
@@ -89,9 +101,15 @@ export type SceneFill =
   | { readonly kind: 'none' }
   | { readonly kind: 'solid'; readonly color: RgbaColor }
   | { readonly kind: 'linear-gradient'; readonly angle: number; readonly stops: readonly SceneGradientStop[] }
+  | { readonly kind: 'radial-gradient'; readonly stops: readonly SceneGradientStop[] }
+  | { readonly kind: 'pattern'; readonly preset: string; readonly foreground: RgbaColor; readonly background: RgbaColor }
 
 export type ScenePathCommand =
-  | { readonly kind: 'move-to' | 'line-to'; readonly x: number; readonly y: number }
+  | { readonly kind: 'move-to'; readonly x: number; readonly y: number }
+  | { readonly kind: 'line-to'; readonly x: number; readonly y: number }
+  | { readonly kind: 'quadratic-to'; readonly controlX: number; readonly controlY: number; readonly x: number; readonly y: number }
+  | { readonly kind: 'cubic-to'; readonly control1X: number; readonly control1Y: number; readonly control2X: number; readonly control2Y: number; readonly x: number; readonly y: number }
+  | { readonly kind: 'arc-to'; readonly widthRadius: number; readonly heightRadius: number; readonly startAngle: number; readonly sweepAngle: number }
   | { readonly kind: 'close' }
 
 export interface SceneSemanticElement {
@@ -159,6 +177,20 @@ export type SceneCommand =
       readonly stops: readonly SceneGradientStop[]
     }
   | {
+      readonly kind: 'fill-radial-gradient-preset'
+      readonly geometry: number
+      readonly transform: SceneTransform
+      readonly stops: readonly SceneGradientStop[]
+    }
+  | {
+      readonly kind: 'fill-pattern-preset'
+      readonly geometry: number
+      readonly transform: SceneTransform
+      readonly preset: string
+      readonly foreground: RgbaColor
+      readonly background: RgbaColor
+    }
+  | {
       readonly kind: 'draw-custom-path'
       readonly transform: SceneTransform
       readonly pathWidth: number
@@ -224,7 +256,7 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
   const reader = new BinaryReader(bytes)
   if (reader.ascii(4) !== 'WPDL') throw new Error('display list has an invalid magic value')
   const version = reader.u16()
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4) {
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5) {
     throw new Error(`unsupported display-list version ${version}`)
   }
   if (reader.u16() !== 0) throw new Error('display-list reserved flags are non-zero')
@@ -355,6 +387,7 @@ export class FontResolver {
   readonly #fallback: Record<FontScript, string>
   readonly #host: FontLoadingHost
   readonly #loaded = new Map<string, Promise<void>>()
+  readonly #resolved = new Map<string, Promise<ResolvedFont>>()
 
   constructor(options: FontResolverOptions = {}) {
     this.#theme = {
@@ -377,6 +410,29 @@ export class FontResolver {
     sizePixels = 18,
     requestedFamily?: string,
     emphasis: { readonly bold?: boolean; readonly italic?: boolean } = {},
+  ): Promise<ResolvedFont> {
+    const key = `${requestedFamily ?? ''}\0${sizePixels}\0${emphasis.bold === true ? 1 : 0}${emphasis.italic === true ? 1 : 0}\0${text}`
+    const cached = this.#resolved.get(key)
+    if (cached !== undefined) {
+      this.#resolved.delete(key)
+      this.#resolved.set(key, cached)
+      return cached
+    }
+    const resolving = this.#resolveUncached(text, sizePixels, requestedFamily, emphasis)
+    this.#resolved.set(key, resolving)
+    while (this.#resolved.size > 512) {
+      const oldest = this.#resolved.keys().next().value as string | undefined
+      if (oldest === undefined) break
+      this.#resolved.delete(oldest)
+    }
+    return resolving
+  }
+
+  async #resolveUncached(
+    text: string,
+    sizePixels: number,
+    requestedFamily: string | undefined,
+    emphasis: { readonly bold?: boolean; readonly italic?: boolean },
   ): Promise<ResolvedFont> {
     const script = detectFontScript(text)
     const requested = requestedFamily ?? this.#themeFamily(script)
@@ -495,12 +551,20 @@ export interface RichTextLayoutRun {
   readonly width: number
   readonly font: ResolvedFont
   readonly color: RgbaColor
+  readonly underline: boolean
+  readonly strike: boolean
+  readonly characterSpacing: number
+  readonly fontSize: number
+  readonly baselineShift: number
+  readonly direction: 'ltr' | 'rtl'
 }
 
 export interface RichTextLayoutPlan {
   readonly runs: readonly RichTextLayoutRun[]
   readonly contentWidth: number
   readonly contentHeight: number
+  readonly layoutBounds: EmuRect
+  readonly rotationDegrees: 0 | 90 | -90
 }
 
 /** Builds the backend-neutral positioned run plan shared by Canvas and DOM/SVG renderers. */
@@ -509,15 +573,28 @@ export async function buildRichTextLayout(
   command: Extract<SceneCommand, { readonly kind: 'draw-rich-text' }>,
   resolver = new FontResolver(),
 ): Promise<RichTextLayoutPlan> {
-  const innerX = toPixels(command.bounds.x + command.frame.marginLeft)
-  const innerY = toPixels(command.bounds.y + command.frame.marginTop)
+  const rotationDegrees = command.frame.flow === 'vertical'
+    ? 90
+    : command.frame.flow === 'vertical-270'
+      ? -90
+      : 0
+  const layoutBounds = rotationDegrees === 0
+    ? command.bounds
+    : {
+        x: command.bounds.x + (command.bounds.width - command.bounds.height) / 2,
+        y: command.bounds.y + (command.bounds.height - command.bounds.width) / 2,
+        width: command.bounds.height,
+        height: command.bounds.width,
+      }
+  const innerX = toPixels(layoutBounds.x + command.frame.marginLeft)
+  const innerY = toPixels(layoutBounds.y + command.frame.marginTop)
   const innerWidth = Math.max(
     0,
-    toPixels(command.bounds.width - command.frame.marginLeft - command.frame.marginRight),
+    toPixels(layoutBounds.width - command.frame.marginLeft - command.frame.marginRight),
   )
   const innerHeight = Math.max(
     0,
-    toPixels(command.bounds.height - command.frame.marginTop - command.frame.marginBottom),
+    toPixels(layoutBounds.height - command.frame.marginTop - command.frame.marginBottom),
   )
   const resolved = await Promise.all(
     command.frame.paragraphs.flatMap((paragraph) =>
@@ -547,7 +624,7 @@ export async function buildRichTextLayout(
     for (const run of paragraph.runs) {
       const font = resolved[measureFontIndex++]!
       for (const token of command.frame.wrap ? lineBreakTokens(run.text) : [run.text]) {
-        if (token !== '\n') measureRequests.push({ text: token, font: font.css })
+        if (token !== '\n' && token !== '\t') measureRequests.push({ text: token, font: font.css })
       }
     }
   }
@@ -563,6 +640,7 @@ export async function buildRichTextLayout(
     readonly before: number
     readonly after: number
     readonly left: number
+    readonly direction: 'ltr' | 'rtl'
   }> = []
   for (const paragraph of command.frame.paragraphs) {
     const lineRuns: Array<Omit<RichTextLayoutRun, 'x' | 'baseline'>> = []
@@ -580,18 +658,32 @@ export async function buildRichTextLayout(
       const tokens = command.frame.wrap ? lineBreakTokens(run.text) : [run.text]
       for (const token of tokens) {
         if (token === '\n') {
-          lines.push({ runs: lineRuns.splice(0), height: lineHeight || 1, alignment: paragraph.alignment, before: 0, after: 0, left })
+          lines.push({ runs: lineRuns.splice(0), height: lineHeight || 1, alignment: paragraph.alignment, before: 0, after: 0, left, direction: paragraph.direction })
           lineWidth = 0
           lineHeight = 0
           continue
         }
-        const width = measurementLookup.get(`${font.css}\0${token}`) ?? 0
+        const spacing = pointsToCssPixels(run.style.characterSpacing / 100)
+        const width = token === '\t'
+          ? nextTabWidth(lineWidth, paragraph.tabs)
+          : (measurementLookup.get(`${font.css}\0${token}`) ?? 0) + characterGapCount(token) * spacing
         if (command.frame.wrap && lineRuns.length > 0 && lineWidth + width > available) {
-          lines.push({ runs: lineRuns.splice(0), height: lineHeight || 1, alignment: paragraph.alignment, before: 0, after: 0, left })
+          lines.push({ runs: lineRuns.splice(0), height: lineHeight || 1, alignment: paragraph.alignment, before: 0, after: 0, left, direction: paragraph.direction })
           lineWidth = 0
           lineHeight = 0
         }
-        lineRuns.push({ text: token, width, font, color: run.style.color })
+        lineRuns.push({
+          text: token === '\t' ? '' : token,
+          width,
+          font,
+          color: run.style.color,
+          underline: run.style.underline,
+          strike: run.style.strike,
+          characterSpacing: spacing,
+          fontSize: pointsToCssPixels(run.style.fontSize / 100),
+          baselineShift: run.style.baseline / 100_000,
+          direction: paragraph.direction,
+        })
         lineWidth += width
         lineHeight = Math.max(lineHeight, pointsToCssPixels(run.style.fontSize / 100) * 1.2)
       }
@@ -603,6 +695,7 @@ export async function buildRichTextLayout(
       before: spacingPixels(paragraph.spaceBefore),
       after: spacingPixels(paragraph.spaceAfter),
       left,
+      direction: paragraph.direction,
     })
   }
   const rawHeight = lines.reduce((sum, line) => sum + line.before + line.height + line.after, 0)
@@ -617,16 +710,23 @@ export async function buildRichTextLayout(
   let contentWidth = 0
   for (const line of lines) {
     y += line.before * shrink
-    const width = line.runs.reduce((sum, run) => sum + run.width, 0) * shrink
+    const visualRuns = line.direction === 'rtl'
+      ? Array.from(line.runs, (_, index) => line.runs[line.runs.length - index - 1]!)
+      : line.runs
+    const width = visualRuns.reduce((sum, run) => sum + run.width, 0) * shrink
     let x = innerX + line.left
     if (line.alignment === 'center') x += Math.max(0, (innerWidth - line.left - width) / 2)
-    if (line.alignment === 'right') x += Math.max(0, innerWidth - line.left - width)
-    for (const run of line.runs) {
+    if (line.alignment === 'right' || (line.alignment === 'left' && line.direction === 'rtl')) {
+      x += Math.max(0, innerWidth - line.left - width)
+    }
+    for (const run of visualRuns) {
       output.push({
         ...run,
         x,
-        baseline: y + line.height * 0.82 * shrink,
+        baseline: y + line.height * 0.82 * shrink - run.fontSize * run.baselineShift * shrink,
         width: run.width * shrink,
+        characterSpacing: run.characterSpacing * shrink,
+        fontSize: run.fontSize * shrink,
         font: shrink === 1 ? run.font : { ...run.font, css: scaleCssFont(run.font.css, shrink) },
       })
       x += run.width * shrink
@@ -634,20 +734,57 @@ export async function buildRichTextLayout(
     y += (line.height + line.after) * shrink
     contentWidth = Math.max(contentWidth, width + line.left)
   }
-  return Object.freeze({ runs: Object.freeze(output), contentWidth, contentHeight })
+  return Object.freeze({
+    runs: Object.freeze(output),
+    contentWidth,
+    contentHeight,
+    layoutBounds,
+    rotationDegrees,
+  })
 }
 
 function drawRichTextLayout(
   context: CanvasRenderingContext2D,
   plan: RichTextLayoutPlan,
 ): void {
+  context.save()
+  if (plan.rotationDegrees !== 0) {
+    const centerX = toPixels(plan.layoutBounds.x + plan.layoutBounds.width / 2)
+    const centerY = toPixels(plan.layoutBounds.y + plan.layoutBounds.height / 2)
+    context.translate(centerX, centerY)
+    context.rotate(plan.rotationDegrees * Math.PI / 180)
+    context.translate(-centerX, -centerY)
+  }
   context.textAlign = 'left'
   context.textBaseline = 'alphabetic'
   for (const run of plan.runs) {
     context.font = run.font.css
     context.fillStyle = cssColor(run.color)
-    context.fillText(run.text, run.x, run.baseline)
+    context.direction = run.direction
+    context.textAlign = run.direction === 'rtl' ? 'right' : 'left'
+    const start = run.direction === 'rtl' ? run.x + run.width : run.x
+    const spaced = context as CanvasRenderingContext2D & { letterSpacing?: string }
+    if (spaced.letterSpacing !== undefined) spaced.letterSpacing = `${run.characterSpacing}px`
+    context.fillText(run.text, start, run.baseline)
+    if (spaced.letterSpacing !== undefined) spaced.letterSpacing = '0px'
+    if (run.underline || run.strike) {
+      context.strokeStyle = cssColor(run.color)
+      context.lineWidth = Math.max(1, run.fontSize / 16)
+      if (run.underline) {
+        context.beginPath()
+        context.moveTo(run.x, run.baseline + run.fontSize * 0.1)
+        context.lineTo(run.x + run.width, run.baseline + run.fontSize * 0.1)
+        context.stroke()
+      }
+      if (run.strike) {
+        context.beginPath()
+        context.moveTo(run.x, run.baseline - run.fontSize * 0.3)
+        context.lineTo(run.x + run.width, run.baseline - run.fontSize * 0.3)
+        context.stroke()
+      }
+    }
   }
+  context.restore()
 }
 
 function spacingPixels(value: number | undefined): number {
@@ -671,7 +808,7 @@ export interface DecodedImage {
 }
 
 export interface RasterImageMetadata {
-  readonly format: 'png' | 'jpeg'
+  readonly format: 'png' | 'jpeg' | 'gif' | 'svg'
   readonly width: number
   readonly height: number
   readonly orientation: number
@@ -688,6 +825,24 @@ export function inspectRasterImageMetadata(input: ArrayBuffer | Uint8Array): Ras
   if (bytes.byteLength >= 24 && bytes[0] === 0x89 && String.fromCharCode(...bytes.subarray(1, 4)) === 'PNG') {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     return { format: 'png', width: view.getUint32(16), height: view.getUint32(20), orientation: 1 }
+  }
+  if (bytes.byteLength >= 10 && new TextDecoder('ascii').decode(bytes.subarray(0, 6)).match(/^GIF8[79]a$/u)) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    return { format: 'gif', width: view.getUint16(6, true), height: view.getUint16(8, true), orientation: 1 }
+  }
+  const prefix = new TextDecoder('utf-8').decode(bytes.subarray(0, Math.min(bytes.byteLength, 1024 * 1024))).trimStart()
+  if (prefix.startsWith('<svg') || prefix.startsWith('<?xml') && prefix.includes('<svg')) {
+    if (/<(?:script|foreignObject)\b|\b(?:href|src)\s*=\s*["'](?:https?:|data:|javascript:)/iu.test(prefix)) {
+      throw new Error('SVG resource contains active or external content')
+    }
+    const svg = prefix.match(/<svg\b[^>]*>/iu)?.[0] ?? ''
+    const width = svg.match(/\bwidth\s*=\s*["']([0-9.]+)/iu)?.[1]
+    const height = svg.match(/\bheight\s*=\s*["']([0-9.]+)/iu)?.[1]
+    const viewBox = svg.match(/\bviewBox\s*=\s*["'][^"']*?([0-9.]+)[ ,]+([0-9.]+)["']/iu)
+    const resolvedWidth = Number(width ?? viewBox?.[1] ?? 0)
+    const resolvedHeight = Number(height ?? viewBox?.[2] ?? 0)
+    if (!(resolvedWidth > 0) || !(resolvedHeight > 0)) throw new Error('SVG dimensions are missing')
+    return { format: 'svg', width: resolvedWidth, height: resolvedHeight, orientation: 1 }
   }
   if (bytes.byteLength < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
     throw new Error('resource is not a supported PNG or JPEG image')
@@ -731,7 +886,13 @@ export async function decodeRasterImage(
   }
   const owned = bytes.slice()
   const source = await createImageBitmap(new Blob([owned], {
-    type: metadata.format === 'png' ? 'image/png' : 'image/jpeg',
+    type: metadata.format === 'png'
+      ? 'image/png'
+      : metadata.format === 'jpeg'
+        ? 'image/jpeg'
+        : metadata.format === 'gif'
+          ? 'image/gif'
+          : 'image/svg+xml',
   }), { imageOrientation: 'from-image' })
   throwIfAborted(signal)
   return {
@@ -817,6 +978,7 @@ export interface RenderTelemetry {
   readonly mediaDecodeMs: number
   readonly commandCount: number
   readonly cacheBytes: { readonly decodedImages: number }
+  readonly cacheHitRate: { readonly decodedImages: number }
 }
 
 export interface CanvasRenderOptions {
@@ -930,6 +1092,29 @@ export class CanvasDisplayListRenderer {
               context.fill()
             })
             break
+          case 'fill-radial-gradient-preset':
+            drawPreset(context, command.geometry, command.transform, () => {
+              const width = toPixels(command.transform.bounds.width)
+              const height = toPixels(command.transform.bounds.height)
+              const radius = Math.max(width, height) / 2
+              const gradient = context.createRadialGradient(width / 2, height / 2, 0, width / 2, height / 2, radius)
+              for (const stop of command.stops) gradient.addColorStop(stop.position / 100_000, cssColor(stop.color))
+              context.fillStyle = gradient
+              context.fill()
+            })
+            break
+          case 'fill-pattern-preset':
+            drawPreset(context, command.geometry, command.transform, () => {
+              drawPatternFill(
+                context,
+                toPixels(command.transform.bounds.width),
+                toPixels(command.transform.bounds.height),
+                command.preset,
+                command.foreground,
+                command.background,
+              )
+            })
+            break
           case 'draw-custom-path':
             drawCustomPath(context, command)
             break
@@ -969,6 +1154,7 @@ export class CanvasDisplayListRenderer {
       mediaDecodeMs,
       commandCount: scene.commands.length,
       cacheBytes: Object.freeze({ decodedImages: this.#images.residentBytes }),
+      cacheHitRate: Object.freeze({ decodedImages: this.#images.hitRate }),
     })
   }
 
@@ -1012,6 +1198,37 @@ export interface SceneResolver {
   ): Promise<ArrayBuffer>
 }
 
+export interface OffscreenThumbnailResult {
+  readonly bitmap: ImageBitmap
+  readonly telemetry: RenderTelemetry
+  readonly width: number
+  readonly height: number
+}
+
+/** Worker-safe thumbnail path with a scalar fallback signal for hosts without OffscreenCanvas. */
+export async function renderOffscreenThumbnail(
+  scene: DisplayScene,
+  maximumWidth = 320,
+  options: CanvasRenderOptions = {},
+  renderer = new CanvasDisplayListRenderer(),
+): Promise<OffscreenThumbnailResult> {
+  if (typeof OffscreenCanvas === 'undefined') {
+    throw new Error('OffscreenCanvas is unavailable; render the same scene on the main thread')
+  }
+  const ratio = Math.min(1, maximumWidth / (scene.width / EMU_PER_CSS_PIXEL))
+  const width = Math.max(1, Math.round(scene.width / EMU_PER_CSS_PIXEL * ratio))
+  const height = Math.max(1, Math.round(scene.height / EMU_PER_CSS_PIXEL * ratio))
+  const canvas = new OffscreenCanvas(width, height)
+  const offscreen = canvas.getContext('2d')
+  if (offscreen === null) throw new Error('OffscreenCanvas 2D is unavailable')
+  const telemetry = await renderer.render(
+    scene,
+    offscreen as unknown as CanvasRenderingContext2D,
+    options,
+  )
+  return Object.freeze({ bitmap: canvas.transferToImageBitmap(), telemetry, width, height })
+}
+
 export interface VirtualizedViewerOptions {
   readonly sceneCacheBytes?: number
   readonly prefetchNeighbors?: number
@@ -1053,6 +1270,14 @@ export class VirtualizedCanvasViewer {
 
   get mountedSlideCount(): number {
     return this.#mounted.size
+  }
+
+  get sceneCacheTelemetry(): Readonly<{ residentBytes: number; entries: number; hitRate: number }> {
+    return Object.freeze({
+      residentBytes: this.#sceneCache.residentBytes,
+      entries: this.#sceneCache.size,
+      hitRate: this.#sceneCache.hitRate,
+    })
   }
 
   get cachedSceneBytes(): number {
@@ -1143,6 +1368,8 @@ export class ByteBudgetLru<Key, Value> {
   readonly #maxBytes: number
   readonly #dispose?: (value: Value) => void
   #residentBytes = 0
+  #hits = 0
+  #misses = 0
 
   constructor(maxBytes: number, dispose?: (value: Value) => void) {
     if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
@@ -1160,9 +1387,22 @@ export class ByteBudgetLru<Key, Value> {
     return this.#entries.size
   }
 
+  get hits(): number { return this.#hits }
+
+  get misses(): number { return this.#misses }
+
+  get hitRate(): number {
+    const requests = this.#hits + this.#misses
+    return requests === 0 ? 0 : this.#hits / requests
+  }
+
   get(key: Key): Value | undefined {
     const entry = this.#entries.get(key)
-    if (entry === undefined) return undefined
+    if (entry === undefined) {
+      this.#misses += 1
+      return undefined
+    }
+    this.#hits += 1
     this.#entries.delete(key)
     this.#entries.set(key, entry)
     return entry.value
@@ -1192,6 +1432,8 @@ export class ByteBudgetLru<Key, Value> {
     for (const entry of this.#entries.values()) this.#dispose?.(entry.value)
     this.#entries.clear()
     this.#residentBytes = 0
+    this.#hits = 0
+    this.#misses = 0
   }
 
   #remove(key: Key, entry: { readonly value: Value; readonly weight: number }): void {
@@ -1318,31 +1560,7 @@ function readCommand(reader: BinaryReader, version: number): SceneCommand {
       const text = reader.u32()
       const bounds = readRect(reader)
       if (version < 3) return { kind: 'draw-text', text, bounds, style: defaultTextStyle() }
-      const fontSize = reader.i32()
-      const color = readColor(reader)
-      const fontFamily = reader.utf8Blob()
-      const bold = reader.u8() !== 0
-      const italic = reader.u8() !== 0
-      const alignment = textAlignment(reader.u8())
-      const verticalAlignment = textVerticalAlignment(reader.u8())
-      return {
-        kind: 'draw-text',
-        text,
-        bounds,
-        style: {
-          fontSize,
-          color,
-          fontFamily: fontFamily === '' ? undefined : fontFamily,
-          bold,
-          italic,
-          alignment,
-          verticalAlignment,
-          marginLeft: reader.safeI64('text left margin'),
-          marginTop: reader.safeI64('text top margin'),
-          marginRight: reader.safeI64('text right margin'),
-          marginBottom: reader.safeI64('text bottom margin'),
-        },
-      }
+      return { kind: 'draw-text', text, bounds, style: readTextStyle(reader, version) }
     }
     case 8:
       return {
@@ -1361,6 +1579,8 @@ function readCommand(reader: BinaryReader, version: number): SceneCommand {
       const wrap = reader.u8() !== 0
       const autofitCode = reader.u8()
       if (autofitCode > 2) throw new Error('display list contains an unknown text autofit mode')
+      const flowCode = version >= 5 ? reader.u8() : 0
+      if (flowCode > 2) throw new Error('display list contains an unknown text flow')
       const paragraphs: SceneParagraph[] = []
       const paragraphCount = reader.boundedCount('paragraph')
       for (let paragraphIndex = 0; paragraphIndex < paragraphCount; paragraphIndex += 1) {
@@ -1372,11 +1592,24 @@ function readCommand(reader: BinaryReader, version: number): SceneCommand {
         const lineSpacing = optionalI32(reader)
         const spaceBefore = optionalI32(reader)
         const spaceAfter = optionalI32(reader)
+        const directionCode = version >= 5 ? reader.u8() : 0
+        if (directionCode > 1) throw new Error('display list contains an unknown text direction')
+        const tabs: SceneTextTab[] = []
+        const tabCount = version >= 5 ? reader.boundedCount('text tab') : 0
+        for (let tabIndex = 0; tabIndex < tabCount; tabIndex += 1) {
+          const position = reader.safeI64('text tab position')
+          const alignmentCode = reader.u8()
+          if (alignmentCode > 3) throw new Error('display list contains an unknown tab alignment')
+          tabs.push({
+            position,
+            alignment: ['left', 'center', 'right', 'decimal'][alignmentCode] as SceneTextTab['alignment'],
+          })
+        }
         const runs: SceneTextRun[] = []
         const runCount = reader.boundedCount('text run')
         for (let runIndex = 0; runIndex < runCount; runIndex += 1) {
           const text = reader.utf8Blob()
-          const style = readTextStyle(reader)
+          const style = readTextStyle(reader, version)
           const eastAsianFontFamily = reader.utf8Blob()
           const complexScriptFontFamily = reader.utf8Blob()
           runs.push({
@@ -1396,6 +1629,8 @@ function readCommand(reader: BinaryReader, version: number): SceneCommand {
           lineSpacing,
           spaceBefore,
           spaceAfter,
+          direction: directionCode === 1 ? 'rtl' : 'ltr',
+          tabs,
         })
       }
       return {
@@ -1410,6 +1645,7 @@ function readCommand(reader: BinaryReader, version: number): SceneCommand {
           marginBottom,
           wrap,
           autofit: autofitCode === 1 ? 'shrink-text' : autofitCode === 2 ? 'resize-shape' : 'none',
+          flow: flowCode === 1 ? 'vertical' : flowCode === 2 ? 'vertical-270' : 'horizontal',
         },
       }
     }
@@ -1436,6 +1672,32 @@ function readCommand(reader: BinaryReader, version: number): SceneCommand {
             x: reader.safeI64('custom path x'),
             y: reader.safeI64('custom path y'),
           })
+        } else if (version >= 5 && kind === 4) {
+          path.push({
+            kind: 'quadratic-to',
+            controlX: reader.safeI64('quadratic control x'),
+            controlY: reader.safeI64('quadratic control y'),
+            x: reader.safeI64('quadratic end x'),
+            y: reader.safeI64('quadratic end y'),
+          })
+        } else if (version >= 5 && kind === 5) {
+          path.push({
+            kind: 'cubic-to',
+            control1X: reader.safeI64('cubic control 1 x'),
+            control1Y: reader.safeI64('cubic control 1 y'),
+            control2X: reader.safeI64('cubic control 2 x'),
+            control2Y: reader.safeI64('cubic control 2 y'),
+            x: reader.safeI64('cubic end x'),
+            y: reader.safeI64('cubic end y'),
+          })
+        } else if (version >= 5 && kind === 6) {
+          path.push({
+            kind: 'arc-to',
+            widthRadius: reader.safeI64('arc width radius'),
+            heightRadius: reader.safeI64('arc height radius'),
+            startAngle: reader.i32(),
+            sweepAngle: reader.i32(),
+          })
         } else throw new Error('display list contains an unknown custom path command')
       }
       const fill = readFill(reader)
@@ -1451,6 +1713,24 @@ function readCommand(reader: BinaryReader, version: number): SceneCommand {
         blurRadius: reader.safeI64('shadow blur radius'),
         distance: reader.safeI64('shadow distance'),
         direction: reader.i32(),
+      }
+    case 13:
+      if (version < 5) throw new Error('radial gradient requires display-list version 5')
+      return {
+        kind: 'fill-radial-gradient-preset',
+        geometry: reader.u8(),
+        transform: readTransform(reader),
+        stops: readGradientStops(reader),
+      }
+    case 14:
+      if (version < 5) throw new Error('pattern fill requires display-list version 5')
+      return {
+        kind: 'fill-pattern-preset',
+        geometry: reader.u8(),
+        transform: readTransform(reader),
+        preset: reader.utf8Blob(),
+        foreground: readColor(reader),
+        background: readColor(reader),
       }
     default:
       throw new Error('display list contains an unknown command')
@@ -1471,6 +1751,13 @@ function readFill(reader: BinaryReader): SceneFill {
   if (kind === 0) return { kind: 'none' }
   if (kind === 1) return { kind: 'solid', color: readColor(reader) }
   if (kind === 2) return { kind: 'linear-gradient', angle: reader.i32(), stops: readGradientStops(reader) }
+  if (kind === 3) return { kind: 'radial-gradient', stops: readGradientStops(reader) }
+  if (kind === 4) return {
+    kind: 'pattern',
+    preset: reader.utf8Blob(),
+    foreground: readColor(reader),
+    background: readColor(reader),
+  }
   throw new Error('display list contains an unknown fill')
 }
 
@@ -1497,11 +1784,11 @@ function lineEnd(value: number): SceneLineEnd | undefined {
   throw new Error('display list contains an unknown line end')
 }
 
-function readTextStyle(reader: BinaryReader): SceneTextStyle {
+function readTextStyle(reader: BinaryReader, version: number): SceneTextStyle {
   const fontSize = reader.i32()
   const color = readColor(reader)
   const fontFamily = reader.utf8Blob()
-  return {
+  const style = {
     fontSize,
     color,
     fontFamily: fontFamily || undefined,
@@ -1513,6 +1800,13 @@ function readTextStyle(reader: BinaryReader): SceneTextStyle {
     marginTop: reader.safeI64('text top margin'),
     marginRight: reader.safeI64('text right margin'),
     marginBottom: reader.safeI64('text bottom margin'),
+  }
+  return {
+    ...style,
+    underline: version >= 5 ? reader.u8() !== 0 : false,
+    strike: version >= 5 ? reader.u8() !== 0 : false,
+    characterSpacing: version >= 5 ? reader.i32() : 0,
+    baseline: version >= 5 ? reader.i32() : 0,
   }
 }
 
@@ -1537,6 +1831,10 @@ function defaultTextStyle(): SceneTextStyle {
     color: { red: 0, green: 0, blue: 0, alpha: 255 },
     bold: false,
     italic: false,
+    underline: false,
+    strike: false,
+    characterSpacing: 0,
+    baseline: 0,
     alignment: 'left',
     verticalAlignment: 'top',
     marginLeft: 91_440,
@@ -1658,23 +1956,56 @@ function quoteFontFamily(family: string): string {
 function lineBreakTokens(text: string): readonly string[] {
   const tokens: string[] = []
   let latin = ''
+  let opening = ''
   for (const character of text) {
     if (character === '\n') {
       if (latin !== '') tokens.push(latin)
       latin = ''
+      if (opening !== '') tokens.push(opening)
+      opening = ''
+      tokens.push(character)
+    } else if (character === '\t') {
+      if (latin !== '') tokens.push(latin)
+      latin = ''
+      if (opening !== '') tokens.push(opening)
+      opening = ''
       tokens.push(character)
     } else if (/\s/u.test(character)) {
       latin += character
     } else if (/\p{Script=Han}|\p{Script=Hangul}|\p{Script=Hiragana}|\p{Script=Katakana}/u.test(character)) {
       if (latin !== '') tokens.push(latin)
       latin = ''
-      tokens.push(character)
+      if (/[（［｛〈《「『【〔〖〘〚]/u.test(character)) {
+        opening += character
+      } else if (/[）］｝〉》」』】〕〗〙〛、。，．？！：；]/u.test(character) && tokens.length > 0) {
+        tokens[tokens.length - 1] += opening + character
+        opening = ''
+      } else {
+        tokens.push(opening + character)
+        opening = ''
+      }
     } else {
-      latin += character
+      latin += opening + character
+      opening = ''
     }
   }
+  if (opening !== '') latin += opening
   if (latin !== '') tokens.push(latin)
   return tokens
+}
+
+function characterGapCount(text: string): number {
+  return Math.max(0, Array.from(text).length - 1)
+}
+
+function nextTabWidth(current: number, tabs: readonly SceneTextTab[]): number {
+  const stop = tabs
+    .map((tab) => toPixels(tab.position))
+    .filter((position) => position > current)
+    .sort((left, right) => left - right)[0]
+  if (stop !== undefined) return stop - current
+  const defaultInterval = toPixels(457_200)
+  return Math.max(1, (Math.floor(current / defaultInterval) + 1) * defaultInterval - current)
 }
 
 function required<Value>(values: readonly Value[], index: number, label: string): Value {
@@ -1726,25 +2057,97 @@ function drawCustomPath(
   context.translate(toPixels(bounds.x), toPixels(bounds.y))
   context.scale(toPixels(bounds.width) / command.pathWidth, toPixels(bounds.height) / command.pathHeight)
   context.beginPath()
+  let currentX = 0
+  let currentY = 0
   for (const part of command.path) {
-    if (part.kind === 'move-to') context.moveTo(part.x, part.y)
-    else if (part.kind === 'line-to') context.lineTo(part.x, part.y)
-    else context.closePath()
+    if (part.kind === 'move-to') {
+      context.moveTo(part.x, part.y)
+      currentX = part.x
+      currentY = part.y
+    } else if (part.kind === 'line-to') {
+      context.lineTo(part.x, part.y)
+      currentX = part.x
+      currentY = part.y
+    } else if (part.kind === 'quadratic-to') {
+      context.quadraticCurveTo(part.controlX, part.controlY, part.x, part.y)
+      currentX = part.x
+      currentY = part.y
+    } else if (part.kind === 'cubic-to') {
+      context.bezierCurveTo(part.control1X, part.control1Y, part.control2X, part.control2Y, part.x, part.y)
+      currentX = part.x
+      currentY = part.y
+    } else if (part.kind === 'arc-to') {
+      const start = part.startAngle / 60_000 * Math.PI / 180
+      const sweep = part.sweepAngle / 60_000 * Math.PI / 180
+      const centerX = currentX - part.widthRadius * Math.cos(start)
+      const centerY = currentY - part.heightRadius * Math.sin(start)
+      context.ellipse(centerX, centerY, part.widthRadius, part.heightRadius, 0, start, start + sweep, sweep < 0)
+      currentX = centerX + part.widthRadius * Math.cos(start + sweep)
+      currentY = centerY + part.heightRadius * Math.sin(start + sweep)
+    } else context.closePath()
   }
   if (command.fill.kind !== 'none') {
+    let patternPainted = false
     if (command.fill.kind === 'solid') context.fillStyle = cssColor(command.fill.color)
-    else {
+    else if (command.fill.kind === 'linear-gradient') {
       const gradient = context.createLinearGradient(0, 0, command.pathWidth, 0)
       for (const stop of command.fill.stops) gradient.addColorStop(stop.position / 100_000, cssColor(stop.color))
       context.fillStyle = gradient
+    } else if (command.fill.kind === 'radial-gradient') {
+      const radius = Math.max(command.pathWidth, command.pathHeight) / 2
+      const gradient = context.createRadialGradient(command.pathWidth / 2, command.pathHeight / 2, 0, command.pathWidth / 2, command.pathHeight / 2, radius)
+      for (const stop of command.fill.stops) gradient.addColorStop(stop.position / 100_000, cssColor(stop.color))
+      context.fillStyle = gradient
+    } else {
+      drawPatternFill(
+        context,
+        command.pathWidth,
+        command.pathHeight,
+        command.fill.preset,
+        command.fill.foreground,
+        command.fill.background,
+      )
+      patternPainted = true
     }
-    context.fill()
+    if (!patternPainted) context.fill()
   }
   if (command.stroke !== undefined) {
     context.strokeStyle = cssColor(command.stroke.color)
     context.lineWidth = command.stroke.width * command.pathWidth / Math.max(1, bounds.width)
     context.setLineDash(dashPattern(command.stroke.dash, context.lineWidth))
     context.stroke()
+  }
+  context.restore()
+}
+
+function drawPatternFill(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  preset: string,
+  foreground: RgbaColor,
+  background: RgbaColor,
+): void {
+  context.fillStyle = cssColor(background)
+  context.fill()
+  context.save()
+  context.clip()
+  context.strokeStyle = cssColor(foreground)
+  context.lineWidth = Math.max(1, Math.min(Math.abs(width), Math.abs(height)) / 160)
+  const step = Math.max(4, Math.min(Math.abs(width), Math.abs(height)) / 12)
+  const vertical = /Vert|vert/u.test(preset)
+  const horizontal = /Horz|horz/u.test(preset)
+  const reverse = /DnDiag|dnDiag/u.test(preset)
+  if (vertical || horizontal) {
+    if (vertical) for (let x = 0; x <= width; x += step) { context.beginPath(); context.moveTo(x, 0); context.lineTo(x, height); context.stroke() }
+    if (horizontal) for (let y = 0; y <= height; y += step) { context.beginPath(); context.moveTo(0, y); context.lineTo(width, y); context.stroke() }
+  } else {
+    for (let offset = -height; offset <= width + height; offset += step) {
+      context.beginPath()
+      context.moveTo(offset, reverse ? 0 : height)
+      context.lineTo(offset + height, reverse ? height : 0)
+      context.stroke()
+    }
   }
   context.restore()
 }
@@ -1865,6 +2268,44 @@ function presetPath(
     context.lineTo(width / 4, height)
     context.lineTo(0, height / 2)
     context.closePath()
+  } else if (geometry === 10 || geometry === 11 || geometry === 12) {
+    const points = geometry === 10 ? 5 : geometry === 11 ? 8 : 10
+    for (let index = 0; index < points; index += 1) {
+      const angle = -Math.PI / 2 + index * Math.PI * 2 / points
+      const radius = geometry === 12 && index % 2 === 1 ? 0.22 : 0.5
+      const x = width / 2 + Math.cos(angle) * width * radius
+      const y = height / 2 + Math.sin(angle) * height * radius
+      if (index === 0) context.moveTo(x, y)
+      else context.lineTo(x, y)
+    }
+    context.closePath()
+  } else if (geometry === 13) {
+    context.moveTo(width * 0.35, 0); context.lineTo(width * 0.65, 0)
+    context.lineTo(width * 0.65, height * 0.35); context.lineTo(width, height * 0.35)
+    context.lineTo(width, height * 0.65); context.lineTo(width * 0.65, height * 0.65)
+    context.lineTo(width * 0.65, height); context.lineTo(width * 0.35, height)
+    context.lineTo(width * 0.35, height * 0.65); context.lineTo(0, height * 0.65)
+    context.lineTo(0, height * 0.35); context.lineTo(width * 0.35, height * 0.35); context.closePath()
+  } else if (geometry === 14) {
+    context.moveTo(0, 0); context.lineTo(width * 0.65, 0); context.lineTo(width, height / 2)
+    context.lineTo(width * 0.65, height); context.lineTo(0, height); context.lineTo(width * 0.35, height / 2); context.closePath()
+  } else if (geometry === 15 || geometry === 16) {
+    const direction = geometry === 15 ? 1 : -1
+    context.translate(direction === 1 ? 0 : width, 0); context.scale(direction, 1)
+    context.moveTo(0, height * 0.3); context.lineTo(width * 0.6, height * 0.3)
+    context.lineTo(width * 0.6, 0); context.lineTo(width, height / 2)
+    context.lineTo(width * 0.6, height); context.lineTo(width * 0.6, height * 0.7)
+    context.lineTo(0, height * 0.7); context.closePath()
+  } else if (geometry === 17 || geometry === 18) {
+    const direction = geometry === 18 ? -1 : 1
+    context.translate(0, direction === 1 ? 0 : height); context.scale(1, direction)
+    context.moveTo(width * 0.3, height); context.lineTo(width * 0.3, height * 0.4)
+    context.lineTo(0, height * 0.4); context.lineTo(width / 2, 0)
+    context.lineTo(width, height * 0.4); context.lineTo(width * 0.7, height * 0.4)
+    context.lineTo(width * 0.7, height); context.closePath()
+  } else if (geometry === 19) {
+    context.moveTo(width * 0.2, 0); context.lineTo(width * 0.8, 0)
+    context.lineTo(width, height); context.lineTo(0, height); context.closePath()
   } else if (geometry === 2) {
     context.roundRect(0, 0, width, height, Math.min(Math.abs(width), Math.abs(height)) / 8)
   } else {

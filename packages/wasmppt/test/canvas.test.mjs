@@ -24,7 +24,7 @@ test('display-list decoder rejects corruption and decodes a bounded scene', () =
   assert.deepEqual(scene.commands, [
     { kind: 'clear', color: { red: 255, green: 255, blue: 255, alpha: 255 } },
   ])
-  for (const version of [2, 3]) {
+  for (const version of [2, 3, 4, 5]) {
     assert.equal(decodeDisplayList(minimalDisplayList(version)).version, version)
   }
   assert.throws(() => decodeDisplayList(bytes.slice(0, -1)), /truncated/)
@@ -126,7 +126,7 @@ test('text measurement is grouped by exact font without changing result order', 
   assert.equal(measurementCount, 3)
 })
 
-test('raster metadata enforces deterministic PNG and JPEG boundaries', () => {
+test('image metadata enforces deterministic PNG, JPEG, GIF, and safe SVG boundaries', () => {
   const png = new Uint8Array(24)
   png.set([0x89, 0x50, 0x4e, 0x47], 0)
   new DataView(png.buffer).setUint32(16, 640)
@@ -153,6 +153,18 @@ test('raster metadata enforces deterministic PNG and JPEG boundaries', () => {
     ...jpeg.subarray(2),
   ])
   assert.equal(inspectRasterImageMetadata(oriented).orientation, 6)
+  const gif = Uint8Array.of(0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x80, 0x02, 0x68, 0x01)
+  assert.deepEqual(inspectRasterImageMetadata(gif), {
+    format: 'gif', width: 640, height: 360, orientation: 1,
+  })
+  const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360"/>')
+  assert.deepEqual(inspectRasterImageMetadata(svg), {
+    format: 'svg', width: 640, height: 360, orientation: 1,
+  })
+  assert.throws(
+    () => inspectRasterImageMetadata(new TextEncoder().encode('<svg width="1" height="1"><script/></svg>')),
+    /active or external/,
+  )
   assert.throws(() => inspectRasterImageMetadata(new Uint8Array([1, 2, 3])), /supported PNG or JPEG/)
 })
 
@@ -169,12 +181,14 @@ test('byte-budget LRU evicts and disposes deterministically', () => {
   assert.equal(cache.set('a', 'A', 3), true)
   assert.equal(cache.set('b', 'B', 3), true)
   assert.equal(cache.get('a'), undefined)
+  assert.equal(cache.misses, 1)
   assert.equal(cache.residentBytes, 3)
   assert.deepEqual(disposed, ['A'])
   assert.equal(cache.set('large', 'L', 6), false)
   assert.deepEqual(disposed, ['A', 'L'])
   cache.clear()
   assert.equal(cache.residentBytes, 0)
+  assert.equal(cache.hitRate, 0)
   assert.deepEqual(disposed, ['A', 'L', 'B'])
 })
 

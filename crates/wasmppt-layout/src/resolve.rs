@@ -1681,6 +1681,12 @@ fn parse_shape(
                             .find(|attribute| attribute.name.local == "embed")
                             .map(|attribute| attribute.value.clone());
                     }
+                    "audioFile" | "videoFile" | "media" => diagnostics.push((
+                        ResolveDiagnosticCode::UnsupportedActiveContent,
+                        Some(shape.id),
+                        "media is preserved and its poster may render, but playback is never activated"
+                            .to_owned(),
+                    )),
                     "srcRect" => {
                         shape.crop = ImageCrop {
                             left: plain_i32(attributes, "l").unwrap_or(0),

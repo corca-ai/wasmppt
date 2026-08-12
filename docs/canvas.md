@@ -26,8 +26,9 @@ the common display-list semantics on Canvas 2D:
 - deterministic cache eviction and disposal for decoded images.
 
 Canvas 2D and `OffscreenCanvasRenderingContext2D` expose the same core drawing and text
-measurement operations. The renderer currently targets an on-screen 2D context, while its
-display executor is deliberately independent of Worker package parsing. See the
+measurement operations. `renderOffscreenThumbnail` renders a bounded thumbnail in a Worker and
+returns a transferable `ImageBitmap`; hosts without OffscreenCanvas receive an explicit fallback
+signal and execute the identical scene on the main thread. See the
 [Canvas 2D reference](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D)
 and [Offscreen Canvas 2D reference](https://developer.mozilla.org/en-US/docs/Web/API/OffscreenCanvasRenderingContext2D).
 
@@ -49,7 +50,8 @@ documented missing-font fallback, Korean wrapping, and mixed-order batched measu
 
 `VirtualizedCanvasViewer.setVisibleSlides` mounts canvases only for the visible indices. A new
 viewport revision aborts stale resolution and drawing work. Visible slides complete before
-neighbor prefetch begins. The scene LRU and decoded-image LRU both have explicit byte budgets.
+neighbor prefetch begins. The scene LRU and decoded-image LRU both have explicit byte budgets and
+hit/miss telemetry.
 `WasmpptWorkerClient` also deduplicates in-flight raw and converted resources per presentation
 and part name and exposes its bounded resident-byte count. Evicted image objects
 are closed when their host resource supports `close()`. `dispose()` aborts work, removes every
@@ -62,7 +64,7 @@ DOM, and custom viewers can feed the same bounded primitive.
 ## Telemetry and verification
 
 Each render reports separate durations for slide resolution, font loading and measurement,
-display execution, and media decode, plus command count and decoded-image cache bytes. The browser
+display execution, and media decode, plus command count, cache bytes, and cache hit rate. The browser
 gate records first-visible-slide raw samples separately from injection and per-stage samples. It
 runs the real Wasm module in a module Worker, transfers a two-slide PPTX, resolves only slide
 zero, draws shapes, nested transforms, fills, strokes, text, an image crop, verifies cache
@@ -73,7 +75,8 @@ baselines and per-slide tolerance reports belong to the compatibility-gate slice
 
 The renderer supports WPDL v5 while retaining v1-v4 decoding. Optional font-byte shaping,
 general effect DAGs, and native SmartArt drawing remain incomplete.
-PNG/JPEG metadata is inspected before decode, byte and pixel limits are enforced, and browser
+PNG/JPEG/GIF/SVG metadata is inspected before decode, byte and pixel limits are enforced, unsafe
+SVG active/external content is rejected, GIF preview is the deterministic first frame, and browser
 decode applies EXIF orientation. EMF/WMF supports common GDI records through the lazy
 SVG converter; malformed or unsupported record streams fall back to an unavailable-image region.
 Other unsupported preserved graphics render a labeled placeholder and retain their stable

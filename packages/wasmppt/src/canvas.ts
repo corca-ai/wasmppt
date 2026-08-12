@@ -808,7 +808,7 @@ export interface DecodedImage {
 }
 
 export interface RasterImageMetadata {
-  readonly format: 'png' | 'jpeg'
+  readonly format: 'png' | 'jpeg' | 'gif' | 'svg'
   readonly width: number
   readonly height: number
   readonly orientation: number
@@ -825,6 +825,24 @@ export function inspectRasterImageMetadata(input: ArrayBuffer | Uint8Array): Ras
   if (bytes.byteLength >= 24 && bytes[0] === 0x89 && String.fromCharCode(...bytes.subarray(1, 4)) === 'PNG') {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     return { format: 'png', width: view.getUint32(16), height: view.getUint32(20), orientation: 1 }
+  }
+  if (bytes.byteLength >= 10 && new TextDecoder('ascii').decode(bytes.subarray(0, 6)).match(/^GIF8[79]a$/u)) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    return { format: 'gif', width: view.getUint16(6, true), height: view.getUint16(8, true), orientation: 1 }
+  }
+  const prefix = new TextDecoder('utf-8').decode(bytes.subarray(0, Math.min(bytes.byteLength, 1024 * 1024))).trimStart()
+  if (prefix.startsWith('<svg') || prefix.startsWith('<?xml') && prefix.includes('<svg')) {
+    if (/<(?:script|foreignObject)\b|\b(?:href|src)\s*=\s*["'](?:https?:|data:|javascript:)/iu.test(prefix)) {
+      throw new Error('SVG resource contains active or external content')
+    }
+    const svg = prefix.match(/<svg\b[^>]*>/iu)?.[0] ?? ''
+    const width = svg.match(/\bwidth\s*=\s*["']([0-9.]+)/iu)?.[1]
+    const height = svg.match(/\bheight\s*=\s*["']([0-9.]+)/iu)?.[1]
+    const viewBox = svg.match(/\bviewBox\s*=\s*["'][^"']*?([0-9.]+)[ ,]+([0-9.]+)["']/iu)
+    const resolvedWidth = Number(width ?? viewBox?.[1] ?? 0)
+    const resolvedHeight = Number(height ?? viewBox?.[2] ?? 0)
+    if (!(resolvedWidth > 0) || !(resolvedHeight > 0)) throw new Error('SVG dimensions are missing')
+    return { format: 'svg', width: resolvedWidth, height: resolvedHeight, orientation: 1 }
   }
   if (bytes.byteLength < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
     throw new Error('resource is not a supported PNG or JPEG image')
@@ -868,7 +886,13 @@ export async function decodeRasterImage(
   }
   const owned = bytes.slice()
   const source = await createImageBitmap(new Blob([owned], {
-    type: metadata.format === 'png' ? 'image/png' : 'image/jpeg',
+    type: metadata.format === 'png'
+      ? 'image/png'
+      : metadata.format === 'jpeg'
+        ? 'image/jpeg'
+        : metadata.format === 'gif'
+          ? 'image/gif'
+          : 'image/svg+xml',
   }), { imageOrientation: 'from-image' })
   throwIfAborted(signal)
   return {
@@ -954,6 +978,7 @@ export interface RenderTelemetry {
   readonly mediaDecodeMs: number
   readonly commandCount: number
   readonly cacheBytes: { readonly decodedImages: number }
+  readonly cacheHitRate: { readonly decodedImages: number }
 }
 
 export interface CanvasRenderOptions {
@@ -1129,6 +1154,7 @@ export class CanvasDisplayListRenderer {
       mediaDecodeMs,
       commandCount: scene.commands.length,
       cacheBytes: Object.freeze({ decodedImages: this.#images.residentBytes }),
+      cacheHitRate: Object.freeze({ decodedImages: this.#images.hitRate }),
     })
   }
 
@@ -1172,6 +1198,37 @@ export interface SceneResolver {
   ): Promise<ArrayBuffer>
 }
 
+export interface OffscreenThumbnailResult {
+  readonly bitmap: ImageBitmap
+  readonly telemetry: RenderTelemetry
+  readonly width: number
+  readonly height: number
+}
+
+/** Worker-safe thumbnail path with a scalar fallback signal for hosts without OffscreenCanvas. */
+export async function renderOffscreenThumbnail(
+  scene: DisplayScene,
+  maximumWidth = 320,
+  options: CanvasRenderOptions = {},
+  renderer = new CanvasDisplayListRenderer(),
+): Promise<OffscreenThumbnailResult> {
+  if (typeof OffscreenCanvas === 'undefined') {
+    throw new Error('OffscreenCanvas is unavailable; render the same scene on the main thread')
+  }
+  const ratio = Math.min(1, maximumWidth / (scene.width / EMU_PER_CSS_PIXEL))
+  const width = Math.max(1, Math.round(scene.width / EMU_PER_CSS_PIXEL * ratio))
+  const height = Math.max(1, Math.round(scene.height / EMU_PER_CSS_PIXEL * ratio))
+  const canvas = new OffscreenCanvas(width, height)
+  const offscreen = canvas.getContext('2d')
+  if (offscreen === null) throw new Error('OffscreenCanvas 2D is unavailable')
+  const telemetry = await renderer.render(
+    scene,
+    offscreen as unknown as CanvasRenderingContext2D,
+    options,
+  )
+  return Object.freeze({ bitmap: canvas.transferToImageBitmap(), telemetry, width, height })
+}
+
 export interface VirtualizedViewerOptions {
   readonly sceneCacheBytes?: number
   readonly prefetchNeighbors?: number
@@ -1213,6 +1270,14 @@ export class VirtualizedCanvasViewer {
 
   get mountedSlideCount(): number {
     return this.#mounted.size
+  }
+
+  get sceneCacheTelemetry(): Readonly<{ residentBytes: number; entries: number; hitRate: number }> {
+    return Object.freeze({
+      residentBytes: this.#sceneCache.residentBytes,
+      entries: this.#sceneCache.size,
+      hitRate: this.#sceneCache.hitRate,
+    })
   }
 
   get cachedSceneBytes(): number {
@@ -1303,6 +1368,8 @@ export class ByteBudgetLru<Key, Value> {
   readonly #maxBytes: number
   readonly #dispose?: (value: Value) => void
   #residentBytes = 0
+  #hits = 0
+  #misses = 0
 
   constructor(maxBytes: number, dispose?: (value: Value) => void) {
     if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
@@ -1320,9 +1387,22 @@ export class ByteBudgetLru<Key, Value> {
     return this.#entries.size
   }
 
+  get hits(): number { return this.#hits }
+
+  get misses(): number { return this.#misses }
+
+  get hitRate(): number {
+    const requests = this.#hits + this.#misses
+    return requests === 0 ? 0 : this.#hits / requests
+  }
+
   get(key: Key): Value | undefined {
     const entry = this.#entries.get(key)
-    if (entry === undefined) return undefined
+    if (entry === undefined) {
+      this.#misses += 1
+      return undefined
+    }
+    this.#hits += 1
     this.#entries.delete(key)
     this.#entries.set(key, entry)
     return entry.value
@@ -1352,6 +1432,8 @@ export class ByteBudgetLru<Key, Value> {
     for (const entry of this.#entries.values()) this.#dispose?.(entry.value)
     this.#entries.clear()
     this.#residentBytes = 0
+    this.#hits = 0
+    this.#misses = 0
   }
 
   #remove(key: Key, entry: { readonly value: Value; readonly weight: number }): void {

@@ -85,7 +85,14 @@ node scripts/report-wasm-size.mjs \
 CI runs the same gates. Runtime compatibility, security, visual, and performance gates
 will be added as the corresponding architecture slices become executable.
 
+Run the package parser fuzz target separately with `cargo-fuzz`:
+
+```sh
+cargo fuzz run --fuzz-dir crates/wasmppt-opc/fuzz open_package
+```
+
 ## Related documents
 
 - Return to the [documentation index](index.md) for the complete project map.
+- Read the [OPC and ZIP substrate](opc.md) contract before changing package I/O.
 - Follow the [documentation guide](metadoc.md) when changing development documentation.

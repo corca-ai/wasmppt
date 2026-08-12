@@ -8,6 +8,8 @@ This is the canonical index for living `wasmppt` documentation.
   rendering pipelines, runtime model, performance contract, and delivery slices.
 - [Development guide](develop.md) — toolchain, crate and package entry points,
   feature policy, profiles, and verification commands.
+- [OPC and ZIP substrate](opc.md) — implemented lazy ZIP indexing, raw-copy
+  rewriting, security limits, determinism, and memory budgets.
 - [Documentation guide](metadoc.md) — how documentation is organized, written,
   linked, and linted.
 

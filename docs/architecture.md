@@ -143,18 +143,20 @@ The core depends on capabilities, not a filesystem:
 
 ```rust
 trait ReadAt {
-    async fn len(&self) -> Result<u64>;
-    async fn read_at(&self, offset: u64, length: usize) -> Result<Bytes>;
+    fn len(&self) -> u64;
+    fn read_at(&self, offset: u64, buffer: &mut [u8]) -> Result<()>;
 }
 
 trait OutputSink {
-    async fn write(&mut self, bytes: &[u8]) -> Result<()>;
+    fn position(&self) -> u64;
+    fn write_all(&mut self, bytes: &[u8]) -> Result<()>;
 }
 ```
 
 Memory buffers, native files, HTTP range sources, R2 objects, browser `Blob` objects,
-and streaming responses are adapter concerns. The package layer MUST NOT assume seekable
-output or buffer the complete result.
+and streaming responses are adapter concerns. An asynchronous host adapter obtains or
+windows bytes before entering this synchronous core capability. The package layer MUST
+NOT assume seekable output or buffer the complete result.
 
 ### Loss-aware XML
 

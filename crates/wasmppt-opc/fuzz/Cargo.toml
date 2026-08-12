@@ -1,0 +1,21 @@
+[package]
+name = "wasmppt-opc-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+wasmppt-opc = { path = ".." }
+
+[[bin]]
+name = "open_package"
+path = "fuzz_targets/open_package.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

@@ -12,5 +12,12 @@ publish = false
 [features]
 default = []
 
+[dependencies]
+crc32fast.workspace = true
+flate2.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
 [lints]
 workspace = true

@@ -20,6 +20,9 @@ repository = "https://github.com/corca-ai/wasmppt"
 authors = ["wasmppt contributors"]
 
 [workspace.dependencies]
+crc32fast = "1.5.0"
+flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
+proptest = { version = "1.11.0", default-features = false, features = ["std"] }
 wasm-bindgen = "0.2.127"
 wasmppt-display = { path = "crates/wasmppt-display", version = "0.0.0" }
 wasmppt-layout = { path = "crates/wasmppt-layout", version = "0.0.0" }

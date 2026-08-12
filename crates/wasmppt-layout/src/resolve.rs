@@ -343,14 +343,16 @@ pub fn resolve_slide_parts(
                 .as_ref()
                 .and_then(|(_, part, _)| part.show_master_shapes)
                 .unwrap_or(true);
-        if show_master_shapes && let Some((part, parsed, _)) = &master {
-            append_non_placeholder(
-                &mut elements,
-                &mut element_resolver,
-                parsed,
-                SourceLevel::Master,
-                *part,
-            );
+        if show_master_shapes {
+            if let Some((part, parsed, _)) = &master {
+                append_non_placeholder(
+                    &mut elements,
+                    &mut element_resolver,
+                    parsed,
+                    SourceLevel::Master,
+                    *part,
+                );
+            }
         }
         if let Some((part, parsed, _)) = &layout {
             append_non_placeholder(
@@ -370,16 +372,18 @@ pub fn resolve_slide_parts(
                 None,
             );
         }
-        if show_master_shapes && let Some((part, parsed, _)) = &master {
-            append_unmaterialized_placeholders(
-                &mut elements,
-                &mut element_resolver,
-                parsed,
-                SourceLevel::Master,
-                *part,
-                &slide,
-                layout.as_ref().map(|(_, part, _)| part),
-            );
+        if show_master_shapes {
+            if let Some((part, parsed, _)) = &master {
+                append_unmaterialized_placeholders(
+                    &mut elements,
+                    &mut element_resolver,
+                    parsed,
+                    SourceLevel::Master,
+                    *part,
+                    &slide,
+                    layout.as_ref().map(|(_, part, _)| part),
+                );
+            }
         }
         for raw in &slide.shapes {
             let inherited_layout = raw.placeholder.as_ref().and_then(|placeholder| {

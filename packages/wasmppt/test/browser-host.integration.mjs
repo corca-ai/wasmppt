@@ -168,6 +168,7 @@ try {
       VirtualizedCanvasViewer,
       decodeSvgImage,
       decodeDisplayList,
+      renderOffscreenThumbnail,
       wrapText,
     } = await import('/dist/canvas.js')
     const { DomSvgRenderer, VirtualizedDomViewer } = await import('/dist/dom-svg.js')
@@ -322,6 +323,9 @@ try {
     const advancedFacts = {
       semanticKinds: advancedScene.semantics.map((semantic) => semantic.kind),
       strings: advancedScene.strings,
+      textRuns: advancedScene.commands.flatMap((command) => command.kind === 'draw-rich-text'
+        ? command.frame.paragraphs.flatMap((paragraph) => paragraph.runs.map((run) => run.text))
+        : command.kind === 'draw-text' ? [advancedScene.strings[command.text]] : []),
       diagnosticCodes: advancedScene.diagnostics.map((diagnostic) => diagnostic.code),
       coloredPixels: advancedColoredPixels,
       pixelHash: advancedPixelHash.toString(16).padStart(8, '0'),
@@ -396,6 +400,13 @@ try {
     const mountedAfterScroll = viewer.mountedSlideCount
     const cachedSceneBytes = viewer.cachedSceneBytes
     viewer.dispose()
+    const thumbnail = await renderOffscreenThumbnail(scene, 160)
+    const thumbnailFacts = {
+      width: thumbnail.width,
+      height: thumbnail.height,
+      commandCount: thumbnail.telemetry.commandCount,
+    }
+    thumbnail.bitmap.close()
     for (let iteration = 1; iteration < 5; iteration += 1) {
       const sampleRoot = document.createElement('div')
       document.body.append(sampleRoot)
@@ -444,6 +455,25 @@ try {
       (element) => element.dataset.slideIndex,
     )
     staleViewer.dispose()
+    const stressRoot = document.createElement('div')
+    document.body.append(stressRoot)
+    const stressViewer = new VirtualizedCanvasViewer(
+      { resolveSlide: async () => displayBytes.slice(0) },
+      opened.handle,
+      stressRoot,
+      new CanvasDisplayListRenderer(0),
+      { sceneCacheBytes: displayBytes.byteLength * 4, prefetchNeighbors: 1 },
+    )
+    const stressStarted = performance.now()
+    let stressPeakMounted = 0
+    for (let slideIndex = 0; slideIndex < 1000; slideIndex += 1) {
+      await stressViewer.setVisibleSlides([slideIndex])
+      stressPeakMounted = Math.max(stressPeakMounted, stressViewer.mountedSlideCount)
+    }
+    const stressElapsedMs = performance.now() - stressStarted
+    const stressCache = stressViewer.sceneCacheTelemetry
+    stressViewer.dispose()
+    const stressMountedAfterDispose = stressRoot.children.length
     const domViewerRoot = document.createElement('div')
     document.body.append(domViewerRoot)
     const domViewer = new VirtualizedDomViewer(
@@ -490,6 +520,14 @@ try {
       staleAbortCount,
       staleResult,
       staleMountedSlides,
+      stress: {
+        slideCount: 1000,
+        elapsedMs: stressElapsedMs,
+        peakMounted: stressPeakMounted,
+        cache: stressCache,
+        mountedAfterDispose: stressMountedAfterDispose,
+      },
+      thumbnailFacts,
       decodedImageBytesAfterClear: renderer.decodedImageBytes,
       koreanLines,
       telemetry,
@@ -523,8 +561,8 @@ try {
   assert(result.advancedFacts.semanticKinds.includes('table'))
   assert(result.advancedFacts.semanticKinds.includes('chart'))
   assert(result.advancedFacts.semanticKinds.includes('preserved-graphic'))
-  assert(result.advancedFacts.strings.includes('Quarter'))
-  assert(result.advancedFacts.strings.includes('42'))
+  assert(result.advancedFacts.textRuns.includes('Quarter'))
+  assert(result.advancedFacts.textRuns.includes('42'))
   for (const code of [
     'unsupported-smartart',
     'unsupported-animation',
@@ -580,6 +618,20 @@ try {
   assert.equal(result.staleAbortCount, 1)
   assert.equal(result.staleResult, 'AbortError')
   assert.deepEqual(result.staleMountedSlides, ['1'])
+  assert.equal(result.stress.slideCount, 1000)
+  assert(
+    result.stress.elapsedMs / result.stress.slideCount
+      <= performanceBudgets.browserScalarWasm.maximumRapidScrollAverageMs,
+  )
+  assert(
+    result.stress.peakMounted
+      <= performanceBudgets.browserScalarWasm.maximumStronglyReferencedSlides,
+  )
+  assert(result.stress.cache.residentBytes <= result.displayByteLength * 4)
+  assert.equal(result.stress.mountedAfterDispose, 0)
+  assert(result.thumbnailFacts.width <= 160)
+  assert(result.thumbnailFacts.height > 0)
+  assert.equal(result.thumbnailFacts.commandCount, result.commandCount)
   assert.deepEqual(errors, [])
   const visualDirectory = join(workspaceDirectory, 'target/visual-report')
   await mkdir(visualDirectory, { recursive: true })
@@ -678,6 +730,8 @@ try {
           decodedImages: result.telemetry.cacheBytes.decodedImages,
           resources: result.resourceCacheBytes,
         },
+        stress1000Slides: result.stress,
+        offscreenThumbnail: result.thumbnailFacts,
       },
       correctness: { zipSignature: result.zipSignature, outputBytes: result.outputBytes },
       comparison: {

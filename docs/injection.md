@@ -34,9 +34,10 @@ Browser callers pass one `GenerationData` object to `generateStream` or `generat
     hero: { bytes: pngBytes, extension: 'png', contentType: 'image/png' }
   },
   tables: { metrics: [{ label: 'Latency', value: '12 ms' }] },
+  tablePolicies: { metrics: { maximumRows: 12, overflow: 'shrink' } },
   slides: { 'ppt/slides/slide2.xml': 2 },
   charts: {
-    'ppt/charts/chart1.xml': {
+    sales: {
       categories: ['Q1', 'Q2'],
       series: [{ name: 'Revenue', values: [10, 14] }]
     }
@@ -75,6 +76,12 @@ Call `set_table_rows("table_id", rows)` with one map per output row. The complet
 row markup is cloned for each record, so cell properties and unsupported row extensions
 survive while bound text ranges change.
 
+`tablePolicies` makes overflow intentional. `fail` rejects the request transactionally,
+`clip` emits only the declared capacity, and `shrink` keeps all rows while scaling cloned row
+heights to the declared capacity. A zero capacity is invalid. Continuation-slide pagination is
+not implicit; authors use the existing deterministic slide repetition API when a table must span
+slides.
+
 ## Images
 
 Set a picture shape's Alt Text Description to:
@@ -102,8 +109,10 @@ updates its related notes-slide text without cloning or sharing notes accidental
 
 ## Chart data
 
-`set_chart("ppt/charts/chart1.xml", data)` replaces complete categories and series for a
-supported chart. Generation validates dimensions and finite numeric values, then updates both
+Set a chart graphic frame's Alt Text Description to `wasmppt:chart:sales`, then call
+`set_chart("sales", data)`. The compiler resolves that stable authoring name to the chart
+relationship and part once; raw part names remain accepted as a low-level compatibility path.
+Generation validates dimensions and finite numeric values, then updates both
 the chart's text/category/number caches and the related embedded workbook worksheet in the same
 output. Cache formulas and workbook cell ranges are resized consistently. See
 [tables, charts, and advanced content](advanced-content.md) for read and render coverage.
@@ -135,10 +144,11 @@ its compressed bytes survive verbatim.
 
 ## Validation
 
-Rust tests cover WPPD v1/v2, POTX, synthetic POTM stripping, split-run text, escaping, Unicode, image
+Rust tests cover WPPD v1/v2, POTX, Strict POTX targeted editing, synthetic POTM stripping, split-run text, escaping, Unicode, image
 media/relationships/crops/content types, repeated table rows, deterministic slide clones,
 slide exclusion, hyperlinks, notes, opaque parts, malformed bindings, and a non-seekable
-sink, semantic conditions/repetition/rich text, notes edits, and buffered/streaming parity.
+sink, semantic conditions/repetition/rich text, named chart bindings, explicit table overflow,
+notes edits, and buffered/streaming parity.
 
 CI also downloads [Apache POI's](https://github.com/apache/poi) Apache-licensed
 `bug59273.potx` at a pinned SHA-256,

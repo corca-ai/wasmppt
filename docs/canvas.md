@@ -68,7 +68,8 @@ display execution, and media decode, plus command count, cache bytes, and cache 
 gate records first-visible-slide raw samples separately from injection and per-stage samples. It
 runs the real Wasm module in a module Worker, transfers a two-slide PPTX, resolves only slide
 zero, draws shapes, nested transforms, fills, strokes, text, an image crop, verifies cache
-cleanup and bounded mounted canvases, and records a pixel fingerprint. Higher-fidelity visual
+cleanup and bounded mounted canvases, runs a 1,000-slide scroll/disposal stress trace, renders and
+closes an OffscreenCanvas thumbnail, and records a pixel fingerprint. Higher-fidelity visual
 baselines and per-slide tolerance reports belong to the compatibility-gate slice.
 
 ## Current boundary

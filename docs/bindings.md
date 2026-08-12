@@ -98,7 +98,9 @@ are stable inputs to cache identity; JavaScript object property order is not.
 
 WPPD v2 reuses those stable binding IDs for conditional/repeated shapes, rich text, safe
 hyperlinks, basic solid-fill edits, image-fit policies, and notes. Applications do not need to
-persist shape IDs or relationship part names. The v1 decoder remains supported for migration;
+persist shape IDs or relationship part names. A chart frame Description such as
+`wasmppt:chart:sales` also compiles to the related chart and workbook, so `charts.sales` is a
+stable transactional update. The v1 decoder remains supported for migration;
 v2 invalid combinations fail before any output entry is written.
 
 ## Storage boundary

@@ -909,6 +909,48 @@ fn lower_chart(list: &mut DisplayList, transform: Transform, chart: &ResolvedCha
                 }
             }
         }
+        ChartKind::Combination => {
+            let category_count = chart
+                .series
+                .iter()
+                .map(|series| series.values.len())
+                .max()
+                .unwrap_or(0);
+            if category_count == 0 {
+                return;
+            }
+            let slot = plot.size.width / category_count as i64;
+            if let Some(series) = chart.series.first() {
+                for (value_index, value) in series.values.iter().enumerate() {
+                    let baseline = value_y(0.0);
+                    let end = value_y(*value);
+                    push_chart_rect(
+                        list,
+                        transform,
+                        plot.origin.x + slot * value_index as i64 + slot / 5,
+                        baseline.min(end),
+                        slot * 3 / 5,
+                        (end - baseline).abs(),
+                        series.color,
+                    );
+                }
+            }
+            for series in chart.series.iter().skip(1) {
+                let denominator = series.values.len().saturating_sub(1).max(1) as i64;
+                for (index, values) in series.values.windows(2).enumerate() {
+                    push_chart_line(
+                        list,
+                        transform,
+                        plot.origin.x + plot.size.width * index as i64 / denominator,
+                        value_y(values[0]),
+                        plot.origin.x + plot.size.width * (index + 1) as i64 / denominator,
+                        value_y(values[1]),
+                        series.color,
+                    );
+                }
+            }
+            push_category_labels(list, chart, plot);
+        }
         _ => {}
     }
     if chart.show_legend {

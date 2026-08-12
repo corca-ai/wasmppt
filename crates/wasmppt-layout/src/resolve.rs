@@ -1268,12 +1268,12 @@ fn parse_table_cell_borders(
 }
 
 fn parse_chart(document: &XmlDocument) -> ResolvedChart {
-    let mut kind = ChartKind::Other;
+    let mut kinds = Vec::new();
     for token in document.tokens() {
         let TokenKind::Start { name, .. } = &token.kind else {
             continue;
         };
-        kind = match name.local.as_str() {
+        let kind = match name.local.as_str() {
             "lineChart" => ChartKind::Line,
             "pieChart" => ChartKind::Pie,
             "doughnutChart" => ChartKind::Doughnut,
@@ -1300,8 +1300,15 @@ fn parse_chart(document: &XmlDocument) -> ResolvedChart {
             }
             _ => continue,
         };
-        break;
+        if !kinds.contains(&kind) {
+            kinds.push(kind);
+        }
     }
+    let kind = match kinds.as_slice() {
+        [] => ChartKind::Other,
+        [kind] => *kind,
+        _ => ChartKind::Combination,
+    };
     let palette = [
         RgbaColor {
             red: 68,
@@ -2819,6 +2826,15 @@ mod tests {
         )
         .unwrap();
         assert_eq!(parse_chart(&document).kind, ChartKind::Other);
+    }
+
+    #[test]
+    fn recognizes_two_dimensional_combination_charts() {
+        let document = XmlDocument::parse(
+            br#"<c:chartSpace xmlns:c="c"><c:chart><c:plotArea><c:barChart><c:barDir val="col"/><c:ser><c:val><c:numLit><c:pt idx="0"><c:v>10</c:v></c:pt></c:numLit></c:val></c:ser></c:barChart><c:lineChart><c:ser><c:val><c:numLit><c:pt idx="0"><c:v>2</c:v></c:pt></c:numLit></c:val></c:ser></c:lineChart></c:plotArea></c:chart></c:chartSpace>"#.as_slice(),
+        )
+        .unwrap();
+        assert_eq!(parse_chart(&document).kind, ChartKind::Combination);
     }
 
     #[test]

@@ -105,7 +105,7 @@ fn identity_mismatch_fails_closed_to_recompilation() {
 #[test]
 fn reports_duplicate_missing_ambiguous_and_unsupported_bindings() {
     let duplicate_shape = r#"<p:sp><p:nvSpPr><p:cNvPr id="4" name="Revenue" descr="wasmppt:text:revenue"/></p:nvSpPr><p:txBody><a:p><a:r><a:t>x</a:t></a:r></a:p></p:txBody></p:sp>"#;
-    let manifest = r#"<bindings xmlns="urn:wasmppt:bindings:v1"><bind id="missing" kind="text" part="ppt/slides/slide1.xml" shapeName="Nope"/><bind id="ambiguous" kind="text" part="ppt/slides/slide1.xml" shapeName="Revenue"/><bind id="chart" kind="chart" part="ppt/slides/slide1.xml" shapeId="2"/></bindings>"#;
+    let manifest = r#"<bindings xmlns="urn:wasmppt:bindings:v1"><bind id="missing" kind="text" part="ppt/slides/slide1.xml" shapeName="Nope"/><bind id="ambiguous" kind="text" part="ppt/slides/slide1.xml" shapeName="Revenue"/><bind id="video" kind="video" part="ppt/slides/slide1.xml" shapeId="2"/></bindings>"#;
     let archive = ZipArchive::from_bytes(package(duplicate_shape, Some(manifest))).unwrap();
     let output = TemplateCompiler::new(Default::default())
         .compile(&archive)

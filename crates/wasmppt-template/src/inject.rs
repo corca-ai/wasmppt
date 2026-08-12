@@ -72,11 +72,25 @@ pub struct ChartData {
     pub series: Vec<ChartSeriesData>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TableOverflowPolicy {
+    Fail,
+    Clip,
+    Shrink,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TablePolicyData {
+    pub maximum_rows: u32,
+    pub overflow: TableOverflowPolicy,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct InjectionData {
     text: BTreeMap<String, String>,
     images: BTreeMap<String, ImageData>,
     table_rows: BTreeMap<String, Vec<BTreeMap<String, String>>>,
+    table_policies: BTreeMap<String, TablePolicyData>,
     slide_copies: BTreeMap<String, usize>,
     charts: BTreeMap<String, ChartData>,
     semantic_shapes: BTreeMap<String, SemanticShapeData>,
@@ -116,6 +130,15 @@ impl InjectionData {
         rows: Vec<BTreeMap<String, String>>,
     ) -> Self {
         self.set_table_rows(id, rows);
+        self
+    }
+
+    pub fn set_table_policy(&mut self, id: impl Into<String>, policy: TablePolicyData) {
+        self.table_policies.insert(id.into(), policy);
+    }
+
+    pub fn with_table_policy(mut self, id: impl Into<String>, policy: TablePolicyData) -> Self {
+        self.set_table_policy(id, policy);
         self
     }
 
@@ -174,6 +197,7 @@ pub enum GenerateErrorCode {
     Xml,
     InvalidImage,
     InvalidChart,
+    InvalidTable,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -269,6 +293,8 @@ struct SlideDeckPlan {
     content_type_insert_offset: usize,
     content_types: HashMap<String, (String, Range<usize>)>,
 }
+
+type PreparedSemanticShapes = (HashMap<String, SemanticShapePlan>, HashMap<String, u32>);
 
 #[derive(Clone, Debug, Default)]
 struct SlideOperations {
@@ -453,7 +479,7 @@ impl PreparedTemplate {
             .collect::<HashSet<_>>();
         let image_plans = prepare_image_plans(&archive, &plan)?;
         let table_plans = prepare_table_plans(&archive, &plan)?;
-        let chart_plans = prepare_chart_plans(&archive)?;
+        let chart_plans = prepare_chart_plans(&archive, &plan)?;
         let slide_deck = prepare_slide_deck(&archive)?;
         let (semantic_shape_plans, maximum_shape_ids) =
             prepare_semantic_shape_plans(&archive, &plan)?;
@@ -806,6 +832,11 @@ impl PreparedTemplate {
                         ),
                     );
                 }
+                BindingKind::Chart => {
+                    if !data.charts.contains_key(&binding.id) {
+                        return Err(missing_value(&binding.id));
+                    }
+                }
             }
         }
         for (id, rows) in &data.table_rows {
@@ -822,9 +853,17 @@ impl PreparedTemplate {
                     "table row range is invalid",
                 )
             })?;
+            let (rows, shrink) = apply_table_policy(id, rows, data.table_policies.get(id))?;
             let mut replacement = Vec::new();
             for row in rows {
                 let mut row_patches = Vec::new();
+                if let Some((numerator, denominator)) = shrink {
+                    if let Some(patch) =
+                        table_row_height_patch(template_row, numerator as u64, denominator as u64)?
+                    {
+                        row_patches.push(patch);
+                    }
+                }
                 for binding in &table.bindings {
                     let field = binding
                         .id
@@ -1121,6 +1160,11 @@ impl PreparedTemplate {
                         ),
                     );
                 }
+                BindingKind::Chart => {
+                    if !data.charts.contains_key(&binding.id) {
+                        return Err(missing_value(&binding.id));
+                    }
+                }
             }
         }
         for (id, rows) in &data.table_rows {
@@ -1137,9 +1181,17 @@ impl PreparedTemplate {
                     "table row range is invalid",
                 )
             })?;
+            let (rows, shrink) = apply_table_policy(id, rows, data.table_policies.get(id))?;
             let mut replacement = Vec::new();
             for row in rows {
                 let mut row_patches = Vec::new();
+                if let Some((numerator, denominator)) = shrink {
+                    if let Some(patch) =
+                        table_row_height_patch(template_row, numerator as u64, denominator as u64)?
+                    {
+                        row_patches.push(patch);
+                    }
+                }
                 for binding in &table.bindings {
                     let field = binding
                         .id
@@ -1510,7 +1562,7 @@ impl PreparedTemplate {
 fn prepare_semantic_shape_plans(
     archive: &ZipArchive<wasmppt_opc::MemorySource>,
     template: &TemplatePlan,
-) -> Result<(HashMap<String, SemanticShapePlan>, HashMap<String, u32>), GenerateError> {
+) -> Result<PreparedSemanticShapes, GenerateError> {
     let mut output = HashMap::new();
     let mut maximum_ids = HashMap::new();
     let mut parts = template
@@ -1941,6 +1993,7 @@ fn prepare_table_plans(
 
 fn prepare_chart_plans(
     archive: &ZipArchive<wasmppt_opc::MemorySource>,
+    template: &TemplatePlan,
 ) -> Result<HashMap<String, ChartPlan>, GenerateError> {
     let graph = PackageGraph::build(archive).map_err(|error| {
         GenerateError::new(
@@ -1975,7 +2028,71 @@ fn prepare_chart_plans(
             },
         );
     }
+    for binding in template
+        .bindings
+        .iter()
+        .filter(|binding| binding.kind == BindingKind::Chart)
+    {
+        let RelationshipAction::ReplaceChart { relationship_id } = &binding.relationship_action
+        else {
+            return Err(GenerateError::new(
+                GenerateErrorCode::InvalidTemplate,
+                format!("chart binding {} has no relationship action", binding.id),
+            ));
+        };
+        let chart_part = find_relationship_target(archive, &binding.part_name, relationship_id)?
+            .ok_or_else(|| {
+                GenerateError::new(
+                    GenerateErrorCode::InvalidTemplate,
+                    format!("chart relationship {relationship_id} was not found"),
+                )
+            })?;
+        let chart_plan = plans.get(&chart_part).cloned().ok_or_else(|| {
+            GenerateError::new(
+                GenerateErrorCode::InvalidChart,
+                format!(
+                    "chart binding {} targets unsupported part {chart_part}",
+                    binding.id
+                ),
+            )
+        })?;
+        plans.insert(binding.id.clone(), chart_plan);
+    }
     Ok(plans)
+}
+
+fn find_relationship_target(
+    archive: &ZipArchive<wasmppt_opc::MemorySource>,
+    source_part: &str,
+    relationship_id: &str,
+) -> Result<Option<String>, GenerateError> {
+    let Some(part_name) = relationship_part_name(source_part) else {
+        return Ok(None);
+    };
+    let Some(entry) = archive.entry(&part_name) else {
+        return Ok(None);
+    };
+    let bytes = archive.read_entry(entry).map_err(package_error)?;
+    let document = XmlDocument::parse(bytes)
+        .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+    Ok(document.tokens().iter().find_map(|token| {
+        let TokenKind::Start {
+            name, attributes, ..
+        } = &token.kind
+        else {
+            return None;
+        };
+        if name.local != "Relationship"
+            || document
+                .attribute(attributes, None, "Id")
+                .is_none_or(|id| id.value != relationship_id)
+        {
+            return None;
+        }
+        document
+            .attribute(attributes, None, "Target")
+            .and_then(|target| resolve_target(Some(source_part), &target.value))
+    }))
 }
 
 fn validate_chart_data(chart: &ChartData) -> Result<(), GenerateError> {
@@ -2807,6 +2924,83 @@ fn relative_patches(patches: Vec<Patch>, offset: usize) -> Result<Vec<Patch>, Ge
 fn record_dirty_bytes(total: &mut u64, peak: &mut u64, length: usize) {
     *total = total.saturating_add(length as u64);
     *peak = (*peak).max(length as u64);
+}
+
+type TableRows = Vec<BTreeMap<String, String>>;
+type AppliedTablePolicy<'a> = (&'a [BTreeMap<String, String>], Option<(usize, usize)>);
+
+fn apply_table_policy<'a>(
+    id: &str,
+    rows: &'a TableRows,
+    policy: Option<&TablePolicyData>,
+) -> Result<AppliedTablePolicy<'a>, GenerateError> {
+    let Some(policy) = policy else {
+        return Ok((rows, None));
+    };
+    let maximum_rows = usize::try_from(policy.maximum_rows).unwrap_or(usize::MAX);
+    if maximum_rows == 0 {
+        return Err(GenerateError::new(
+            GenerateErrorCode::InvalidTable,
+            format!("table {id} maximum rows must be positive"),
+        ));
+    }
+    if rows.len() <= maximum_rows {
+        return Ok((rows, None));
+    }
+    match policy.overflow {
+        TableOverflowPolicy::Fail => Err(GenerateError::new(
+            GenerateErrorCode::InvalidTable,
+            format!(
+                "table {id} has {} rows, exceeding its {maximum_rows}-row limit",
+                rows.len()
+            ),
+        )),
+        TableOverflowPolicy::Clip => Ok((&rows[..maximum_rows], None)),
+        TableOverflowPolicy::Shrink => Ok((rows, Some((maximum_rows, rows.len())))),
+    }
+}
+
+fn table_row_height_patch(
+    template_row: &[u8],
+    numerator: u64,
+    denominator: u64,
+) -> Result<Option<Patch>, GenerateError> {
+    for marker in [b" h=\"".as_slice(), b" h='".as_slice()] {
+        let Some(marker_start) = template_row
+            .windows(marker.len())
+            .position(|window| window == marker)
+        else {
+            continue;
+        };
+        let start = marker_start + marker.len();
+        let quote = marker[marker.len() - 1];
+        let Some(relative_end) = template_row[start..].iter().position(|byte| *byte == quote)
+        else {
+            return Err(GenerateError::new(
+                GenerateErrorCode::InvalidTable,
+                "table row height attribute is unterminated",
+            ));
+        };
+        let end = start + relative_end;
+        let height = std::str::from_utf8(&template_row[start..end])
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or_else(|| {
+                GenerateError::new(
+                    GenerateErrorCode::InvalidTable,
+                    "table row height is not an unsigned integer",
+                )
+            })?;
+        let scaled = height
+            .saturating_mul(numerator)
+            .div_ceil(denominator)
+            .max(1);
+        return Ok(Some(Patch {
+            range: start..end,
+            replacement: scaled.to_string().into_bytes(),
+        }));
+    }
+    Ok(None)
 }
 
 fn relationship_part_name(source: &str) -> Option<String> {

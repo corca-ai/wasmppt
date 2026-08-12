@@ -45,9 +45,10 @@ The graph reports `Transitional`, `Strict`, `Mixed`, or `Unknown` from conforman
 content-type, relationship, PresentationML, and DrawingML namespaces. Markup Compatibility
 namespaces do not by themselves turn a Strict package into a mixed package.
 
-Transitional packages are the first editing target. Strict content is detected and kept
-loss-aware, but complete Strict mutation is not yet claimed. A mixed result is always
-accompanied by a machine-readable diagnostic.
+Transitional and Strict packages share namespace-aware presentation, relationship, and targeted
+template-edit paths. Strict no-op and bound-text edits retain Strict conformance and raw-copy
+unknown compressed entries. This is bounded Strict support, not a promise that every Strict-only
+feature can be authored. A mixed result is always accompanied by a machine-readable diagnostic.
 
 ## Preservation contract
 
@@ -60,7 +61,7 @@ copy every other entry through this raw path.
 ## Verification
 
 Tests cover namespace prefixes, source ranges, DTD rejection, typed PresentationML views,
-Transitional and Strict detection, external and missing targets, duplicate relationship
+Transitional and Strict detection and targeted editing, external and missing targets, duplicate relationship
 IDs, cycles, bounded traversal, orphans, extension markup, and compressed-byte
 preservation. Fuzz targets exercise both raw ZIP opening and graph construction:
 

@@ -392,6 +392,7 @@ pub enum ChartKind {
     Area,
     Scatter,
     Bubble,
+    Combination,
     Other,
 }
 

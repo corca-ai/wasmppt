@@ -41,7 +41,7 @@ The native report contains every nanosecond sample plus p50/p95 and throughput f
 
 It also records input/output bytes, conservative prepared-plan resident bytes, OS-process peak RSS,
 input/output copy counts, raw-copied bytes and entries, inflated and recompressed entries, scalar
-Wasm binary size, revision and source dirty state, separately listed regenerated tracked build
+Wasm binary size, total dirty bytes, largest dirty entry, maximum pull chunk, revision and source dirty state, separately listed regenerated tracked build
 artifacts, fixture hashes, CPU/RAM/OS/runtime, iteration count,
 release profile, and compression configuration. Browser and workerd reports retain their own raw
 warm samples because host scheduling cannot honestly be folded into a native headline.
@@ -60,6 +60,9 @@ tightening them is reviewed like an API change. Published artifacts contain the 
 generated budget fixture for each revision. Browser reports additionally retain first-visible-slide
 samples, resolution/font/display/media stage timings, and scene/resource/decoded-image cache bytes.
 The visible set is awaited before neighbor prefetch can consume Worker or main-thread capacity.
+The browser gate also executes a 1,000-slide rapid-scroll trace, enforcing the configured
+strong-reference window, byte-budgeted cache residency, disposal, and average scheduling/render
+budget. It exercises the OffscreenCanvas thumbnail path and closes the transferred ImageBitmap.
 
 ## Comparisons and claims
 

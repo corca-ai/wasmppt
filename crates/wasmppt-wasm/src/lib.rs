@@ -441,6 +441,7 @@ const fn binding_kind_name(value: BindingKind) -> &'static str {
     match value {
         BindingKind::Text => "text",
         BindingKind::Image => "image",
+        BindingKind::Chart => "chart",
     }
 }
 

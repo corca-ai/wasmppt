@@ -42,6 +42,11 @@ export interface ChartBinding {
   readonly series: readonly ChartSeries[]
 }
 
+export interface TablePolicyBinding {
+  readonly maximumRows: number
+  readonly overflow: 'fail' | 'clip' | 'shrink'
+}
+
 export interface GenerationData {
   readonly text?: Readonly<Record<string, string>>
   readonly images?: Readonly<Record<string, ImageBinding>>
@@ -50,6 +55,7 @@ export interface GenerationData {
   readonly charts?: Readonly<Record<string, ChartBinding>>
   readonly semanticShapes?: Readonly<Record<string, SemanticShapeBinding>>
   readonly notes?: Readonly<Record<string, string>>
+  readonly tablePolicies?: Readonly<Record<string, TablePolicyBinding>>
 }
 
 /** Encode one structured generation request without JSON or base64 on the Wasm boundary. */
@@ -151,6 +157,19 @@ export function encodeInjectionData(data: GenerationData = {}): ArrayBuffer {
   for (const [slidePart, value] of notes) {
     writer.string(slidePart)
     writer.string(value)
+  }
+  const tablePolicies = sortedEntries(data.tablePolicies)
+  writer.count(tablePolicies.length, 'table policies')
+  for (const [id, policy] of tablePolicies) {
+    writer.string(id)
+    if (policy.maximumRows < 1) throw new RangeError(`${id}.maximumRows must be positive`)
+    writer.u32(policy.maximumRows, `${id}.maximumRows`)
+    const overflowTag = policy.overflow === 'fail' ? 0
+      : policy.overflow === 'clip' ? 1
+        : policy.overflow === 'shrink' ? 2
+          : undefined
+    if (overflowTag === undefined) throw new TypeError(`${id}.overflow is invalid`)
+    writer.u8(overflowTag)
   }
   return writer.finish()
 }

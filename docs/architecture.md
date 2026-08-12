@@ -172,9 +172,9 @@ and DrawingML features. Unknown attributes, elements, namespaces, `mc:AlternateC
 and extension lists remain attached to their source ranges so an unrelated edit does not
 delete future-Office content.
 
-The first conformance target is Transitional PresentationML commonly emitted by
-PowerPoint. Strict packages should be detected and preserved safely before complete
-Strict editing support is claimed.
+Transitional and Strict PresentationML use the same namespace-aware bounded mutation path.
+Tests prove that a bound-text edit retains Strict conformance and unknown compressed bytes;
+this does not claim every Strict-only authoring feature.
 
 ## Compiled-template generation
 
@@ -189,9 +189,9 @@ relationship actions. The implemented generation inputs are:
 
 - text replacement with explicit run-style policy;
 - image replacement with crop and relationship policy;
-- repeated rows identified by `table_id.field` text bindings;
+- repeated rows identified by `table_id.field` text bindings, with fail/clip/shrink overflow;
 - deterministic slide exclusion and cloning by slide part name;
-- complete category and series replacement for a supported chart part, including its cache
+- complete category and series replacement for a supported named chart or chart part, including its cache
   and related embedded workbook;
 - conditional/repeated semantic shapes with deterministic IDs and rich text/basic style; and
 - writable safe hyperlinks, image-fit policy, and notes addressed by slide part.
@@ -424,7 +424,8 @@ preferred; third-party decks and fonts are not committed without an affirmative 
 - Executing VBA or other active content.
 - Full OOXML schema object generation.
 - Pixel-perfect rendering without the source fonts.
-- Complete SmartArt, animation, transition, 3D, EMF, and WMF support.
+- Broader optional EMF/WMF playback and existing SmartArt fallback selection. Animation, 3D,
+  and native SmartArt layout/rendering remain explicit non-goals.
 - A full presentation editor UI.
 - Thread-dependent correctness or performance.
 

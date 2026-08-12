@@ -13,12 +13,12 @@ mod payload;
 pub use inject::{
     ChartData, ChartSeriesData, GenerateError, GenerateErrorCode, GenerateOutput, GenerateStats,
     GenerationCursor, ImageCrop, ImageData, ImageFitPolicy, InjectionData, PreparedTemplate,
-    RichTextRunData, SemanticShapeData,
+    RichTextRunData, SemanticShapeData, TableOverflowPolicy, TablePolicyData,
 };
 pub use payload::{INJECTION_SCHEMA_VERSION, InjectionDecodeError};
 
 pub const PLAN_SCHEMA_VERSION: u32 = 1;
-pub const BINDING_SCHEMA_VERSION: u32 = 1;
+pub const BINDING_SCHEMA_VERSION: u32 = 2;
 pub const MANIFEST_PART: &str = "wasmppt/bindings.xml";
 const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -74,6 +74,7 @@ pub struct PlanIdentity {
 pub enum BindingKind {
     Text,
     Image,
+    Chart,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -92,6 +93,7 @@ pub enum StylePolicy {
 pub enum RelationshipAction {
     None,
     ReplaceImage { relationship_id: String },
+    ReplaceChart { relationship_id: String },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -261,6 +263,27 @@ impl TemplateCompiler {
                                             });
                                         }
                                     }
+                                    BindingKind::Chart => {
+                                        if let Some(relationship_id) = &shape.chart_relationship_id
+                                        {
+                                            candidates.push(candidate_for_chart(
+                                                id,
+                                                BindingSource::ShapeMetadata,
+                                                &entry.name,
+                                                shape,
+                                                relationship_id,
+                                            ));
+                                        } else {
+                                            diagnostics.push(BindingDiagnostic {
+                                                code: BindingDiagnosticCode::MissingTarget,
+                                                binding_id: Some(id),
+                                                part_name: Some(entry.name.clone()),
+                                                message:
+                                                    "chart binding frame has no chart relationship"
+                                                        .to_owned(),
+                                            });
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -283,6 +306,7 @@ impl TemplateCompiler {
             let kind = match declaration.kind.as_str() {
                 "text" => BindingKind::Text,
                 "image" => BindingKind::Image,
+                "chart" => BindingKind::Chart,
                 _ => {
                     diagnostics.push(BindingDiagnostic {
                         code: BindingDiagnosticCode::UnsupportedKind,
@@ -334,6 +358,21 @@ impl TemplateCompiler {
                             part_name: Some(declaration.part),
                             message: "image binding shape has no embedded image relationship"
                                 .to_owned(),
+                        }),
+                    },
+                    BindingKind::Chart => match &shape.chart_relationship_id {
+                        Some(relationship_id) => candidates.push(candidate_for_chart(
+                            declaration.id,
+                            BindingSource::Manifest,
+                            &declaration.part,
+                            shape,
+                            relationship_id,
+                        )),
+                        None => diagnostics.push(BindingDiagnostic {
+                            code: BindingDiagnosticCode::MissingTarget,
+                            binding_id: Some(declaration.id),
+                            part_name: Some(declaration.part),
+                            message: "chart binding frame has no chart relationship".to_owned(),
                         }),
                     },
                 },
@@ -435,6 +474,30 @@ fn candidate_for_image(
     }
 }
 
+fn candidate_for_chart(
+    id: String,
+    source: BindingSource,
+    part_name: &str,
+    shape: &ShapeView,
+    relationship_id: &str,
+) -> Candidate {
+    Candidate {
+        target: BindingTarget {
+            id,
+            kind: BindingKind::Chart,
+            source,
+            part_name: part_name.to_owned(),
+            shape_id: shape.id,
+            shape_name: shape.name.clone(),
+            text_spans: Vec::new(),
+            style_policy: StylePolicy::PreserveFirstRun,
+            relationship_action: RelationshipAction::ReplaceChart {
+                relationship_id: relationship_id.to_owned(),
+            },
+        },
+    }
+}
+
 fn visible_candidates(part_name: &str, shape: &ShapeView) -> Vec<Candidate> {
     let joined = shape
         .text_runs
@@ -529,6 +592,7 @@ fn metadata_binding(description: &str) -> Option<(BindingKind, String)> {
     [
         ("wasmppt:text:", BindingKind::Text),
         ("wasmppt:image:", BindingKind::Image),
+        ("wasmppt:chart:", BindingKind::Chart),
     ]
     .into_iter()
     .find_map(|(prefix, kind)| {
@@ -726,6 +790,10 @@ impl TemplatePlan {
                     bytes.push(1);
                     put_string(&mut bytes, relationship_id);
                 }
+                RelationshipAction::ReplaceChart { relationship_id } => {
+                    bytes.push(2);
+                    put_string(&mut bytes, relationship_id);
+                }
             }
             put_u32(&mut bytes, binding.text_spans.len() as u32);
             for span in &binding.text_spans {
@@ -799,6 +867,7 @@ impl<'a> PlanReader<'a> {
             let kind = match self.byte()? {
                 0 => BindingKind::Text,
                 1 => BindingKind::Image,
+                2 => BindingKind::Chart,
                 _ => return Err(PlanDecodeError),
             };
             let source = match self.byte()? {
@@ -817,6 +886,9 @@ impl<'a> PlanReader<'a> {
             let relationship_action = match self.byte()? {
                 0 => RelationshipAction::None,
                 1 => RelationshipAction::ReplaceImage {
+                    relationship_id: self.string()?,
+                },
+                2 => RelationshipAction::ReplaceChart {
                     relationship_id: self.string()?,
                 },
                 _ => return Err(PlanDecodeError),

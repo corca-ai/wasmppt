@@ -192,6 +192,19 @@ test('byte-budget LRU evicts and disposes deterministically', () => {
   assert.deepEqual(disposed, ['A', 'L', 'B'])
 })
 
+test('byte-budget LRU remains bounded across a 1000-slide scroll trace', () => {
+  const cache = new ByteBudgetLru(4 * 1024)
+  for (let slideIndex = 0; slideIndex < 1000; slideIndex += 1) {
+    cache.set(slideIndex, Object.freeze({ slideIndex }), 1024)
+    assert(cache.residentBytes <= 4 * 1024)
+    assert(cache.size <= 4)
+  }
+  assert.deepEqual([...Array(4).keys()].map((offset) => cache.get(996 + offset)?.slideIndex), [
+    996, 997, 998, 999,
+  ])
+  assert.equal(cache.hitRate, 1)
+})
+
 function minimalDisplayList(version = 1) {
   const commandOffset = version >= 2 ? 48 : 40
   const bytes = new Uint8Array(commandOffset + 5)

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     ChartData, ChartSeriesData, ImageCrop, ImageData, ImageFitPolicy, InjectionData,
-    RichTextRunData, SemanticShapeData,
+    RichTextRunData, SemanticShapeData, TableOverflowPolicy, TablePolicyData,
 };
 
 pub const INJECTION_SCHEMA_VERSION: u32 = 2;
@@ -172,6 +172,32 @@ impl<'a> Reader<'a> {
             for _ in 0..self.count("notes bindings")? {
                 data.set_notes(self.string()?, self.string()?);
             }
+            if self.cursor < self.bytes.len() {
+                for _ in 0..self.count("table policies")? {
+                    let id = self.string()?;
+                    let maximum_rows = self.u32()?;
+                    if maximum_rows == 0 {
+                        return Err(InjectionDecodeError::new(
+                            "table policy maximum rows must be positive",
+                        ));
+                    }
+                    let overflow = match self.byte()? {
+                        0 => TableOverflowPolicy::Fail,
+                        1 => TableOverflowPolicy::Clip,
+                        2 => TableOverflowPolicy::Shrink,
+                        _ => {
+                            return Err(InjectionDecodeError::new("invalid table overflow policy"));
+                        }
+                    };
+                    data.set_table_policy(
+                        id,
+                        TablePolicyData {
+                            maximum_rows,
+                            overflow,
+                        },
+                    );
+                }
+            }
         }
         if self.cursor != self.bytes.len() {
             return Err(InjectionDecodeError::new(
@@ -330,6 +356,7 @@ mod tests {
         bytes.extend_from_slice(&2.5f64.to_le_bytes());
         put_u32(&mut bytes, 0);
         put_u32(&mut bytes, 0);
+        put_u32(&mut bytes, 0);
 
         let golden_hex = bytes
             .iter()
@@ -378,7 +405,7 @@ mod tests {
         assert!(InjectionData::decode(b"WPPD").is_err());
         let mut empty = Vec::from(MAGIC.as_slice());
         put_u32(&mut empty, INJECTION_SCHEMA_VERSION);
-        for _ in 0..7 {
+        for _ in 0..8 {
             put_u32(&mut empty, 0);
         }
         assert!(InjectionData::decode(&empty).is_ok());
@@ -396,6 +423,20 @@ mod tests {
         assert_eq!(InjectionData::decode(&bytes).unwrap(), InjectionData::new());
     }
 
+    #[test]
+    fn decodes_v2_payloads_from_before_the_optional_table_policy_extension() {
+        let bytes = hex_bytes(&GOLDEN_HEX[..GOLDEN_HEX.len() - 8]);
+        assert!(InjectionData::decode(&bytes).is_ok());
+    }
+
+    fn hex_bytes(value: &str) -> Vec<u8> {
+        value
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect()
+    }
+
     fn put_u32(bytes: &mut Vec<u8>, value: u32) {
         bytes.extend_from_slice(&value.to_le_bytes());
     }
@@ -409,5 +450,5 @@ mod tests {
         bytes.extend_from_slice(value);
     }
 
-    const GOLDEN_HEX: &str = "575050440200000001000000050000007469746c6510000000ebb684eab8b020ebb3b4eab3a0ec849c01000000040000006865726f03000000706e6709000000696d6167652f706e67010100000002000000030000000400000003000000010203000100000007000000726576656e7565010000000100000006000000726567696f6e06000000ec849cec9ab801000000150000007070742f736c696465732f736c696465322e786d6c0300000001000000150000007070742f6368617274732f6368617274312e786d6c02000000020000005131020000005132010000000500000053616c657302000000000000000000f83f00000000000004400000000000000000";
+    const GOLDEN_HEX: &str = "575050440200000001000000050000007469746c6510000000ebb684eab8b020ebb3b4eab3a0ec849c01000000040000006865726f03000000706e6709000000696d6167652f706e67010100000002000000030000000400000003000000010203000100000007000000726576656e7565010000000100000006000000726567696f6e06000000ec849cec9ab801000000150000007070742f736c696465732f736c696465322e786d6c0300000001000000150000007070742f6368617274732f6368617274312e786d6c02000000020000005131020000005132010000000500000053616c657302000000000000000000f83f0000000000000440000000000000000000000000";
 }

@@ -1,0 +1,7 @@
+/target/
+/pkg/
+/dist/
+/node_modules/
+*.profraw
+*.wasm.map
+.DS_Store

@@ -1,7 +1,7 @@
 # Runtime Host Adapters
 
 The native, browser, and Cloudflare Workers adapters expose the same Rust engine without
-allowing host APIs into the six core crates. The executable contract is the shared
+allowing host APIs into the seven core crates. The executable contract is the shared
 `fixtures/host-adapters/minimal.potx` fixture: CI opens and generates it through native
 file capabilities, a real Chrome module Worker, and the `workerd` runtime.
 
@@ -28,6 +28,12 @@ filesystem adapter does not duplicate ZIP or OOXML logic.
 - reading one display-list resource part lazily for browser image decoding; and
 - explicitly releasing template, presentation, and generation-cursor handles.
 
+EMF/WMF preview conversion is a second Wasm artifact rather than part of `wasmppt-wasm`.
+The browser Worker dynamically imports and instantiates it only for a
+`presentation-metafile-svg` request. Its host-agnostic converter accepts at most 8 MiB of
+metafile input and returns at most 32 MiB of SVG. This keeps ordinary presentation startup
+and the generation-only Cloudflare adapter free of the parser and SVG player code.
+
 The scalar artifact is always correct. SIMD and threads are reported as optional runtime
 capabilities; neither changes document semantics or enables a code path without a scalar
 fallback.
@@ -38,11 +44,13 @@ version must equal the Rust `wasm-bindgen` dependency.
 
 ## Browser Worker protocol
 
-Protocol version 2 uses monotonically allocated request IDs and discriminated messages
+Protocol version 3 uses monotonically allocated request IDs and discriminated messages
 for prepare, generate, release, cancel, progress, chunk, success, and error events. The
 main thread transfers the input `ArrayBuffer`, so ownership moves to the module Worker
 instead of paying a structured-clone copy. Generation data uses the versioned `WPPD` binary
 payload so image bytes need no base64 conversion. Generated chunks are also transferred.
+The protocol also carries lazy raw-image reads and EMF/WMF-to-SVG requests; the latter fails
+explicitly when a host chooses not to install the optional converter.
 
 `WasmpptWorkerClient` owns every pending Promise and stream controller. Explicit
 termination, Worker `error`, and `messageerror` reject all pending operations. Cancellation

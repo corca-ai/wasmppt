@@ -450,23 +450,6 @@ fn resolve_element(
         let part_name = target.map(|part| graph.part_name(graph.part(part)).to_owned());
         if let Some(name) = &part_name {
             resolver.trace.visited_parts.push(name.clone());
-            if name.ends_with(".emf") || name.ends_with(".wmf") {
-                resolver.diagnostics.push(ResolveDiagnostic {
-                    code: ResolveDiagnosticCode::UnsupportedMetafile,
-                    part_name: source_name.to_owned(),
-                    shape_id: Some(shape.id),
-                    message: format!("metafile {name} is preserved and requires a preview backend"),
-                });
-                return resolved_element(
-                    shape,
-                    source,
-                    ElementKind::PreservedGraphic {
-                        feature: PreservedFeature::Metafile,
-                    },
-                    graph,
-                    source_part,
-                );
-            }
         } else {
             resolver.diagnostics.push(ResolveDiagnostic {
                 code: ResolveDiagnosticCode::MissingImage,

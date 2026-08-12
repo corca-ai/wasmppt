@@ -34,18 +34,24 @@ see Microsoft's [NumberingCache API mapping](https://learn.microsoft.com/en-us/d
 
 ## Advanced content policy
 
-Custom geometry, gradient and pattern fills, shadows and effects, SmartArt, EMF/WMF, animation,
+Custom geometry, gradient and pattern fills, shadows and effects, SmartArt, animation,
 transitions, 3D, OLE, and VBA are never silently classified as rendered. Their source bytes and
 relationships survive unrelated edits. Stable diagnostic codes describe the missing rendering
 capability, and drawable preserved-graphic regions use labeled placeholders instead of blank
 space. OLE and VBA are never activated; default POTM conversion strips prohibited active content
 as documented in [high-speed template injection](injection.md).
 
+EMF and WMF pictures use bounded host-agnostic parsing and SVG playback. The browser adapter
+loads the optional converter Wasm on first metafile access, then caches the decoded image through
+the normal renderer cache. Common GDI records render in Canvas and DOM/SVG; malformed, oversized,
+or currently unsupported record streams fail the image resolver and retain the ordinary visible
+image-unavailable fallback. The source package bytes are never rewritten by preview conversion.
+
 The machine-readable [PresentationML capability matrix](../capabilities/presentationml.json)
 classifies read, preserve, edit, and render support independently. Tests require every feature to
-declare all four dimensions. No chart or advanced-content dependency is added to the default Wasm
+declare all four dimensions. No chart or advanced-content dependency is added to the primary Wasm
 bundle: parsing, lowering, and cache updates use the existing ZIP, XML, OPC, layout, display, and
-template crates.
+template crates. The metafile parser and SVG player live in their own lazy Wasm artifact.
 
 ## Verification
 
@@ -53,5 +59,5 @@ The generated two-slide fixture includes a styled table, a column-chart cache li
 workbook, SmartArt relationships, an EMF relationship, a transition, animation timing, and 3D
 properties. Rust verifies lazy reachable-part reads, table layout, chart values, workbook linkage,
 atomic edits, and stable diagnostics. The real browser Wasm gate resolves slide two and verifies
-that Canvas and DOM/SVG receive the same semantic kinds and diagnostic codes while rendering table
-and chart primitives.
+that Canvas and DOM/SVG receive the same semantic kinds and diagnostic codes while rendering table,
+chart, and converted EMF primitives.

@@ -39,6 +39,14 @@ const routes = new Map([
     [join(generatedDirectory, 'wasmppt_wasm_bg.wasm'), 'application/wasm'],
   ],
   [
+    '/wasm/metafile/wasmppt_metafile_wasm.js',
+    [join(generatedDirectory, 'metafile/wasmppt_metafile_wasm.js'), 'text/javascript'],
+  ],
+  [
+    '/wasm/metafile/wasmppt_metafile_wasm_bg.wasm',
+    [join(generatedDirectory, 'metafile/wasmppt_metafile_wasm_bg.wasm'), 'application/wasm'],
+  ],
+  [
     '/fixture.potx',
     [join(workspaceDirectory, 'fixtures/host-adapters/minimal.potx'), 'application/octet-stream'],
   ],
@@ -55,9 +63,17 @@ const routes = new Map([
 const workerSource = `
 import init, { WasmpptEngine } from '/wasm/wasmppt_wasm.js';
 import { installWorkerRuntime } from '/dist/worker-runtime.js';
+let metafileModule;
+async function metafileToSvg(input) {
+  metafileModule ??= import('/wasm/metafile/wasmppt_metafile_wasm.js').then(async (module) => {
+    await module.default({ module_or_path: new URL('/wasm/metafile/wasmppt_metafile_wasm_bg.wasm', self.location.href) });
+    return module;
+  });
+  return (await metafileModule).convert_metafile_to_svg(input);
+}
 try {
   await init({ module_or_path: new URL('/wasm/wasmppt_wasm_bg.wasm', self.location.href) });
-  installWorkerRuntime(self, new WasmpptEngine());
+  installWorkerRuntime(self, new WasmpptEngine(), { metafileToSvg });
   self.postMessage({ type: 'host-ready' });
 } catch (error) {
   self.postMessage({ type: 'host-init-error', message: error instanceof Error ? error.stack : String(error) });
@@ -144,6 +160,7 @@ try {
       CanvasDisplayListRenderer,
       FontResolver,
       VirtualizedCanvasViewer,
+      decodeSvgImage,
       decodeDisplayList,
       wrapText,
     } = await import('/dist/canvas.js')
@@ -252,7 +269,19 @@ try {
     advancedCanvas.height = 360
     document.body.append(advancedCanvas)
     const advancedContext = advancedCanvas.getContext('2d', { alpha: false })
-    const advancedTelemetry = await renderer.render(advancedScene, advancedContext)
+    let metafileSvgBytes = 0
+    const loadMetafileSvg = async (image, signal) => {
+      if (image.partName === undefined) throw new Error('metafile part is missing')
+      const bytes = await client.presentationMetafileSvg(opened.handle, image.partName, { signal })
+      metafileSvgBytes = bytes.byteLength
+      return bytes
+    }
+    const advancedTelemetry = await renderer.render(advancedScene, advancedContext, {
+      imageResolver: async (image, signal) => {
+        const bytes = await loadMetafileSvg(image, signal)
+        return decodeSvgImage(bytes, signal)
+      },
+    })
     const advancedPixels = advancedContext.getImageData(
       0,
       0,
@@ -277,6 +306,12 @@ try {
     const advancedDom = await new DomSvgRenderer().render(advancedScene, advancedDomHost, {
       revision: 1,
       slideIndex: 1,
+      imageResolver: async (image, signal) => {
+        const bytes = new Uint8Array(await loadMetafileSvg(image, signal))
+        let binary = ''
+        for (const byte of bytes) binary += String.fromCharCode(byte)
+        return `data:image/svg+xml;base64,${btoa(binary)}`
+      },
     })
     const advancedFacts = {
       semanticKinds: advancedScene.semantics.map((semantic) => semantic.kind),
@@ -286,6 +321,8 @@ try {
       pixelHash: advancedPixelHash.toString(16).padStart(8, '0'),
       commandCount: advancedTelemetry.commandCount,
       svgPathCount: advancedDomHost.querySelectorAll('path').length,
+      inlineImages: advancedDomHost.querySelectorAll('image').length,
+      metafileSvgBytes,
       domDiagnosticCodes: advancedDom.diagnostics.map((diagnostic) => diagnostic.code),
     }
     const { default: PptxBrowserRenderer } = await import('/competitors/pptx-browser/index.js')
@@ -458,7 +495,6 @@ try {
   assert(result.advancedFacts.strings.includes('42'))
   for (const code of [
     'unsupported-smartart',
-    'unsupported-metafile',
     'unsupported-animation',
     'unsupported-transition',
     'unsupported-3d',
@@ -470,6 +506,8 @@ try {
     result.advancedFacts.diagnosticCodes,
   )
   assert(result.advancedFacts.coloredPixels > 10_000)
+  assert(result.advancedFacts.metafileSvgBytes > 0)
+  assert.equal(result.advancedFacts.inlineImages, 1)
   assert(result.advancedFacts.commandCount > 10)
   assert(result.advancedFacts.svgPathCount > 10)
   assert.equal(result.pptxBrowserComparison.correctness.slideCount, 10)

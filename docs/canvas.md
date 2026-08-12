@@ -8,7 +8,8 @@ slide. `WasmpptWorkerClient.openPresentation` returns an opaque handle and slide
 `resolveSlide` resolves one slide from that retained document; `releasePresentation` releases
 the compressed package and its relationship graph. `presentationResource` inflates one resource
 part named by a resolved display list, allowing image decoding to stay lazy instead of copying all
-media when the deck is opened.
+media when the deck is opened. `presentationMetafileSvg` asks an independently loaded converter
+Wasm module for browser-decodable SVG only when an EMF or WMF resource is visible.
 
 ## Rendering pipeline
 
@@ -66,7 +67,9 @@ baselines and per-slide tolerance reports belong to the compatibility-gate slice
 
 The baseline supports WPDL v3 while retaining v1/v2 decoding. Mixed formatting within one text
 frame, PowerPoint-exact shaping and glyph metrics, custom geometry, gradients, effects, and
-native SmartArt or EMF/WMF drawing remain incomplete. Unsupported preserved graphics render a
-labeled placeholder and retain their stable diagnostic instead of disappearing. Canvas output
-is a bitmap and therefore is not the accessibility surface; the secondary DOM/SVG backend owns
-selectable text, reading order, links, and alternative text.
+native SmartArt drawing remain incomplete. EMF/WMF supports common GDI records through the lazy
+SVG converter; malformed or unsupported record streams fall back to an unavailable-image region.
+Other unsupported preserved graphics render a labeled placeholder and retain their stable
+diagnostic instead of disappearing. Canvas output is a bitmap and therefore is not the
+accessibility surface; the secondary DOM/SVG backend owns selectable text, reading order, links,
+and alternative text.

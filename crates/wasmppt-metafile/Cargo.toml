@@ -1,0 +1,19 @@
+[package]
+name = "wasmppt-metafile"
+description = "Bounded host-agnostic EMF and WMF conversion for wasmppt renderers"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.88"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+default = []
+
+[dependencies]
+emf-core.workspace = true
+
+[lints]
+workspace = true

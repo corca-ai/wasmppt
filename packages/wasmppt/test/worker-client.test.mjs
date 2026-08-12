@@ -119,6 +119,25 @@ test('presentation, display lists, and lazy resources cross the Worker boundary 
     bytes: resource,
   })
   assert.equal(await readingResource, resource)
+
+  const readingMetafile = client.presentationMetafileSvg(11, 'ppt/media/diagram.emf')
+  const metafileRequest = worker.messages[3]
+  assert.deepEqual(metafileRequest, {
+    version: WORKER_PROTOCOL_VERSION,
+    id: metafileRequest.id,
+    type: 'presentation-metafile-svg',
+    presentationHandle: 11,
+    partName: 'ppt/media/diagram.emf',
+  })
+  const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"></svg>').buffer
+  worker.respond({
+    version: WORKER_PROTOCOL_VERSION,
+    id: metafileRequest.id,
+    type: 'presentation-metafile-svg',
+    partName: 'ppt/media/diagram.emf',
+    bytes: svg,
+  })
+  assert.equal(await readingMetafile, svg)
   client.terminate()
 })
 

@@ -1,4 +1,4 @@
-import { CanvasDisplayListRenderer, decodeDisplayList } from './lib/canvas.js'
+import { CanvasDisplayListRenderer, decodeDisplayList, decodeSvgImage } from './lib/canvas.js'
 import { WasmpptWorkerClient } from './lib/worker-client.js'
 
 const elementIds = [
@@ -232,8 +232,12 @@ async function renderPreview(blob, epoch) {
     await renderer.render(scene, context, {
       imageResolver: async (image, signal) => {
         if (image.partName === undefined) throw new Error('Image resource has no package part')
-        const bytes = await client.presentationResource(opened.handle, image.partName, { signal })
+        const metafile = /\.(?:emf|wmf)$/i.test(image.partName)
+        const bytes = metafile
+          ? await client.presentationMetafileSvg(opened.handle, image.partName, { signal })
+          : await client.presentationResource(opened.handle, image.partName, { signal })
         try {
+          if (metafile) return await decodeSvgImage(bytes, signal)
           const bitmap = await createImageBitmap(
             new Blob([bytes], { type: mediaTypeOf(image.partName) }),
           )

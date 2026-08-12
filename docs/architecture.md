@@ -88,9 +88,11 @@ crates/
   wasmppt-pml/        loss-aware PresentationML typed views
   wasmppt-template/   binding schema, TemplatePlan, injection, slide cloning
   wasmppt-layout/     theme/master/layout inheritance and text/geometry resolution
+  wasmppt-metafile/   bounded host-agnostic EMF/WMF-to-SVG conversion
   wasmppt-display/    backend-neutral display list
   wasmppt-native/     native file ReadAt and forward-only output capabilities
   wasmppt-wasm/       narrow wasm-bindgen boundary
+  wasmppt-metafile-wasm/ optional independently loaded metafile boundary
   wasmppt-cli/        inspection, validation, corpus, and benchmark commands
 
 packages/

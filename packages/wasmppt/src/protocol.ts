@@ -1,4 +1,4 @@
-export const WORKER_PROTOCOL_VERSION = 2 as const
+export const WORKER_PROTOCOL_VERSION = 3 as const
 
 export type TextBindings = Readonly<Record<string, string>>
 
@@ -84,6 +84,13 @@ export type WorkerRequest =
   | {
       readonly version: typeof WORKER_PROTOCOL_VERSION
       readonly id: number
+      readonly type: 'presentation-metafile-svg'
+      readonly presentationHandle: number
+      readonly partName: string
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
       readonly type: 'release-presentation'
       readonly presentationHandle: number
     }
@@ -148,6 +155,13 @@ export type WorkerResponse =
       readonly version: typeof WORKER_PROTOCOL_VERSION
       readonly id: number
       readonly type: 'presentation-resource'
+      readonly partName: string
+      readonly bytes: ArrayBuffer
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'presentation-metafile-svg'
       readonly partName: string
       readonly bytes: ArrayBuffer
     }

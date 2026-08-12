@@ -6,7 +6,8 @@ verification commands. For the durable subsystem design, see [System architectur
 ## Toolchain
 
 - Pinned development Rust: 1.96.0
-- Minimum supported Rust version (MSRV): 1.85.1
+- Primary workspace minimum supported Rust version (MSRV): 1.85.1
+- Optional EMF/WMF converter MSRV: 1.88.0
 - Rust edition: 2024
 - Wasm target: `wasm32-unknown-unknown`
 - Node.js: 24 or newer
@@ -25,9 +26,11 @@ does not silently raise the compatibility floor.
 | `wasmppt-pml` | library | none | PresentationML typed views |
 | `wasmppt-template` | library | none | binding plans and injection |
 | `wasmppt-layout` | library | none | theme, layout, and slide resolution |
+| `wasmppt-metafile` | library | none | bounded EMF/WMF-to-SVG conversion |
 | `wasmppt-display` | library | none | backend-neutral display lists |
 | `wasmppt-native` | library | native standard library | file source and sink capabilities |
 | `wasmppt-wasm` | `cdylib` and library | `wasm-bindgen` | narrow Wasm ABI |
+| `wasmppt-metafile-wasm` | `cdylib` and library | `wasm-bindgen` | optional lazy metafile ABI |
 | `wasmppt-cli` | binary | native standard library | inspection and verification CLI |
 
 Core crates have empty default feature sets and MUST remain host-agnostic. Run
@@ -67,7 +70,9 @@ cargo check --workspace --all-targets --all-features --locked
 cargo test --workspace --all-features --locked
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo check --workspace --all-features --locked --target wasm32-unknown-unknown
-cargo +1.85.1 check --workspace --all-targets --all-features --locked
+cargo +1.85.1 check --workspace --all-targets --all-features --locked \
+  --exclude wasmppt-metafile --exclude wasmppt-metafile-wasm
+cargo +1.88.0 check -p wasmppt-metafile -p wasmppt-metafile-wasm --all-targets --locked
 cargo deny check
 npm ci
 npm run check
@@ -87,6 +92,8 @@ Build and report the raw Wasm artifact size with:
 cargo build --profile wasm-release --locked --target wasm32-unknown-unknown -p wasmppt-wasm
 node scripts/report-wasm-size.mjs \
   target/wasm32-unknown-unknown/wasm-release/wasmppt_wasm.wasm
+node scripts/report-wasm-size.mjs \
+  target/wasm32-unknown-unknown/wasm-release/wasmppt_metafile_wasm.wasm
 ```
 
 CI runs the same gates, including runtime compatibility, security, visual, and performance

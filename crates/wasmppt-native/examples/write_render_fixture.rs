@@ -39,7 +39,7 @@ fn main() {
         ),
         (
             "ppt/slides/slide2.xml",
-            br#"<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="Second"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="1" y="2"/><a:ext cx="3" cy="4"/></a:xfrm><a:prstGeom prst="ellipse"/><a:solidFill><a:schemeClr val="accent1"/></a:solidFill><a:sp3d/></p:spPr></p:sp><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="6" name="Sales Table" descr="Quarterly sales table"/></p:nvGraphicFramePr><p:xfrm><a:off x="500000" y="500000"/><a:ext cx="5000000" cy="2500000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblGrid><a:gridCol w="2500000"/><a:gridCol w="2500000"/></a:tblGrid><a:tr h="1000000"><a:tc><a:txBody><a:p><a:r><a:t>Quarter</a:t></a:r></a:p></a:txBody><a:tcPr><a:solidFill><a:srgbClr val="D9EAF7"/></a:solidFill></a:tcPr></a:tc><a:tc><a:txBody><a:p><a:r><a:t>Sales</a:t></a:r></a:p></a:txBody></a:tc></a:tr><a:tr h="1500000"><a:tc><a:txBody><a:p><a:r><a:t>Q1</a:t></a:r></a:p></a:txBody></a:tc><a:tc><a:txBody><a:p><a:r><a:t>42</a:t></a:r></a:p></a:txBody></a:tc></a:tr></a:tbl></a:graphicData></a:graphic></p:graphicFrame><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="7" name="Sales Chart" descr="Quarterly sales chart"/></p:nvGraphicFramePr><p:xfrm><a:off x="6000000" y="500000"/><a:ext cx="5500000" cy="4000000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="rChart"/></a:graphicData></a:graphic></p:graphicFrame><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="8" name="SmartArt"/></p:nvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/diagram"><dgm:relIds r:dm="rDiagram"/></a:graphicData></a:graphic></p:graphicFrame><p:pic><p:nvPicPr><p:cNvPr id="9" name="Metafile"/></p:nvPicPr><p:spPr/><p:blipFill><a:blip r:embed="rEmf"/></p:blipFill></p:pic></p:spTree></p:cSld><p:transition/><p:timing><p:tnLst/></p:timing></p:sld>"#,
+            br#"<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="Second"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="1" y="2"/><a:ext cx="3" cy="4"/></a:xfrm><a:prstGeom prst="ellipse"/><a:solidFill><a:schemeClr val="accent1"/></a:solidFill><a:sp3d/></p:spPr></p:sp><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="6" name="Sales Table" descr="Quarterly sales table"/></p:nvGraphicFramePr><p:xfrm><a:off x="500000" y="500000"/><a:ext cx="5000000" cy="2500000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblGrid><a:gridCol w="2500000"/><a:gridCol w="2500000"/></a:tblGrid><a:tr h="1000000"><a:tc><a:txBody><a:p><a:r><a:t>Quarter</a:t></a:r></a:p></a:txBody><a:tcPr><a:solidFill><a:srgbClr val="D9EAF7"/></a:solidFill></a:tcPr></a:tc><a:tc><a:txBody><a:p><a:r><a:t>Sales</a:t></a:r></a:p></a:txBody></a:tc></a:tr><a:tr h="1500000"><a:tc><a:txBody><a:p><a:r><a:t>Q1</a:t></a:r></a:p></a:txBody></a:tc><a:tc><a:txBody><a:p><a:r><a:t>42</a:t></a:r></a:p></a:txBody></a:tc></a:tr></a:tbl></a:graphicData></a:graphic></p:graphicFrame><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="7" name="Sales Chart" descr="Quarterly sales chart"/></p:nvGraphicFramePr><p:xfrm><a:off x="6000000" y="500000"/><a:ext cx="5500000" cy="4000000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="rChart"/></a:graphicData></a:graphic></p:graphicFrame><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="8" name="SmartArt"/></p:nvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/diagram"><dgm:relIds r:dm="rDiagram"/></a:graphicData></a:graphic></p:graphicFrame><p:pic><p:nvPicPr><p:cNvPr id="9" name="Metafile"/></p:nvPicPr><p:spPr><a:xfrm><a:off x="8500000" y="4500000"/><a:ext cx="2500000" cy="1800000"/></a:xfrm></p:spPr><p:blipFill><a:blip r:embed="rEmf"/></p:blipFill></p:pic></p:spTree></p:cSld><p:transition/><p:timing><p:tnLst/></p:timing></p:sld>"#,
         ),
         (
             "ppt/slides/_rels/slide2.xml.rels",
@@ -118,10 +118,50 @@ fn main() {
         .write_entry("ppt/embeddings/sales.xlsx", &embedded_workbook(), &options)
         .expect("write embedded workbook");
     writer
-        .write_entry("ppt/media/preview.emf", b"preserved metafile", &options)
+        .write_entry("ppt/media/preview.emf", &preview_emf(), &options)
         .expect("write metafile");
     let bytes = writer.finish().expect("finish fixture").0.into_inner();
     fs::write(output, bytes).expect("write fixture");
+}
+
+fn preview_emf() -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&1_u32.to_le_bytes());
+    bytes.extend_from_slice(&88_u32.to_le_bytes());
+    for value in [0_i32, 0, 200, 120, 0, 0, 200, 120] {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes.extend_from_slice(&0x464D_4520_u32.to_le_bytes());
+    bytes.extend_from_slice(&0x0001_0000_u32.to_le_bytes());
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&0_u16.to_le_bytes());
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    for value in [100_u32, 100, 100, 100] {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes.extend_from_slice(&emf_record(0x2B, &[10, 10, 190, 110]));
+    bytes.extend_from_slice(&emf_record(0x0E, &[0, 0]));
+    let total = u32::try_from(bytes.len()).expect("fixture EMF fits u32");
+    bytes[48..52].copy_from_slice(&total.to_le_bytes());
+    bytes
+}
+
+fn emf_record(record_type: u32, params: &[i32]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&record_type.to_le_bytes());
+    bytes.extend_from_slice(
+        &u32::try_from(8 + params.len() * 4)
+            .expect("fixture record fits u32")
+            .to_le_bytes(),
+    );
+    for param in params {
+        bytes.extend_from_slice(&param.to_le_bytes());
+    }
+    bytes
 }
 
 fn embedded_workbook() -> Vec<u8> {

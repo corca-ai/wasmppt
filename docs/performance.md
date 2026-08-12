@@ -8,7 +8,7 @@ retains the raw-copy invariant. Cold template compilation and warm injection are
 
 ## Reproduce
 
-From a clean checkout with Rust 1.85, Node 24, `wasm-bindgen-cli` 0.2.127, and Chromium installed:
+From a clean checkout with Rust 1.88, Node 24, `wasm-bindgen-cli` 0.2.127, and Chromium installed:
 
 ```sh
 npm ci
@@ -45,6 +45,10 @@ Wasm binary size, revision and source dirty state, separately listed regenerated
 artifacts, fixture hashes, CPU/RAM/OS/runtime, iteration count,
 release profile, and compression configuration. Browser and workerd reports retain their own raw
 warm samples because host scheduling cannot honestly be folded into a native headline.
+
+The primary scalar Wasm size excludes the optional metafile converter. EMF/WMF presentations load
+the separately reported converter artifact on first use; presentations without metafiles neither
+fetch nor instantiate it. Both sizes remain visible so optional capability cost is not hidden.
 
 ## Release budgets
 

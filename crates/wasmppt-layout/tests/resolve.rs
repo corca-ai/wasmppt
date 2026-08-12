@@ -204,15 +204,12 @@ fn reads_tables_chart_caches_and_preserves_advanced_content_explicitly() {
     }));
     assert!(output.slide.elements.iter().any(|element| {
         matches!(
-            element.kind,
-            ElementKind::PreservedGraphic {
-                feature: PreservedFeature::Metafile
-            }
+            &element.kind,
+            ElementKind::Image { part_name: Some(name), .. } if name == "ppt/media/preview.emf"
         )
     }));
     for code in [
         ResolveDiagnosticCode::UnsupportedSmartArt,
-        ResolveDiagnosticCode::UnsupportedMetafile,
         ResolveDiagnosticCode::UnsupportedAnimation,
         ResolveDiagnosticCode::UnsupportedTransition,
         ResolveDiagnosticCode::UnsupportedThreeD,

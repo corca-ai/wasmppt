@@ -68,9 +68,12 @@ slide 2, and vice versa. Media invalidation reaches only its referencing slide.
 
 WPDL version 3 extends `DrawText` with the effective text-frame style and adds an
 explicit preserved-graphic placeholder command. Version 1 and 2 scenes still decode
-with documented defaults. Unsupported SmartArt, metafiles, OLE, and graphic frames no
-longer become invisible regions: backends draw a labeled placeholder while retaining
-the diagnostic and untouched source package.
+with documented defaults. Unsupported SmartArt, OLE, and graphic frames no longer become
+invisible regions: backends draw a labeled placeholder while retaining the diagnostic and
+untouched source package. EMF/WMF pictures remain ordinary image commands and retain their
+package part name. A separate Wasm module converts those bytes to dimensioned SVG only when
+an image resolver requests them; Canvas decodes the SVG through an HTML image and DOM/SVG
+uses it as an image resource.
 
 `encode()` emits a stable little-endian format. `structural_signature()` hashes the exact
 wire bytes. The same fixture has the same signature in native Rust and in a real Chrome
@@ -80,7 +83,7 @@ Wasm module Worker; the browser integration test treats a mismatch as a failure.
 
 `fixtures/render/basic.pptx` exercises two independent theme/master/layout branches,
 placeholder inheritance, theme transforms, group transforms, image crops, z-order,
-initial geometry, and explicit unsupported diagnostics. The pinned Apache POI
+initial geometry, a real synthesized EMF record stream, and explicit unsupported diagnostics. The pinned Apache POI
 `SampleShow.pptx` fixture supplies an independent real-world resolution check in CI.
 
 ```sh

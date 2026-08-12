@@ -402,6 +402,52 @@ export interface DecodedImage {
   close?(): void
 }
 
+/** Decode SVG bytes through an HTML image, including Chrome builds that reject SVG ImageBitmap. */
+export async function decodeSvgImage(
+  input: ArrayBuffer | Uint8Array,
+  signal: AbortSignal = new AbortController().signal,
+): Promise<DecodedImage> {
+  throwIfAborted(signal)
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
+  const owned = new Uint8Array(bytes.byteLength)
+  owned.set(bytes)
+  const url = URL.createObjectURL(new Blob([owned.buffer], { type: 'image/svg+xml' }))
+  const source = new Image()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = (): void => {
+        source.removeEventListener('load', loaded)
+        source.removeEventListener('error', failed)
+        signal.removeEventListener('abort', aborted)
+      }
+      const loaded = (): void => {
+        cleanup()
+        resolve()
+      }
+      const failed = (): void => {
+        cleanup()
+        reject(new Error('browser could not decode converted metafile SVG'))
+      }
+      const aborted = (): void => {
+        cleanup()
+        reject(new DOMException('image decoding was cancelled', 'AbortError'))
+      }
+      source.addEventListener('load', loaded, { once: true })
+      source.addEventListener('error', failed, { once: true })
+      signal.addEventListener('abort', aborted, { once: true })
+      source.src = url
+    })
+  } catch (error) {
+    URL.revokeObjectURL(url)
+    throw error
+  }
+  return {
+    source,
+    residentBytes: source.naturalWidth * source.naturalHeight * 4,
+    close: () => URL.revokeObjectURL(url),
+  }
+}
+
 export type ImageResolver = (
   image: SceneImage,
   signal: AbortSignal,

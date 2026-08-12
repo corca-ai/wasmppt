@@ -1,6 +1,7 @@
 export const CORE_PACKAGES = new Set([
   'wasmppt-display',
   'wasmppt-layout',
+  'wasmppt-metafile',
   'wasmppt-opc',
   'wasmppt-pml',
   'wasmppt-template',

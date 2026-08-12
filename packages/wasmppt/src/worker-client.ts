@@ -48,7 +48,7 @@ export interface ResolveSlideOptions {
 
 type Pending =
   | {
-      readonly kind: 'prepare' | 'release' | 'open' | 'resolve' | 'resource' | 'release-presentation'
+      readonly kind: 'prepare' | 'release' | 'open' | 'resolve' | 'resource' | 'metafile' | 'release-presentation'
       readonly resolve: (value: WorkerResponse) => void
       readonly reject: (error: Error) => void
       readonly onProgress?: ResolveSlideOptions['onProgress']
@@ -162,6 +162,31 @@ export class WasmpptWorkerClient {
     })
     const response = await result
     if (response.type !== 'presentation-resource') throw new Error('invalid presentation-resource response')
+    return response.bytes
+  }
+
+  async presentationMetafileSvg(
+    presentationHandle: number,
+    partName: string,
+    options: ResolveSlideOptions = {},
+  ): Promise<ArrayBuffer> {
+    this.#assertOpen()
+    if (!/\.(?:emf|wmf)$/i.test(partName)) {
+      throw new TypeError('partName must identify an EMF or WMF resource')
+    }
+    const id = this.#allocateId()
+    const result = this.#unaryRequest(id, 'metafile', options.signal, options.onProgress)
+    this.#worker.postMessage({
+      version: WORKER_PROTOCOL_VERSION,
+      id,
+      type: 'presentation-metafile-svg',
+      presentationHandle,
+      partName,
+    })
+    const response = await result
+    if (response.type !== 'presentation-metafile-svg') {
+      throw new Error('invalid presentation-metafile-svg response')
+    }
     return response.bytes
   }
 

@@ -16,8 +16,17 @@ export interface WorkerRuntimeScope {
   addEventListener(type: 'message', listener: (event: MessageEvent<unknown>) => void): void
 }
 
+export interface WorkerRuntimeOptions {
+  /** Optional lazy converter kept outside the primary presentation-engine Wasm module. */
+  readonly metafileToSvg?: (input: Uint8Array) => Promise<Uint8Array>
+}
+
 /** Install the versioned protocol around one instance-local Wasm engine. */
-export function installWorkerRuntime(scope: WorkerRuntimeScope, engine: WorkerEngine): void {
+export function installWorkerRuntime(
+  scope: WorkerRuntimeScope,
+  engine: WorkerEngine,
+  options: WorkerRuntimeOptions = {},
+): void {
   const cancelled = new Set<number>()
   scope.addEventListener('message', (event) => {
     const message = event.data
@@ -160,6 +169,33 @@ export function installWorkerRuntime(scope: WorkerRuntimeScope, engine: WorkerEn
           )
           return
         }
+        case 'presentation-metafile-svg': {
+          if (!/\.(?:emf|wmf)$/i.test(message.partName)) {
+            throw new TypeError('presentation resource is not an EMF or WMF part')
+          }
+          if (options.metafileToSvg === undefined) {
+            throw new Error('this Worker does not provide the optional metafile converter')
+          }
+          const source = engine.presentation_resource(
+            message.presentationHandle,
+            message.partName,
+          )
+          const bytes = exactBuffer(await options.metafileToSvg(source))
+          if (cancelled.delete(message.id)) {
+            post(scope, { id: message.id, type: 'cancelled' })
+            return
+          }
+          scope.postMessage(
+            response({
+              id: message.id,
+              type: 'presentation-metafile-svg',
+              partName: message.partName,
+              bytes,
+            }),
+            [bytes],
+          )
+          return
+        }
         case 'release-presentation':
           engine.release_presentation(message.presentationHandle)
           post(scope, { id: message.id, type: 'presentation-released' })
@@ -184,6 +220,7 @@ function isWorkerRequest(value: unknown): value is WorkerRequest {
       candidate.type === 'open-presentation' ||
       candidate.type === 'resolve-slide' ||
       candidate.type === 'presentation-resource' ||
+      candidate.type === 'presentation-metafile-svg' ||
       candidate.type === 'release-presentation' ||
       candidate.type === 'cancel')
   )

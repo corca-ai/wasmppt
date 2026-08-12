@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "displayListVersion": 2,
+  "displayListVersion": 3,
   "features": [
     { "id": "text", "read": "basic", "preserve": "yes", "edit": "text-binding", "render": "canvas-dom" },
     { "id": "images-raster", "read": "yes", "preserve": "yes", "edit": "image-binding", "render": "canvas-svg" },
@@ -12,7 +12,7 @@
     { "id": "gradients-patterns", "read": "detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
     { "id": "shadows-effects", "read": "detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
     { "id": "smartart", "read": "relationships-detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
-    { "id": "emf-wmf", "read": "media-detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
+    { "id": "emf-wmf", "read": "bounded-record-parser", "preserve": "yes", "edit": "no", "render": "lazy-wasm-svg-common-records" },
     { "id": "animation", "read": "detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
     { "id": "transition", "read": "detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
     { "id": "3d", "read": "detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },

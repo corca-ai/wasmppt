@@ -425,6 +425,10 @@ dependencies = [
 name = "wasmppt-native"
 version = "0.0.0"
 dependencies = [
+ "crc32fast",
+ "flate2",
+ "wasmppt-display",
+ "wasmppt-layout",
  "wasmppt-opc",
  "wasmppt-template",
 ]

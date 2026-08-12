@@ -1,0 +1,9 @@
+{
+  "name": "wasmppt-benchmark-pptxgenjs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "pptxgenjs": "4.0.1"
+  }
+}

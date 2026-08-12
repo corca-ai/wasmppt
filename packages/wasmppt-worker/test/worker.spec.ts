@@ -6,6 +6,8 @@ declare global {
     interface Env {
       HOST_FIXTURE: number[]
       RENDER_FIXTURE: number[]
+      WORKER_P95_BUDGET_MS: number
+      WORKER_MEMORY_BUDGET_BYTES: number
     }
   }
 }
@@ -65,6 +67,38 @@ describe('wasmppt workerd adapter', () => {
     )
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ signature: '16041fe2c07f3636' })
+  })
+
+  it('enforces the warm Cloudflare workerd release budget with raw samples', async () => {
+    const samplesMs: number[] = []
+    let outputBytes = 0
+    let accountedMemoryBytes = 0
+    for (let iteration = 0; iteration < 15; iteration += 1) {
+      const start = performance.now()
+      const response = await exports.default.fetch(
+        new Request('https://wasmppt.test/v1/generate', { method: 'POST', body: fixture() }),
+      )
+      expect(response.status).toBe(200)
+      const output = await response.arrayBuffer()
+      samplesMs.push(performance.now() - start)
+      outputBytes = output.byteLength
+      accountedMemoryBytes = Number(response.headers.get('x-wasmppt-accounted-memory-bytes'))
+    }
+    const sorted = [...samplesMs].sort((left, right) => left - right)
+    const p50Ms = sorted[Math.ceil(sorted.length * 0.5) - 1]!
+    const p95Ms = sorted[Math.ceil(sorted.length * 0.95) - 1]!
+    expect(p95Ms).toBeLessThanOrEqual(env.WORKER_P95_BUDGET_MS)
+    expect(accountedMemoryBytes).toBeLessThanOrEqual(env.WORKER_MEMORY_BUDGET_BYTES)
+    console.log(`WASM_WORKER_BENCHMARK:${JSON.stringify({
+      schema: 1,
+      host: 'cloudflare-workerd-scalar-wasm',
+      fixture: 'host-minimal-potx',
+      iterations: samplesMs.length,
+      copies: { input: 1, output: 1 },
+      warmRequestSamplesMs: samplesMs,
+      summary: { warmRequestP50Ms: p50Ms, warmRequestP95Ms: p95Ms },
+      correctness: { outputBytes, accountedMemoryBytes },
+    })}`)
   })
 })
 

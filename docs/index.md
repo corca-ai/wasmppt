@@ -28,6 +28,8 @@ This is the canonical index for living `wasmppt` documentation.
   chart caches and workbook edits, explicit fallbacks, and the capability matrix.
 - [Compatibility, security, and visual gates](compatibility.md) — corpus provenance,
   fuzz and limit gates, cross-host parity, visual reports, and desktop consumers.
+- [Performance contract and reproducible benchmarks](performance.md) — public fixture matrix,
+  raw samples, cross-host release budgets, comparison rules, and claim policy.
 - [Documentation guide](metadoc.md) — how documentation is organized, written,
   linked, and linted.
 

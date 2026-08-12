@@ -13,6 +13,10 @@ publish = false
 wasmppt-opc.workspace = true
 
 [dev-dependencies]
+crc32fast.workspace = true
+flate2.workspace = true
+wasmppt-display.workspace = true
+wasmppt-layout.workspace = true
 wasmppt-template.workspace = true
 
 [lints]

@@ -88,6 +88,15 @@ jobs:
         run: npm test --workspace @corca-ai/wasmppt-worker
       - name: Install browser runtime
         run: npx playwright install --with-deps chromium
+      - name: Generate the pinned browser-comparison fixture
+        run: |
+          mkdir -p target/benchmarks
+          npm ci --prefix benchmarks/comparisons/pptxgenjs --ignore-scripts
+          npm ci --prefix benchmarks/comparisons/pptx-browser --ignore-scripts
+          node benchmarks/prepare-browser-comparator.mjs
+          node benchmarks/comparisons/pptxgenjs/run.mjs \
+            10 3 target/benchmarks/pptxgenjs-text-10.pptx \
+            > target/benchmarks/pptxgenjs.json
       - name: Execute the shared browser Worker fixture
         run: npm run test:browser --workspace @corca-ai/wasmppt
       - name: Verify native display-list parity
@@ -178,3 +187,50 @@ jobs:
         run: |
           cargo test --locked -p wasmppt-template potm_generation_strips_macros_and_injects_escaped_unicode
           cargo test --locked -p wasmppt-template potx_conversion_preserves_notes_and_unknown_payloads
+
+  performance-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@1.85.0
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install JavaScript and Wasm tooling
+        run: |
+          npm ci
+          cargo install wasm-bindgen-cli --version 0.2.127 --locked
+          npx playwright install --with-deps chromium
+      - name: Build the scalar Wasm release artifact
+        run: npm run build:wasm-hosts
+      - name: Enforce native latency, memory, binary-size, and raw-copy budgets
+        run: node benchmarks/run.mjs --ci
+      - name: Run the pinned non-equivalent PptxGenJS generation comparator
+        run: |
+          npm ci --prefix benchmarks/comparisons/pptxgenjs --ignore-scripts
+          npm ci --prefix benchmarks/comparisons/pptx-browser --ignore-scripts
+          node benchmarks/prepare-browser-comparator.mjs
+          node benchmarks/comparisons/pptxgenjs/run.mjs \
+            10 10 target/benchmarks/pptxgenjs-text-10.pptx \
+            | tee target/benchmarks/pptxgenjs.json
+          cargo run --locked -p wasmppt-cli -- validate target/benchmarks/pptxgenjs-text-10.pptx
+          cargo run --locked -p wasmppt-cli -- resolve target/benchmarks/pptxgenjs-text-10.pptx 0
+      - name: Enforce browser scalar-Wasm budgets and preserve raw samples
+        run: npm run test:browser --workspace @corca-ai/wasmppt
+      - name: Enforce Cloudflare workerd budgets and preserve raw samples
+        run: |
+          mkdir -p target/benchmarks
+          npm test --workspace @corca-ai/wasmppt-worker 2>&1 | tee target/benchmarks/workerd.log
+          node benchmarks/extract-workerd.mjs \
+            target/benchmarks/workerd.log target/benchmarks/workerd.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: performance-raw-${{ github.sha }}
+          path: |
+            target/benchmarks/*.json
+            target/benchmarks/*.pptx
+            target/benchmark-fixtures/*.potx
+          if-no-files-found: error

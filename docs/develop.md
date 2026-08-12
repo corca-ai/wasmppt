@@ -75,6 +75,7 @@ npm run build
 npm run build:wasm-hosts
 npm test --workspace @corca-ai/wasmppt-worker
 npm run test:browser --workspace @corca-ai/wasmppt
+node benchmarks/run.mjs --ci
 awiki lint -root docs
 ```
 
@@ -86,8 +87,8 @@ node scripts/report-wasm-size.mjs \
   target/wasm32-unknown-unknown/wasm-release/wasmppt_wasm.wasm
 ```
 
-CI runs the same gates. Runtime compatibility, security, visual, and performance gates
-will be added as the corresponding architecture slices become executable.
+CI runs the same gates, including runtime compatibility, security, visual, and performance
+contracts on their real host adapters.
 
 The compatibility job converts a pinned real POTX and validates its PPTX output with the
 Microsoft Open XML SDK wrapper under `tools/openxml-validator`. It also resolves slides
@@ -96,6 +97,8 @@ The security-and-corpus job verifies fixture provenance, compiles all fuzz surfa
 exercises stable parser limits and preservation policies. Browser integration publishes a
 per-slide report under `target/visual-report`; release ground truth uses the controlled
 PowerPoint, LibreOffice, and Keynote workflow described in [compatibility gates](compatibility.md).
+The performance-contract job publishes native, browser, and workerd raw samples and enforces the
+budgets and correctness rules in the [performance contract](performance.md).
 
 Run the package parser fuzz target separately with `cargo-fuzz`:
 

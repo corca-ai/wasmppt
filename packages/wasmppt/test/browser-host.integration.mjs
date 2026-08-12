@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
+import { arch, cpus, platform, release } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -9,6 +12,13 @@ import { chromium } from 'playwright'
 const packageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const workspaceDirectory = resolve(packageDirectory, '../..')
 const generatedDirectory = join(workspaceDirectory, 'packages/wasmppt-worker/src/generated')
+const pptxBrowserDirectory = join(
+  workspaceDirectory,
+  'target/benchmark-comparators/pptx-browser',
+)
+const performanceBudgets = JSON.parse(
+  await readFile(join(workspaceDirectory, 'benchmarks/budgets.json'), 'utf8'),
+)
 
 const routes = new Map([
   ['/dist/worker-client.js', [join(packageDirectory, 'dist/worker-client.js'), 'text/javascript']],
@@ -34,6 +44,10 @@ const routes = new Map([
   [
     '/render-fixture.pptx',
     [join(workspaceDirectory, 'fixtures/render/basic.pptx'), 'application/octet-stream'],
+  ],
+  [
+    '/competitor-fixture.pptx',
+    [join(workspaceDirectory, 'target/benchmarks/pptxgenjs-text-10.pptx'), 'application/octet-stream'],
   ],
 ])
 
@@ -66,6 +80,25 @@ const server = createServer(async (request, response) => {
     response.end(workerSource)
     return
   }
+  if (request.url?.startsWith('/competitors/pptx-browser/')) {
+    const relative = request.url.slice('/competitors/pptx-browser/'.length)
+    if (!relative || relative.includes('..') || !relative.endsWith('.js')) {
+      response.writeHead(404)
+      response.end('not found')
+      return
+    }
+    try {
+      const source = await readFile(join(pptxBrowserDirectory, relative))
+      response.writeHead(200, { 'content-type': 'text/javascript' })
+      response.end(source)
+    } catch (error) {
+      if (!response.headersSent) {
+        response.writeHead(500)
+        response.end(error instanceof Error ? error.message : String(error))
+      }
+    }
+    return
+  }
   const route = routes.get(request.url ?? '')
   if (route === undefined) {
     response.writeHead(404)
@@ -73,11 +106,14 @@ const server = createServer(async (request, response) => {
     return
   }
   try {
+    const source = await readFile(route[0])
     response.writeHead(200, { 'content-type': route[1] })
-    response.end(await readFile(route[0]))
+    response.end(source)
   } catch (error) {
-    response.writeHead(500)
-    response.end(error instanceof Error ? error.message : String(error))
+    if (!response.headersSent) {
+      response.writeHead(500)
+      response.end(error instanceof Error ? error.message : String(error))
+    }
   }
 })
 
@@ -94,7 +130,11 @@ try {
   browser = await chromium.launch(launchOptions)
   const page = await browser.newPage()
   const errors = []
-  page.on('console', (message) => console.log(`browser console: ${message.text()}`))
+  const competitorWarnings = []
+  page.on('console', (message) => {
+    if (message.text().includes('Error rendering shape:')) competitorWarnings.push(message.text())
+    else console.log(`browser console: ${message.text()}`)
+  })
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto(`http://127.0.0.1:${address.port}/`)
   const result = await page.evaluate(async () => {
@@ -126,10 +166,18 @@ try {
     })
     const client = new WasmpptWorkerClient(worker)
     const template = await fetch('/fixture.potx').then((response) => response.arrayBuffer())
+    const coldPrepareStart = performance.now()
     const prepare = client.prepare(template)
     const transferredByteLength = template.byteLength
     const prepared = await prepare
-    const output = new Uint8Array(await client.generate(prepared.handle))
+    const coldPrepareMs = performance.now() - coldPrepareStart
+    const warmInjectionSamplesMs = []
+    let output
+    for (let iteration = 0; iteration < 15; iteration += 1) {
+      const start = performance.now()
+      output = new Uint8Array(await client.generate(prepared.handle))
+      warmInjectionSamplesMs.push(performance.now() - start)
+    }
     await client.release(prepared.handle)
     const renderFixture = await fetch('/render-fixture.pptx').then((response) => response.arrayBuffer())
     const opened = await client.openPresentation(renderFixture)
@@ -239,6 +287,39 @@ try {
       svgPathCount: advancedDomHost.querySelectorAll('path').length,
       domDiagnosticCodes: advancedDom.diagnostics.map((diagnostic) => diagnostic.code),
     }
+    const { default: PptxBrowserRenderer } = await import('/competitors/pptx-browser/index.js')
+    const competitorFixture = await fetch('/competitor-fixture.pptx').then((response) => response.arrayBuffer())
+    const competitorSamplesMs = []
+    let competitorFacts
+    for (let iteration = 0; iteration < 10; iteration += 1) {
+      const competitor = new PptxBrowserRenderer()
+      const competitorCanvas = document.createElement('canvas')
+      const start = performance.now()
+      await competitor.load(competitorFixture.slice(0))
+      await competitor.renderSlide(0, competitorCanvas, 640)
+      competitorSamplesMs.push(performance.now() - start)
+      const competitorPixels = competitorCanvas.getContext('2d').getImageData(
+        0,
+        0,
+        competitorCanvas.width,
+        competitorCanvas.height,
+      ).data
+      let nonWhitePixels = 0
+      for (let offset = 0; offset < competitorPixels.length; offset += 4) {
+        if (
+          competitorPixels[offset] !== 255 ||
+          competitorPixels[offset + 1] !== 255 ||
+          competitorPixels[offset + 2] !== 255
+        ) nonWhitePixels += 1
+      }
+      competitorFacts = {
+        slideCount: competitor.slideCount,
+        width: competitorCanvas.width,
+        height: competitorCanvas.height,
+        nonWhitePixels,
+      }
+      competitor.destroy()
+    }
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
     let pixelHash = 0x811c9dc5
     for (const byte of pixels) pixelHash = Math.imul(pixelHash ^ byte, 0x01000193) >>> 0
@@ -319,6 +400,8 @@ try {
     client.terminate()
     return {
       transferredByteLength,
+      coldPrepareMs,
+      warmInjectionSamplesMs,
       residentBytes: prepared.residentBytes,
       zipSignature: [...output.subarray(0, 2)],
       outputBytes: output.byteLength,
@@ -344,6 +427,7 @@ try {
       koreanLines,
       telemetry,
       advancedFacts,
+      pptxBrowserComparison: { samplesMs: competitorSamplesMs, correctness: competitorFacts },
       domFacts,
       domMountedAtPeak,
       domMountedAfterScroll,
@@ -351,6 +435,11 @@ try {
     }
   })
   assert.equal(result.transferredByteLength, 0, 'template ArrayBuffer was cloned, not transferred')
+  const sortedWarmSamples = [...result.warmInjectionSamplesMs].sort((left, right) => left - right)
+  const warmP50Ms = sortedWarmSamples[Math.ceil(sortedWarmSamples.length * 0.5) - 1]
+  const warmP95Ms = sortedWarmSamples[Math.ceil(sortedWarmSamples.length * 0.95) - 1]
+  assert(result.coldPrepareMs <= performanceBudgets.browserScalarWasm.maximumColdPrepareMs)
+  assert(warmP95Ms <= performanceBudgets.browserScalarWasm.maximumWarmInjectionP95Ms)
   assert(result.residentBytes > 0)
   assert.deepEqual(result.zipSignature, [0x50, 0x4b])
   assert(result.outputBytes > 0)
@@ -382,6 +471,8 @@ try {
   assert(result.advancedFacts.coloredPixels > 10_000)
   assert(result.advancedFacts.commandCount > 10)
   assert(result.advancedFacts.svgPathCount > 10)
+  assert.equal(result.pptxBrowserComparison.correctness.slideCount, 10)
+  assert.equal(result.pptxBrowserComparison.correctness.width, 640)
   assert.equal(result.domFacts.text, 'Actual title')
   assert.equal(result.domFacts.selectable, 'text')
   assert.equal(result.domFacts.href, 'https://example.com/report')
@@ -463,6 +554,62 @@ try {
   await writeFile(
     join(visualDirectory, 'report.json'),
     `${JSON.stringify(visualReport, null, 2)}\n`,
+  )
+  const benchmarkDirectory = join(workspaceDirectory, 'target/benchmarks')
+  await mkdir(benchmarkDirectory, { recursive: true })
+  await writeFile(
+    join(benchmarkDirectory, 'browser.json'),
+    `${JSON.stringify({
+      schema: 1,
+      generatedAt: new Date().toISOString(),
+      source: { revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() },
+      host: 'chromium-scalar-wasm-module-worker',
+      environment: {
+        hardware: { cpu: cpus()[0]?.model ?? 'unknown', logicalCpus: cpus().length, architecture: arch() },
+        os: { platform: platform(), release: release() },
+        runtimes: { node: process.version, chromium: browser.version() },
+      },
+      configuration: {
+        wasm: 'scalar',
+        worker: 'module',
+        compression: 'deterministic DEFLATE level 6',
+        outputChunkBytes: 262144,
+      },
+      fixture: {
+        id: 'host-minimal-potx',
+        sha256: createHash('sha256').update(await readFile(join(workspaceDirectory, 'fixtures/host-adapters/minimal.potx'))).digest('hex'),
+      },
+      iterations: result.warmInjectionSamplesMs.length,
+      copies: { input: 0, output: 1 },
+      preparedResidentBytes: result.residentBytes,
+      coldPrepareMs: result.coldPrepareMs,
+      warmInjectionSamplesMs: result.warmInjectionSamplesMs,
+      summary: { warmInjectionP50Ms: warmP50Ms, warmInjectionP95Ms: warmP95Ms },
+      correctness: { zipSignature: result.zipSignature, outputBytes: result.outputBytes },
+      comparison: {
+        library: { name: 'pptx-browser', version: '4.1.4' },
+        excludedLatest: {
+          version: '4.1.5',
+          reason: 'The published npm tarball omits required modules including src/zip.js and src/render.js.',
+        },
+        workload: 'cold-load-and-render-first-slide',
+        settings: { width: 640, input: 'PptxGenJS text-heavy 10-slide deck', fonts: 'system Arial' },
+        semanticDifference: 'Both paint Canvas; comparator eligibility requires that the text-heavy slide contain non-white pixels.',
+        samplesMs: result.pptxBrowserComparison.samplesMs,
+        summary: {
+          p50Ms: [...result.pptxBrowserComparison.samplesMs].sort((a, b) => a - b)[4],
+          p95Ms: [...result.pptxBrowserComparison.samplesMs].sort((a, b) => a - b)[9],
+        },
+        correctness: {
+          ...result.pptxBrowserComparison.correctness,
+          caughtShapeWarnings: competitorWarnings.length,
+          eligible: result.pptxBrowserComparison.correctness.nonWhitePixels > 100 && competitorWarnings.length === 0,
+          exclusionReason: result.pptxBrowserComparison.correctness.nonWhitePixels > 100 && competitorWarnings.length === 0
+            ? null
+            : 'Renderer caught required text-shape failures; timings are ineligible.',
+        },
+      },
+    }, null, 2)}\n`,
   )
   console.log(
     `browser host fixture ok: ${result.outputBytes} output bytes, canvas ${result.pixelHash} ${JSON.stringify(result.pixelSamples)}`,

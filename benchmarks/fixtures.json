@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "license": "MIT",
+  "generator": "cargo run --release -p wasmppt-native --example write_benchmark_fixture -- SCENARIO SLIDES OUTPUT.potx",
+  "scenarios": ["text", "image", "mixed"],
+  "slideCounts": [10, 50, 200],
+  "imagePayloadBytesPerSlide": 65536,
+  "textBindingsPerSlide": 8,
+  "textPayload": "multilingual deterministic text repeated 24 times",
+  "compression": "deterministic DEFLATE level 6"
+}

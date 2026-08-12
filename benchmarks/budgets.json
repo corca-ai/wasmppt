@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "native": {
+    "fixture": "mixed-10",
+    "maximumP95Ns": {
+      "coldTemplateCompile": 100000000,
+      "warmInjection": 50000000,
+      "firstSlide": 50000000,
+      "visibleSlides": 100000000,
+      "allSlides": 500000000
+    },
+    "maximumPeakResidentBytes": 536870912,
+    "minimumRawCopiedEntries": 1,
+    "maximumInflatedEntries": 0
+  },
+  "browserScalarWasm": {
+    "maximumColdPrepareMs": 1000,
+    "maximumWarmInjectionP95Ms": 500,
+    "maximumBinaryBytes": 2097152
+  },
+  "cloudflareWorkerd": {
+    "maximumWarmRequestP95Ms": 1000,
+    "maximumAccountedMemoryBytes": 134217728
+  }
+}

@@ -1,10 +1,12 @@
 use std::{
     collections::BTreeMap,
     io::{self, Write},
+    sync::Arc,
 };
 use wasmppt_opc::WriteSink;
 use wasmppt_opc::{
-    CompressionMethod, Conformance, EntryOptions, PackageGraph, VecSink, ZipArchive, ZipWriter,
+    CompressionMethod, Conformance, EntryOptions, PackageGraph, PackagePartSource, VecSink,
+    ZipArchive, ZipWriter,
 };
 use wasmppt_template::{
     ChartData, ChartSeriesData, GenerateErrorCode, ImageCrop, ImageData, InjectionData,
@@ -466,7 +468,7 @@ fn image_replacement_updates_media_relationship_crop_and_content_type() {
     let data = InjectionData::new().with_image(
         "hero",
         ImageData {
-            bytes: b"new jpeg bytes".to_vec(),
+            bytes: Arc::from(b"new jpeg bytes".as_slice()),
             extension: "jpg".to_owned(),
             content_type: "image/jpeg".to_owned(),
             crop: Some(ImageCrop {
@@ -766,6 +768,142 @@ fn pull_generation_matches_buffered_generation_for_one_byte_chunks() {
     }
     assert_eq!(actual, expected.bytes);
     assert_eq!(cursor.stats().unwrap().zip, expected.zip_stats);
+}
+
+#[test]
+fn live_session_resolves_overlay_bytes_and_streams_the_identical_revision() {
+    let bytes = template(
+        "application/vnd.openxmlformats-officedocument.presentationml.template.main+xml",
+        false,
+    );
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let prepared = Arc::new(PreparedTemplate::new(bytes, plan).unwrap());
+    let initial = InjectionData::new().with_text("name", "Ada");
+    let expected = prepared.generate(&initial).unwrap().bytes;
+    let session = prepared.start_live_session(initial).unwrap();
+    let slide = String::from_utf8(
+        session
+            .overlay()
+            .read_part("ppt/slides/slide1.xml")
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(slide.contains("Ada"));
+    assert!(!slide.contains("{{name}}"));
+    assert!(session.overlay().stats().reused_source_bytes > 0);
+
+    let mut cursor = session.generation_cursor();
+    let mut actual = Vec::new();
+    while !cursor.is_done() {
+        actual.extend(cursor.pull(11).unwrap());
+    }
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn live_session_deltas_are_monotonic_atomic_and_part_scoped() {
+    let bytes = template(
+        "application/vnd.openxmlformats-officedocument.presentationml.template.main+xml",
+        false,
+    );
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let prepared = Arc::new(PreparedTemplate::new(bytes, plan).unwrap());
+    let mut session = prepared
+        .start_live_session(InjectionData::new().with_text("name", "Ada"))
+        .unwrap();
+
+    let update = session
+        .apply_delta(0, 1, InjectionData::new().with_text("name", "Grace"))
+        .unwrap();
+    assert_eq!(update.revision, 1);
+    assert!(!update.graph_changed);
+    assert_eq!(update.changed_bindings, ["name"]);
+    assert_eq!(update.changed_parts, ["ppt/slides/slide1.xml"]);
+    assert!(update.reused_materialized_parts > 0);
+    assert!(
+        String::from_utf8(
+            session
+                .overlay()
+                .read_part("ppt/slides/slide1.xml")
+                .unwrap()
+        )
+        .unwrap()
+        .contains("Grace")
+    );
+    let overlay_slide = session
+        .overlay()
+        .read_part("ppt/slides/slide1.xml")
+        .unwrap();
+    let mut revision_cursor = session.generation_cursor();
+    let mut revision_output = Vec::new();
+    while !revision_cursor.is_done() {
+        revision_output.extend(revision_cursor.pull(17).unwrap());
+    }
+    let revision_package = ZipArchive::from_bytes(revision_output).unwrap();
+    assert_eq!(
+        revision_package
+            .read_entry(revision_package.entry("ppt/slides/slide1.xml").unwrap())
+            .unwrap(),
+        overlay_slide
+    );
+
+    let stale = session
+        .apply_delta(0, 1, InjectionData::new().with_text("name", "stale"))
+        .unwrap_err();
+    assert_eq!(stale.code(), GenerateErrorCode::InvalidRevision);
+    assert_eq!(session.revision(), 1);
+
+    let before = session
+        .overlay()
+        .part_fingerprint("ppt/slides/slide1.xml")
+        .unwrap();
+    let rejected_by_host = session
+        .apply_delta_validated(
+            1,
+            2,
+            InjectionData::new().with_text("name", "must roll back"),
+            |_, _| Err("layout rejected the candidate".to_owned()),
+        )
+        .unwrap_err();
+    assert_eq!(rejected_by_host.code(), GenerateErrorCode::Package);
+    assert_eq!(session.revision(), 1);
+    assert_eq!(
+        session
+            .overlay()
+            .part_fingerprint("ppt/slides/slide1.xml")
+            .unwrap(),
+        before
+    );
+    let invalid = session
+        .apply_delta(
+            1,
+            2,
+            InjectionData::new().with_semantic_shape(
+                "missing",
+                SemanticShapeData {
+                    visible: Some(false),
+                    ..SemanticShapeData::default()
+                },
+            ),
+        )
+        .unwrap_err();
+    assert_eq!(invalid.code(), GenerateErrorCode::InvalidTemplate);
+    assert_eq!(session.revision(), 1);
+    assert_eq!(
+        session
+            .overlay()
+            .part_fingerprint("ppt/slides/slide1.xml")
+            .unwrap(),
+        before
+    );
 }
 
 #[test]

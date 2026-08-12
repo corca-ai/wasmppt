@@ -249,6 +249,26 @@ Byte patching is allowed only when XML boundaries, encoding, escaping, CRC updat
 downstream references are proven safe. Otherwise the affected part is rewritten. If the
 part dependency boundary is incomplete, the package takes the conservative full path.
 
+## Live editing pipeline
+
+`LiveSession` retains complete Generation API v2 data, an exact monotonically increasing revision,
+and an immutable `PreparedOverlay`. The overlay is a virtual OPC source: layout reads rewritten
+parts and unchanged source-ZIP parts through one capability, while export streams that same view.
+No preview revision is serialized and reopened.
+
+A delta commits only after injection and logical graph validation. The compiled plan maps its
+changed binding IDs to potentially affected parts; unrelated materialized parts share immutable
+bytes with the preceding revision. Reverse OPC dependencies produce affected slide indices, and a
+hash of every reachable dependency forms the slide-scene cache key. Topology-changing slide
+operations or any incomplete proof choose the broad fallback.
+
+The browser Worker owns session mutation and display-list caches. The main thread coalesces input
+once per animation frame, renders visible invalidated slides first, retains unrelated canvases, and
+exports an immutable current revision during idle time. Content-addressed, byte-budgeted caches
+cover resources, decoded images, text measurements, and rich-text layouts. Mutable sessions never
+enter the Cloudflare isolate-global prepared-plan cache. See
+[live editing and incremental preview](live-editing.md) for the executable contract.
+
 ## Rendering pipeline
 
 ### Resolution

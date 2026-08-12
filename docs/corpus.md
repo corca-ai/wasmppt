@@ -35,5 +35,11 @@ regressing external fixture by keeping its registry record and changing its expe
 an issue link; do not silently remove evidence. Promote it after the raw scorecard and relevant
 desktop-consumer artifact pass.
 
+The live-editing performance corpus is generated separately from compatibility claims. Its public
+contract in `benchmarks/fixtures.json` defines text, image, and mixed POTX cases at 10, 50, and 200
+slides, including multilingual text and deterministic media payloads. The benchmark report records
+each generated hash. Fixed dogfood and advanced-content fixtures cover table, chart/workbook, and
+slide-topology deltas. See [performance contract](performance.md) for commands and budgets.
+
 See [compatibility and validation](compatibility.md) for consumer gates and
 [rendering](rendering.md) for WPDL structural/visual evidence.

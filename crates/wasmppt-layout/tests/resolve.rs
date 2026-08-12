@@ -1,9 +1,14 @@
+use std::sync::Arc;
+
 use wasmppt_layout::{
     ChartKind, ElementKind, Fill, PresentationDocument, PreservedFeature, ResolveDiagnosticCode,
     RgbaColor,
 };
+use wasmppt_opc::ZipArchive;
+use wasmppt_template::{InjectionData, PreparedTemplate, TemplateCompiler};
 
 const FIXTURE: &[u8] = include_bytes!("../../../fixtures/render/basic.pptx");
+const DOGFOOD_TEMPLATE: &[u8] = include_bytes!("../../../fixtures/dogfood/report.potx");
 
 #[test]
 fn opening_is_lazy_and_one_slide_touches_only_its_dependency_branch() {
@@ -151,6 +156,12 @@ fn dependency_invalidation_is_exact_for_disjoint_branches() {
         [1]
     );
     assert_eq!(deck.invalidated_slides("ppt/media/image1.png"), [0]);
+    assert_eq!(deck.invalidated_slides("ppt/charts/chart1.xml"), [1]);
+    assert_eq!(deck.invalidated_slides("ppt/embeddings/sales.xlsx"), [1]);
+    assert_eq!(
+        deck.invalidated_slides("ppt/slides/_rels/slide2.xml.rels"),
+        [1]
+    );
     assert!(deck.invalidated_slides("ppt/missing.xml").is_empty());
 }
 
@@ -232,4 +243,53 @@ fn reads_tables_chart_caches_and_preserves_advanced_content_explicitly() {
             "missing diagnostic {code:?}"
         );
     }
+}
+
+#[test]
+fn virtual_overlay_resolution_matches_the_exported_pptx_without_materializing_preview_zip() {
+    let bytes = DOGFOOD_TEMPLATE.to_vec();
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let mut data = InjectionData::new();
+    for binding in &plan.bindings {
+        match binding.kind {
+            wasmppt_template::BindingKind::Text => {
+                data.insert_text(&binding.id, format!("live:{}", binding.id));
+            }
+            wasmppt_template::BindingKind::Image => {
+                data.insert_image(
+                    &binding.id,
+                    wasmppt_template::ImageData {
+                        bytes: Arc::from(b"live image bytes".as_slice()),
+                        extension: "png".to_owned(),
+                        content_type: "image/png".to_owned(),
+                        crop: None,
+                        fit: Default::default(),
+                    },
+                );
+            }
+            wasmppt_template::BindingKind::Chart => unreachable!("dogfood has no chart binding"),
+        }
+    }
+    let prepared = Arc::new(PreparedTemplate::new(bytes, plan).unwrap());
+    let session = prepared.start_live_session(data).unwrap();
+    let direct = PresentationDocument::open_source(session.overlay()).unwrap();
+    let direct_slide = direct.resolve_slide(0).unwrap();
+
+    let mut cursor = session.generation_cursor();
+    let mut exported = Vec::new();
+    while !cursor.is_done() {
+        exported.extend(cursor.pull(1024).unwrap());
+    }
+    let reopened = PresentationDocument::open(exported).unwrap();
+    let reopened_slide = reopened.resolve_slide(0).unwrap();
+    assert_eq!(direct_slide.slide, reopened_slide.slide);
+    assert_eq!(direct_slide.diagnostics, reopened_slide.diagnostics);
+    assert_eq!(
+        direct.slide_dependency_fingerprint(0).unwrap(),
+        reopened.slide_dependency_fingerprint(0).unwrap()
+    );
 }

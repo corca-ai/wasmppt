@@ -57,6 +57,12 @@ more work, but no cache entry is reused across an untracked dependency.
 The generated two-branch fixture proves that changing theme 1 invalidates slide 1 but not
 slide 2, and vice versa. Media invalidation reaches only its referencing slide.
 
+Live overlays expose the same part graph without a ZIP round trip. Each slide dependency
+fingerprint hashes the exact bytes of the complete reachable branch, including relationship
+parts. Display-list reuse therefore survives an unrelated edit but cannot survive a changed
+theme, layout, master, media, chart, or other reachable dependency. See
+[live editing and incremental preview](live-editing.md) for revision and fallback rules.
+
 ## Binary display list
 
 `DisplayList` contains typed command and side tables:

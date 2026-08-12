@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 
-use wasmppt_opc::{MemorySource, PackageGraph, PartId, RelationshipTarget, ZipArchive};
+use wasmppt_opc::{PackageGraph, PackagePartSource, PartId, RelationshipTarget};
 use wasmppt_xml::{Attribute, TokenKind, XmlDocument, decode_entities};
 
 use crate::{
@@ -276,7 +276,7 @@ impl Default for Theme {
 }
 
 pub fn resolve_slide_parts(
-    archive: &ZipArchive<MemorySource>,
+    source: &dyn PackagePartSource,
     graph: &PackageGraph,
     slide_id: PartId,
     slide_size: EmuSize,
@@ -288,7 +288,7 @@ pub fn resolve_slide_parts(
     let mut diagnostics = Vec::new();
 
     let theme = if let Some(part) = theme_id {
-        let (name, document) = parse_part(archive, graph, part, &mut trace)?;
+        let (name, document) = parse_part(source, graph, part, &mut trace)?;
         parse_theme(&document).map_err(|message| {
             LayoutError::new(format!("cannot parse theme part {name}: {message}"))
         })?
@@ -296,7 +296,7 @@ pub fn resolve_slide_parts(
         Theme::default()
     };
     let master = if let Some(part) = master_id {
-        let (name, document) = parse_part(archive, graph, part, &mut trace)?;
+        let (name, document) = parse_part(source, graph, part, &mut trace)?;
         let mut adjusted = theme.clone();
         apply_color_map(&document, &mut adjusted);
         let parsed = parse_drawing_part(&document, &adjusted);
@@ -306,7 +306,7 @@ pub fn resolve_slide_parts(
         None
     };
     let layout = if let Some(part) = layout_id {
-        let (name, document) = parse_part(archive, graph, part, &mut trace)?;
+        let (name, document) = parse_part(source, graph, part, &mut trace)?;
         let mut adjusted = master
             .as_ref()
             .map_or_else(|| theme.clone(), |(_, _, theme)| theme.clone());
@@ -317,7 +317,7 @@ pub fn resolve_slide_parts(
     } else {
         None
     };
-    let (slide_name, slide_document) = parse_part(archive, graph, slide_id, &mut trace)?;
+    let (slide_name, slide_document) = parse_part(source, graph, slide_id, &mut trace)?;
     let mut slide_theme = layout
         .as_ref()
         .map_or_else(|| theme.clone(), |(_, _, theme)| theme.clone());
@@ -333,7 +333,7 @@ pub fn resolve_slide_parts(
     let mut elements = Vec::new();
     {
         let mut element_resolver = ElementResolver {
-            archive,
+            source,
             graph,
             diagnostics: &mut diagnostics,
             trace: &mut trace,
@@ -432,18 +432,15 @@ pub fn resolve_slide_parts(
 }
 
 fn parse_part(
-    archive: &ZipArchive<MemorySource>,
+    source: &dyn PackagePartSource,
     graph: &PackageGraph,
     part: PartId,
     trace: &mut ResolutionTrace,
 ) -> Result<(String, XmlDocument), LayoutError> {
     let name = graph.part_name(graph.part(part)).to_owned();
     trace.visited_parts.push(name.clone());
-    let entry = archive
-        .entry(&name)
-        .ok_or_else(|| LayoutError::new(format!("reachable part {name} has no ZIP entry")))?;
-    let bytes = archive
-        .read_entry(entry)
+    let bytes = source
+        .read_part(&name)
         .map_err(|error| LayoutError::new(format!("cannot read part {name}: {error}")))?;
     let document = XmlDocument::parse(bytes)
         .map_err(|error| LayoutError::new(format!("cannot parse part {name}: {error}")))?;
@@ -548,7 +545,7 @@ fn append_unmaterialized_placeholders(
 }
 
 struct ElementResolver<'a> {
-    archive: &'a ZipArchive<MemorySource>,
+    source: &'a dyn PackagePartSource,
     graph: &'a PackageGraph,
     diagnostics: &'a mut Vec<ResolveDiagnostic>,
     trace: &'a mut ResolutionTrace,
@@ -571,7 +568,7 @@ fn resolve_element(
         let chart = target
             .and_then(|part| {
                 let (part_name, document) =
-                    parse_part(resolver.archive, graph, part, resolver.trace).ok()?;
+                    parse_part(resolver.source, graph, part, resolver.trace).ok()?;
                 let mut chart = parse_chart(&document);
                 chart.embedded_workbook = related(graph, part, "/package").map(|workbook| {
                     let name = graph.part_name(graph.part(workbook)).to_owned();

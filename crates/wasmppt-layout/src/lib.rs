@@ -2,7 +2,8 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use wasmppt_opc::{MemorySource, PackageGraph, PartId, RelationshipTarget, ZipArchive};
+use sha2::{Digest, Sha256};
+use wasmppt_opc::{PackageGraph, PackagePartSource, PartId, RelationshipTarget, ZipArchive};
 use wasmppt_pml::PresentationView;
 
 mod resolve;
@@ -532,7 +533,7 @@ impl std::error::Error for LayoutError {}
 /// An indexed deck that parses slide XML only when that slide is resolved.
 #[derive(Debug)]
 pub struct PresentationDocument {
-    archive: ZipArchive<MemorySource>,
+    source: Arc<dyn PackagePartSource>,
     graph: PackageGraph,
     presentation_part: PartId,
     slides: Vec<PartId>,
@@ -543,8 +544,16 @@ pub struct PresentationDocument {
 
 impl PresentationDocument {
     pub fn open(bytes: impl Into<Arc<[u8]>>) -> Result<Self, LayoutError> {
-        let archive = ZipArchive::from_bytes(bytes).map_err(package_error)?;
-        let graph = PackageGraph::build(&archive)
+        let archive = Arc::new(ZipArchive::from_bytes(bytes).map_err(package_error)?);
+        Self::open_source(archive)
+    }
+
+    /// Open one immutable logical package revision.
+    ///
+    /// The source may be a physical ZIP or a virtual package overlay. It must expose
+    /// a complete name set and exact bytes for the lifetime of this document.
+    pub fn open_source(source: Arc<dyn PackagePartSource>) -> Result<Self, LayoutError> {
+        let graph = PackageGraph::build_from(source.as_ref())
             .map_err(|error| LayoutError::new(format!("cannot build package graph: {error}")))?;
         let presentation_part = graph
             .package_relationships()
@@ -565,10 +574,9 @@ impl PresentationDocument {
             })
             .ok_or_else(|| LayoutError::new("package has no PresentationML main part"))?;
         let presentation_name = graph.part_name(graph.part(presentation_part)).to_owned();
-        let entry = archive
-            .entry(&presentation_name)
-            .ok_or_else(|| LayoutError::new("presentation part has no ZIP entry"))?;
-        let presentation_bytes = archive.read_entry(entry).map_err(package_error)?;
+        let presentation_bytes = source
+            .read_part(&presentation_name)
+            .map_err(package_error)?;
         let presentation = PresentationView::parse(presentation_bytes)
             .map_err(|error| LayoutError::new(format!("cannot parse presentation: {error}")))?;
         let slides = presentation
@@ -592,7 +600,7 @@ impl PresentationDocument {
         });
         let reverse_dependencies = reverse_dependencies(&graph);
         Ok(Self {
-            archive,
+            source,
             graph,
             presentation_part,
             slides,
@@ -610,6 +618,14 @@ impl PresentationDocument {
         self.slides.len()
     }
 
+    /// Ordered logical slide part names used to detect presentation-topology changes.
+    pub fn slide_part_names(&self) -> Vec<&str> {
+        self.slides
+            .iter()
+            .map(|part| self.graph.part_name(self.graph.part(*part)))
+            .collect()
+    }
+
     pub fn open_trace(&self) -> &ResolutionTrace {
         &self.open_trace
     }
@@ -619,7 +635,7 @@ impl PresentationDocument {
             .slides
             .get(index)
             .ok_or_else(|| LayoutError::new(format!("slide index {index} is out of bounds")))?;
-        resolve_slide_parts(&self.archive, &self.graph, slide, self.slide_size)
+        resolve_slide_parts(self.source.as_ref(), &self.graph, slide, self.slide_size)
     }
 
     /// Inflate one explicitly requested package part for a render-host resource resolver.
@@ -627,15 +643,29 @@ impl PresentationDocument {
     /// Callers discover resource names from a resolved display list; the presentation remains
     /// indexed and no unrelated media is decoded eagerly.
     pub fn read_part(&self, part_name: &str) -> Result<Vec<u8>, LayoutError> {
-        let entry = self
-            .archive
-            .entry(part_name)
-            .ok_or_else(|| LayoutError::new(format!("presentation part not found: {part_name}")))?;
-        self.archive.read_entry(entry).map_err(package_error)
+        self.source.read_part(part_name).map_err(package_error)
+    }
+
+    /// Rebind unchanged graph/index state to a new immutable source revision.
+    ///
+    /// Callers may use this only when relationship, content-type, and presentation
+    /// topology bytes are proven unchanged.
+    pub fn with_compatible_source(&self, source: Arc<dyn PackagePartSource>) -> Self {
+        Self {
+            source,
+            graph: self.graph.clone(),
+            presentation_part: self.presentation_part,
+            slides: self.slides.clone(),
+            slide_size: self.slide_size,
+            reverse_dependencies: self.reverse_dependencies.clone(),
+            open_trace: self.open_trace.clone(),
+        }
     }
 
     /// Slides whose proven relationship graph reaches the changed part.
     pub fn invalidated_slides(&self, changed_part_name: &str) -> Vec<usize> {
+        let relationship_owner = relationship_owner(changed_part_name);
+        let changed_part_name = relationship_owner.as_deref().unwrap_or(changed_part_name);
         let Some(changed) = self
             .graph
             .part_by_name(changed_part_name)
@@ -664,10 +694,86 @@ impl PresentationDocument {
             .collect()
     }
 
+    pub fn invalidated_slides_for_parts<'a>(
+        &self,
+        changed_part_names: impl IntoIterator<Item = &'a str>,
+    ) -> Vec<usize> {
+        let mut slides = changed_part_names
+            .into_iter()
+            .flat_map(|name| self.invalidated_slides(name))
+            .collect::<Vec<_>>();
+        slides.sort_unstable();
+        slides.dedup();
+        slides
+    }
+
+    /// Hash the exact transitive package bytes that can affect one resolved slide.
+    /// Relationship parts are included explicitly because OPC models them as graph
+    /// edges rather than ordinary `Part` nodes.
+    pub fn slide_dependency_fingerprint(&self, index: usize) -> Result<[u8; 32], LayoutError> {
+        let slide = *self
+            .slides
+            .get(index)
+            .ok_or_else(|| LayoutError::new(format!("slide index {index} is out of bounds")))?;
+        let mut names = self
+            .graph
+            .walk_from(slide, self.graph.parts().len().saturating_add(1))
+            .map_err(|limit| {
+                LayoutError::new(format!(
+                    "slide dependency traversal exceeds {} parts",
+                    limit.maximum
+                ))
+            })?
+            .into_iter()
+            .map(|part| self.graph.part_name(self.graph.part(part)).to_owned())
+            .collect::<Vec<_>>();
+        names.push(self.presentation_part_name().to_owned());
+        for global in ["[Content_Types].xml", "_rels/.rels"] {
+            if self.source.contains_part(global) {
+                names.push(global.to_owned());
+            }
+        }
+        let relationship_names = names
+            .iter()
+            .map(|name| relationship_part_name(name))
+            .filter(|name| self.source.contains_part(name))
+            .collect::<Vec<_>>();
+        names.extend(relationship_names);
+        names.sort_unstable();
+        names.dedup();
+        let mut hasher = Sha256::new();
+        for name in names {
+            let bytes = self.source.read_part(&name).map_err(package_error)?;
+            hasher.update((name.len() as u64).to_le_bytes());
+            hasher.update(name.as_bytes());
+            hasher.update((bytes.len() as u64).to_le_bytes());
+            hasher.update(bytes);
+        }
+        Ok(hasher.finalize().into())
+    }
+
+    pub fn part_fingerprint(&self, part_name: &str) -> Result<[u8; 32], LayoutError> {
+        let bytes = self.source.read_part(part_name).map_err(package_error)?;
+        Ok(Sha256::digest(bytes).into())
+    }
+
     pub fn presentation_part_name(&self) -> &str {
         self.graph
             .part_name(self.graph.part(self.presentation_part))
     }
+}
+
+fn relationship_part_name(part_name: &str) -> String {
+    match part_name.rsplit_once('/') {
+        Some((directory, file)) => format!("{directory}/_rels/{file}.rels"),
+        None => format!("_rels/{part_name}.rels"),
+    }
+}
+
+fn relationship_owner(relationship_name: &str) -> Option<String> {
+    let (directory, file) = relationship_name.rsplit_once("/_rels/")?;
+    let file = file.strip_suffix(".rels")?;
+    Some(format!("{directory}/{file}"))
 }
 
 fn reverse_dependencies(graph: &PackageGraph) -> BTreeMap<usize, Vec<PartId>> {

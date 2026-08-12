@@ -28,11 +28,12 @@ export function installWorkerRuntime(
   options: WorkerRuntimeOptions = {},
 ): void {
   const cancelled = new Set<number>()
+  const active = new Set<number>()
   scope.addEventListener('message', (event) => {
     const message = event.data
     if (!isWorkerRequest(message)) return
     if (message.type === 'cancel') {
-      cancelled.add(message.targetId)
+      if (active.has(message.targetId)) cancelled.add(message.targetId)
       return
     }
     void handleRequest(message).catch((error: unknown) => {
@@ -42,6 +43,7 @@ export function installWorkerRuntime(
   })
 
   async function handleRequest(message: Exclude<WorkerRequest, { readonly type: 'cancel' }>): Promise<void> {
+    active.add(message.id)
     try {
       if (cancelled.delete(message.id)) {
         post(scope, { id: message.id, type: 'cancelled' })
@@ -87,32 +89,165 @@ export function installWorkerRuntime(
             message.templateHandle,
             new Uint8Array(message.payload),
           )
+          await streamGeneration(message.id, generation, message.chunkBytes)
+          return
+        }
+        case 'create-live-session': {
+          progress(scope, message.id, 'session', 0, 1)
+          const handle = engine.create_live_session_payload(
+            message.templateHandle,
+            new Uint8Array(message.payload),
+          )
           try {
-            progress(scope, message.id, 'generate', 1, 1)
-            let offset = 0
-            while (!engine.generation_done(generation)) {
-              await yieldToWorkerQueue()
-              if (cancelled.delete(message.id)) {
-                post(scope, { id: message.id, type: 'cancelled' })
-                return
-              }
-              const chunk = exactBuffer(engine.generation_pull(generation, message.chunkBytes))
-              if (chunk.byteLength === 0 && !engine.generation_done(generation)) {
-                throw new Error('Wasm generation cursor made no progress')
-              }
-              scope.postMessage(
-                response({ id: message.id, type: 'chunk', offset, bytes: chunk }),
-                [chunk],
-              )
-              offset += chunk.byteLength
-              progress(scope, message.id, 'stream', offset, 0)
-            }
-            post(scope, { id: message.id, type: 'generated', byteLength: offset })
-          } finally {
-            engine.release_generation(generation)
+            const revision = engine.live_session_revision(handle)
+            const slideCount = engine.live_session_slide_count(handle)
+            progress(scope, message.id, 'session', 1, 1)
+            post(scope, {
+              id: message.id,
+              type: 'live-session-created',
+              sessionHandle: handle,
+              revision,
+              slideCount,
+            })
+          } catch (error) {
+            engine.release_live_session(handle)
+            throw error
           }
           return
         }
+        case 'apply-live-delta': {
+          progress(scope, message.id, 'delta', 0, 1)
+          const raw = engine.apply_live_session_payload(
+            message.sessionHandle,
+            message.expectedRevision,
+            message.nextRevision,
+            new Uint8Array(message.payload),
+          )
+          const update = decodeLiveUpdate(raw)
+          progress(scope, message.id, 'delta', 1, 1)
+          post(scope, {
+            id: message.id,
+            type: 'live-session-updated',
+            sessionHandle: message.sessionHandle,
+            ...update,
+          })
+          return
+        }
+        case 'generate-live-session': {
+          progress(scope, message.id, 'generate', 0, 1)
+          const generation = engine.start_live_session_generation(
+            message.sessionHandle,
+            message.revision,
+          )
+          await streamGeneration(message.id, generation, message.chunkBytes)
+          return
+        }
+        case 'resolve-live-slide': {
+          progress(scope, message.id, 'resolve', 0, 1)
+          const fingerprint = engine.live_session_slide_fingerprint(
+            message.sessionHandle,
+            message.revision,
+            message.slideIndex,
+          )
+          const displayList = exactBuffer(engine.resolve_live_session_slide(
+            message.sessionHandle,
+            message.revision,
+            message.slideIndex,
+          ))
+          if (cancelled.delete(message.id)) {
+            post(scope, { id: message.id, type: 'cancelled' })
+            return
+          }
+          progress(scope, message.id, 'resolve', 1, 1)
+          scope.postMessage(response({
+            id: message.id,
+            type: 'live-slide-resolved',
+            sessionHandle: message.sessionHandle,
+            revision: message.revision,
+            slideIndex: message.slideIndex,
+            fingerprint,
+            displayList,
+          }), [displayList])
+          return
+        }
+        case 'live-session-resource': {
+          const fingerprint = engine.live_session_resource_fingerprint(
+            message.sessionHandle,
+            message.revision,
+            message.partName,
+          )
+          const bytes = exactBuffer(engine.live_session_resource(
+            message.sessionHandle,
+            message.revision,
+            message.partName,
+          ))
+          scope.postMessage(response({
+            id: message.id,
+            type: 'live-session-resource',
+            sessionHandle: message.sessionHandle,
+            revision: message.revision,
+            partName: message.partName,
+            fingerprint,
+            bytes,
+          }), [bytes])
+          return
+        }
+        case 'live-session-resource-fingerprint': {
+          const fingerprint = engine.live_session_resource_fingerprint(
+            message.sessionHandle,
+            message.revision,
+            message.partName,
+          )
+          post(scope, {
+            id: message.id,
+            type: 'live-session-resource-fingerprint',
+            sessionHandle: message.sessionHandle,
+            revision: message.revision,
+            partName: message.partName,
+            fingerprint,
+          })
+          return
+        }
+        case 'live-session-metafile-svg': {
+          if (!/\.(?:emf|wmf)$/i.test(message.partName)) {
+            throw new TypeError('live session resource is not an EMF or WMF part')
+          }
+          if (options.metafileToSvg === undefined) {
+            throw new Error('this Worker does not provide the optional metafile converter')
+          }
+          const fingerprint = engine.live_session_resource_fingerprint(
+            message.sessionHandle,
+            message.revision,
+            message.partName,
+          )
+          const source = engine.live_session_resource(
+            message.sessionHandle,
+            message.revision,
+            message.partName,
+          )
+          const bytes = exactBuffer(await options.metafileToSvg(source))
+          scope.postMessage(response({
+            id: message.id,
+            type: 'live-session-metafile-svg',
+            sessionHandle: message.sessionHandle,
+            revision: message.revision,
+            partName: message.partName,
+            fingerprint: `${fingerprint}:metafile-svg-v1`,
+            bytes,
+          }), [bytes])
+          return
+        }
+        case 'live-session-cache-telemetry': {
+          const telemetry = decodeCacheTelemetry(
+            engine.live_session_cache_telemetry(message.sessionHandle),
+          )
+          post(scope, { id: message.id, type: 'live-session-cache-telemetry', ...telemetry })
+          return
+        }
+        case 'release-live-session':
+          engine.release_live_session(message.sessionHandle)
+          post(scope, { id: message.id, type: 'live-session-released' })
+          return
         case 'release':
           engine.release_template(message.templateHandle)
           post(scope, { id: message.id, type: 'released' })
@@ -215,6 +350,33 @@ export function installWorkerRuntime(
     } catch (error) {
       const normalized = normalizeError(error)
       post(scope, { id: message.id, type: 'error', ...normalized })
+    } finally {
+      active.delete(message.id)
+      cancelled.delete(message.id)
+    }
+  }
+
+  async function streamGeneration(id: number, generation: number, chunkBytes: number): Promise<void> {
+    try {
+      progress(scope, id, 'generate', 1, 1)
+      let offset = 0
+      while (!engine.generation_done(generation)) {
+        await yieldToWorkerQueue()
+        if (cancelled.delete(id)) {
+          post(scope, { id, type: 'cancelled' })
+          return
+        }
+        const chunk = exactBuffer(engine.generation_pull(generation, chunkBytes))
+        if (chunk.byteLength === 0 && !engine.generation_done(generation)) {
+          throw new Error('Wasm generation cursor made no progress')
+        }
+        scope.postMessage(response({ id, type: 'chunk', offset, bytes: chunk }), [chunk])
+        offset += chunk.byteLength
+        progress(scope, id, 'stream', offset, 0)
+      }
+      post(scope, { id, type: 'generated', byteLength: offset })
+    } finally {
+      engine.release_generation(generation)
     }
   }
 }
@@ -228,6 +390,15 @@ function isWorkerRequest(value: unknown): value is WorkerRequest {
     (candidate.id as number) >= 0 &&
     (candidate.type === 'prepare' ||
       candidate.type === 'generate' ||
+      candidate.type === 'create-live-session' ||
+      candidate.type === 'apply-live-delta' ||
+      candidate.type === 'generate-live-session' ||
+      candidate.type === 'resolve-live-slide' ||
+      candidate.type === 'live-session-resource' ||
+      candidate.type === 'live-session-resource-fingerprint' ||
+      candidate.type === 'live-session-metafile-svg' ||
+      candidate.type === 'live-session-cache-telemetry' ||
+      candidate.type === 'release-live-session' ||
       candidate.type === 'release' ||
       candidate.type === 'open-presentation' ||
       candidate.type === 'resolve-slide' ||
@@ -261,11 +432,70 @@ function post(scope: WorkerRuntimeScope, message: ResponseWithoutVersion): void 
 function progress(
   scope: WorkerRuntimeScope,
   id: number,
-  phase: 'prepare' | 'generate' | 'stream' | 'open' | 'resolve',
+  phase: 'prepare' | 'session' | 'delta' | 'generate' | 'stream' | 'open' | 'resolve',
   completed: number,
   total: number,
 ): void {
   post(scope, { id, type: 'progress', phase, completed, total })
+}
+
+function decodeLiveUpdate(rows: unknown[]): Omit<
+  Extract<WorkerResponse, { readonly type: 'live-session-updated' }>,
+  'version' | 'id' | 'type' | 'sessionHandle'
+> {
+  if (rows.length !== 14) throw new TypeError('invalid live update metadata')
+  const [revision, graphChanged, fullFallback, invalidationReason, slideCount, invalidatedSlides,
+    changedBindings,
+    changedParts, reusedMaterializedParts,
+    logicalParts, materializedParts, materializedBytes, reusedSourceBytes, removedParts] = rows
+  const overlayValues = [reusedMaterializedParts, logicalParts, materializedParts,
+    materializedBytes, reusedSourceBytes, removedParts]
+  if (!isNonNegativeInteger(revision) || typeof graphChanged !== 'boolean' ||
+    typeof fullFallback !== 'boolean' || !isNonNegativeInteger(slideCount) ||
+    !['topology', 'dependency', 'none'].includes(invalidationReason as string) ||
+    !Array.isArray(invalidatedSlides) || !invalidatedSlides.every(isNonNegativeInteger) ||
+    !Array.isArray(changedBindings) || !changedBindings.every((value) => typeof value === 'string') ||
+    !Array.isArray(changedParts) || !changedParts.every((value) => typeof value === 'string') ||
+    !overlayValues.every(isNonNegativeInteger)) {
+    throw new TypeError('invalid live update metadata')
+  }
+  return {
+    revision,
+    graphChanged,
+    fullFallback,
+    invalidationReason: invalidationReason as 'topology' | 'dependency' | 'none',
+    slideCount,
+    invalidatedSlides,
+    changedBindings,
+    changedParts,
+    overlay: {
+      reusedMaterializedParts: overlayValues[0]!,
+      logicalParts: overlayValues[1]!,
+      materializedParts: overlayValues[2]!,
+      materializedBytes: overlayValues[3]!,
+      reusedSourceBytes: overlayValues[4]!,
+      removedParts: overlayValues[5]!,
+    },
+  }
+}
+
+function decodeCacheTelemetry(rows: unknown[]): {
+  readonly residentBytes: number
+  readonly peakBytes: number
+  readonly entries: number
+  readonly hits: number
+  readonly misses: number
+  readonly evictions: number
+} {
+  if (rows.length !== 6 || !rows.every(isNonNegativeInteger)) {
+    throw new TypeError('invalid live session cache telemetry')
+  }
+  const [residentBytes, peakBytes, entries, hits, misses, evictions] = rows as number[]
+  return { residentBytes: residentBytes!, peakBytes: peakBytes!, entries: entries!, hits: hits!, misses: misses!, evictions: evictions! }
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0
 }
 
 function normalizeError(error: unknown): { readonly name: string; readonly message: string } {

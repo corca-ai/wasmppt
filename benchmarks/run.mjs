@@ -19,8 +19,9 @@ await mkdir(fixtureDirectory, { recursive: true })
 exec('cargo', ['build', '--locked', '--release', '-p', 'wasmppt-native', '--examples'])
 const generator = resolve(root, 'target/release/examples/write_benchmark_fixture')
 const runner = resolve(root, 'target/release/examples/benchmark')
+const operationRunner = resolve(root, 'target/release/examples/benchmark_live_operations')
 const selected = ci
-  ? [['mixed', 10]]
+  ? fixtureContract.slideCounts.map((slides) => ['mixed', slides])
   : fixtureContract.scenarios.flatMap((scenario) => fixtureContract.slideCounts.map((slides) => [scenario, slides]))
 const fixtures = []
 const results = []
@@ -37,8 +38,27 @@ for (const [scenario, slides] of selected) {
     name,
     { p50Ns: percentile(samples, 0.50), p95Ns: percentile(samples, 0.95), slidesPerSecond: throughput(name, slides, percentile(samples, 0.50)) },
   ]))
+  result.live.summary = Object.fromEntries(Object.entries(result.live.samplesNs).map(([name, samples]) => [
+    name,
+    { p50Ns: percentile(samples, 0.50), p95Ns: percentile(samples, 0.95) },
+  ]))
   results.push(result)
 }
+const operationMeasured = measuredProcess(operationRunner, [String(iterations)])
+const liveOperations = JSON.parse(operationMeasured.stdout.trim().split('\n').at(-1))
+for (const operation of Object.values(liveOperations.operations)) {
+  operation.summary = {
+    applyDelta: {
+      p50Ns: percentile(operation.applyDeltaNs, 0.50),
+      p95Ns: percentile(operation.applyDeltaNs, 0.95),
+    },
+    inputToRenderReady: {
+      p50Ns: percentile(operation.inputToRenderReadyNs, 0.50),
+      p95Ns: percentile(operation.inputToRenderReadyNs, 0.95),
+    },
+  }
+}
+liveOperations.peakResidentBytes = operationMeasured.peakResidentBytes
 
 const wasmPath = resolve(root, 'packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm')
 const wasmBytes = (await stat(wasmPath)).size
@@ -53,7 +73,7 @@ const generatedArtifactChanges = trackedChanges.filter((line) =>
   line.includes('packages/wasmppt-worker/src/generated/'),
 )
 const report = {
-  schema: 1,
+  schema: 2,
   generatedAt: new Date().toISOString(),
   source: {
     revision: output('git', ['rev-parse', 'HEAD']),
@@ -69,6 +89,7 @@ const report = {
   configuration: { profile: 'release', wasmProfile: 'wasm-release', compression: fixtureContract.compression, iterations },
   artifacts: { scalarWasmBytes: wasmBytes },
   results,
+  liveOperations,
 }
 if (ci) enforceNativeBudget(report, budgets)
 await writeFile(resolve(outputDirectory, 'native.json'), `${JSON.stringify(report, null, 2)}\n`)
@@ -118,4 +139,22 @@ function enforceNativeBudget(benchmarkReport, allBudgets) {
   assert(result.zip.rawCopiedEntries >= budget.minimumRawCopiedEntries)
   assert(result.zip.inflatedEntries <= budget.maximumInflatedEntries)
   assert(benchmarkReport.artifacts.scalarWasmBytes <= allBudgets.browserScalarWasm.maximumBinaryBytes)
+  for (const [slides, limits] of Object.entries(allBudgets.nativeLive)) {
+    const live = benchmarkReport.results.find((entry) => entry.scenario === 'mixed' && entry.slides === Number(slides))
+    assert(live, `missing live-editing budget fixture mixed-${slides}`)
+    assert(live.live.summary.applyDelta.p95Ns <= limits.maximumApplyDeltaP95Ns)
+    assert(live.live.summary.inputToRenderReady.p95Ns <= limits.maximumInputToRenderReadyP95Ns)
+    assert(live.live.summary.backgroundExport.p95Ns <= limits.maximumBackgroundExportP95Ns)
+    assert(live.live.maximumInvalidatedSlides <= limits.maximumInvalidatedSlides)
+    assert(live.live.cache.peakResidentBytes <= limits.maximumPeakResidentBytes)
+    assert(live.live.cache.minimumReusedMaterializedParts >= limits.minimumReusedMaterializedParts)
+  }
+  for (const [name, limits] of Object.entries(allBudgets.nativeLiveOperations)) {
+    const operation = benchmarkReport.liveOperations.operations[name]
+    assert(operation, `missing live operation benchmark ${name}`)
+    assert(operation.summary.applyDelta.p95Ns <= limits.maximumApplyDeltaP95Ns)
+    assert(operation.summary.inputToRenderReady.p95Ns <= limits.maximumInputToRenderReadyP95Ns)
+    assert(operation.maximumInvalidatedSlides <= limits.maximumInvalidatedSlides)
+    assert(operation.maximumResidentBytes <= limits.maximumResidentBytes)
+  }
 }

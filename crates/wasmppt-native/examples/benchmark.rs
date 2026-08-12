@@ -42,7 +42,7 @@ fn main() {
         .compile(&archive)
         .unwrap()
         .plan;
-    let prepared = PreparedTemplate::new(bytes.clone(), plan).unwrap();
+    let prepared = Arc::new(PreparedTemplate::new(bytes.clone(), plan).unwrap());
     let mut warm = Vec::with_capacity(iterations);
     let mut output = None;
     for _ in 0..iterations {
@@ -78,6 +78,7 @@ fn main() {
     }
     let display = DisplayList::from_resolve(&deck.resolve_slide(0).unwrap()).encode();
     assert!(display.starts_with(b"WPDL"));
+    let live = measure_live(prepared.clone(), data.clone(), &scenario, iterations);
     print_result(
         &scenario,
         slides,
@@ -91,7 +92,123 @@ fn main() {
         &first,
         &visible,
         &all,
+        &live,
     );
+}
+
+struct LiveMeasurements {
+    apply: Vec<u64>,
+    invalidation: Vec<u64>,
+    resolve: Vec<u64>,
+    input_to_render_ready: Vec<u64>,
+    export: Vec<u64>,
+    peak_resident_bytes: u64,
+    maximum_invalidated_slides: usize,
+    minimum_reused_materialized_parts: u64,
+    final_output_bytes: usize,
+}
+
+fn measure_live(
+    prepared: Arc<PreparedTemplate>,
+    initial: InjectionData,
+    scenario: &str,
+    iterations: usize,
+) -> LiveMeasurements {
+    let mut session = prepared.start_live_session(initial).unwrap();
+    let mut document = PresentationDocument::open_source(session.overlay()).unwrap();
+    let mut measurements = LiveMeasurements {
+        apply: Vec::with_capacity(iterations),
+        invalidation: Vec::with_capacity(iterations),
+        resolve: Vec::with_capacity(iterations),
+        input_to_render_ready: Vec::with_capacity(iterations),
+        export: Vec::with_capacity(iterations.min(5)),
+        peak_resident_bytes: session.estimated_resident_bytes(),
+        maximum_invalidated_slides: 0,
+        minimum_reused_materialized_parts: u64::MAX,
+        final_output_bytes: 0,
+    };
+    for revision in 1..=iterations as u32 {
+        let mut delta = InjectionData::new();
+        if scenario == "image" {
+            delta.insert_image(
+                "image_0",
+                ImageData {
+                    bytes: image_bytes_seeded(64 * 1024, revision as u8).into(),
+                    extension: "png".into(),
+                    content_type: "image/png".into(),
+                    crop: None,
+                    fit: Default::default(),
+                },
+            );
+        } else {
+            delta.insert_text(
+                "text_0_0",
+                format!("live revision {revision}: 한국어 العربية"),
+            );
+        }
+        let total_start = Instant::now();
+        let apply_start = Instant::now();
+        let update = session.apply_delta(revision - 1, revision, delta).unwrap();
+        measurements
+            .apply
+            .push(apply_start.elapsed().as_nanos() as u64);
+        measurements.minimum_reused_materialized_parts = measurements
+            .minimum_reused_materialized_parts
+            .min(update.reused_materialized_parts);
+        measurements.peak_resident_bytes = measurements
+            .peak_resident_bytes
+            .max(session.estimated_resident_bytes());
+
+        let invalidation_start = Instant::now();
+        let mut invalidated =
+            document.invalidated_slides_for_parts(update.changed_parts.iter().map(String::as_str));
+        let next_document = document.with_compatible_source(session.overlay());
+        invalidated.extend(
+            next_document
+                .invalidated_slides_for_parts(update.changed_parts.iter().map(String::as_str)),
+        );
+        invalidated.sort_unstable();
+        invalidated.dedup();
+        measurements
+            .invalidation
+            .push(invalidation_start.elapsed().as_nanos() as u64);
+        measurements.maximum_invalidated_slides = measurements
+            .maximum_invalidated_slides
+            .max(invalidated.len());
+
+        let resolve_start = Instant::now();
+        for slide_index in &invalidated {
+            black_box(
+                DisplayList::from_resolve(&next_document.resolve_slide(*slide_index).unwrap())
+                    .encode(),
+            );
+        }
+        measurements
+            .resolve
+            .push(resolve_start.elapsed().as_nanos() as u64);
+        measurements
+            .input_to_render_ready
+            .push(total_start.elapsed().as_nanos() as u64);
+        document = next_document;
+    }
+    for _ in 0..iterations.min(5) {
+        let start = Instant::now();
+        let mut cursor = session.generation_cursor();
+        let mut output = Vec::new();
+        while !cursor.is_done() {
+            output.extend(cursor.pull(64 * 1024).unwrap());
+        }
+        measurements.export.push(start.elapsed().as_nanos() as u64);
+        measurements.final_output_bytes = output.len();
+        assert_eq!(
+            PresentationDocument::open(output).unwrap().slide_count(),
+            document.slide_count()
+        );
+    }
+    if measurements.minimum_reused_materialized_parts == u64::MAX {
+        measurements.minimum_reused_materialized_parts = 0;
+    }
+    measurements
 }
 
 fn verify_generated_output(bytes: &[u8], scenario: &str, slides: usize) {
@@ -136,7 +253,7 @@ fn injection_data(scenario: &str, slides: usize) -> InjectionData {
             data.insert_image(
                 format!("image_{slide}"),
                 ImageData {
-                    bytes: image_bytes(64 * 1024),
+                    bytes: image_bytes(64 * 1024).into(),
                     extension: "png".into(),
                     content_type: "image/png".into(),
                     crop: None,
@@ -149,6 +266,10 @@ fn injection_data(scenario: &str, slides: usize) -> InjectionData {
 }
 
 fn image_bytes(size: usize) -> Vec<u8> {
+    image_bytes_seeded(size, 0)
+}
+
+fn image_bytes_seeded(size: usize, seed: u8) -> Vec<u8> {
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
     encoder.write_all(&[0, 0, 0, 0, 0]).unwrap();
     let compressed = encoder.finish().unwrap();
@@ -161,7 +282,7 @@ fn image_bytes(size: usize) -> Vec<u8> {
         &[0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0],
     );
     let padding = (0..size - fixed)
-        .map(|index| (index % 251) as u8)
+        .map(|index| ((index + usize::from(seed)) % 251) as u8)
         .collect::<Vec<_>>();
     png_chunk(&mut bytes, b"vpAg", &padding);
     png_chunk(&mut bytes, b"IDAT", &compressed);
@@ -246,9 +367,10 @@ fn print_result(
     first: &[u64],
     visible: &[u64],
     all: &[u64],
+    live: &LiveMeasurements,
 ) {
     println!(
-        "{{\"schema\":1,\"scenario\":\"{scenario}\",\"slides\":{slides},\"iterations\":{},\"inputBytes\":{input},\"outputBytes\":{output},\"estimatedResidentBytes\":{resident},\"copies\":{{\"input\":1,\"output\":1}},\"zip\":{{\"entries\":{},\"rawCopiedEntries\":{},\"rawCopiedBytes\":{},\"inflatedEntries\":{},\"recompressedEntries\":{}}},\"generation\":{{\"rewrittenEntries\":{},\"removedEntries\":{},\"dirtyUncompressedBytes\":{},\"peakDirtyEntryBytes\":{},\"maximumOutputChunkBytes\":{maximum_output_chunk_bytes}}},\"samplesNs\":{{\"coldTemplateCompile\":[{}],\"warmInjection\":[{}],\"firstSlide\":[{}],\"visibleSlides\":[{}],\"allSlides\":[{}]}}}}",
+        "{{\"schema\":2,\"scenario\":\"{scenario}\",\"slides\":{slides},\"iterations\":{},\"inputBytes\":{input},\"outputBytes\":{output},\"estimatedResidentBytes\":{resident},\"copies\":{{\"input\":1,\"output\":1}},\"zip\":{{\"entries\":{},\"rawCopiedEntries\":{},\"rawCopiedBytes\":{},\"inflatedEntries\":{},\"recompressedEntries\":{}}},\"generation\":{{\"rewrittenEntries\":{},\"removedEntries\":{},\"dirtyUncompressedBytes\":{},\"peakDirtyEntryBytes\":{},\"maximumOutputChunkBytes\":{maximum_output_chunk_bytes}}},\"samplesNs\":{{\"coldTemplateCompile\":[{}],\"warmInjection\":[{}],\"firstSlide\":[{}],\"visibleSlides\":[{}],\"allSlides\":[{}]}},\"live\":{{\"copiesPerEdit\":{{\"templateInput\":0,\"unchangedMedia\":0,\"exportOutput\":1}},\"cache\":{{\"minimumReusedMaterializedParts\":{},\"peakResidentBytes\":{}}},\"maximumInvalidatedSlides\":{},\"finalOutputBytes\":{},\"samplesNs\":{{\"applyDelta\":[{}],\"dependencyInvalidation\":[{}],\"resolveInvalidatedSlides\":[{}],\"inputToRenderReady\":[{}],\"backgroundExport\":[{}]}}}}}}",
         cold.len(),
         stats.zip.entries,
         stats.zip.raw_copied_entries,
@@ -263,6 +385,15 @@ fn print_result(
         array(warm),
         array(first),
         array(visible),
-        array(all)
+        array(all),
+        live.minimum_reused_materialized_parts,
+        live.peak_resident_bytes,
+        live.maximum_invalidated_slides,
+        live.final_output_bytes,
+        array(&live.apply),
+        array(&live.invalidation),
+        array(&live.resolve),
+        array(&live.input_to_render_ready),
+        array(&live.export),
     );
 }

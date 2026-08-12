@@ -267,9 +267,21 @@ pub enum ElementKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedTableCell {
     pub text: String,
+    pub text_frame: Option<ResolvedTextFrame>,
     pub row_span: u32,
     pub column_span: u32,
+    pub horizontal_merge: bool,
+    pub vertical_merge: bool,
     pub fill: RgbaColor,
+    pub borders: TableCellBorders,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TableCellBorders {
+    pub left: Option<Stroke>,
+    pub right: Option<Stroke>,
+    pub top: Option<Stroke>,
+    pub bottom: Option<Stroke>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -282,6 +294,10 @@ pub struct ResolvedTableRow {
 pub struct ResolvedTable {
     pub column_widths: Vec<Emu>,
     pub rows: Vec<ResolvedTableRow>,
+    pub first_row: bool,
+    pub first_column: bool,
+    pub banded_rows: bool,
+    pub banded_columns: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -290,16 +306,28 @@ pub enum ChartKind {
     Bar,
     Line,
     Pie,
+    Doughnut,
     Area,
     Scatter,
+    Bubble,
     Other,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ChartGrouping {
+    #[default]
+    Standard,
+    Stacked,
+    PercentStacked,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChartSeries {
     pub name: String,
     pub categories: Vec<String>,
+    pub x_values: Vec<f64>,
     pub values: Vec<f64>,
+    pub bubble_sizes: Vec<f64>,
     pub color: RgbaColor,
 }
 
@@ -308,7 +336,10 @@ impl Eq for ChartSeries {}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedChart {
     pub kind: ChartKind,
+    pub grouping: ChartGrouping,
     pub series: Vec<ChartSeries>,
+    pub title: Option<String>,
+    pub show_legend: bool,
     pub embedded_workbook: Option<String>,
 }
 

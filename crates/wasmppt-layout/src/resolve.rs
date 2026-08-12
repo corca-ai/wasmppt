@@ -4,13 +4,13 @@ use wasmppt_opc::{MemorySource, PackageGraph, PartId, RelationshipTarget, ZipArc
 use wasmppt_xml::{Attribute, TokenKind, XmlDocument, decode_entities};
 
 use crate::{
-    ChartKind, ChartSeries, CustomPath, ElementKind, EmuPoint, EmuSize, Fill, GradientStop,
-    GroupTransform, ImageCrop, LayoutError, LineEnd, OuterShadow, PathCommand, Placeholder,
-    PreservedFeature, PresetGeometry, ResolutionTrace, ResolveDiagnostic, ResolveDiagnosticCode,
-    ResolveOutput, ResolvedChart, ResolvedElement, ResolvedParagraph, ResolvedSlide, ResolvedTable,
-    ResolvedTableCell, ResolvedTableRow, ResolvedTextFrame, ResolvedTextRun, ResolvedTextStyle,
-    RgbaColor, SourceLevel, Stroke, TextAlignment, TextAutofit, TextVerticalAlignment, Transform,
-    plain_i64,
+    ChartGrouping, ChartKind, ChartSeries, CustomPath, ElementKind, EmuPoint, EmuSize, Fill,
+    GradientStop, GroupTransform, ImageCrop, LayoutError, LineEnd, OuterShadow, PathCommand,
+    Placeholder, PreservedFeature, PresetGeometry, ResolutionTrace, ResolveDiagnostic,
+    ResolveDiagnosticCode, ResolveOutput, ResolvedChart, ResolvedElement, ResolvedParagraph,
+    ResolvedSlide, ResolvedTable, ResolvedTableCell, ResolvedTableRow, ResolvedTextFrame,
+    ResolvedTextRun, ResolvedTextStyle, RgbaColor, SourceLevel, Stroke, TableCellBorders,
+    TextAlignment, TextAutofit, TextVerticalAlignment, Transform, plain_i64,
 };
 
 const WHITE: RgbaColor = RgbaColor {
@@ -445,10 +445,7 @@ fn resolve_element(
                     resolver.trace.visited_parts.push(name.clone());
                     name
                 });
-                if matches!(
-                    chart.kind,
-                    ChartKind::Pie | ChartKind::Area | ChartKind::Scatter | ChartKind::Other
-                ) {
+                if chart.kind == ChartKind::Other {
                     resolver.diagnostics.push(ResolveDiagnostic {
                         code: ResolveDiagnosticCode::UnsupportedChartKind,
                         part_name,
@@ -470,7 +467,10 @@ fn resolve_element(
                 });
                 ResolvedChart {
                     kind: ChartKind::Other,
+                    grouping: ChartGrouping::Standard,
                     series: Vec::new(),
+                    title: None,
+                    show_legend: false,
                     embedded_workbook: None,
                 }
             });
@@ -886,6 +886,10 @@ fn parse_graphic_frame(
 fn parse_table(document: &XmlDocument, start: usize, end: usize, theme: &Theme) -> ResolvedTable {
     let mut column_widths = Vec::new();
     let mut rows = Vec::new();
+    let mut first_row = false;
+    let mut first_column = false;
+    let mut banded_rows = false;
+    let mut banded_columns = false;
     for index in start..=end {
         let TokenKind::Start {
             name, attributes, ..
@@ -893,7 +897,12 @@ fn parse_table(document: &XmlDocument, start: usize, end: usize, theme: &Theme) 
         else {
             continue;
         };
-        if name.local == "gridCol" {
+        if name.local == "tblPr" {
+            first_row = plain(attributes, "firstRow").is_some_and(ooxml_bool);
+            first_column = plain(attributes, "firstCol").is_some_and(ooxml_bool);
+            banded_rows = plain(attributes, "bandRow").is_some_and(ooxml_bool);
+            banded_columns = plain(attributes, "bandCol").is_some_and(ooxml_bool);
+        } else if name.local == "gridCol" {
             column_widths.push(plain_i64(attributes, "w").unwrap_or(0));
         } else if name.local == "tr" {
             let Some(row_end) = element_end(document, index) else {
@@ -916,28 +925,32 @@ fn parse_table(document: &XmlDocument, start: usize, end: usize, theme: &Theme) 
                 }
                 let cell_end = element_end(document, cell_index).unwrap_or(cell_index);
                 let text = collect_text(document, cell_index, cell_end);
-                let fill = (cell_index..=cell_end)
-                    .find_map(|fill_index| {
-                        matches!(
-                            &document.tokens()[fill_index].kind,
-                            TokenKind::Start { name, .. } if name.local == "solidFill"
-                        )
-                        .then(|| {
-                            parse_color(
-                                document,
-                                fill_index,
-                                element_end(document, fill_index).unwrap_or(fill_index),
-                                theme,
-                            )
-                        })
-                        .flatten()
-                    })
-                    .unwrap_or(WHITE);
+                let direct_fill =
+                    find_direct_table_cell_fill(document, cell_index, cell_end, theme);
+                let row_number = rows.len();
+                let column_number = cells.len();
+                let fill = direct_fill.unwrap_or_else(|| {
+                    let accent = theme.colors.get("accent1").copied().unwrap_or(WHITE);
+                    if (first_row && row_number == 0) || (first_column && column_number == 0) {
+                        accent
+                    } else if (banded_rows && row_number % 2 == 1)
+                        || (banded_columns && column_number % 2 == 1)
+                    {
+                        apply_color_transform(accent, "tint", 85_000)
+                    } else {
+                        WHITE
+                    }
+                });
                 cells.push(ResolvedTableCell {
                     text,
+                    text_frame: parse_text_frame(document, cell_index, cell_end, theme)
+                        .map(|frame| resolve_text_frame(&frame, &PartialTextStyle::default())),
                     row_span: plain_u32(cell_attributes, "rowSpan").unwrap_or(1),
                     column_span: plain_u32(cell_attributes, "gridSpan").unwrap_or(1),
+                    horizontal_merge: plain(cell_attributes, "hMerge").is_some_and(ooxml_bool),
+                    vertical_merge: plain(cell_attributes, "vMerge").is_some_and(ooxml_bool),
                     fill,
+                    borders: parse_table_cell_borders(document, cell_index, cell_end, theme),
                 });
             }
             rows.push(ResolvedTableRow {
@@ -949,7 +962,82 @@ fn parse_table(document: &XmlDocument, start: usize, end: usize, theme: &Theme) 
     ResolvedTable {
         column_widths,
         rows,
+        first_row,
+        first_column,
+        banded_rows,
+        banded_columns,
     }
+}
+
+fn find_direct_table_cell_fill(
+    document: &XmlDocument,
+    start: usize,
+    end: usize,
+    theme: &Theme,
+) -> Option<RgbaColor> {
+    let properties = (start..=end).find(|index| {
+        matches!(
+            &document.tokens()[*index].kind,
+            TokenKind::Start { name, .. } if name.local == "tcPr"
+        )
+    })?;
+    let properties_end = element_end(document, properties)
+        .unwrap_or(properties)
+        .min(end);
+    (properties..=properties_end).find_map(|fill_index| {
+        matches!(
+            &document.tokens()[fill_index].kind,
+            TokenKind::Start { name, .. } if name.local == "solidFill"
+        )
+        .then(|| {
+            parse_color(
+                document,
+                fill_index,
+                element_end(document, fill_index).unwrap_or(fill_index),
+                theme,
+            )
+        })
+        .flatten()
+    })
+}
+
+fn parse_table_cell_borders(
+    document: &XmlDocument,
+    start: usize,
+    end: usize,
+    theme: &Theme,
+) -> TableCellBorders {
+    let mut borders = TableCellBorders::default();
+    for index in start..=end {
+        let TokenKind::Start {
+            name, attributes, ..
+        } = &document.tokens()[index].kind
+        else {
+            continue;
+        };
+        let target = match name.local.as_str() {
+            "lnL" => &mut borders.left,
+            "lnR" => &mut borders.right,
+            "lnT" => &mut borders.top,
+            "lnB" => &mut borders.bottom,
+            _ => continue,
+        };
+        let border_end = element_end(document, index).unwrap_or(index).min(end);
+        if document.tokens()[index..=border_end].iter().any(
+            |token| matches!(&token.kind, TokenKind::Start { name, .. } if name.local == "noFill"),
+        ) {
+            *target = None;
+            continue;
+        }
+        *target = Some(Stroke {
+            color: parse_color(document, index, border_end, theme).unwrap_or(BLACK),
+            width: plain_i64(attributes, "w").unwrap_or(9_525),
+            dash: nearest_dash(document, index, border_end),
+            head_end: None,
+            tail_end: None,
+        });
+    }
+    borders
 }
 
 fn parse_chart(document: &XmlDocument) -> ResolvedChart {
@@ -960,10 +1048,12 @@ fn parse_chart(document: &XmlDocument) -> ResolvedChart {
         };
         kind = match name.local.as_str() {
             "lineChart" => ChartKind::Line,
-            "pieChart" | "pie3DChart" | "doughnutChart" => ChartKind::Pie,
-            "areaChart" | "area3DChart" => ChartKind::Area,
+            "pieChart" => ChartKind::Pie,
+            "doughnutChart" => ChartKind::Doughnut,
+            "areaChart" => ChartKind::Area,
             "scatterChart" => ChartKind::Scatter,
-            "barChart" | "bar3DChart" => {
+            "bubbleChart" => ChartKind::Bubble,
+            "barChart" => {
                 let bar_direction = document.tokens().iter().find_map(|candidate| {
                     let TokenKind::Start {
                         name, attributes, ..
@@ -1017,6 +1107,41 @@ fn parse_chart(document: &XmlDocument) -> ResolvedChart {
             alpha: 255,
         },
     ];
+    let grouping = document
+        .tokens()
+        .iter()
+        .find_map(|token| {
+            let TokenKind::Start {
+                name, attributes, ..
+            } = &token.kind
+            else {
+                return None;
+            };
+            (name.local == "grouping").then(|| match plain(attributes, "val") {
+                Some("stacked") => ChartGrouping::Stacked,
+                Some("percentStacked") => ChartGrouping::PercentStacked,
+                _ => ChartGrouping::Standard,
+            })
+        })
+        .unwrap_or_default();
+    let title = document
+        .tokens()
+        .iter()
+        .enumerate()
+        .find_map(|(index, token)| {
+            let TokenKind::Start { name, .. } = &token.kind else {
+                return None;
+            };
+            if name.local != "title" {
+                return None;
+            }
+            let end = element_end(document, index)?;
+            let text = collect_text(document, index, end);
+            (!text.is_empty()).then_some(text)
+        });
+    let show_legend = document.tokens().iter().any(
+        |token| matches!(&token.kind, TokenKind::Start { name, .. } if name.local == "legend"),
+    );
     let mut series = Vec::new();
     for (index, token) in document.tokens().iter().enumerate() {
         let TokenKind::Start { name, .. } = &token.kind else {
@@ -1032,21 +1157,34 @@ fn parse_chart(document: &XmlDocument) -> ResolvedChart {
             .into_iter()
             .next()
             .unwrap_or_else(|| format!("Series {}", series.len() + 1));
-        let categories = child_cache_values(document, index, end, &["cat", "xVal"]);
+        let categories = child_cache_values(document, index, end, &["cat"]);
+        let x_values = child_cache_values(document, index, end, &["xVal"])
+            .into_iter()
+            .filter_map(|value| value.parse::<f64>().ok())
+            .collect();
         let values = child_cache_values(document, index, end, &["val", "yVal"])
+            .into_iter()
+            .filter_map(|value| value.parse::<f64>().ok())
+            .collect();
+        let bubble_sizes = child_cache_values(document, index, end, &["bubbleSize"])
             .into_iter()
             .filter_map(|value| value.parse::<f64>().ok())
             .collect();
         series.push(ChartSeries {
             name,
             categories,
+            x_values,
             values,
+            bubble_sizes,
             color: palette[series.len() % palette.len()],
         });
     }
     ResolvedChart {
         kind,
+        grouping,
         series,
+        title,
+        show_legend,
         embedded_workbook: None,
     }
 }
@@ -2153,6 +2291,82 @@ fn deduplicate_trace(trace: &mut ResolutionTrace) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_every_supported_two_dimensional_chart_family() {
+        let cases = [
+            ("barChart", "<c:barDir val=\"col\"/>", ChartKind::Column),
+            ("barChart", "<c:barDir val=\"bar\"/>", ChartKind::Bar),
+            ("lineChart", "", ChartKind::Line),
+            ("pieChart", "", ChartKind::Pie),
+            ("doughnutChart", "", ChartKind::Doughnut),
+            ("areaChart", "", ChartKind::Area),
+            ("scatterChart", "", ChartKind::Scatter),
+            ("bubbleChart", "", ChartKind::Bubble),
+        ];
+        for (element, properties, expected) in cases {
+            let source = format!(
+                r#"<c:chartSpace xmlns:c="c" xmlns:a="a"><c:chart><c:title><a:p><a:r><a:t>Revenue</a:t></a:r></a:p></c:title><c:legend/><c:plotArea><c:{element}>{properties}<c:grouping val="stacked"/><c:ser><c:tx><c:v>Actual</c:v></c:tx><c:xVal><c:numRef><c:numCache><c:pt idx="0"><c:v>1</c:v></c:pt></c:numCache></c:numRef></c:xVal><c:yVal><c:numRef><c:numCache><c:pt idx="0"><c:v>2</c:v></c:pt></c:numCache></c:numRef></c:yVal><c:bubbleSize><c:numRef><c:numCache><c:pt idx="0"><c:v>3</c:v></c:pt></c:numCache></c:numRef></c:bubbleSize></c:ser></c:{element}></c:plotArea></c:chart></c:chartSpace>"#,
+            );
+            let document = XmlDocument::parse(source.into_bytes()).unwrap();
+            let chart = parse_chart(&document);
+            assert_eq!(chart.kind, expected);
+            assert_eq!(chart.grouping, ChartGrouping::Stacked);
+            assert_eq!(chart.title.as_deref(), Some("Revenue"));
+            assert!(chart.show_legend);
+            assert_eq!(chart.series[0].x_values, [1.0]);
+            assert_eq!(chart.series[0].values, [2.0]);
+            assert_eq!(chart.series[0].bubble_sizes, [3.0]);
+        }
+    }
+
+    #[test]
+    fn leaves_three_dimensional_charts_explicitly_unsupported() {
+        let document = XmlDocument::parse(
+            br#"<c:chartSpace xmlns:c="c"><c:chart><c:plotArea><c:pie3DChart/></c:plotArea></c:chart></c:chartSpace>"#
+                .as_slice(),
+        )
+        .unwrap();
+        assert_eq!(parse_chart(&document).kind, ChartKind::Other);
+    }
+
+    #[test]
+    fn parses_table_formatting_merges_and_rich_text_without_leaking_text_color() {
+        let source = br#"<a:tbl xmlns:a="a">
+          <a:tblPr firstRow="1" firstCol="1" bandRow="1" bandCol="0"/>
+          <a:tblGrid><a:gridCol w="100"/><a:gridCol w="200"/></a:tblGrid>
+          <a:tr h="50">
+            <a:tc gridSpan="2" rowSpan="2"><a:txBody><a:bodyPr/><a:p><a:r><a:rPr b="1"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:rPr><a:t>Header</a:t></a:r></a:p></a:txBody><a:tcPr><a:solidFill><a:srgbClr val="112233"/></a:solidFill><a:lnB w="12700"><a:solidFill><a:srgbClr val="445566"/></a:solidFill></a:lnB></a:tcPr></a:tc>
+            <a:tc hMerge="1"><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr/></a:tc>
+          </a:tr>
+          <a:tr h="60"><a:tc vMerge="1"><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr/></a:tc></a:tr>
+        </a:tbl>"#;
+        let document = XmlDocument::parse(source.as_slice()).unwrap();
+        let table = parse_table(
+            &document,
+            0,
+            element_end(&document, 0).unwrap(),
+            &Theme::default(),
+        );
+
+        assert_eq!(table.column_widths, [100, 200]);
+        assert!(table.first_row);
+        assert!(table.first_column);
+        assert!(table.banded_rows);
+        assert!(!table.banded_columns);
+        let header = &table.rows[0].cells[0];
+        assert_eq!(header.column_span, 2);
+        assert_eq!(header.row_span, 2);
+        assert_eq!(header.fill, parse_hex_color("112233").unwrap());
+        assert_eq!(header.borders.bottom.as_ref().unwrap().width, 12_700);
+        assert!(
+            header.text_frame.as_ref().unwrap().paragraphs[0].runs[0]
+                .style
+                .bold
+        );
+        assert!(table.rows[0].cells[1].horizontal_merge);
+        assert!(table.rows[1].cells[0].vertical_merge);
+    }
 
     #[test]
     fn text_style_inheritance_keeps_text_fill_out_of_shape_fill() {

@@ -1,11 +1,11 @@
 //! Compact backend-neutral display lists lowered from resolved slides.
 
 use wasmppt_layout::{
-    ChartKind, CustomPath, ElementKind, EmuPoint, EmuRect, EmuSize, Fill, GradientStop,
-    GroupTransform, LineEnd, OuterShadow, PathCommand, PreservedFeature, PresetGeometry,
-    ResolveDiagnosticCode, ResolveOutput, ResolvedChart, ResolvedSlide, ResolvedTable,
-    ResolvedTextFrame, ResolvedTextStyle, RgbaColor, Stroke, TextAlignment, TextAutofit,
-    TextVerticalAlignment, Transform,
+    ChartGrouping, ChartKind, CustomPath, ElementKind, EmuPoint, EmuRect, EmuSize, Fill,
+    GradientStop, GroupTransform, LineEnd, OuterShadow, PathCommand, PreservedFeature,
+    PresetGeometry, ResolveDiagnosticCode, ResolveOutput, ResolvedChart, ResolvedSlide,
+    ResolvedTable, ResolvedTextFrame, ResolvedTextStyle, RgbaColor, Stroke, TextAlignment,
+    TextAutofit, TextVerticalAlignment, Transform,
 };
 
 pub const DISPLAY_LIST_VERSION: u16 = 4;
@@ -388,6 +388,11 @@ fn lower_table(list: &mut DisplayList, transform: Transform, table: &ResolvedTab
                 .skip(column_index)
                 .take(span)
                 .sum::<i64>();
+            if cell.horizontal_merge || cell.vertical_merge {
+                x = x.saturating_add(width);
+                column_index += span;
+                continue;
+            }
             let row_span = cell.row_span.max(1) as usize;
             let cell_height = row_heights
                 .iter()
@@ -411,23 +416,84 @@ fn lower_table(list: &mut DisplayList, transform: Transform, table: &ResolvedTab
                 transform: cell_transform,
                 color: cell.fill,
             });
-            list.commands.push(DisplayCommand::StrokePreset {
-                geometry: PresetGeometry::Rect,
-                transform: cell_transform,
-                stroke: Stroke {
-                    color: RgbaColor {
-                        red: 127,
-                        green: 127,
-                        blue: 127,
-                        alpha: 255,
+            if cell.borders == wasmppt_layout::TableCellBorders::default() {
+                list.commands.push(DisplayCommand::StrokePreset {
+                    geometry: PresetGeometry::Rect,
+                    transform: cell_transform,
+                    stroke: Stroke {
+                        color: RgbaColor {
+                            red: 127,
+                            green: 127,
+                            blue: 127,
+                            alpha: 255,
+                        },
+                        width: 9_525,
+                        dash: None,
+                        head_end: None,
+                        tail_end: None,
                     },
-                    width: 9_525,
-                    dash: None,
-                    head_end: None,
-                    tail_end: None,
-                },
-            });
-            if !cell.text.is_empty() {
+                });
+            } else {
+                let cell_bounds = cell_transform.bounds;
+                for (stroke, x1, y1, x2, y2) in [
+                    (
+                        cell.borders.left.as_ref(),
+                        cell_bounds.origin.x,
+                        cell_bounds.origin.y,
+                        cell_bounds.origin.x,
+                        cell_bounds.origin.y + cell_bounds.size.height,
+                    ),
+                    (
+                        cell.borders.right.as_ref(),
+                        cell_bounds.origin.x + cell_bounds.size.width,
+                        cell_bounds.origin.y,
+                        cell_bounds.origin.x + cell_bounds.size.width,
+                        cell_bounds.origin.y + cell_bounds.size.height,
+                    ),
+                    (
+                        cell.borders.top.as_ref(),
+                        cell_bounds.origin.x,
+                        cell_bounds.origin.y,
+                        cell_bounds.origin.x + cell_bounds.size.width,
+                        cell_bounds.origin.y,
+                    ),
+                    (
+                        cell.borders.bottom.as_ref(),
+                        cell_bounds.origin.x,
+                        cell_bounds.origin.y + cell_bounds.size.height,
+                        cell_bounds.origin.x + cell_bounds.size.width,
+                        cell_bounds.origin.y + cell_bounds.size.height,
+                    ),
+                ] {
+                    if let Some(stroke) = stroke {
+                        list.commands.push(DisplayCommand::StrokePreset {
+                            geometry: PresetGeometry::Line,
+                            transform: Transform {
+                                bounds: EmuRect {
+                                    origin: EmuPoint { x: x1, y: y1 },
+                                    size: EmuSize {
+                                        width: x2 - x1,
+                                        height: y2 - y1,
+                                    },
+                                },
+                                ..transform
+                            },
+                            stroke: stroke.clone(),
+                        });
+                    }
+                }
+            }
+            if let Some(frame) = cell.text_frame.as_ref().filter(|frame| {
+                frame
+                    .paragraphs
+                    .iter()
+                    .any(|paragraph| !paragraph.runs.is_empty())
+            }) {
+                list.commands.push(DisplayCommand::DrawRichText {
+                    bounds: cell_transform.bounds,
+                    frame: frame.clone(),
+                });
+            } else if !cell.text.is_empty() {
                 let text = list.strings.len() as u32;
                 list.strings.push(cell.text.clone());
                 list.commands.push(DisplayCommand::DrawText {
@@ -450,23 +516,87 @@ fn lower_chart(list: &mut DisplayList, transform: Transform, chart: &ResolvedCha
     let bounds = transform.bounds;
     let padding_x = bounds.size.width / 12;
     let padding_y = bounds.size.height / 10;
+    let title_height = chart.title.as_ref().map_or(0, |_| bounds.size.height / 10);
+    let legend_width = if chart.show_legend {
+        bounds.size.width / 5
+    } else {
+        0
+    };
     let plot = EmuRect {
         origin: EmuPoint {
             x: bounds.origin.x + padding_x,
-            y: bounds.origin.y + padding_y,
+            y: bounds.origin.y + padding_y + title_height,
         },
         size: EmuSize {
-            width: bounds.size.width - padding_x * 2,
-            height: bounds.size.height - padding_y * 2,
+            width: bounds.size.width - padding_x * 2 - legend_width,
+            height: bounds.size.height - padding_y * 2 - title_height,
         },
     };
+    if let Some(title) = &chart.title {
+        push_chart_text(
+            list,
+            title,
+            EmuRect {
+                origin: EmuPoint {
+                    x: bounds.origin.x + padding_x,
+                    y: bounds.origin.y,
+                },
+                size: EmuSize {
+                    width: bounds.size.width - padding_x * 2,
+                    height: padding_y + title_height,
+                },
+            },
+            1_400,
+        );
+    }
+    let minimum = chart
+        .series
+        .iter()
+        .flat_map(|series| series.values.iter())
+        .copied()
+        .fold(0.0_f64, f64::min);
     let maximum = chart
         .series
         .iter()
         .flat_map(|series| series.values.iter())
         .copied()
-        .fold(0.0_f64, |maximum, value| maximum.max(value.abs()))
+        .fold(0.0_f64, f64::max)
         .max(1.0);
+    let value_range = (maximum - minimum).max(1.0);
+    let value_y = |value: f64| {
+        plot.origin.y + plot.size.height
+            - (((value - minimum) / value_range) * plot.size.height as f64) as i64
+    };
+    if !matches!(chart.kind, ChartKind::Pie | ChartKind::Doughnut) {
+        push_chart_line(
+            list,
+            transform,
+            plot.origin.x,
+            value_y(0.0),
+            plot.origin.x + plot.size.width,
+            value_y(0.0),
+            RgbaColor {
+                red: 89,
+                green: 89,
+                blue: 89,
+                alpha: 255,
+            },
+        );
+        push_chart_line(
+            list,
+            transform,
+            plot.origin.x,
+            plot.origin.y,
+            plot.origin.x,
+            plot.origin.y + plot.size.height,
+            RgbaColor {
+                red: 89,
+                green: 89,
+                blue: 89,
+                alpha: 255,
+            },
+        );
+    }
     match chart.kind {
         ChartKind::Column => {
             let category_count = chart
@@ -479,25 +609,71 @@ fn lower_chart(list: &mut DisplayList, transform: Transform, chart: &ResolvedCha
                 return;
             }
             let slot = plot.size.width / category_count as i64;
-            let bar_width = (slot * 4 / 5) / chart.series.len() as i64;
-            for (series_index, series) in chart.series.iter().enumerate() {
-                for (value_index, value) in series.values.iter().enumerate() {
-                    let height = ((value.abs() / maximum) * plot.size.height as f64) as i64;
-                    let x = plot.origin.x
-                        + slot * value_index as i64
-                        + slot / 10
-                        + bar_width * series_index as i64;
-                    push_chart_rect(
-                        list,
-                        transform,
-                        x,
-                        plot.origin.y + plot.size.height - height,
-                        bar_width,
-                        height,
-                        series.color,
-                    );
+            if chart.grouping == ChartGrouping::Standard {
+                let bar_width = (slot * 4 / 5) / chart.series.len() as i64;
+                for (series_index, series) in chart.series.iter().enumerate() {
+                    for (value_index, value) in series.values.iter().enumerate() {
+                        let baseline = value_y(0.0);
+                        let end = value_y(*value);
+                        let x = plot.origin.x
+                            + slot * value_index as i64
+                            + slot / 10
+                            + bar_width * series_index as i64;
+                        push_chart_rect(
+                            list,
+                            transform,
+                            x,
+                            baseline.min(end),
+                            bar_width,
+                            (end - baseline).abs(),
+                            series.color,
+                        );
+                    }
+                }
+            } else {
+                for category in 0..category_count {
+                    let denominator = if chart.grouping == ChartGrouping::PercentStacked {
+                        chart
+                            .series
+                            .iter()
+                            .filter_map(|series| series.values.get(category))
+                            .map(|value| value.abs())
+                            .sum::<f64>()
+                            .max(1.0)
+                    } else {
+                        1.0
+                    };
+                    let mut accumulated = 0.0;
+                    for series in &chart.series {
+                        let value =
+                            series.values.get(category).copied().unwrap_or(0.0) / denominator;
+                        let next = accumulated + value;
+                        let start_y = if chart.grouping == ChartGrouping::PercentStacked {
+                            plot.origin.y + plot.size.height
+                                - (accumulated * plot.size.height as f64) as i64
+                        } else {
+                            value_y(accumulated)
+                        };
+                        let end_y = if chart.grouping == ChartGrouping::PercentStacked {
+                            plot.origin.y + plot.size.height
+                                - (next * plot.size.height as f64) as i64
+                        } else {
+                            value_y(next)
+                        };
+                        push_chart_rect(
+                            list,
+                            transform,
+                            plot.origin.x + slot * category as i64 + slot / 10,
+                            start_y.min(end_y),
+                            slot * 4 / 5,
+                            (end_y - start_y).abs(),
+                            series.color,
+                        );
+                        accumulated = next;
+                    }
                 }
             }
+            push_category_labels(list, chart, plot);
         }
         ChartKind::Bar => {
             let category_count = chart
@@ -510,63 +686,468 @@ fn lower_chart(list: &mut DisplayList, transform: Transform, chart: &ResolvedCha
                 return;
             }
             let slot = plot.size.height / category_count as i64;
-            let bar_height = (slot * 4 / 5) / chart.series.len() as i64;
-            for (series_index, series) in chart.series.iter().enumerate() {
-                for (value_index, value) in series.values.iter().enumerate() {
-                    let width = ((value.abs() / maximum) * plot.size.width as f64) as i64;
-                    let y = plot.origin.y
-                        + slot * value_index as i64
-                        + slot / 10
-                        + bar_height * series_index as i64;
-                    push_chart_rect(
+            if chart.grouping == ChartGrouping::Standard {
+                let bar_height = (slot * 4 / 5) / chart.series.len() as i64;
+                for (series_index, series) in chart.series.iter().enumerate() {
+                    for (value_index, value) in series.values.iter().enumerate() {
+                        let baseline =
+                            ((0.0 - minimum) / value_range * plot.size.width as f64) as i64;
+                        let end =
+                            ((*value - minimum) / value_range * plot.size.width as f64) as i64;
+                        let y = plot.origin.y
+                            + slot * value_index as i64
+                            + slot / 10
+                            + bar_height * series_index as i64;
+                        push_chart_rect(
+                            list,
+                            transform,
+                            plot.origin.x + baseline.min(end),
+                            y,
+                            (end - baseline).abs(),
+                            bar_height,
+                            series.color,
+                        );
+                    }
+                }
+            } else {
+                for category in 0..category_count {
+                    let denominator = if chart.grouping == ChartGrouping::PercentStacked {
+                        chart
+                            .series
+                            .iter()
+                            .filter_map(|series| series.values.get(category))
+                            .map(|value| value.abs())
+                            .sum::<f64>()
+                            .max(1.0)
+                    } else {
+                        maximum.max(1.0)
+                    };
+                    let mut accumulated = 0.0;
+                    for series in &chart.series {
+                        let value =
+                            series.values.get(category).copied().unwrap_or(0.0) / denominator;
+                        let start_x = plot.origin.x + (accumulated * plot.size.width as f64) as i64;
+                        accumulated += value;
+                        let end_x = plot.origin.x + (accumulated * plot.size.width as f64) as i64;
+                        push_chart_rect(
+                            list,
+                            transform,
+                            start_x.min(end_x),
+                            plot.origin.y + slot * category as i64 + slot / 10,
+                            (end_x - start_x).abs(),
+                            slot * 4 / 5,
+                            series.color,
+                        );
+                    }
+                }
+            }
+        }
+        ChartKind::Line | ChartKind::Scatter => {
+            for series in &chart.series {
+                let denominator = series.values.len().saturating_sub(1).max(1) as i64;
+                let x_min = series.x_values.iter().copied().fold(0.0_f64, f64::min);
+                let x_max = series.x_values.iter().copied().fold(1.0_f64, f64::max);
+                let x_range = (x_max - x_min).max(1.0);
+                let point = |index: usize, value: f64| {
+                    let x = if chart.kind == ChartKind::Scatter {
+                        let raw = series.x_values.get(index).copied().unwrap_or(index as f64);
+                        plot.origin.x + ((raw - x_min) / x_range * plot.size.width as f64) as i64
+                    } else {
+                        plot.origin.x + plot.size.width * index as i64 / denominator
+                    };
+                    EmuPoint {
+                        x,
+                        y: value_y(value),
+                    }
+                };
+                for (index, values) in series.values.windows(2).enumerate() {
+                    let first = point(index, values[0]);
+                    let second = point(index + 1, values[1]);
+                    push_chart_line(
                         list,
                         transform,
-                        plot.origin.x,
-                        y,
-                        width,
-                        bar_height,
+                        first.x,
+                        first.y,
+                        second.x,
+                        second.y,
+                        series.color,
+                    );
+                }
+                for (index, value) in series.values.iter().enumerate() {
+                    let point = point(index, *value);
+                    let radius = plot.size.width.min(plot.size.height) / 100;
+                    push_chart_ellipse(
+                        list,
+                        transform,
+                        point.x - radius,
+                        point.y - radius,
+                        radius * 2,
+                        radius * 2,
+                        series.color,
+                    );
+                }
+            }
+            if chart.kind == ChartKind::Line {
+                push_category_labels(list, chart, plot);
+            }
+        }
+        ChartKind::Area => {
+            for series in &chart.series {
+                if series.values.is_empty() {
+                    continue;
+                }
+                let denominator = series.values.len().saturating_sub(1).max(1) as i64;
+                let mut commands = vec![PathCommand::MoveTo(EmuPoint {
+                    x: 0,
+                    y: plot.size.height,
+                })];
+                for (index, value) in series.values.iter().enumerate() {
+                    commands.push(PathCommand::LineTo(EmuPoint {
+                        x: plot.size.width * index as i64 / denominator,
+                        y: value_y(*value) - plot.origin.y,
+                    }));
+                }
+                commands.push(PathCommand::LineTo(EmuPoint {
+                    x: plot.size.width,
+                    y: plot.size.height,
+                }));
+                commands.push(PathCommand::Close);
+                let mut color = series.color;
+                color.alpha = 140;
+                list.commands.push(DisplayCommand::DrawCustomPath {
+                    path: CustomPath {
+                        size: plot.size,
+                        commands,
+                    },
+                    transform: Transform {
+                        bounds: plot,
+                        ..transform
+                    },
+                    fill: Fill::Solid(color),
+                    stroke: Some(Stroke {
+                        color: series.color,
+                        width: 19_050,
+                        dash: None,
+                        head_end: None,
+                        tail_end: None,
+                    }),
+                });
+            }
+            push_category_labels(list, chart, plot);
+        }
+        ChartKind::Pie | ChartKind::Doughnut => {
+            if let Some(series) = chart.series.first() {
+                lower_pie(
+                    list,
+                    transform,
+                    plot,
+                    series,
+                    chart.kind == ChartKind::Doughnut,
+                );
+            }
+        }
+        ChartKind::Bubble => {
+            for series in &chart.series {
+                let x_min = series.x_values.iter().copied().fold(0.0_f64, f64::min);
+                let x_max = series.x_values.iter().copied().fold(1.0_f64, f64::max);
+                let x_range = (x_max - x_min).max(1.0);
+                let size_max = series
+                    .bubble_sizes
+                    .iter()
+                    .copied()
+                    .fold(1.0_f64, f64::max)
+                    .max(1.0);
+                for (index, value) in series.values.iter().enumerate() {
+                    let raw_x = series.x_values.get(index).copied().unwrap_or(index as f64);
+                    let x =
+                        plot.origin.x + ((raw_x - x_min) / x_range * plot.size.width as f64) as i64;
+                    let y = value_y(*value);
+                    let scaled =
+                        (series.bubble_sizes.get(index).copied().unwrap_or(1.0) / size_max).sqrt();
+                    let diameter = ((plot.size.width.min(plot.size.height) / 5) as f64 * scaled)
+                        .max(19_050.0) as i64;
+                    push_chart_ellipse(
+                        list,
+                        transform,
+                        x - diameter / 2,
+                        y - diameter / 2,
+                        diameter,
+                        diameter,
                         series.color,
                     );
                 }
             }
         }
-        ChartKind::Line => {
-            for series in &chart.series {
-                let denominator = series.values.len().saturating_sub(1).max(1) as i64;
-                for (index, values) in series.values.windows(2).enumerate() {
-                    let x1 = plot.origin.x + plot.size.width * index as i64 / denominator;
-                    let x2 = plot.origin.x + plot.size.width * (index as i64 + 1) / denominator;
-                    let y1 = plot.origin.y + plot.size.height
-                        - ((values[0].abs() / maximum) * plot.size.height as f64) as i64;
-                    let y2 = plot.origin.y + plot.size.height
-                        - ((values[1].abs() / maximum) * plot.size.height as f64) as i64;
-                    list.commands.push(DisplayCommand::StrokePreset {
-                        geometry: PresetGeometry::Line,
-                        transform: Transform {
-                            bounds: EmuRect {
-                                origin: EmuPoint { x: x1, y: y1 },
-                                size: EmuSize {
-                                    width: x2 - x1,
-                                    height: y2 - y1,
-                                },
-                            },
-                            rotation: transform.rotation,
-                            flip_horizontal: transform.flip_horizontal,
-                            flip_vertical: transform.flip_vertical,
-                        },
-                        stroke: Stroke {
-                            color: series.color,
-                            width: 19_050,
-                            dash: None,
-                            head_end: None,
-                            tail_end: None,
-                        },
-                    });
-                }
-            }
-        }
         _ => {}
     }
+    if chart.show_legend {
+        lower_chart_legend(
+            list,
+            transform,
+            chart,
+            plot.origin.x + plot.size.width + padding_x / 3,
+            plot.origin.y,
+            legend_width,
+        );
+    }
+}
+
+fn push_category_labels(list: &mut DisplayList, chart: &ResolvedChart, plot: EmuRect) {
+    let Some(categories) = chart
+        .series
+        .iter()
+        .find(|series| !series.categories.is_empty())
+        .map(|series| &series.categories)
+    else {
+        return;
+    };
+    let slot = plot.size.width / categories.len().max(1) as i64;
+    for (index, category) in categories.iter().enumerate() {
+        push_chart_text(
+            list,
+            category,
+            EmuRect {
+                origin: EmuPoint {
+                    x: plot.origin.x + slot * index as i64,
+                    y: plot.origin.y + plot.size.height,
+                },
+                size: EmuSize {
+                    width: slot,
+                    height: plot.size.height / 10,
+                },
+            },
+            900,
+        );
+    }
+}
+
+fn lower_chart_legend(
+    list: &mut DisplayList,
+    transform: Transform,
+    chart: &ResolvedChart,
+    x: i64,
+    y: i64,
+    width: i64,
+) {
+    let row_height = 228_600;
+    for (index, series) in chart.series.iter().enumerate() {
+        let row_y = y + row_height * index as i64;
+        push_chart_rect(
+            list,
+            transform,
+            x,
+            row_y + row_height / 4,
+            row_height / 2,
+            row_height / 2,
+            series.color,
+        );
+        push_chart_text(
+            list,
+            &series.name,
+            EmuRect {
+                origin: EmuPoint {
+                    x: x + row_height,
+                    y: row_y,
+                },
+                size: EmuSize {
+                    width: width.saturating_sub(row_height),
+                    height: row_height,
+                },
+            },
+            900,
+        );
+    }
+}
+
+fn lower_pie(
+    list: &mut DisplayList,
+    transform: Transform,
+    plot: EmuRect,
+    series: &wasmppt_layout::ChartSeries,
+    doughnut: bool,
+) {
+    let total = series
+        .values
+        .iter()
+        .copied()
+        .filter(|value| *value > 0.0)
+        .sum::<f64>();
+    if total <= 0.0 {
+        return;
+    }
+    let colors = [
+        series.color,
+        RgbaColor {
+            red: 237,
+            green: 125,
+            blue: 49,
+            alpha: 255,
+        },
+        RgbaColor {
+            red: 165,
+            green: 165,
+            blue: 165,
+            alpha: 255,
+        },
+        RgbaColor {
+            red: 255,
+            green: 192,
+            blue: 0,
+            alpha: 255,
+        },
+        RgbaColor {
+            red: 91,
+            green: 155,
+            blue: 213,
+            alpha: 255,
+        },
+    ];
+    let size = plot.size.width.min(plot.size.height);
+    let bounds = EmuRect {
+        origin: EmuPoint {
+            x: plot.origin.x + (plot.size.width - size) / 2,
+            y: plot.origin.y + (plot.size.height - size) / 2,
+        },
+        size: EmuSize {
+            width: size,
+            height: size,
+        },
+    };
+    let units = 10_000_i64;
+    let center = units / 2;
+    let outer = units / 2;
+    let inner = if doughnut { units * 3 / 10 } else { 0 };
+    let mut angle = -std::f64::consts::FRAC_PI_2;
+    for (index, value) in series.values.iter().enumerate() {
+        if *value <= 0.0 {
+            continue;
+        }
+        let sweep = *value / total * std::f64::consts::TAU;
+        let segments = ((sweep.abs() / (std::f64::consts::PI / 18.0)).ceil() as usize).max(1);
+        let point = |radius: i64, radians: f64| EmuPoint {
+            x: center + (radians.cos() * radius as f64).round() as i64,
+            y: center + (radians.sin() * radius as f64).round() as i64,
+        };
+        let mut commands = if doughnut {
+            vec![PathCommand::MoveTo(point(inner, angle))]
+        } else {
+            vec![PathCommand::MoveTo(EmuPoint {
+                x: center,
+                y: center,
+            })]
+        };
+        commands.push(PathCommand::LineTo(point(outer, angle)));
+        for segment in 1..=segments {
+            commands.push(PathCommand::LineTo(point(
+                outer,
+                angle + sweep * segment as f64 / segments as f64,
+            )));
+        }
+        if doughnut {
+            for segment in (0..=segments).rev() {
+                commands.push(PathCommand::LineTo(point(
+                    inner,
+                    angle + sweep * segment as f64 / segments as f64,
+                )));
+            }
+        }
+        commands.push(PathCommand::Close);
+        list.commands.push(DisplayCommand::DrawCustomPath {
+            path: CustomPath {
+                size: EmuSize {
+                    width: units,
+                    height: units,
+                },
+                commands,
+            },
+            transform: Transform {
+                bounds,
+                ..transform
+            },
+            fill: Fill::Solid(colors[index % colors.len()]),
+            stroke: Some(Stroke {
+                color: RgbaColor {
+                    red: 255,
+                    green: 255,
+                    blue: 255,
+                    alpha: 255,
+                },
+                width: 9_525,
+                dash: None,
+                head_end: None,
+                tail_end: None,
+            }),
+        });
+        angle += sweep;
+    }
+}
+
+fn push_chart_text(list: &mut DisplayList, value: &str, bounds: EmuRect, font_size: i32) {
+    let text = list.strings.len() as u32;
+    list.strings.push(value.to_owned());
+    list.commands.push(DisplayCommand::DrawText {
+        text,
+        bounds,
+        style: ResolvedTextStyle {
+            font_size,
+            alignment: TextAlignment::Center,
+            vertical_alignment: TextVerticalAlignment::Center,
+            ..ResolvedTextStyle::default()
+        },
+    });
+}
+
+fn push_chart_line(
+    list: &mut DisplayList,
+    parent: Transform,
+    x1: i64,
+    y1: i64,
+    x2: i64,
+    y2: i64,
+    color: RgbaColor,
+) {
+    list.commands.push(DisplayCommand::StrokePreset {
+        geometry: PresetGeometry::Line,
+        transform: Transform {
+            bounds: EmuRect {
+                origin: EmuPoint { x: x1, y: y1 },
+                size: EmuSize {
+                    width: x2 - x1,
+                    height: y2 - y1,
+                },
+            },
+            ..parent
+        },
+        stroke: Stroke {
+            color,
+            width: 12_700,
+            dash: None,
+            head_end: None,
+            tail_end: None,
+        },
+    });
+}
+
+fn push_chart_ellipse(
+    list: &mut DisplayList,
+    parent: Transform,
+    x: i64,
+    y: i64,
+    width: i64,
+    height: i64,
+    color: RgbaColor,
+) {
+    list.commands.push(DisplayCommand::FillPreset {
+        geometry: PresetGeometry::Ellipse,
+        transform: Transform {
+            bounds: EmuRect {
+                origin: EmuPoint { x, y },
+                size: EmuSize { width, height },
+            },
+            ..parent
+        },
+        color,
+    });
 }
 
 fn push_chart_rect(

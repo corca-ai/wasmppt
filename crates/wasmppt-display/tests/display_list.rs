@@ -98,7 +98,24 @@ fn lowers_tables_and_supported_chart_kinds_to_shared_primitives() {
         .find(|semantic| semantic.name == "Sales Chart")
         .unwrap();
     assert_eq!(chart.kind, SemanticKind::Chart);
-    assert_eq!(chart.command_count, 3);
-    assert!(display.strings.iter().any(|text| text == "Quarter"));
-    assert!(display.strings.iter().any(|text| text == "42"));
+    assert!(chart.command_count >= 8);
+    assert!(
+        display
+            .commands
+            .iter()
+            .any(|command| matches!(command, DisplayCommand::StrokePreset { .. }))
+    );
+    let rich_text = display.commands.iter().filter_map(|command| match command {
+        DisplayCommand::DrawRichText { frame, .. } => Some(
+            frame
+                .paragraphs
+                .iter()
+                .flat_map(|paragraph| paragraph.runs.iter())
+                .map(|run| run.text.as_str())
+                .collect::<String>(),
+        ),
+        _ => None,
+    });
+    assert!(rich_text.clone().any(|text| text == "Quarter"));
+    assert!(rich_text.clone().any(|text| text == "42"));
 }

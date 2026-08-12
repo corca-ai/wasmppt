@@ -1273,37 +1273,17 @@ fn parse_table_cell_borders(
 
 fn parse_chart(document: &XmlDocument) -> ResolvedChart {
     let mut kinds = Vec::new();
-    for token in document.tokens() {
-        let TokenKind::Start { name, .. } = &token.kind else {
+    let mut chart_ranges = Vec::new();
+    for index in 0..document.tokens().len() {
+        let Some(kind) = chart_kind_at(document, index) else {
             continue;
         };
-        let kind = match name.local.as_str() {
-            "lineChart" => ChartKind::Line,
-            "pieChart" => ChartKind::Pie,
-            "doughnutChart" => ChartKind::Doughnut,
-            "areaChart" => ChartKind::Area,
-            "scatterChart" => ChartKind::Scatter,
-            "bubbleChart" => ChartKind::Bubble,
-            "barChart" => {
-                let bar_direction = document.tokens().iter().find_map(|candidate| {
-                    let TokenKind::Start {
-                        name, attributes, ..
-                    } = &candidate.kind
-                    else {
-                        return None;
-                    };
-                    (name.local == "barDir")
-                        .then(|| plain(attributes, "val"))
-                        .flatten()
-                });
-                if bar_direction == Some("bar") {
-                    ChartKind::Bar
-                } else {
-                    ChartKind::Column
-                }
-            }
-            _ => continue,
-        };
+        chart_ranges.push((
+            index,
+            element_end(document, index).unwrap_or(index),
+            document.tokens()[index].depth,
+            kind,
+        ));
         if !kinds.contains(&kind) {
             kinds.push(kind);
         }
@@ -1388,6 +1368,15 @@ fn parse_chart(document: &XmlDocument) -> ResolvedChart {
         if name.local != "ser" {
             continue;
         }
+        let Some(series_kind) = chart_ranges
+            .iter()
+            .find(|(start, end, depth, _)| {
+                *start < index && index <= *end && *depth + 1 == token.depth
+            })
+            .map(|(_, _, _, kind)| *kind)
+        else {
+            continue;
+        };
         let Some(end) = element_end(document, index) else {
             continue;
         };
@@ -1409,6 +1398,7 @@ fn parse_chart(document: &XmlDocument) -> ResolvedChart {
             .filter_map(|value| value.parse::<f64>().ok())
             .collect();
         series.push(ChartSeries {
+            kind: series_kind,
             name,
             categories,
             x_values,
@@ -1425,6 +1415,41 @@ fn parse_chart(document: &XmlDocument) -> ResolvedChart {
         show_legend,
         embedded_workbook: None,
     }
+}
+
+fn chart_kind_at(document: &XmlDocument, index: usize) -> Option<ChartKind> {
+    let token = document.tokens().get(index)?;
+    let TokenKind::Start { name, .. } = &token.kind else {
+        return None;
+    };
+    Some(match name.local.as_str() {
+        "lineChart" => ChartKind::Line,
+        "pieChart" => ChartKind::Pie,
+        "doughnutChart" => ChartKind::Doughnut,
+        "areaChart" => ChartKind::Area,
+        "scatterChart" => ChartKind::Scatter,
+        "bubbleChart" => ChartKind::Bubble,
+        "barChart" => {
+            let end = element_end(document, index).unwrap_or(index);
+            let bar_direction = document.tokens()[index..=end].iter().find_map(|candidate| {
+                let TokenKind::Start {
+                    name, attributes, ..
+                } = &candidate.kind
+                else {
+                    return None;
+                };
+                (candidate.depth == token.depth + 1 && name.local == "barDir")
+                    .then(|| plain(attributes, "val"))
+                    .flatten()
+            });
+            if bar_direction == Some("bar") {
+                ChartKind::Bar
+            } else {
+                ChartKind::Column
+            }
+        }
+        _ => return None,
+    })
 }
 
 fn child_cache_values(
@@ -2835,10 +2860,13 @@ mod tests {
     #[test]
     fn recognizes_two_dimensional_combination_charts() {
         let document = XmlDocument::parse(
-            br#"<c:chartSpace xmlns:c="c"><c:chart><c:plotArea><c:barChart><c:barDir val="col"/><c:ser><c:val><c:numLit><c:pt idx="0"><c:v>10</c:v></c:pt></c:numLit></c:val></c:ser></c:barChart><c:lineChart><c:ser><c:val><c:numLit><c:pt idx="0"><c:v>2</c:v></c:pt></c:numLit></c:val></c:ser></c:lineChart></c:plotArea></c:chart></c:chartSpace>"#.as_slice(),
+            br#"<c:chartSpace xmlns:c="c"><c:chart><c:plotArea><c:lineChart><c:ser><c:val><c:numLit><c:pt idx="0"><c:v>2</c:v></c:pt></c:numLit></c:val></c:ser></c:lineChart><c:barChart><c:barDir val="col"/><c:ser><c:val><c:numLit><c:pt idx="0"><c:v>10</c:v></c:pt></c:numLit></c:val></c:ser></c:barChart></c:plotArea></c:chart></c:chartSpace>"#.as_slice(),
         )
         .unwrap();
-        assert_eq!(parse_chart(&document).kind, ChartKind::Combination);
+        let chart = parse_chart(&document);
+        assert_eq!(chart.kind, ChartKind::Combination);
+        assert_eq!(chart.series[0].kind, ChartKind::Line);
+        assert_eq!(chart.series[1].kind, ChartKind::Column);
     }
 
     #[test]

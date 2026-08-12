@@ -406,6 +406,7 @@ pub enum ChartGrouping {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChartSeries {
+    pub kind: ChartKind,
     pub name: String,
     pub categories: Vec<String>,
     pub x_values: Vec<f64>,

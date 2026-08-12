@@ -54,6 +54,26 @@ test('prepare transfers the caller-owned ArrayBuffer', async () => {
   client.terminate()
 })
 
+test('an unknown Worker response cannot consume a live request ID', async () => {
+  const worker = new FakeWorker()
+  const client = new WasmpptWorkerClient(worker)
+  const pending = client.prepare(new ArrayBuffer(4))
+  const request = worker.messages[0]
+  worker.respond({ version: WORKER_PROTOCOL_VERSION, id: request.id, type: 'mystery' })
+  worker.respond({
+    version: WORKER_PROTOCOL_VERSION,
+    id: request.id,
+    type: 'prepared',
+    templateHandle: 8,
+    residentBytes: 16,
+    plan: new ArrayBuffer(4),
+    bindings: [],
+    diagnostics: [],
+  })
+  assert.equal((await pending).handle, 8)
+  client.terminate()
+})
+
 test('termination rejects every pending request and stream', async () => {
   const worker = new FakeWorker()
   const client = new WasmpptWorkerClient(worker)
@@ -219,4 +239,133 @@ test('runtime cancellation is observed between transferable output chunks', asyn
   await new Promise((resolve) => setTimeout(resolve, 30))
   assert.equal(scope.responses.filter((message) => message.type === 'chunk').length, 1)
   assert.equal(scope.responses.at(-1).type, 'cancelled')
+})
+
+test('runtime preserves chart binding metadata returned by Wasm', async () => {
+  class Scope extends EventTarget {
+    responses = []
+
+    postMessage(message) {
+      this.responses.push(message)
+    }
+  }
+  const scope = new Scope()
+  installWorkerRuntime(scope, {
+    prepare: () => 7,
+    prepare_with_options: () => 7,
+    prepare_with_plan: () => 7,
+    prepared_weight: () => 32n,
+    prepared_plan: () => new Uint8Array(8),
+    prepared_bindings: () => [[
+      'sales', 'chart', 'ppt/slides/slide1.xml', 'shape-metadata', 4, 'Sales chart',
+    ]],
+    prepared_diagnostics: () => [],
+    release_template: () => true,
+  })
+  scope.dispatchEvent(new MessageEvent('message', {
+    data: {
+      version: WORKER_PROTOCOL_VERSION,
+      id: 73,
+      type: 'prepare',
+      template: new ArrayBuffer(16),
+      options: {},
+    },
+  }))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(scope.responses.at(-1).type, 'prepared')
+  assert.deepEqual(scope.responses.at(-1).bindings, [{
+    id: 'sales',
+    kind: 'chart',
+    partName: 'ppt/slides/slide1.xml',
+    source: 'shape-metadata',
+    shapeId: 4,
+    shapeName: 'Sales chart',
+  }])
+})
+
+test('runtime releases a prepared handle when metadata conversion fails', async () => {
+  class Scope extends EventTarget {
+    responses = []
+
+    postMessage(message) {
+      this.responses.push(message)
+    }
+  }
+  const scope = new Scope()
+  const released = []
+  installWorkerRuntime(scope, {
+    prepare: () => 41,
+    prepare_with_options: () => 41,
+    prepare_with_plan: () => 41,
+    prepared_weight: () => 32n,
+    prepared_plan: () => new Uint8Array(8),
+    prepared_bindings: () => [['broken']],
+    prepared_diagnostics: () => [],
+    release_template: (handle) => { released.push(handle); return true },
+  })
+  scope.dispatchEvent(new MessageEvent('message', {
+    data: {
+      version: WORKER_PROTOCOL_VERSION,
+      id: 74,
+      type: 'prepare',
+      template: new ArrayBuffer(16),
+      options: {},
+    },
+  }))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(scope.responses.at(-1).type, 'error')
+  assert.deepEqual(released, [41])
+})
+
+test('runtime releases a presentation handle when opening metadata fails', async () => {
+  class Scope extends EventTarget {
+    responses = []
+
+    postMessage(message) {
+      this.responses.push(message)
+    }
+  }
+  const scope = new Scope()
+  const released = []
+  installWorkerRuntime(scope, {
+    open_presentation: () => 51,
+    presentation_slide_count: () => { throw new Error('broken slide metadata') },
+    release_presentation: (handle) => { released.push(handle); return true },
+  })
+  scope.dispatchEvent(new MessageEvent('message', {
+    data: {
+      version: WORKER_PROTOCOL_VERSION,
+      id: 75,
+      type: 'open-presentation',
+      presentation: new ArrayBuffer(16),
+    },
+  }))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(scope.responses.at(-1).type, 'error')
+  assert.deepEqual(released, [51])
+})
+
+test('releasing a presentation prevents an in-flight resource from repopulating its cache', async () => {
+  const worker = new FakeWorker()
+  const client = new WasmpptWorkerClient(worker)
+  const reading = client.presentationResource(11, 'ppt/media/late.png')
+  const resourceRequest = worker.messages[0]
+  const releasing = client.releasePresentation(11)
+  const releaseRequest = worker.messages[1]
+  worker.respond({
+    version: WORKER_PROTOCOL_VERSION,
+    id: resourceRequest.id,
+    type: 'presentation-resource',
+    partName: 'ppt/media/late.png',
+    bytes: new ArrayBuffer(24),
+  })
+  worker.respond({
+    version: WORKER_PROTOCOL_VERSION,
+    id: releaseRequest.id,
+    type: 'presentation-released',
+  })
+  await reading
+  await releasing
+  assert.equal(client.resourceCacheBytes, 0)
+  client.terminate()
 })

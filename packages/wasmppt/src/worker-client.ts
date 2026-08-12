@@ -68,6 +68,7 @@ export class WasmpptWorkerClient {
   #closed = false
   readonly #resourceCache = new Map<string, ArrayBuffer>()
   readonly #resourceInflight = new Map<string, Promise<ArrayBuffer>>()
+  readonly #releasedPresentations = new Set<number>()
   readonly #resourceCacheLimit: number
   #resourceCacheBytes = 0
 
@@ -130,6 +131,7 @@ export class WasmpptWorkerClient {
     )
     const response = await result
     if (response.type !== 'presentation-opened') throw new Error('invalid open response')
+    this.#releasedPresentations.delete(response.presentationHandle)
     return { handle: response.presentationHandle, slideCount: response.slideCount }
   }
 
@@ -163,7 +165,7 @@ export class WasmpptWorkerClient {
   ): Promise<ArrayBuffer> {
     this.#assertOpen()
     if (partName.length === 0) throw new TypeError('partName must not be empty')
-    return this.#cachedResource(`${presentationHandle}\0raw\0${partName}`, options.signal, async () => {
+    return this.#cachedResource(presentationHandle, `${presentationHandle}\0raw\0${partName}`, options.signal, async () => {
       const id = this.#allocateId()
       const result = this.#unaryRequest(id, 'resource', undefined, options.onProgress)
       this.#worker.postMessage({
@@ -188,7 +190,7 @@ export class WasmpptWorkerClient {
     if (!/\.(?:emf|wmf)$/i.test(partName)) {
       throw new TypeError('partName must identify an EMF or WMF resource')
     }
-    return this.#cachedResource(`${presentationHandle}\0svg\0${partName}`, options.signal, async () => {
+    return this.#cachedResource(presentationHandle, `${presentationHandle}\0svg\0${partName}`, options.signal, async () => {
       const id = this.#allocateId()
       const result = this.#unaryRequest(id, 'metafile', undefined, options.onProgress)
       this.#worker.postMessage({
@@ -208,6 +210,8 @@ export class WasmpptWorkerClient {
 
   async releasePresentation(presentationHandle: number): Promise<void> {
     this.#assertOpen()
+    this.#releasedPresentations.add(presentationHandle)
+    this.#purgePresentationResources(presentationHandle)
     const id = this.#allocateId()
     const result = this.#unaryRequest(id, 'release-presentation')
     this.#worker.postMessage({
@@ -216,14 +220,20 @@ export class WasmpptWorkerClient {
       type: 'release-presentation',
       presentationHandle,
     })
-    const response = await result
+    let response: WorkerResponse
+    try {
+      response = await result
+    } catch (error) {
+      this.#releasedPresentations.delete(presentationHandle)
+      throw error
+    }
     if (response.type !== 'presentation-released') {
       throw new Error('invalid release-presentation response')
     }
-    this.#purgePresentationResources(presentationHandle)
   }
 
   async #cachedResource(
+    presentationHandle: number,
     key: string,
     signal: AbortSignal | undefined,
     load: () => Promise<ArrayBuffer>,
@@ -238,7 +248,7 @@ export class WasmpptWorkerClient {
     let loading = this.#resourceInflight.get(key)
     if (loading === undefined) {
       loading = load().then((bytes) => {
-        this.#storeResource(key, bytes)
+        if (!this.#releasedPresentations.has(presentationHandle)) this.#storeResource(key, bytes)
         return bytes
       }).finally(() => this.#resourceInflight.delete(key))
       this.#resourceInflight.set(key, loading)
@@ -367,6 +377,7 @@ export class WasmpptWorkerClient {
     this.#detach()
     this.#worker.terminate()
     this.#resourceCache.clear()
+    this.#releasedPresentations.clear()
     this.#resourceCacheBytes = 0
     this.#failAll(new Error('wasmppt Worker was terminated'))
   }
@@ -470,8 +481,20 @@ function isWorkerResponse(value: unknown): value is WorkerResponse {
   const candidate = value as { readonly version?: unknown; readonly id?: unknown; readonly type?: unknown }
   return (
     candidate.version === WORKER_PROTOCOL_VERSION &&
-    typeof candidate.id === 'number' &&
-    typeof candidate.type === 'string'
+    Number.isSafeInteger(candidate.id) &&
+    (candidate.id as number) >= 0 &&
+    (candidate.type === 'progress' ||
+      candidate.type === 'prepared' ||
+      candidate.type === 'chunk' ||
+      candidate.type === 'generated' ||
+      candidate.type === 'released' ||
+      candidate.type === 'cancelled' ||
+      candidate.type === 'presentation-opened' ||
+      candidate.type === 'slide-resolved' ||
+      candidate.type === 'presentation-resource' ||
+      candidate.type === 'presentation-metafile-svg' ||
+      candidate.type === 'presentation-released' ||
+      candidate.type === 'error')
   )
 }
 

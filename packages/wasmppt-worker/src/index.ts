@@ -60,8 +60,19 @@ export class PreparedPlanCache {
   }
 
   insert(key: string, entry: CachedPlan): boolean {
-    if (entry.weight > this.#maxBytes) return false
+    if (!Number.isSafeInteger(entry.weight) || entry.weight < 0) {
+      throw new RangeError('cache weight must be a non-negative safe integer')
+    }
     const previous = this.#entries.get(key)
+    if (previous?.handle === entry.handle) {
+      if (entry.weight > this.#maxBytes) return true
+      this.#entries.delete(key)
+      this.#residentBytes -= previous.weight
+      this.#entries.set(key, Object.freeze(entry))
+      this.#residentBytes += entry.weight
+      return true
+    }
+    if (entry.weight > this.#maxBytes) return false
     if (previous !== undefined) {
       this.#entries.delete(key)
       this.#residentBytes -= previous.weight

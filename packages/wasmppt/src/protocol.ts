@@ -11,7 +11,7 @@ export interface TemplateCompilerOptions {
 
 export interface TemplateBinding {
   readonly id: string
-  readonly kind: 'text' | 'image'
+  readonly kind: 'text' | 'image' | 'chart'
   readonly partName: string
   readonly source: 'visible-token' | 'shape-metadata' | 'manifest'
   readonly shapeId?: number

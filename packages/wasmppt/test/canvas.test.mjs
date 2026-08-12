@@ -4,11 +4,14 @@ import test from 'node:test'
 
 import {
   ByteBudgetLru,
+  CanvasDisplayListRenderer,
   FontResolver,
+  buildRichTextLayout,
   decodeDisplayList,
   decodeRasterImage,
   inspectRasterImageMetadata,
   measureTextBatch,
+  renderOffscreenThumbnail,
   wrapText,
 } from '../dist/index.js'
 
@@ -126,9 +129,67 @@ test('text measurement is grouped by exact font without changing result order', 
   assert.equal(measurementCount, 3)
 })
 
+test('paragraph space-before shifts every line from the start of the paragraph', async () => {
+  const context = {
+    font: '',
+    measureText: (value) => ({ width: value.length * 10 }),
+  }
+  const style = {
+    fontSize: 1_200,
+    color: { red: 0, green: 0, blue: 0, alpha: 255 },
+    bold: false,
+    italic: false,
+    underline: false,
+    strike: false,
+    characterSpacing: 0,
+    baseline: 0,
+    alignment: 'left',
+    verticalAlignment: 'top',
+    marginLeft: 0,
+    marginTop: 0,
+    marginRight: 0,
+    marginBottom: 0,
+  }
+  const command = (spaceBefore) => ({
+    kind: 'draw-rich-text',
+    bounds: { x: 0, y: 0, width: 2_000_000, height: 2_000_000 },
+    frame: {
+      paragraphs: [{
+        runs: [{ text: 'first\nsecond', style }],
+        alignment: 'left',
+        level: 0,
+        marginLeft: 0,
+        indent: 0,
+        spaceBefore,
+        direction: 'ltr',
+        tabs: [],
+      }],
+      verticalAlignment: 'top',
+      marginLeft: 0,
+      marginTop: 0,
+      marginRight: 0,
+      marginBottom: 0,
+      wrap: true,
+      autofit: 'none',
+      flow: 'horizontal',
+    },
+  })
+  const baseline = await buildRichTextLayout(context, command(undefined))
+  const spaced = await buildRichTextLayout(context, command(1_200))
+  assert.equal(spaced.runs.length, 2)
+  assert(Math.abs(spaced.runs[0].baseline - baseline.runs[0].baseline - 16) < 1e-9)
+  assert(Math.abs(spaced.runs[1].baseline - baseline.runs[1].baseline - 16) < 1e-9)
+  const lineSpacedCommand = command(undefined)
+  lineSpacedCommand.frame.paragraphs[0].lineSpacing = 2_400
+  const lineSpaced = await buildRichTextLayout(context, lineSpacedCommand)
+  assert(Math.abs(lineSpaced.runs[1].baseline - lineSpaced.runs[0].baseline - 32) < 1e-9)
+})
+
 test('image metadata enforces deterministic PNG, JPEG, GIF, and safe SVG boundaries', () => {
   const png = new Uint8Array(24)
-  png.set([0x89, 0x50, 0x4e, 0x47], 0)
+  png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0)
+  new DataView(png.buffer).setUint32(8, 13)
+  png.set([0x49, 0x48, 0x44, 0x52], 12)
   new DataView(png.buffer).setUint32(16, 640)
   new DataView(png.buffer).setUint32(20, 360)
   assert.deepEqual(inspectRasterImageMetadata(png), {
@@ -161,11 +222,39 @@ test('image metadata enforces deterministic PNG, JPEG, GIF, and safe SVG boundar
   assert.deepEqual(inspectRasterImageMetadata(svg), {
     format: 'svg', width: 640, height: 360, orientation: 1,
   })
+  const unitSvg = new TextEncoder().encode(
+    '<svg xmlns="http://www.w3.org/2000/svg" stroke-width="999" width="1in" height="0.5in"/>',
+  )
+  assert.deepEqual(inspectRasterImageMetadata(unitSvg), {
+    format: 'svg', width: 96, height: 48, orientation: 1,
+  })
   assert.throws(
     () => inspectRasterImageMetadata(new TextEncoder().encode('<svg width="1" height="1"><script/></svg>')),
     /active or external/,
   )
-  assert.throws(() => inspectRasterImageMetadata(new Uint8Array([1, 2, 3])), /supported PNG or JPEG/)
+  for (const unsafe of [
+    '<svg width="1" height="1" onload="alert(1)"/>',
+    '<svg width="1" height="1"><style>@import url(https://example.com/a.css)</style></svg>',
+    '<svg width="1" height="1"><image href="relative.png"/></svg>',
+    '<?xml-stylesheet href="https://example.com/a.css"?><svg width="1" height="1"/>',
+  ]) {
+    assert.throws(
+      () => inspectRasterImageMetadata(new TextEncoder().encode(unsafe)),
+      /active or external/,
+    )
+  }
+  const lateScript = new TextEncoder().encode(
+    `<svg width="1" height="1">${' '.repeat(1024 * 1024)}<script/></svg>`,
+  )
+  assert.throws(() => inspectRasterImageMetadata(lateScript), /active or external/)
+  assert.throws(
+    () => inspectRasterImageMetadata(new TextEncoder().encode('<svg width="1e309" height="1"/>')),
+    /dimensions/,
+  )
+  const fakePng = png.slice()
+  fakePng[4] = 0
+  assert.throws(() => inspectRasterImageMetadata(fakePng), /supported raster image/)
+  assert.throws(() => inspectRasterImageMetadata(new Uint8Array([1, 2, 3])), /supported raster image/)
 })
 
 test('raster decoding rejects byte limits before browser allocation', async () => {
@@ -173,6 +262,76 @@ test('raster decoding rejects byte limits before browser allocation', async () =
     decodeRasterImage(new Uint8Array(25), { maxBytes: 24 }),
     /24-byte decode limit/,
   )
+  await assert.rejects(decodeRasterImage(new Uint8Array(), { maxBytes: Number.NaN }), /byte limit/)
+  await assert.rejects(decodeRasterImage(new Uint8Array(), { maxPixels: -1 }), /pixel limit/)
+})
+
+test('raster decoding closes a created bitmap when cancellation wins the allocation race', async () => {
+  const png = new Uint8Array(24)
+  png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0)
+  new DataView(png.buffer).setUint32(8, 13)
+  png.set([0x49, 0x48, 0x44, 0x52], 12)
+  new DataView(png.buffer).setUint32(16, 1)
+  new DataView(png.buffer).setUint32(20, 1)
+  const controller = new AbortController()
+  let closed = 0
+  const original = globalThis.createImageBitmap
+  globalThis.createImageBitmap = async () => {
+    controller.abort()
+    return { close: () => { closed += 1 } }
+  }
+  try {
+    await assert.rejects(decodeRasterImage(png, {}, controller.signal), { name: 'AbortError' })
+    assert.equal(closed, 1)
+  } finally {
+    if (original === undefined) delete globalThis.createImageBitmap
+    else globalThis.createImageBitmap = original
+  }
+})
+
+test('clearing a renderer disposes late image decodes without repopulating its cache', async () => {
+  const renderer = new CanvasDisplayListRenderer()
+  let resolveImage
+  let markResolverStarted
+  const resolverStarted = new Promise((resolve) => { markResolverStarted = resolve })
+  let closed = 0
+  const fontResolver = { resolve: async () => ({ css: '12px sans-serif' }) }
+  const canvas = { width: 1, height: 1 }
+  const context = {
+    canvas,
+    save() {},
+    restore() {},
+    setTransform() {},
+  }
+  const rendered = renderer.render(
+    {
+      version: 5,
+      width: 9_525,
+      height: 9_525,
+      commands: [],
+      groups: [],
+      strings: [],
+      images: [{ partName: 'ppt/media/late.png', relationshipId: 'rId1' }],
+      semantics: [],
+      diagnostics: [],
+      byteLength: 1,
+    },
+    context,
+    {
+      fontResolver,
+      imageResolver: () => {
+        markResolverStarted()
+        return new Promise((resolve) => { resolveImage = resolve })
+      },
+    },
+  )
+  await resolverStarted
+  assert.equal(typeof resolveImage, 'function')
+  renderer.clear()
+  resolveImage({ source: {}, residentBytes: 64, close: () => { closed += 1 } })
+  await rendered
+  assert.equal(renderer.decodedImageBytes, 0)
+  assert.equal(closed, 1)
 })
 
 test('byte-budget LRU evicts and disposes deterministically', () => {
@@ -190,6 +349,29 @@ test('byte-budget LRU evicts and disposes deterministically', () => {
   assert.equal(cache.residentBytes, 0)
   assert.equal(cache.hitRate, 0)
   assert.deepEqual(disposed, ['A', 'L', 'B'])
+})
+
+test('byte-budget LRU does not dispose a resident value while updating its weight', () => {
+  const disposed = []
+  const value = { close: () => disposed.push('closed') }
+  const cache = new ByteBudgetLru(8, (entry) => entry.close())
+  assert.equal(cache.set('image', value, 3), true)
+  assert.equal(cache.set('image', value, 5), true)
+  assert.deepEqual(disposed, [])
+  assert.equal(cache.residentBytes, 5)
+  assert.equal(cache.get('image'), value)
+  cache.clear()
+  assert.deepEqual(disposed, ['closed'])
+})
+
+test('offscreen thumbnails reject invalid dimensions before host capability checks', async () => {
+  const scene = { width: 9_144_000, height: 6_858_000 }
+  await assert.rejects(renderOffscreenThumbnail(scene, 0), /maximum width must be positive/)
+  await assert.rejects(renderOffscreenThumbnail(scene, Number.NaN), /maximum width must be positive/)
+  await assert.rejects(
+    renderOffscreenThumbnail({ ...scene, width: 0 }, 320),
+    /scene dimensions must be positive/,
+  )
 })
 
 test('byte-budget LRU remains bounded across a 1000-slide scroll trace', () => {

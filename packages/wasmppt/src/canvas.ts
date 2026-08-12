@@ -646,6 +646,8 @@ export async function buildRichTextLayout(
     const lineRuns: Array<Omit<RichTextLayoutRun, 'x' | 'baseline'>> = []
     let lineWidth = 0
     let lineHeight = 0
+    let firstLine = true
+    const paragraphBefore = spacingPixels(paragraph.spaceBefore)
     const left = toPixels(paragraph.marginLeft + paragraph.indent)
     const available = Math.max(0, innerWidth - left)
     const inputs = paragraph.bullet === undefined || paragraph.runs[0] === undefined
@@ -658,7 +660,16 @@ export async function buildRichTextLayout(
       const tokens = command.frame.wrap ? lineBreakTokens(run.text) : [run.text]
       for (const token of tokens) {
         if (token === '\n') {
-          lines.push({ runs: lineRuns.splice(0), height: lineHeight || 1, alignment: paragraph.alignment, before: 0, after: 0, left, direction: paragraph.direction })
+          lines.push({
+            runs: lineRuns.splice(0),
+            height: applyLineSpacing(lineHeight || 1, paragraph.lineSpacing),
+            alignment: paragraph.alignment,
+            before: firstLine ? paragraphBefore : 0,
+            after: 0,
+            left,
+            direction: paragraph.direction,
+          })
+          firstLine = false
           lineWidth = 0
           lineHeight = 0
           continue
@@ -668,7 +679,16 @@ export async function buildRichTextLayout(
           ? nextTabWidth(lineWidth, paragraph.tabs)
           : (measurementLookup.get(`${font.css}\0${token}`) ?? 0) + characterGapCount(token) * spacing
         if (command.frame.wrap && lineRuns.length > 0 && lineWidth + width > available) {
-          lines.push({ runs: lineRuns.splice(0), height: lineHeight || 1, alignment: paragraph.alignment, before: 0, after: 0, left, direction: paragraph.direction })
+          lines.push({
+            runs: lineRuns.splice(0),
+            height: applyLineSpacing(lineHeight || 1, paragraph.lineSpacing),
+            alignment: paragraph.alignment,
+            before: firstLine ? paragraphBefore : 0,
+            after: 0,
+            left,
+            direction: paragraph.direction,
+          })
+          firstLine = false
           lineWidth = 0
           lineHeight = 0
         }
@@ -692,7 +712,7 @@ export async function buildRichTextLayout(
       runs: lineRuns,
       height: applyLineSpacing(lineHeight || 1, paragraph.lineSpacing),
       alignment: paragraph.alignment,
-      before: spacingPixels(paragraph.spaceBefore),
+      before: firstLine ? paragraphBefore : 0,
       after: spacingPixels(paragraph.spaceAfter),
       left,
       direction: paragraph.direction,
@@ -819,33 +839,45 @@ export interface RasterDecodeLimits {
   readonly maxPixels?: number
 }
 
-/** Reads PNG/JPEG dimensions and JPEG EXIF orientation without decoding pixels. */
+/** Reads bounded raster metadata and JPEG EXIF orientation without decoding pixels. */
 export function inspectRasterImageMetadata(input: ArrayBuffer | Uint8Array): RasterImageMetadata {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
-  if (bytes.byteLength >= 24 && bytes[0] === 0x89 && String.fromCharCode(...bytes.subarray(1, 4)) === 'PNG') {
+  if (
+    bytes.byteLength >= 24 &&
+    bytes.subarray(0, 8).every((value, index) => value === PNG_SIGNATURE[index]) &&
+    new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(8) === 13 &&
+    new TextDecoder('ascii').decode(bytes.subarray(12, 16)) === 'IHDR'
+  ) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-    return { format: 'png', width: view.getUint32(16), height: view.getUint32(20), orientation: 1 }
+    const width = view.getUint32(16)
+    const height = view.getUint32(20)
+    if (width === 0 || height === 0) throw new Error('PNG dimensions are missing')
+    return { format: 'png', width, height, orientation: 1 }
   }
   if (bytes.byteLength >= 10 && new TextDecoder('ascii').decode(bytes.subarray(0, 6)).match(/^GIF8[79]a$/u)) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-    return { format: 'gif', width: view.getUint16(6, true), height: view.getUint16(8, true), orientation: 1 }
+    const width = view.getUint16(6, true)
+    const height = view.getUint16(8, true)
+    if (width === 0 || height === 0) throw new Error('GIF dimensions are missing')
+    return { format: 'gif', width, height, orientation: 1 }
   }
-  const prefix = new TextDecoder('utf-8').decode(bytes.subarray(0, Math.min(bytes.byteLength, 1024 * 1024))).trimStart()
-  if (prefix.startsWith('<svg') || prefix.startsWith('<?xml') && prefix.includes('<svg')) {
-    if (/<(?:script|foreignObject)\b|\b(?:href|src)\s*=\s*["'](?:https?:|data:|javascript:)/iu.test(prefix)) {
-      throw new Error('SVG resource contains active or external content')
-    }
-    const svg = prefix.match(/<svg\b[^>]*>/iu)?.[0] ?? ''
-    const width = svg.match(/\bwidth\s*=\s*["']([0-9.]+)/iu)?.[1]
-    const height = svg.match(/\bheight\s*=\s*["']([0-9.]+)/iu)?.[1]
-    const viewBox = svg.match(/\bviewBox\s*=\s*["'][^"']*?([0-9.]+)[ ,]+([0-9.]+)["']/iu)
-    const resolvedWidth = Number(width ?? viewBox?.[1] ?? 0)
-    const resolvedHeight = Number(height ?? viewBox?.[2] ?? 0)
+  const source = new TextDecoder('utf-8').decode(bytes).trimStart()
+  if (source.startsWith('<svg') || source.startsWith('<?xml') && source.includes('<svg')) {
+    assertSafeSvg(source)
+    const svg = source.match(/<svg\b[^>]*>/iu)?.[0] ?? ''
+    const viewBox = svgViewBoxSize(svg)
+    const resolvedWidth = svgLength(svg, 'width') ?? viewBox?.width ?? 0
+    const resolvedHeight = svgLength(svg, 'height') ?? viewBox?.height ?? 0
     if (!(resolvedWidth > 0) || !(resolvedHeight > 0)) throw new Error('SVG dimensions are missing')
-    return { format: 'svg', width: resolvedWidth, height: resolvedHeight, orientation: 1 }
+    return {
+      format: 'svg',
+      width: Math.ceil(resolvedWidth),
+      height: Math.ceil(resolvedHeight),
+      orientation: 1,
+    }
   }
   if (bytes.byteLength < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
-    throw new Error('resource is not a supported PNG or JPEG image')
+    throw new Error('resource is not a supported raster image')
   }
   let offset = 2
   let width = 0
@@ -869,6 +901,61 @@ export function inspectRasterImageMetadata(input: ArrayBuffer | Uint8Array): Ras
   return { format: 'jpeg', width, height, orientation }
 }
 
+const PNG_SIGNATURE = Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
+
+function assertSafeSvg(source: string): void {
+  if (
+    /<!DOCTYPE\b|<!ENTITY\b|<\?xml-stylesheet\b|<(?:script|foreignObject|iframe|object|embed)\b|\bon[a-z]+\s*=/iu
+      .test(source) ||
+    /@import\b/iu.test(source)
+  ) {
+    throw new Error('SVG resource contains active or external content')
+  }
+  for (const match of source.matchAll(/\b(?:href|src)\s*=\s*["']([^"']*)["']/giu)) {
+    if (!match[1]?.startsWith('#')) {
+      throw new Error('SVG resource contains active or external content')
+    }
+  }
+  for (const match of source.matchAll(/url\s*\(\s*["']?([^)'"\s]+)["']?\s*\)/giu)) {
+    if (!match[1]?.startsWith('#')) {
+      throw new Error('SVG resource contains active or external content')
+    }
+  }
+}
+
+function svgLength(root: string, name: 'width' | 'height'): number | undefined {
+  const raw = root.match(new RegExp(`(?:^|\\s)${name}\\s*=\\s*["']([^"']+)["']`, 'iu'))?.[1]
+  if (raw === undefined) return undefined
+  const parsed = raw.trim().match(/^([+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(px|in|cm|mm|q|pt|pc)?$/iu)
+  if (parsed === null) throw new Error('SVG dimensions use an unsupported length')
+  const value = Number(parsed[1])
+  const scales: Readonly<Record<string, number>> = {
+    px: 1,
+    in: 96,
+    cm: 96 / 2.54,
+    mm: 96 / 25.4,
+    q: 96 / 101.6,
+    pt: 96 / 72,
+    pc: 16,
+  }
+  const result = value * scales[parsed[2]?.toLowerCase() ?? 'px']!
+  if (!Number.isFinite(result) || result <= 0) throw new Error('SVG dimensions are invalid')
+  return result
+}
+
+function svgViewBoxSize(root: string): { readonly width: number; readonly height: number } | undefined {
+  const raw = root.match(/(?:^|\s)viewBox\s*=\s*["']([^"']+)["']/iu)?.[1]
+  if (raw === undefined) return undefined
+  const values = raw.trim().split(/[\s,]+/u).map(Number)
+  if (values.length !== 4 || values.some((value) => !Number.isFinite(value))) {
+    throw new Error('SVG dimensions contain an invalid viewBox')
+  }
+  const width = values[2]!
+  const height = values[3]!
+  if (width <= 0 || height <= 0) throw new Error('SVG dimensions contain an invalid viewBox')
+  return { width, height }
+}
+
 /** Bounded raster decoder; browsers apply EXIF orientation while creating the bitmap. */
 export async function decodeRasterImage(
   input: ArrayBuffer | Uint8Array,
@@ -879,6 +966,12 @@ export async function decodeRasterImage(
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
   const maxBytes = limits.maxBytes ?? 32 * 1024 * 1024
   const maxPixels = limits.maxPixels ?? 64 * 1024 * 1024
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+    throw new RangeError('image byte limit must be a non-negative safe integer')
+  }
+  if (!Number.isSafeInteger(maxPixels) || maxPixels < 0) {
+    throw new RangeError('image pixel limit must be a non-negative safe integer')
+  }
   if (bytes.byteLength > maxBytes) throw new RangeError(`image exceeds the ${maxBytes}-byte decode limit`)
   const metadata = inspectRasterImageMetadata(bytes)
   if (metadata.width * metadata.height > maxPixels) {
@@ -894,7 +987,10 @@ export async function decodeRasterImage(
           ? 'image/gif'
           : 'image/svg+xml',
   }), { imageOrientation: 'from-image' })
-  throwIfAborted(signal)
+  if (signal.aborted) {
+    source.close()
+    throwIfAborted(signal)
+  }
   return {
     source,
     residentBytes: metadata.width * metadata.height * 4,
@@ -994,6 +1090,8 @@ export interface CanvasRenderOptions {
 export class CanvasDisplayListRenderer {
   readonly #images: ByteBudgetLru<string, DecodedImage>
   readonly #imageInflight = new Map<string, Promise<DecodedImage | undefined>>()
+  #imageAbort = new AbortController()
+  #imageRevision = 0
 
   constructor(imageCacheBytes = 32 * 1024 * 1024) {
     this.#images = new ByteBudgetLru(imageCacheBytes, (image) => image.close?.())
@@ -1159,6 +1257,10 @@ export class CanvasDisplayListRenderer {
   }
 
   clear(): void {
+    this.#imageRevision += 1
+    this.#imageAbort.abort()
+    this.#imageAbort = new AbortController()
+    this.#imageInflight.clear()
     this.#images.clear()
   }
 
@@ -1175,11 +1277,18 @@ export class CanvasDisplayListRenderer {
         if (cached !== undefined) return cached
         let loading = this.#imageInflight.get(key)
         if (loading === undefined) {
-          loading = resolver(image, signal).then((decoded) => {
-            throwIfAborted(signal)
+          const revision = this.#imageRevision
+          const sharedSignal = this.#imageAbort.signal
+          loading = resolver(image, sharedSignal).then((decoded) => {
+            if (revision !== this.#imageRevision) {
+              decoded?.close?.()
+              return undefined
+            }
             if (decoded !== undefined) this.#images.set(key, decoded, decoded.residentBytes)
             return decoded
-          }).finally(() => this.#imageInflight.delete(key))
+          }).finally(() => {
+            if (this.#imageInflight.get(key) === loading) this.#imageInflight.delete(key)
+          })
           this.#imageInflight.set(key, loading)
         }
         const decoded = await loading
@@ -1212,6 +1321,12 @@ export async function renderOffscreenThumbnail(
   options: CanvasRenderOptions = {},
   renderer = new CanvasDisplayListRenderer(),
 ): Promise<OffscreenThumbnailResult> {
+  if (!Number.isFinite(maximumWidth) || maximumWidth <= 0) {
+    throw new RangeError('maximum width must be positive and finite')
+  }
+  if (!Number.isFinite(scene.width) || scene.width <= 0 || !Number.isFinite(scene.height) || scene.height <= 0) {
+    throw new RangeError('scene dimensions must be positive and finite')
+  }
   if (typeof OffscreenCanvas === 'undefined') {
     throw new Error('OffscreenCanvas is unavailable; render the same scene on the main thread')
   }
@@ -1411,6 +1526,18 @@ export class ByteBudgetLru<Key, Value> {
   set(key: Key, value: Value, weight: number): boolean {
     if (!Number.isSafeInteger(weight) || weight < 0) throw new RangeError('cache weight is invalid')
     const previous = this.#entries.get(key)
+    if (previous !== undefined && Object.is(previous.value, value)) {
+      if (weight > this.#maxBytes) {
+        this.#remove(key, previous)
+        return false
+      }
+      this.#entries.delete(key)
+      this.#residentBytes -= previous.weight
+      this.#entries.set(key, { value, weight })
+      this.#residentBytes += weight
+      this.#evictToBudget()
+      return Object.is(this.#entries.get(key)?.value, value)
+    }
     if (previous !== undefined) this.#remove(key, previous)
     if (weight > this.#maxBytes) {
       this.#dispose?.(value)
@@ -1418,6 +1545,11 @@ export class ByteBudgetLru<Key, Value> {
     }
     this.#entries.set(key, { value, weight })
     this.#residentBytes += weight
+    this.#evictToBudget()
+    return Object.is(this.#entries.get(key)?.value, value)
+  }
+
+  #evictToBudget(): void {
     while (this.#residentBytes > this.#maxBytes) {
       const oldest = this.#entries.entries().next().value as
         | [Key, { readonly value: Value; readonly weight: number }]
@@ -1425,7 +1557,6 @@ export class ByteBudgetLru<Key, Value> {
       if (oldest === undefined) break
       this.#remove(oldest[0], oldest[1])
     }
-    return this.#entries.get(key)?.value === value
   }
 
   clear(): void {

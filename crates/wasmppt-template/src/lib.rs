@@ -237,13 +237,23 @@ impl TemplateCompiler {
                         if let Some(description) = &shape.description {
                             if let Some((kind, id)) = metadata_binding(description) {
                                 match kind {
-                                    BindingKind::Text => candidates.push(candidate_for_text(
-                                        id,
-                                        BindingSource::ShapeMetadata,
-                                        &entry.name,
-                                        shape,
-                                        None,
-                                    )),
+                                    BindingKind::Text => {
+                                        if shape.text_runs.is_empty() {
+                                            diagnostics.push(missing_text_target(
+                                                id,
+                                                &entry.name,
+                                                "text binding shape has no writable text runs",
+                                            ));
+                                        } else {
+                                            candidates.push(candidate_for_text(
+                                                id,
+                                                BindingSource::ShapeMetadata,
+                                                &entry.name,
+                                                shape,
+                                                None,
+                                            ));
+                                        }
+                                    }
                                     BindingKind::Image => {
                                         if let Some(relationship_id) = &shape.image_relationship_id
                                         {
@@ -337,13 +347,23 @@ impl TemplateCompiler {
                     message: "manifest binding target was not found".to_owned(),
                 }),
                 [shape] => match kind {
-                    BindingKind::Text => candidates.push(candidate_for_text(
-                        declaration.id,
-                        BindingSource::Manifest,
-                        &declaration.part,
-                        shape,
-                        None,
-                    )),
+                    BindingKind::Text => {
+                        if shape.text_runs.is_empty() {
+                            diagnostics.push(missing_text_target(
+                                declaration.id,
+                                &declaration.part,
+                                "manifest text binding shape has no writable text runs",
+                            ));
+                        } else {
+                            candidates.push(candidate_for_text(
+                                declaration.id,
+                                BindingSource::Manifest,
+                                &declaration.part,
+                                shape,
+                                None,
+                            ));
+                        }
+                    }
                     BindingKind::Image => match &shape.image_relationship_id {
                         Some(relationship_id) => candidates.push(candidate_for_image(
                             declaration.id,
@@ -416,6 +436,15 @@ impl TemplateCompiler {
 #[derive(Clone)]
 struct Candidate {
     target: BindingTarget,
+}
+
+fn missing_text_target(id: String, part_name: &str, message: &str) -> BindingDiagnostic {
+    BindingDiagnostic {
+        code: BindingDiagnosticCode::MissingTarget,
+        binding_id: Some(id),
+        part_name: Some(part_name.to_owned()),
+        message: message.to_owned(),
+    }
 }
 
 fn candidate_for_text(

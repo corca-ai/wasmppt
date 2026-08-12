@@ -853,6 +853,33 @@ fn chart_injection_uses_stable_alt_text_metadata_instead_of_part_names() {
 }
 
 #[test]
+fn chart_injection_rejects_aliases_that_target_the_same_chart_twice() {
+    let bytes = named_chart_template();
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let chart = ChartData {
+        categories: vec!["Q1".to_owned()],
+        series: vec![ChartSeriesData {
+            name: "Revenue".to_owned(),
+            values: vec![12.0],
+        }],
+    };
+    let error = PreparedTemplate::new(bytes, plan)
+        .unwrap()
+        .generate(
+            &InjectionData::new()
+                .with_chart("sales", chart.clone())
+                .with_chart("ppt/charts/chart1.xml", chart),
+        )
+        .unwrap_err();
+    assert_eq!(error.code(), GenerateErrorCode::InvalidChart);
+    assert!(error.to_string().contains("same chart"));
+}
+
+#[test]
 fn invalid_chart_data_fails_before_writing_partial_output() {
     let bytes = ADVANCED_FIXTURE.to_vec();
     let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();

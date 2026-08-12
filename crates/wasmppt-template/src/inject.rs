@@ -892,6 +892,7 @@ impl PreparedTemplate {
                     replacement,
                 });
         }
+        let mut updated_chart_parts = HashSet::new();
         for (part_name, chart) in &data.charts {
             validate_chart_data(chart)?;
             let chart_plan = self.chart_plans.get(part_name).ok_or_else(|| {
@@ -900,6 +901,15 @@ impl PreparedTemplate {
                     format!("no supported chart part named {part_name}"),
                 )
             })?;
+            if !updated_chart_parts.insert(chart_plan.chart_part.as_str()) {
+                return Err(GenerateError::new(
+                    GenerateErrorCode::InvalidChart,
+                    format!(
+                        "multiple chart keys target the same chart part {}",
+                        chart_plan.chart_part
+                    ),
+                ));
+            }
             let chart_source = self.cached_part(&chart_plan.chart_part)?;
             let rewritten_chart = rewrite_chart_cache(chart_source, chart)?;
             dynamic
@@ -1220,6 +1230,7 @@ impl PreparedTemplate {
                     replacement,
                 });
         }
+        let mut updated_chart_parts = HashSet::new();
         for (part_name, chart) in &data.charts {
             validate_chart_data(chart)?;
             let chart_plan = self.chart_plans.get(part_name).ok_or_else(|| {
@@ -1228,6 +1239,15 @@ impl PreparedTemplate {
                     format!("no supported chart part named {part_name}"),
                 )
             })?;
+            if !updated_chart_parts.insert(chart_plan.chart_part.as_str()) {
+                return Err(GenerateError::new(
+                    GenerateErrorCode::InvalidChart,
+                    format!(
+                        "multiple chart keys target the same chart part {}",
+                        chart_plan.chart_part
+                    ),
+                ));
+            }
             let chart_source = self.cached_part(&chart_plan.chart_part)?;
             dynamic
                 .entry(chart_plan.chart_part.clone())

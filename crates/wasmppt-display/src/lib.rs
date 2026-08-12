@@ -580,19 +580,7 @@ fn lower_chart(list: &mut DisplayList, transform: Transform, chart: &ResolvedCha
             1_400,
         );
     }
-    let minimum = chart
-        .series
-        .iter()
-        .flat_map(|series| series.values.iter())
-        .copied()
-        .fold(0.0_f64, f64::min);
-    let maximum = chart
-        .series
-        .iter()
-        .flat_map(|series| series.values.iter())
-        .copied()
-        .fold(0.0_f64, f64::max)
-        .max(1.0);
+    let (minimum, maximum) = chart_value_bounds(chart);
     let value_range = (maximum - minimum).max(1.0);
     let value_y = |value: f64| {
         plot.origin.y + plot.size.height
@@ -674,23 +662,19 @@ fn lower_chart(list: &mut DisplayList, transform: Transform, chart: &ResolvedCha
                     } else {
                         1.0
                     };
-                    let mut accumulated = 0.0;
+                    let mut positive = 0.0;
+                    let mut negative = 0.0;
                     for series in &chart.series {
                         let value =
                             series.values.get(category).copied().unwrap_or(0.0) / denominator;
-                        let next = accumulated + value;
-                        let start_y = if chart.grouping == ChartGrouping::PercentStacked {
-                            plot.origin.y + plot.size.height
-                                - (accumulated * plot.size.height as f64) as i64
+                        let accumulated = if value >= 0.0 {
+                            &mut positive
                         } else {
-                            value_y(accumulated)
+                            &mut negative
                         };
-                        let end_y = if chart.grouping == ChartGrouping::PercentStacked {
-                            plot.origin.y + plot.size.height
-                                - (next * plot.size.height as f64) as i64
-                        } else {
-                            value_y(next)
-                        };
+                        let start_y = value_y(*accumulated);
+                        *accumulated += value;
+                        let end_y = value_y(*accumulated);
                         push_chart_rect(
                             list,
                             transform,
@@ -700,7 +684,6 @@ fn lower_chart(list: &mut DisplayList, transform: Transform, chart: &ResolvedCha
                             (end_y - start_y).abs(),
                             series.color,
                         );
-                        accumulated = next;
                     }
                 }
             }
@@ -751,15 +734,26 @@ fn lower_chart(list: &mut DisplayList, transform: Transform, chart: &ResolvedCha
                             .sum::<f64>()
                             .max(1.0)
                     } else {
-                        maximum.max(1.0)
+                        1.0
                     };
-                    let mut accumulated = 0.0;
+                    let mut positive = 0.0;
+                    let mut negative = 0.0;
                     for series in &chart.series {
                         let value =
                             series.values.get(category).copied().unwrap_or(0.0) / denominator;
-                        let start_x = plot.origin.x + (accumulated * plot.size.width as f64) as i64;
-                        accumulated += value;
-                        let end_x = plot.origin.x + (accumulated * plot.size.width as f64) as i64;
+                        let accumulated = if value >= 0.0 {
+                            &mut positive
+                        } else {
+                            &mut negative
+                        };
+                        let value_x = |position: f64| {
+                            plot.origin.x
+                                + ((position - minimum) / value_range * plot.size.width as f64)
+                                    as i64
+                        };
+                        let start_x = value_x(*accumulated);
+                        *accumulated += value;
+                        let end_x = value_x(*accumulated);
                         push_chart_rect(
                             list,
                             transform,
@@ -830,7 +824,7 @@ fn lower_chart(list: &mut DisplayList, transform: Transform, chart: &ResolvedCha
                 let denominator = series.values.len().saturating_sub(1).max(1) as i64;
                 let mut commands = vec![PathCommand::MoveTo(EmuPoint {
                     x: 0,
-                    y: plot.size.height,
+                    y: value_y(0.0) - plot.origin.y,
                 })];
                 for (index, value) in series.values.iter().enumerate() {
                     commands.push(PathCommand::LineTo(EmuPoint {
@@ -840,7 +834,7 @@ fn lower_chart(list: &mut DisplayList, transform: Transform, chart: &ResolvedCha
                 }
                 commands.push(PathCommand::LineTo(EmuPoint {
                     x: plot.size.width,
-                    y: plot.size.height,
+                    y: value_y(0.0) - plot.origin.y,
                 }));
                 commands.push(PathCommand::Close);
                 let mut color = series.color;
@@ -920,34 +914,133 @@ fn lower_chart(list: &mut DisplayList, transform: Transform, chart: &ResolvedCha
                 return;
             }
             let slot = plot.size.width / category_count as i64;
-            if let Some(series) = chart.series.first() {
+            let columns = chart
+                .series
+                .iter()
+                .filter(|series| series.kind == ChartKind::Column)
+                .collect::<Vec<_>>();
+            let column_width = if columns.is_empty() {
+                0
+            } else {
+                slot * 4 / 5 / columns.len() as i64
+            };
+            for (series_index, series) in columns.into_iter().enumerate() {
                 for (value_index, value) in series.values.iter().enumerate() {
                     let baseline = value_y(0.0);
                     let end = value_y(*value);
                     push_chart_rect(
                         list,
                         transform,
-                        plot.origin.x + slot * value_index as i64 + slot / 5,
+                        plot.origin.x
+                            + slot * value_index as i64
+                            + slot / 10
+                            + column_width * series_index as i64,
                         baseline.min(end),
-                        slot * 3 / 5,
+                        column_width,
                         (end - baseline).abs(),
                         series.color,
                     );
                 }
             }
-            for series in chart.series.iter().skip(1) {
+            let bars = chart
+                .series
+                .iter()
+                .filter(|series| series.kind == ChartKind::Bar)
+                .collect::<Vec<_>>();
+            let row_slot = plot.size.height / category_count as i64;
+            let bar_height = if bars.is_empty() {
+                0
+            } else {
+                row_slot * 4 / 5 / bars.len() as i64
+            };
+            for (series_index, series) in bars.into_iter().enumerate() {
+                for (value_index, value) in series.values.iter().enumerate() {
+                    let baseline = ((0.0 - minimum) / value_range * plot.size.width as f64) as i64;
+                    let end = ((*value - minimum) / value_range * plot.size.width as f64) as i64;
+                    push_chart_rect(
+                        list,
+                        transform,
+                        plot.origin.x + baseline.min(end),
+                        plot.origin.y
+                            + row_slot * value_index as i64
+                            + row_slot / 10
+                            + bar_height * series_index as i64,
+                        (end - baseline).abs(),
+                        bar_height,
+                        series.color,
+                    );
+                }
+            }
+            for series in chart
+                .series
+                .iter()
+                .filter(|series| matches!(series.kind, ChartKind::Line | ChartKind::Scatter))
+            {
                 let denominator = series.values.len().saturating_sub(1).max(1) as i64;
+                let x_min = series.x_values.iter().copied().fold(0.0_f64, f64::min);
+                let x_max = series.x_values.iter().copied().fold(1.0_f64, f64::max);
+                let x_range = (x_max - x_min).max(1.0);
+                let point_x = |index: usize| {
+                    if series.kind == ChartKind::Scatter {
+                        let raw = series.x_values.get(index).copied().unwrap_or(index as f64);
+                        plot.origin.x + ((raw - x_min) / x_range * plot.size.width as f64) as i64
+                    } else {
+                        plot.origin.x + plot.size.width * index as i64 / denominator
+                    }
+                };
                 for (index, values) in series.values.windows(2).enumerate() {
                     push_chart_line(
                         list,
                         transform,
-                        plot.origin.x + plot.size.width * index as i64 / denominator,
+                        point_x(index),
                         value_y(values[0]),
-                        plot.origin.x + plot.size.width * (index + 1) as i64 / denominator,
+                        point_x(index + 1),
                         value_y(values[1]),
                         series.color,
                     );
                 }
+            }
+            for series in chart
+                .series
+                .iter()
+                .filter(|series| series.kind == ChartKind::Area && !series.values.is_empty())
+            {
+                let denominator = series.values.len().saturating_sub(1).max(1) as i64;
+                let mut commands = vec![PathCommand::MoveTo(EmuPoint {
+                    x: 0,
+                    y: value_y(0.0) - plot.origin.y,
+                })];
+                for (index, value) in series.values.iter().enumerate() {
+                    commands.push(PathCommand::LineTo(EmuPoint {
+                        x: plot.size.width * index as i64 / denominator,
+                        y: value_y(*value) - plot.origin.y,
+                    }));
+                }
+                commands.push(PathCommand::LineTo(EmuPoint {
+                    x: plot.size.width,
+                    y: value_y(0.0) - plot.origin.y,
+                }));
+                commands.push(PathCommand::Close);
+                let mut color = series.color;
+                color.alpha = 140;
+                list.commands.push(DisplayCommand::DrawCustomPath {
+                    path: CustomPath {
+                        size: plot.size,
+                        commands,
+                    },
+                    transform: Transform {
+                        bounds: plot,
+                        ..transform
+                    },
+                    fill: Fill::Solid(color),
+                    stroke: Some(Stroke {
+                        color: series.color,
+                        width: 19_050,
+                        dash: None,
+                        head_end: None,
+                        tail_end: None,
+                    }),
+                });
             }
             push_category_labels(list, chart, plot);
         }
@@ -963,6 +1056,63 @@ fn lower_chart(list: &mut DisplayList, transform: Transform, chart: &ResolvedCha
             legend_width,
         );
     }
+}
+
+fn chart_value_bounds(chart: &ResolvedChart) -> (f64, f64) {
+    if chart.grouping == ChartGrouping::Standard
+        || !matches!(chart.kind, ChartKind::Column | ChartKind::Bar)
+    {
+        let minimum = chart
+            .series
+            .iter()
+            .flat_map(|series| series.values.iter())
+            .copied()
+            .fold(0.0_f64, f64::min);
+        let maximum = chart
+            .series
+            .iter()
+            .flat_map(|series| series.values.iter())
+            .copied()
+            .fold(0.0_f64, f64::max)
+            .max(1.0);
+        return (minimum, maximum);
+    }
+    let category_count = chart
+        .series
+        .iter()
+        .map(|series| series.values.len())
+        .max()
+        .unwrap_or(0);
+    let mut minimum = 0.0_f64;
+    let mut maximum = 0.0_f64;
+    for category in 0..category_count {
+        let denominator = if chart.grouping == ChartGrouping::PercentStacked {
+            chart
+                .series
+                .iter()
+                .filter_map(|series| series.values.get(category))
+                .map(|value| value.abs())
+                .sum::<f64>()
+                .max(1.0)
+        } else {
+            1.0
+        };
+        let (positive, negative) = chart
+            .series
+            .iter()
+            .filter_map(|series| series.values.get(category))
+            .map(|value| value / denominator)
+            .fold((0.0, 0.0), |(positive, negative), value| {
+                if value >= 0.0 {
+                    (positive + value, negative)
+                } else {
+                    (positive, negative + value)
+                }
+            });
+        minimum = minimum.min(negative);
+        maximum = maximum.max(positive);
+    }
+    (minimum, maximum.max(1.0))
 }
 
 fn push_category_labels(list: &mut DisplayList, chart: &ResolvedChart, plot: EmuRect) {
@@ -1690,3 +1840,111 @@ fn push_i64(output: &mut Vec<u8>, value: i64) {
 }
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wasmppt_layout::ChartSeries;
+
+    #[test]
+    fn combination_chart_uses_each_series_kind_independent_of_source_order() {
+        let line_color = RgbaColor {
+            red: 1,
+            green: 2,
+            blue: 3,
+            alpha: 255,
+        };
+        let column_color = RgbaColor {
+            red: 4,
+            green: 5,
+            blue: 6,
+            alpha: 255,
+        };
+        let series = |kind, color| ChartSeries {
+            kind,
+            name: String::new(),
+            categories: vec!["Q1".to_owned(), "Q2".to_owned()],
+            x_values: Vec::new(),
+            values: vec![1.0, 2.0],
+            bubble_sizes: Vec::new(),
+            color,
+        };
+        let chart = ResolvedChart {
+            kind: ChartKind::Combination,
+            grouping: ChartGrouping::Standard,
+            series: vec![
+                series(ChartKind::Line, line_color),
+                series(ChartKind::Column, column_color),
+            ],
+            title: None,
+            show_legend: false,
+            embedded_workbook: None,
+        };
+        let size = EmuSize {
+            width: 9_144_000,
+            height: 6_858_000,
+        };
+        let mut list = DisplayList {
+            size,
+            commands: Vec::new(),
+            group_transforms: Vec::new(),
+            strings: Vec::new(),
+            images: Vec::new(),
+            semantics: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        lower_chart(
+            &mut list,
+            Transform {
+                bounds: EmuRect {
+                    origin: EmuPoint { x: 0, y: 0 },
+                    size,
+                },
+                rotation: 0,
+                flip_horizontal: false,
+                flip_vertical: false,
+            },
+            &chart,
+        );
+        assert!(list.commands.iter().any(|command| matches!(
+            command,
+            DisplayCommand::FillPreset { color, .. } if *color == column_color
+        )));
+        assert!(list.commands.iter().any(|command| matches!(
+            command,
+            DisplayCommand::StrokePreset { stroke, .. } if stroke.color == line_color
+        )));
+    }
+
+    #[test]
+    fn stacked_chart_bounds_use_signed_category_totals() {
+        let make_series = |values| ChartSeries {
+            kind: ChartKind::Column,
+            name: String::new(),
+            categories: Vec::new(),
+            x_values: Vec::new(),
+            values,
+            bubble_sizes: Vec::new(),
+            color: RgbaColor {
+                red: 1,
+                green: 2,
+                blue: 3,
+                alpha: 255,
+            },
+        };
+        let chart = ResolvedChart {
+            kind: ChartKind::Column,
+            grouping: ChartGrouping::Stacked,
+            series: vec![make_series(vec![8.0, -4.0]), make_series(vec![8.0, -4.0])],
+            title: None,
+            show_legend: false,
+            embedded_workbook: None,
+        };
+        assert_eq!(chart_value_bounds(&chart), (-8.0, 16.0));
+        let percent = ResolvedChart {
+            grouping: ChartGrouping::PercentStacked,
+            ..chart
+        };
+        assert_eq!(chart_value_bounds(&percent), (-1.0, 1.0));
+    }
+}

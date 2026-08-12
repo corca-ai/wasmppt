@@ -60,20 +60,25 @@ export function installWorkerRuntime(
                 message.options.allowVisibleTokens ?? true,
               )
             : engine.prepare_with_plan(template, new Uint8Array(message.plan))
-          const plan = exactBuffer(engine.prepared_plan(handle))
-          progress(scope, message.id, 'prepare', 1, 1)
-          scope.postMessage(
-            response({
-              id: message.id,
-              type: 'prepared',
-              templateHandle: handle,
-              residentBytes: Number(engine.prepared_weight(handle)),
-              plan,
-              bindings: decodeBindings(engine.prepared_bindings(handle)),
-              diagnostics: decodeDiagnostics(engine.prepared_diagnostics(handle)),
-            }),
-            [plan],
-          )
+          try {
+            const plan = exactBuffer(engine.prepared_plan(handle))
+            progress(scope, message.id, 'prepare', 1, 1)
+            scope.postMessage(
+              response({
+                id: message.id,
+                type: 'prepared',
+                templateHandle: handle,
+                residentBytes: safeResidentBytes(engine.prepared_weight(handle)),
+                plan,
+                bindings: decodeBindings(engine.prepared_bindings(handle)),
+                diagnostics: decodeDiagnostics(engine.prepared_diagnostics(handle)),
+              }),
+              [plan],
+            )
+          } catch (error) {
+            engine.release_template(handle)
+            throw error
+          }
           return
         }
         case 'generate': {
@@ -120,14 +125,20 @@ export function installWorkerRuntime(
             post(scope, { id: message.id, type: 'cancelled' })
             return
           }
-          progress(scope, message.id, 'open', 1, 1)
-          post(scope, {
-            id: message.id,
-            type: 'presentation-opened',
-            presentationHandle: handle,
-            slideCount: engine.presentation_slide_count(handle),
-          })
-          return
+          try {
+            const slideCount = engine.presentation_slide_count(handle)
+            progress(scope, message.id, 'open', 1, 1)
+            post(scope, {
+              id: message.id,
+              type: 'presentation-opened',
+              presentationHandle: handle,
+              slideCount,
+            })
+            return
+          } catch (error) {
+            engine.release_presentation(handle)
+            throw error
+          }
         }
         case 'resolve-slide': {
           progress(scope, message.id, 'resolve', 0, 1)
@@ -213,7 +224,8 @@ function isWorkerRequest(value: unknown): value is WorkerRequest {
   const candidate = value as { readonly version?: unknown; readonly id?: unknown; readonly type?: unknown }
   return (
     candidate.version === WORKER_PROTOCOL_VERSION &&
-    typeof candidate.id === 'number' &&
+    Number.isSafeInteger(candidate.id) &&
+    (candidate.id as number) >= 0 &&
     (candidate.type === 'prepare' ||
       candidate.type === 'generate' ||
       candidate.type === 'release' ||
@@ -228,6 +240,14 @@ function isWorkerRequest(value: unknown): value is WorkerRequest {
 
 function exactBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+}
+
+function safeResidentBytes(value: bigint): number {
+  const converted = Number(value)
+  if (!Number.isSafeInteger(converted) || converted < 0) {
+    throw new RangeError('prepared template resident byte weight is unsafe')
+  }
+  return converted
 }
 
 function response(message: ResponseWithoutVersion): WorkerResponse {
@@ -275,7 +295,7 @@ function decodeBindings(rows: unknown[]): import('./protocol.js').TemplateBindin
   return rows.map((value) => {
     if (!Array.isArray(value) || value.length !== 6) throw new TypeError('invalid Wasm binding metadata')
     const [id, kind, partName, source, shapeId, shapeName] = value
-    if (typeof id !== 'string' || (kind !== 'text' && kind !== 'image') ||
+    if (typeof id !== 'string' || (kind !== 'text' && kind !== 'image' && kind !== 'chart') ||
       typeof partName !== 'string' ||
       (source !== 'visible-token' && source !== 'shape-metadata' && source !== 'manifest')) {
       throw new TypeError('invalid Wasm binding metadata')

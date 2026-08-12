@@ -1,5 +1,6 @@
 import { env, exports } from 'cloudflare:workers'
 import { describe, expect, it } from 'vitest'
+import { PreparedPlanCache } from '../src/index'
 
 declare global {
   namespace Cloudflare {
@@ -14,6 +15,28 @@ declare global {
 }
 
 const fixture = (): Uint8Array => new Uint8Array(env.HOST_FIXTURE)
+
+describe('prepared plan cache', () => {
+  it('does not release a handle while refreshing the same cache entry', () => {
+    const released: number[] = []
+    const cache = new PreparedPlanCache(32, (handle) => released.push(handle))
+    const entry = Object.freeze({ handle: 7, weight: 12 })
+    expect(cache.insert('template', entry)).toBe(true)
+    expect(cache.insert('template', entry)).toBe(true)
+    expect(released).toEqual([])
+    expect(cache.residentBytes).toBe(12)
+    expect(cache.get('template')).toBe(entry)
+    cache.clear()
+    expect(released).toEqual([7])
+  })
+
+  it('rejects unsafe cache weights', () => {
+    const cache = new PreparedPlanCache(32, () => {})
+    expect(() => cache.insert('template', { handle: 7, weight: Number.NaN })).toThrow(
+      /cache weight/,
+    )
+  })
+})
 
 describe('wasmppt workerd adapter', () => {
   it('executes the shared native/browser/workerd fixture and streams PPTX', async () => {

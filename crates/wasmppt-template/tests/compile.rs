@@ -122,6 +122,27 @@ fn reports_duplicate_missing_ambiguous_and_unsupported_bindings() {
 }
 
 #[test]
+fn rejects_text_metadata_on_a_shape_without_writable_text_runs() {
+    let non_text_shape = r#"<p:pic><p:nvPicPr><p:cNvPr id="9" name="Not text" descr="wasmppt:text:phantom"/></p:nvPicPr><p:blipFill/></p:pic>"#;
+    let archive = ZipArchive::from_bytes(package(non_text_shape, None)).unwrap();
+    let output = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap();
+    assert!(
+        !output
+            .plan
+            .bindings
+            .iter()
+            .any(|binding| binding.id == "phantom")
+    );
+    assert!(output.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == BindingDiagnosticCode::MissingTarget
+            && diagnostic.binding_id.as_deref() == Some("phantom")
+    }));
+    assert!(!output.plan.completeness.bindings_unambiguous);
+}
+
+#[test]
 fn rejects_truncated_or_unknown_plan_serialization() {
     assert!(TemplatePlan::decode(b"bad").is_err());
 }

@@ -14,6 +14,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  wasm-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@1.85.0
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Restore Rust build inputs
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: wasm-build-${{ runner.os }}-${{ runner.arch }}-rust-1.85.0-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml') }}
+          restore-keys: |
+            wasm-build-${{ runner.os }}-${{ runner.arch }}-rust-1.85.0-
+      - name: Restore wasm-bindgen generator
+        id: wasm-bindgen-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/wasm-bindgen
+          key: wasm-bindgen-cli-${{ runner.os }}-${{ runner.arch }}-rust-1.85.0-0.2.127
+      - name: Install matching wasm-bindgen generator
+        if: steps.wasm-bindgen-cache.outputs.cache-hit != 'true'
+        run: cargo install wasm-bindgen-cli --version 0.2.127 --locked
+      - name: Build the shared scalar Wasm host artifacts
+        run: npm run build:wasm-hosts
+      - name: Check generated Wasm bindings
+        run: |
+          git diff --exit-code -- \
+            packages/wasmppt-worker/src/generated/wasmppt_wasm.js \
+            packages/wasmppt-worker/src/generated/wasmppt_wasm.d.ts \
+            packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm.d.ts
+      - name: Report Wasm artifact size
+        run: node scripts/report-wasm-size.mjs target/wasm32-unknown-unknown/wasm-release/wasmppt_wasm.wasm
+      - name: Publish the shared Wasm host artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: wasm-host-${{ github.sha }}
+          path: packages/wasmppt-worker/src/generated/
+          if-no-files-found: error
+          retention-days: 7
+
   rust:
     runs-on: ubuntu-latest
     steps:
@@ -30,10 +77,6 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - name: Check Wasm workspace
         run: cargo check --workspace --all-features --locked --target wasm32-unknown-unknown
-      - name: Build release Wasm
-        run: cargo build --profile wasm-release --locked --target wasm32-unknown-unknown -p wasmppt-wasm
-      - name: Report Wasm artifact size
-        run: node scripts/report-wasm-size.mjs target/wasm32-unknown-unknown/wasm-release/wasmppt_wasm.wasm
 
   msrv:
     runs-on: ubuntu-latest
@@ -62,6 +105,7 @@ jobs:
         run: npm run build
 
   host-adapters:
+    needs: wasm-build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -71,15 +115,11 @@ jobs:
           cache: npm
       - name: Install JavaScript dependencies
         run: npm ci
-      - name: Install matching wasm-bindgen generator
-        run: cargo install wasm-bindgen-cli --version 0.2.127 --locked
-      - name: Regenerate Wasm host artifacts
-        run: |
-          npm run build:wasm-hosts
-          git diff --exit-code -- \
-            packages/wasmppt-worker/src/generated/wasmppt_wasm.js \
-            packages/wasmppt-worker/src/generated/wasmppt_wasm.d.ts \
-            packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm.d.ts
+      - name: Download the shared Wasm host artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: wasm-host-${{ github.sha }}
+          path: packages/wasmppt-worker/src/generated
       - name: Execute the shared native fixture
         env:
           WASMPPT_HOST_FIXTURE: fixtures/host-adapters/minimal.potx
@@ -189,6 +229,7 @@ jobs:
           cargo test --locked -p wasmppt-template potx_conversion_preserves_notes_and_unknown_payloads
 
   performance-contract:
+    needs: wasm-build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -199,13 +240,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.85.0
         with:
           targets: wasm32-unknown-unknown
-      - name: Install JavaScript and Wasm tooling
+      - name: Install JavaScript and browser tooling
         run: |
           npm ci
-          cargo install wasm-bindgen-cli --version 0.2.127 --locked
           npx playwright install --with-deps chromium
-      - name: Build the scalar Wasm release artifact
-        run: npm run build:wasm-hosts
+      - name: Download the shared scalar Wasm release artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: wasm-host-${{ github.sha }}
+          path: packages/wasmppt-worker/src/generated
       - name: Enforce native latency, memory, binary-size, and raw-copy budgets
         run: node benchmarks/run.mjs --ci
       - name: Run the pinned non-equivalent PptxGenJS generation comparator

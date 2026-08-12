@@ -88,7 +88,11 @@ node scripts/report-wasm-size.mjs \
 ```
 
 CI runs the same gates, including runtime compatibility, security, visual, and performance
-contracts on their real host adapters.
+contracts on their real host adapters. One dedicated job builds the scalar `wasm-release`
+module and matching `wasm-bindgen` host files. The host-adapter and performance jobs depend
+on that job and download its revision-bound artifact, so both exercise identical Wasm bytes
+without compiling the release module twice. The artifact comes from the same workflow run;
+CI never substitutes the latest successful artifact from another revision.
 
 The compatibility job converts a pinned real POTX and validates its PPTX output with the
 Microsoft Open XML SDK wrapper under `tools/openxml-validator`. It also resolves slides

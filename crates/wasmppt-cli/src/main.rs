@@ -1,7 +1,7 @@
 use std::{env, fs, io::BufWriter, path::Path};
 
 use wasmppt_display::DisplayList;
-use wasmppt_layout::PresentationDocument;
+use wasmppt_layout::{PresentationDocument, ResolveDiagnosticCode};
 use wasmppt_opc::{DiagnosticCode, PackageGraph, WriteSink, ZipArchive};
 use wasmppt_template::{InjectionData, PreparedTemplate, TemplateCompiler};
 use wasmppt_xml::XmlDocument;
@@ -32,6 +32,24 @@ fn run() -> Result<(), String> {
             }
             convert(Path::new(&input), Path::new(&output))
         }
+        Some("inject-text") => {
+            let input = arguments
+                .next()
+                .ok_or("inject-text requires INPUT OUTPUT BINDING_ID VALUE")?;
+            let output = arguments
+                .next()
+                .ok_or("inject-text requires INPUT OUTPUT BINDING_ID VALUE")?;
+            let binding = arguments
+                .next()
+                .ok_or("inject-text requires INPUT OUTPUT BINDING_ID VALUE")?;
+            let value = arguments
+                .next()
+                .ok_or("inject-text requires INPUT OUTPUT BINDING_ID VALUE")?;
+            if arguments.next().is_some() {
+                return Err("inject-text accepts exactly INPUT OUTPUT BINDING_ID VALUE".to_owned());
+            }
+            inject_text(Path::new(&input), Path::new(&output), &binding, &value)
+        }
         Some("validate") => {
             let input = arguments.next().ok_or("validate requires INPUT")?;
             if arguments.next().is_some() {
@@ -61,7 +79,7 @@ fn run() -> Result<(), String> {
             resolve(Path::new(&input), slide_index)
         }
         Some(command) => Err(format!(
-            "unknown command {command:?}; use convert, validate, audit-macro-free, or resolve"
+            "unknown command {command:?}; use convert, inject-text, validate, audit-macro-free, or resolve"
         )),
     }
 }
@@ -129,8 +147,11 @@ fn resolve(input: &Path, slide_index: usize) -> Result<(), String> {
     );
     for diagnostic in &resolved.diagnostics {
         eprintln!(
-            "render {:?} {} shape {:?}: {}",
-            diagnostic.code, diagnostic.part_name, diagnostic.shape_id, diagnostic.message
+            "render {} {} shape {:?}: {}",
+            resolve_diagnostic_code(diagnostic.code),
+            diagnostic.part_name,
+            diagnostic.shape_id,
+            diagnostic.message
         );
     }
     for element in &resolved.slide.elements {
@@ -145,7 +166,37 @@ fn resolve(input: &Path, slide_index: usize) -> Result<(), String> {
     Ok(())
 }
 
+const fn resolve_diagnostic_code(code: ResolveDiagnosticCode) -> &'static str {
+    match code {
+        ResolveDiagnosticCode::MissingDependency => "missing-dependency",
+        ResolveDiagnosticCode::InvalidXml => "invalid-xml",
+        ResolveDiagnosticCode::InvalidValue => "invalid-value",
+        ResolveDiagnosticCode::UnsupportedGraphicFrame => "unsupported-graphic-frame",
+        ResolveDiagnosticCode::UnsupportedCustomGeometry => "unsupported-custom-geometry",
+        ResolveDiagnosticCode::UnsupportedFill => "unsupported-fill",
+        ResolveDiagnosticCode::UnsupportedEffect => "unsupported-effect",
+        ResolveDiagnosticCode::MissingImage => "missing-image",
+        ResolveDiagnosticCode::UnsupportedSmartArt => "unsupported-smart-art",
+        ResolveDiagnosticCode::UnsupportedMetafile => "unsupported-metafile",
+        ResolveDiagnosticCode::UnsupportedAnimation => "unsupported-animation",
+        ResolveDiagnosticCode::UnsupportedTransition => "unsupported-transition",
+        ResolveDiagnosticCode::UnsupportedActiveContent => "unsupported-active-content",
+        ResolveDiagnosticCode::UnsupportedThreeD => "unsupported-three-d",
+        ResolveDiagnosticCode::UnsupportedChartKind => "unsupported-chart-kind",
+        _ => "unknown",
+    }
+}
+
 fn convert(input: &Path, output: &Path) -> Result<(), String> {
+    generate(input, output, &InjectionData::new())
+}
+
+fn inject_text(input: &Path, output: &Path, binding: &str, value: &str) -> Result<(), String> {
+    let data = InjectionData::new().with_text(binding, value);
+    generate(input, output, &data)
+}
+
+fn generate(input: &Path, output: &Path, data: &InjectionData) -> Result<(), String> {
     let bytes =
         fs::read(input).map_err(|error| format!("cannot read {}: {error}", input.display()))?;
     let archive = ZipArchive::from_bytes(bytes.clone()).map_err(|error| error.to_string())?;
@@ -162,7 +213,7 @@ fn convert(input: &Path, output: &Path) -> Result<(), String> {
     let file = fs::File::create(output)
         .map_err(|error| format!("cannot create {}: {error}", output.display()))?;
     let (_, stats) = prepared
-        .generate_to(&InjectionData::new(), WriteSink::new(BufWriter::new(file)))
+        .generate_to(data, WriteSink::new(BufWriter::new(file)))
         .map_err(|error| error.to_string())?;
     println!(
         "wrote {}: {} raw-copied, {} rewritten, {} removed",

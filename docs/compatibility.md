@@ -16,8 +16,9 @@ fails when a committed byte changes without updating its provenance record, or w
 omits any policy field.
 
 The pinned real-template set currently includes POTX conversion, a general sample show, a
-master/layout deck, a chart deck, and a LibreOffice-produced deck. CI validates and resolves every
-PPTX at slide zero without silent fallback. The checked-in dogfood POTX is generated in-repository
+master/layout deck, a chart deck, and a LibreOffice-produced deck. The portable scorecard validates
+each declared source, performs independent preservation and edit round trips, and resolves every
+declared slide and feature region without silent fallback. The checked-in dogfood POTX is generated in-repository
 and covers metadata and visible-token text, image replacement, repeated table rows, and slide-copy
 control through one browser workflow.
 
@@ -46,6 +47,11 @@ Every CI run performs these independent gates:
   WPDL structural signature;
 - the machine-readable PresentationML capability matrix declares read, preserve, edit, and render
   behavior for every listed feature.
+
+The corpus scorecard's `render` outcome proves structural resolution only. Chromium pixel scoring
+and controlled PowerPoint, LibreOffice, and Keynote results remain separate fidelity fields and
+artifacts; none is inferred from ZIP validation or structural success. Each scorecard stage retains
+its commands, versions, hashes, stdout/stderr, and failure list, including on a failing CI run.
 
 The fuzz targets live under `crates/wasmppt-opc/fuzz`. They cover arbitrary ZIP opening and
 inflation, relationship graphs and extension markup, raw XML tokenization, lazy slide/geometry

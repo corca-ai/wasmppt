@@ -2,7 +2,9 @@
 
 `fixtures/corpus.json` is the single fixture registry. It records a stable ID, source or local
 path, SHA-256, producer/provenance, license, redistribution policy, execution tier, feature tags,
-expected diagnostics, and independent open/preserve/edit/render outcomes. A fixture may enter the
+expected diagnostics, executable scorecard declarations, and independent open/preserve/edit/render
+outcomes. Each scored presentation declares its slide indices, feature regions, preservation parts,
+and one text binding edit. A fixture may enter the
 pull-request tier only when it is small and deterministic; larger or slower cases remain scheduled.
 
 The repository contains 50 independently generated multilingual presentations. They cross common
@@ -20,8 +22,18 @@ node --test scripts/corpus.test.mjs
 ```
 
 The fast scorecard executes the ten pull-request fixtures. The scheduled workflow executes all
-local PPTX fixtures and publishes raw JSON. Results keep open, preserve, edit, and render separate;
-a valid ZIP is never treated as visual equivalence.
+local PPTX fixtures and publishes raw JSON. `open` validates the source package; `preserve` performs
+an unrelated binding edit and compares every other raw compressed entry plus the declared unknown
+XML, relationship, and opaque parts; `edit` performs the declared edit, validates the result,
+reopens its declared slide, verifies the decoded value, and proves unrelated entries unchanged;
+and `render` structurally resolves every declared slide and feature region. Expected diagnostic
+codes are compared with the actual stable codes. A valid ZIP is never treated as visual equivalence.
+
+Scorecard schema 2 retains the exact commands, tool versions, declared and actual fixture hashes,
+stdout/stderr, exit codes, and per-stage failures. Structural resolve, Chromium pixel evidence, and
+desktop-consumer evidence are distinct fields: the portable scorecard marks the latter two
+`not-run` and links to their authoritative workflow artifacts. Artifact upload runs even when a
+stage fails, so failure evidence is not lost.
 
 ```sh
 cargo build -p wasmppt-cli

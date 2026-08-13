@@ -4,6 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 const root = new URL('../', import.meta.url)
 const manifestUrl = new URL('fixtures/corpus.json', root)
 const manifest = JSON.parse(await readFile(manifestUrl, 'utf8'))
+manifest.schema = 2
 manifest.fixtures = manifest.fixtures.filter((fixture) => !fixture.id.startsWith('generated-compat-'))
 for (let caseNumber = 1; caseNumber <= 50; caseNumber += 1) {
   const suffix = String(caseNumber).padStart(2, '0')
@@ -28,6 +29,21 @@ for (let caseNumber = 1; caseNumber <= 50; caseNumber += 1) {
     redistribution: 'allowed',
     tier: caseNumber <= 10 ? 'pull-request' : 'scheduled',
     featureTags,
+    scorecard: {
+      slides: [0],
+      featureRegions: [{ slide: 0, tags: featureTags }],
+      preserve: {
+        unknownXmlParts: ['docProps/custom.xml'],
+        relationshipParts: ['_rels/.rels', 'ppt/_rels/presentation.xml.rels'],
+        opaqueParts: [],
+      },
+      edit: {
+        binding: `case_${suffix}`,
+        value: `Scorecard ${suffix} & verified`,
+        part: 'ppt/slides/slide1.xml',
+        slide: 0,
+      },
+    },
     expected: { open: 'pass', preserve: 'pass', edit: 'pass', render: 'pass', diagnostics: [] },
   })
 }

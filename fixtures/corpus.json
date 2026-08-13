@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "fixtures": [
     {
       "id": "host-minimal-potx",
@@ -107,6 +107,40 @@
         "horizontal-text",
         "preset-0"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-0"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_01",
+          "value": "Scorecard 01 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -136,6 +170,40 @@
         "horizontal-text",
         "preset-1"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-1"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_02",
+          "value": "Scorecard 02 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -165,6 +233,40 @@
         "horizontal-text",
         "preset-2"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-decoration",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-2"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_03",
+          "value": "Scorecard 03 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -194,6 +296,40 @@
         "horizontal-text",
         "preset-3"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "gradient",
+              "ltr",
+              "horizontal-text",
+              "preset-3"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_04",
+          "value": "Scorecard 04 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -223,6 +359,40 @@
         "horizontal-text",
         "preset-4"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "rtl",
+              "horizontal-text",
+              "preset-4"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_05",
+          "value": "Scorecard 05 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -252,6 +422,40 @@
         "horizontal-text",
         "preset-5"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-decoration",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-5"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_06",
+          "value": "Scorecard 06 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -281,6 +485,40 @@
         "vertical-text",
         "preset-6"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "vertical-text",
+              "preset-6"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_07",
+          "value": "Scorecard 07 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -310,6 +548,40 @@
         "horizontal-text",
         "preset-7"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "gradient",
+              "ltr",
+              "horizontal-text",
+              "preset-7"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_08",
+          "value": "Scorecard 08 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -339,6 +611,40 @@
         "horizontal-text",
         "preset-8"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-decoration",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-8"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_09",
+          "value": "Scorecard 09 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -368,6 +674,40 @@
         "horizontal-text",
         "preset-9"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "rtl",
+              "horizontal-text",
+              "preset-9"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_10",
+          "value": "Scorecard 10 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -397,6 +737,40 @@
         "horizontal-text",
         "preset-0"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-0"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_11",
+          "value": "Scorecard 11 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -426,6 +800,40 @@
         "horizontal-text",
         "preset-1"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-decoration",
+              "gradient",
+              "ltr",
+              "horizontal-text",
+              "preset-1"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_12",
+          "value": "Scorecard 12 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -455,6 +863,40 @@
         "horizontal-text",
         "preset-2"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-2"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_13",
+          "value": "Scorecard 13 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -484,6 +926,40 @@
         "vertical-text",
         "preset-3"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "vertical-text",
+              "preset-3"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_14",
+          "value": "Scorecard 14 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -513,6 +989,40 @@
         "horizontal-text",
         "preset-4"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-decoration",
+              "theme-fill",
+              "rtl",
+              "horizontal-text",
+              "preset-4"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_15",
+          "value": "Scorecard 15 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -542,6 +1052,40 @@
         "horizontal-text",
         "preset-5"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "gradient",
+              "ltr",
+              "horizontal-text",
+              "preset-5"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_16",
+          "value": "Scorecard 16 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -571,6 +1115,40 @@
         "horizontal-text",
         "preset-6"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-6"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_17",
+          "value": "Scorecard 17 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -600,6 +1178,40 @@
         "horizontal-text",
         "preset-7"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-decoration",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-7"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_18",
+          "value": "Scorecard 18 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -629,6 +1241,40 @@
         "horizontal-text",
         "preset-8"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-8"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_19",
+          "value": "Scorecard 19 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -658,6 +1304,40 @@
         "horizontal-text",
         "preset-9"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "gradient",
+              "rtl",
+              "horizontal-text",
+              "preset-9"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_20",
+          "value": "Scorecard 20 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -687,6 +1367,40 @@
         "vertical-text",
         "preset-0"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-decoration",
+              "theme-fill",
+              "ltr",
+              "vertical-text",
+              "preset-0"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_21",
+          "value": "Scorecard 21 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -716,6 +1430,40 @@
         "horizontal-text",
         "preset-1"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-1"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_22",
+          "value": "Scorecard 22 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -745,6 +1493,40 @@
         "horizontal-text",
         "preset-2"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-2"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_23",
+          "value": "Scorecard 23 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -774,6 +1556,40 @@
         "horizontal-text",
         "preset-3"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-decoration",
+              "gradient",
+              "ltr",
+              "horizontal-text",
+              "preset-3"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_24",
+          "value": "Scorecard 24 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -803,6 +1619,40 @@
         "horizontal-text",
         "preset-4"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "rtl",
+              "horizontal-text",
+              "preset-4"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_25",
+          "value": "Scorecard 25 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -832,6 +1682,40 @@
         "horizontal-text",
         "preset-5"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-5"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_26",
+          "value": "Scorecard 26 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -861,6 +1745,40 @@
         "horizontal-text",
         "preset-6"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-decoration",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-6"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_27",
+          "value": "Scorecard 27 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -890,6 +1808,40 @@
         "vertical-text",
         "preset-7"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "gradient",
+              "ltr",
+              "vertical-text",
+              "preset-7"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_28",
+          "value": "Scorecard 28 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -919,6 +1871,40 @@
         "horizontal-text",
         "preset-8"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-8"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_29",
+          "value": "Scorecard 29 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -948,6 +1934,40 @@
         "horizontal-text",
         "preset-9"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-decoration",
+              "theme-fill",
+              "rtl",
+              "horizontal-text",
+              "preset-9"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_30",
+          "value": "Scorecard 30 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -977,6 +1997,40 @@
         "horizontal-text",
         "preset-0"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-0"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_31",
+          "value": "Scorecard 31 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1006,6 +2060,40 @@
         "horizontal-text",
         "preset-1"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "gradient",
+              "ltr",
+              "horizontal-text",
+              "preset-1"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_32",
+          "value": "Scorecard 32 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1035,6 +2123,40 @@
         "horizontal-text",
         "preset-2"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-decoration",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-2"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_33",
+          "value": "Scorecard 33 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1064,6 +2186,40 @@
         "horizontal-text",
         "preset-3"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-3"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_34",
+          "value": "Scorecard 34 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1093,6 +2249,40 @@
         "vertical-text",
         "preset-4"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "rtl",
+              "vertical-text",
+              "preset-4"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_35",
+          "value": "Scorecard 35 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1122,6 +2312,40 @@
         "horizontal-text",
         "preset-5"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-decoration",
+              "gradient",
+              "ltr",
+              "horizontal-text",
+              "preset-5"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_36",
+          "value": "Scorecard 36 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1151,6 +2375,40 @@
         "horizontal-text",
         "preset-6"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-6"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_37",
+          "value": "Scorecard 37 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1180,6 +2438,40 @@
         "horizontal-text",
         "preset-7"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-7"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_38",
+          "value": "Scorecard 38 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1209,6 +2501,40 @@
         "horizontal-text",
         "preset-8"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-decoration",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-8"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_39",
+          "value": "Scorecard 39 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1238,6 +2564,40 @@
         "horizontal-text",
         "preset-9"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "gradient",
+              "rtl",
+              "horizontal-text",
+              "preset-9"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_40",
+          "value": "Scorecard 40 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1267,6 +2627,40 @@
         "horizontal-text",
         "preset-0"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-0"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_41",
+          "value": "Scorecard 41 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1296,6 +2690,40 @@
         "vertical-text",
         "preset-1"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-decoration",
+              "theme-fill",
+              "ltr",
+              "vertical-text",
+              "preset-1"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_42",
+          "value": "Scorecard 42 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1325,6 +2753,40 @@
         "horizontal-text",
         "preset-2"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-2"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_43",
+          "value": "Scorecard 43 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1354,6 +2816,40 @@
         "horizontal-text",
         "preset-3"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "gradient",
+              "ltr",
+              "horizontal-text",
+              "preset-3"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_44",
+          "value": "Scorecard 44 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1383,6 +2879,40 @@
         "horizontal-text",
         "preset-4"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-decoration",
+              "theme-fill",
+              "rtl",
+              "horizontal-text",
+              "preset-4"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_45",
+          "value": "Scorecard 45 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1412,6 +2942,40 @@
         "horizontal-text",
         "preset-5"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-5"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_46",
+          "value": "Scorecard 46 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1441,6 +3005,40 @@
         "horizontal-text",
         "preset-6"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "horizontal-text",
+              "preset-6"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_47",
+          "value": "Scorecard 47 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1470,6 +3068,40 @@
         "horizontal-text",
         "preset-7"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-decoration",
+              "gradient",
+              "ltr",
+              "horizontal-text",
+              "preset-7"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_48",
+          "value": "Scorecard 48 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1499,6 +3131,40 @@
         "vertical-text",
         "preset-8"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "ltr",
+              "vertical-text",
+              "preset-8"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_49",
+          "value": "Scorecard 49 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",
@@ -1528,6 +3194,40 @@
         "horizontal-text",
         "preset-9"
       ],
+      "scorecard": {
+        "slides": [
+          0
+        ],
+        "featureRegions": [
+          {
+            "slide": 0,
+            "tags": [
+              "text-multilingual",
+              "text-basic",
+              "theme-fill",
+              "rtl",
+              "horizontal-text",
+              "preset-9"
+            ]
+          }
+        ],
+        "preserve": {
+          "unknownXmlParts": [
+            "docProps/custom.xml"
+          ],
+          "relationshipParts": [
+            "_rels/.rels",
+            "ppt/_rels/presentation.xml.rels"
+          ],
+          "opaqueParts": []
+        },
+        "edit": {
+          "binding": "case_50",
+          "value": "Scorecard 50 & verified",
+          "part": "ppt/slides/slide1.xml",
+          "slide": 0
+        }
+      },
       "expected": {
         "open": "pass",
         "preserve": "pass",

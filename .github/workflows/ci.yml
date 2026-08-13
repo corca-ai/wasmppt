@@ -308,6 +308,7 @@ jobs:
           cargo build --locked -p wasmppt-cli
           node scripts/corpus-scorecard.mjs --output=target/corpus-scorecard-pr.json
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
           name: corpus-scorecard-pr-${{ github.sha }}
           path: target/corpus-scorecard-pr.json

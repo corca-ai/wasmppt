@@ -393,6 +393,7 @@ jobs:
           node benchmarks/extract-workerd.mjs \
             target/benchmarks/workerd.log target/benchmarks/workerd.json
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
           name: performance-raw-${{ github.sha }}
           path: |

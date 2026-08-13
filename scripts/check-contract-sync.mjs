@@ -93,11 +93,29 @@ export function contractErrors(inputs) {
     if (!registeredFixtures.has(path)) errors.push(`render fixture ${path} is absent from fixtures/corpus.json`)
   }
 
-  const benchmarkConsumers = `${inputs.browserIntegration}\n${inputs.nativeBenchmark}`
+  const benchmarkConsumers = [
+    inputs.browserIntegration,
+    inputs.nativeBenchmark,
+    inputs.nativeBudgetEvaluator,
+  ].join('\n')
   for (const budget of Object.keys(inputs.budgets.browserScalarWasm)) {
     if (!benchmarkConsumers.includes(`browserScalarWasm.${budget}`)) {
       errors.push(`browser performance budget ${budget} is not enforced by benchmark code`)
     }
+  }
+
+  const fixtureSlideCounts = inputs.benchmarkFixtures.slideCounts.toSorted((left, right) => left - right)
+  const budgetSlideCounts = Object.keys(inputs.budgets.native.matrix)
+    .map(Number)
+    .toSorted((left, right) => left - right)
+  if (!sameValues(fixtureSlideCounts, budgetSlideCounts)) {
+    errors.push(
+      `native performance matrix budgets (${budgetSlideCounts.join(', ')}) do not match fixtures (${fixtureSlideCounts.join(', ')})`,
+    )
+  }
+  if (!inputs.nativeBenchmark.includes('budgetEvaluation') ||
+      !inputs.nativeBudgetEvaluator.includes('marginPercent')) {
+    errors.push('native benchmark does not publish per-metric budget margins')
   }
 
   return errors
@@ -112,12 +130,14 @@ export async function readRepositoryContracts() {
     workerTest: 'packages/wasmppt-worker/test/worker.spec.ts',
     browserIntegration: 'packages/wasmppt/test/browser-host.integration.mjs',
     nativeBenchmark: 'benchmarks/run.mjs',
+    nativeBudgetEvaluator: 'benchmarks/budget-evaluation.mjs',
   }
   const jsonPaths = {
     capabilities: 'capabilities/presentationml.json',
     renderCorpus: 'fixtures/render/corpus.json',
     corpus: 'fixtures/corpus.json',
     budgets: 'benchmarks/budgets.json',
+    benchmarkFixtures: 'benchmarks/fixtures.json',
   }
   const docPaths = [
     'docs/rendering.md',

@@ -10,9 +10,10 @@ test('benchmark matrix and all three release hosts remain machine-checkable', ()
   assert.deepEqual(fixtures.scenarios, ['text', 'image', 'mixed'])
   assert.deepEqual(fixtures.slideCounts, [10, 50, 200])
   assert.equal(fixtures.scenarios.length * fixtures.slideCounts.length, 9)
-  assert(budgets.native.maximumPeakResidentBytes > 0)
-  assert(budgets.native.maximumPeakDirtyEntryBytes > 0)
-  assert(budgets.native.maximumOutputChunkBytes > 0)
+  assert.deepEqual(Object.keys(budgets.native.matrix), ['10', '50', '200'])
+  assert(budgets.native.invariants.maximumPeakDirtyEntryBytes > 0)
+  assert(budgets.native.invariants.maximumOutputChunkBytes > 0)
+  assert.equal(budgets.native.invariants.maximumInflatedEntries, 0)
   assert.deepEqual(Object.keys(budgets.nativeLive), ['10', '50', '200'])
   assert.deepEqual(Object.keys(budgets.nativeLiveOperations), ['table', 'chart', 'slideTopology'])
   assert(budgets.browserScalarWasm.maximumBinaryBytes > 0)
@@ -26,8 +27,16 @@ test('benchmark matrix and all three release hosts remain machine-checkable', ()
   assert(budgets.browserScalarWasm.maximumStronglyReferencedSlides > 0)
   assert(budgets.cloudflareWorkerd.maximumWarmRequestP95Ms > 0)
   assert(budgets.cloudflareWorkerd.maximumLiveRequestP95Ms > 0)
-  for (const name of ['coldTemplateCompile', 'warmInjection', 'firstSlide', 'visibleSlides', 'allSlides']) {
-    assert(budgets.native.maximumP95Ns[name] > 0)
+  for (const budget of Object.values(budgets.native.matrix)) {
+    assert(budget.maximumPeakResidentBytes > 0)
+    assert(budget.maximumEstimatedResidentBytes > 0)
+    assert(budget.maximumDirtyUncompressedBytes > 0)
+    for (const name of ['coldTemplateCompile', 'warmInjection', 'firstSlide', 'visibleSlides', 'allSlides']) {
+      assert(budget.maximumP95Ns[name] > 0)
+    }
+  }
+  for (const maximum of Object.values(budgets.native.growth.maximumNormalized)) {
+    assert(maximum > 0)
   }
   for (const budget of Object.values(budgets.nativeLive)) {
     assert(budget.maximumApplyDeltaP95Ns > 0)

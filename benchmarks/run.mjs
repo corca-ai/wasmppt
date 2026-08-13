@@ -4,11 +4,14 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { arch, cpus, platform, release, totalmem } from 'node:os'
 import { resolve } from 'node:path'
+import { evaluateNativeBudget } from './budget-evaluation.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const ci = process.argv.includes('--ci')
 const iterations = ci ? 10 : Number(process.env.WASMPPT_BENCH_ITERATIONS ?? 30)
+const processRuns = ci ? 3 : Number(process.env.WASMPPT_BENCH_PROCESS_RUNS ?? 1)
 assert(Number.isSafeInteger(iterations) && iterations >= 3)
+assert(Number.isSafeInteger(processRuns) && processRuns >= 1)
 const fixtureContract = JSON.parse(await readFile(resolve(root, 'benchmarks/fixtures.json'), 'utf8'))
 const budgets = JSON.parse(await readFile(resolve(root, 'benchmarks/budgets.json'), 'utf8'))
 const outputDirectory = resolve(root, 'target/benchmarks')
@@ -31,9 +34,17 @@ for (const [scenario, slides] of selected) {
   exec(generator, [scenario, String(slides), path])
   const bytes = await readFile(path)
   fixtures.push({ id, bytes: bytes.byteLength, sha256: sha256(bytes) })
-  const measured = measuredProcess(runner, [path, scenario, String(slides), String(iterations)])
-  const result = JSON.parse(measured.stdout.trim().split('\n').at(-1))
-  result.peakResidentBytes = measured.peakResidentBytes
+  const measurements = Array.from(
+    { length: processRuns },
+    () => measuredProcess(runner, [path, scenario, String(slides), String(iterations)]),
+  )
+  const runResults = measurements.map((measured) =>
+    JSON.parse(measured.stdout.trim().split('\n').at(-1)))
+  const result = mergeProcessRuns(runResults)
+  result.iterationsPerProcess = iterations
+  result.processRuns = processRuns
+  result.peakResidentBytes = Math.max(...measurements.map((measured) => measured.peakResidentBytes))
+  result.processPeakResidentSamples = measurements.map((measured) => measured.peakResidentBytes)
   result.summary = Object.fromEntries(Object.entries(result.samplesNs).map(([name, samples]) => [
     name,
     { p50Ns: percentile(samples, 0.50), p95Ns: percentile(samples, 0.95), slidesPerSecond: throughput(name, slides, percentile(samples, 0.50)) },
@@ -42,6 +53,22 @@ for (const [scenario, slides] of selected) {
     name,
     { p50Ns: percentile(samples, 0.50), p95Ns: percentile(samples, 0.95) },
   ]))
+  result.memory = {
+    logical: {
+      preparedResidentBytes: result.estimatedResidentBytes,
+      generationDirtyBytes: result.generation.dirtyUncompressedBytes,
+      generationPeakDirtyEntryBytes: result.generation.peakDirtyEntryBytes,
+      livePeakResidentBytes: result.live.cache.peakResidentBytes,
+      completedOutputBytes: result.outputBytes,
+    },
+    process: {
+      peakResidentBytes: result.peakResidentBytes,
+      samples: result.processPeakResidentSamples,
+      scope: 'whole benchmark child process across compile, generation, resolution, and live phases',
+      allocatorHighWater: true,
+      iterationsPerProcess: iterations,
+    },
+  }
   results.push(result)
 }
 const operationMeasured = measuredProcess(operationRunner, [String(iterations)])
@@ -75,7 +102,7 @@ const generatedArtifactChanges = trackedChanges.filter((line) =>
   line.includes('packages/wasmppt-worker/src/generated/'),
 )
 const report = {
-  schema: 2,
+  schema: 3,
   generatedAt: new Date().toISOString(),
   source: {
     revision: output('git', ['rev-parse', 'HEAD']),
@@ -88,14 +115,23 @@ const report = {
     os: { platform: platform(), release: release() },
     runtimes: { node: process.version, rustc: output('rustc', ['--version']) },
   },
-  configuration: { profile: 'release', wasmProfile: 'wasm-release', compression: fixtureContract.compression, iterations },
+  configuration: {
+    profile: 'release',
+    wasmProfile: 'wasm-release',
+    compression: fixtureContract.compression,
+    iterationsPerProcess: iterations,
+    processRuns,
+  },
   artifacts: { scalarWasmBytes: wasmBytes, metafileWasmBytes, shaperWasmBytes },
   results,
   liveOperations,
 }
-if (ci) enforceNativeBudget(report, budgets)
+if (ci) report.budgetEvaluation = evaluateNativeBudget(report, budgets)
 await writeFile(resolve(outputDirectory, 'native.json'), `${JSON.stringify(report, null, 2)}\n`)
 console.log(`benchmark report: ${resolve(outputDirectory, 'native.json')}`)
+if (ci && !report.budgetEvaluation.passed) {
+  throw new Error(`native performance budget failed:\n${report.budgetEvaluation.failures.join('\n')}`)
+}
 
 function exec(command, args) {
   execFileSync(command, args, { cwd: root, stdio: 'inherit' })
@@ -116,6 +152,27 @@ function measuredProcess(command, args) {
   return { stdout: child.stdout, peakResidentBytes }
 }
 
+function mergeProcessRuns(runResults) {
+  const result = structuredClone(runResults[0])
+  for (const name of Object.keys(result.samplesNs)) {
+    result.samplesNs[name] = runResults.flatMap((run) => run.samplesNs[name])
+  }
+  for (const name of Object.keys(result.live.samplesNs)) {
+    result.live.samplesNs[name] = runResults.flatMap((run) => run.live.samplesNs[name])
+  }
+  result.iterations = result.samplesNs.coldTemplateCompile.length
+  result.live.cache.peakResidentBytes = Math.max(
+    ...runResults.map((run) => run.live.cache.peakResidentBytes),
+  )
+  result.live.cache.minimumReusedMaterializedParts = Math.min(
+    ...runResults.map((run) => run.live.cache.minimumReusedMaterializedParts),
+  )
+  result.live.maximumInvalidatedSlides = Math.max(
+    ...runResults.map((run) => run.live.maximumInvalidatedSlides),
+  )
+  return result
+}
+
 function percentile(samples, quantile) {
   const sorted = samples.toSorted((left, right) => left - right)
   return sorted[Math.max(0, Math.ceil(sorted.length * quantile) - 1)]
@@ -127,38 +184,3 @@ function throughput(name, slides, ns) {
 }
 
 function sha256(bytes) { return createHash('sha256').update(bytes).digest('hex') }
-
-function enforceNativeBudget(benchmarkReport, allBudgets) {
-  const budget = allBudgets.native
-  const result = benchmarkReport.results.find((entry) => `${entry.scenario}-${entry.slides}` === budget.fixture)
-  assert(result, `missing budget fixture ${budget.fixture}`)
-  for (const [name, maximum] of Object.entries(budget.maximumP95Ns)) {
-    assert(result.summary[name].p95Ns <= maximum, `${name} p95 ${result.summary[name].p95Ns}ns exceeds ${maximum}ns`)
-  }
-  assert(result.peakResidentBytes <= budget.maximumPeakResidentBytes)
-  assert(result.generation.peakDirtyEntryBytes <= budget.maximumPeakDirtyEntryBytes)
-  assert(result.generation.maximumOutputChunkBytes <= budget.maximumOutputChunkBytes)
-  assert(result.zip.rawCopiedEntries >= budget.minimumRawCopiedEntries)
-  assert(result.zip.inflatedEntries <= budget.maximumInflatedEntries)
-  assert(benchmarkReport.artifacts.scalarWasmBytes <= allBudgets.browserScalarWasm.maximumBinaryBytes)
-  assert(benchmarkReport.artifacts.metafileWasmBytes <= allBudgets.browserScalarWasm.maximumMetafileBinaryBytes)
-  assert(benchmarkReport.artifacts.shaperWasmBytes <= allBudgets.browserScalarWasm.maximumShaperBinaryBytes)
-  for (const [slides, limits] of Object.entries(allBudgets.nativeLive)) {
-    const live = benchmarkReport.results.find((entry) => entry.scenario === 'mixed' && entry.slides === Number(slides))
-    assert(live, `missing live-editing budget fixture mixed-${slides}`)
-    assert(live.live.summary.applyDelta.p95Ns <= limits.maximumApplyDeltaP95Ns)
-    assert(live.live.summary.inputToRenderReady.p95Ns <= limits.maximumInputToRenderReadyP95Ns)
-    assert(live.live.summary.backgroundExport.p95Ns <= limits.maximumBackgroundExportP95Ns)
-    assert(live.live.maximumInvalidatedSlides <= limits.maximumInvalidatedSlides)
-    assert(live.live.cache.peakResidentBytes <= limits.maximumPeakResidentBytes)
-    assert(live.live.cache.minimumReusedMaterializedParts >= limits.minimumReusedMaterializedParts)
-  }
-  for (const [name, limits] of Object.entries(allBudgets.nativeLiveOperations)) {
-    const operation = benchmarkReport.liveOperations.operations[name]
-    assert(operation, `missing live operation benchmark ${name}`)
-    assert(operation.summary.applyDelta.p95Ns <= limits.maximumApplyDeltaP95Ns)
-    assert(operation.summary.inputToRenderReady.p95Ns <= limits.maximumInputToRenderReadyP95Ns)
-    assert(operation.maximumInvalidatedSlides <= limits.maximumInvalidatedSlides)
-    assert(operation.maximumResidentBytes <= limits.maximumResidentBytes)
-  }
-}

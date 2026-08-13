@@ -17,11 +17,16 @@ test('contract checker reports every independently stale consumer', () => {
     workerTest: "signature: 'dddddddd'",
     browserIntegration: "const report = [{ id: 'text', slideIndex: 0 }]",
     nativeBenchmark: '',
+    nativeBudgetEvaluator: '',
     renderCorpus: {
       presentations: [{ path: 'basic.pptx', features: [{ id: 'image' }] }],
     },
     corpus: { fixtures: [] },
-    budgets: { browserScalarWasm: { maximumFirstVisibleSlideMs: 500 } },
+    benchmarkFixtures: { slideCounts: [10, 50] },
+    budgets: {
+      browserScalarWasm: { maximumFirstVisibleSlideMs: 500 },
+      native: { matrix: { 10: { maximumP95Ns: {} } } },
+    },
   })
 
   assert.deepEqual(errors, [
@@ -33,5 +38,7 @@ test('contract checker reports every independently stale consumer', () => {
     'visual report features (text) do not match render corpus (image)',
     'render fixture fixtures/render/basic.pptx is absent from fixtures/corpus.json',
     'browser performance budget maximumFirstVisibleSlideMs is not enforced by benchmark code',
+    'native performance matrix budgets (10) do not match fixtures (10, 50)',
+    'native benchmark does not publish per-metric budget margins',
   ])
 })

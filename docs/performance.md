@@ -24,8 +24,9 @@ npm test --workspace @corca-ai/wasmppt-worker
 
 `benchmarks/run.mjs` deterministically creates the public 3-by-3 matrix in
 `target/benchmark-fixtures`: text-heavy, image-heavy, and mixed templates at 10, 50, and 200
-slides. Set `WASMPPT_BENCH_ITERATIONS`; the default is 30. `--ci` uses ten iterations of the
-mixed 10, 50, and 200 live-editing fixtures plus the declared generation budget fixture. Generated
+slides. Set `WASMPPT_BENCH_ITERATIONS`; the default is 30. For local process-level calibration,
+set `WASMPPT_BENCH_PROCESS_RUNS`; the default is one. `--ci` fixes both controls at ten iterations
+per child process and three fresh processes for each mixed 10, 50, and 200-slide fixture. Generated
 templates are source artifacts: their generator,
 payload dimensions, compression mode, hashes, and redistribution license are recorded in the raw
 report rather than hidden behind an unpublished corpus.
@@ -50,10 +51,20 @@ and slide-topology changes against the dogfood and advanced-content fixtures.
 
 It also records input/output bytes, conservative prepared-plan resident bytes, OS-process peak RSS,
 input/output copy counts, raw-copied bytes and entries, inflated and recompressed entries, scalar
-Wasm binary size, total dirty bytes, largest dirty entry, maximum pull chunk, revision and source dirty state, separately listed regenerated tracked build
-artifacts, fixture hashes, CPU/RAM/OS/runtime, iteration count,
+Wasm binary size, total generation-dirty bytes, largest simultaneously dirty entry, maximum pull
+chunk, revision and source dirty state, separately listed regenerated tracked build artifacts,
+fixture hashes, CPU/RAM/OS/runtime, process-run and per-process iteration counts,
 release profile, and compression configuration. Browser and workerd reports retain their own raw
 warm samples because host scheduling cannot honestly be folded into a native headline.
+
+Report schema 3 separates `memory.logical` from `memory.process`. Logical residency records the
+prepared template estimate, total generation-dirty bytes, largest dirty entry, live-session peak,
+and completed output size. These phase-specific counters describe bytes owned by wasmppt; they are
+not summed into a synthetic process-memory number. Process RSS is sampled once per fresh benchmark
+child with `/usr/bin/time` and covers compile, generation, resolution, and live phases together.
+Its maximum is an allocator/process high-water mark: repeated iterations may leave freed arenas in
+the allocator, so it can exceed current logical residency without proving a leak. The raw report
+retains every process RSS sample and labels this scope and allocator effect explicitly.
 
 The primary scalar Wasm size excludes the optional metafile converter and exact-font shaper.
 EMF/WMF presentations load the separately reported converter artifact on first use. Applications
@@ -67,7 +78,14 @@ sizes remain visible so optional capability cost is not hidden.
 Chromium module Worker with scalar Wasm, and Cloudflare workerd. It fails on p95 ceilings, native
 peak RSS, scalar Wasm size, accounted Worker memory, loss of raw copies, any generation-time ZIP
 inflation, or correctness failure. Absolute budgets are intentionally broad enough for shared CI;
-tightening them is reviewed like an API change. Published artifacts contain the raw JSON and exact
+tightening them is reviewed like an API change. Native cold compile, warm generation,
+first/visible/all-slide latency, logical memory, and RSS ceilings are enforced independently at 10,
+50, and 200 slides. Adjacent sizes and the 10-to-200 span also enforce normalized growth
+`(large metric / small metric) / (large slides / small slides)` so an absolute ceiling cannot hide
+superlinear scaling. The checked-in ceilings include variance observed across repeated release
+processes; CI refuses reports with fewer than three processes or ten timing samples per process.
+Every enforced check publishes its absolute and percentage margin in `budgetEvaluation`, including
+passing checks, and the raw artifact is uploaded even when the gate fails. Published artifacts contain the raw JSON and exact
 generated budget fixture for each revision. Browser reports additionally retain first-visible-slide
 samples, resolution/font/display/media stage timings, and scene/resource/decoded-image cache bytes.
 The visible set is awaited before neighbor prefetch can consume Worker or main-thread capacity.

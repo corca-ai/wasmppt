@@ -1,19 +1,70 @@
 {
-  "schema": 1,
+  "schema": 2,
   "native": {
-    "fixture": "mixed-10",
-    "maximumP95Ns": {
-      "coldTemplateCompile": 100000000,
-      "warmInjection": 50000000,
-      "firstSlide": 50000000,
-      "visibleSlides": 100000000,
-      "allSlides": 500000000
+    "calibration": {
+      "minimumProcessRuns": 3,
+      "minimumTimingSamplesPerProcess": 10,
+      "profile": "release",
+      "policy": "Ceilings include shared-runner variance above repeated mixed 10/50/200 baselines; normalized growth limits independently reject superlinear scaling."
     },
-    "maximumPeakResidentBytes": 536870912,
-    "maximumPeakDirtyEntryBytes": 33554432,
-    "maximumOutputChunkBytes": 65536,
-    "minimumRawCopiedEntries": 1,
-    "maximumInflatedEntries": 0
+    "matrix": {
+      "10": {
+        "maximumP95Ns": {
+          "coldTemplateCompile": 100000000,
+          "warmInjection": 50000000,
+          "firstSlide": 50000000,
+          "visibleSlides": 100000000,
+          "allSlides": 500000000
+        },
+        "maximumPeakResidentBytes": 67108864,
+        "maximumEstimatedResidentBytes": 1048576,
+        "maximumDirtyUncompressedBytes": 2097152
+      },
+      "50": {
+        "maximumP95Ns": {
+          "coldTemplateCompile": 250000000,
+          "warmInjection": 100000000,
+          "firstSlide": 100000000,
+          "visibleSlides": 200000000,
+          "allSlides": 1000000000
+        },
+        "maximumPeakResidentBytes": 201326592,
+        "maximumEstimatedResidentBytes": 4194304,
+        "maximumDirtyUncompressedBytes": 8388608
+      },
+      "200": {
+        "maximumP95Ns": {
+          "coldTemplateCompile": 750000000,
+          "warmInjection": 300000000,
+          "firstSlide": 250000000,
+          "visibleSlides": 500000000,
+          "allSlides": 4000000000
+        },
+        "maximumPeakResidentBytes": 536870912,
+        "maximumEstimatedResidentBytes": 16777216,
+        "maximumDirtyUncompressedBytes": 33554432
+      }
+    },
+    "growth": {
+      "maximumNormalized": {
+        "peakResidentBytes": 2,
+        "estimatedResidentBytes": 2,
+        "dirtyUncompressedBytes": 1.5,
+        "outputBytes": 1.5,
+        "livePeakResidentBytes": 2,
+        "coldTemplateCompileP95Ns": 2.5,
+        "warmInjectionP95Ns": 2.5,
+        "firstSlideP95Ns": 2.5,
+        "visibleSlidesP95Ns": 2.5,
+        "allSlidesP95Ns": 2.5
+      }
+    },
+    "invariants": {
+      "maximumPeakDirtyEntryBytes": 1048576,
+      "maximumOutputChunkBytes": 65536,
+      "minimumRawCopiedEntries": 1,
+      "maximumInflatedEntries": 0
+    }
   },
   "nativeLive": {
     "10": {

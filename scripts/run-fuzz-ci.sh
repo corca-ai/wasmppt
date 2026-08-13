@@ -14,6 +14,13 @@ if [ "$duration" -lt 1 ]; then
 fi
 
 mkdir -p "$artifact_root"
+{
+  echo "cargo-fuzz=$(cargo fuzz --version)"
+  echo "rustc=$(rustc --version)"
+  echo "seconds-per-target=$duration"
+  echo "targets=open_package package_graph slide_geometry template_bindings xml_tokens"
+} > "$artifact_root/metadata.txt"
+
 for target in open_package package_graph slide_geometry template_bindings xml_tokens; do
   mkdir -p "$artifact_root/$target"
   cargo fuzz run --fuzz-dir "$fuzz_root" "$target" -- \
@@ -21,9 +28,5 @@ for target in open_package package_graph slide_geometry template_bindings xml_to
 done
 
 {
-  echo "cargo-fuzz=$(cargo fuzz --version)"
-  echo "rustc=$(rustc --version)"
-  echo "seconds-per-target=$duration"
-  echo "targets=open_package package_graph slide_geometry template_bindings xml_tokens"
   find "$fuzz_root/corpus" -type f -exec sha256sum {} + 2>/dev/null || true
-} > "$artifact_root/metadata.txt"
+} >> "$artifact_root/metadata.txt"

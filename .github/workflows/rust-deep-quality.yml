@@ -23,9 +23,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install pinned nightly toolchain
         run: rustup toolchain install nightly-2026-08-01 --profile minimal --no-self-update
-      - uses: taiki-e/install-action@b20dedce73af6905cdc30d6611090c9b67557c8d # v2
-        with:
-          tool: cargo-fuzz@0.13.2
+      - name: Install cargo-fuzz for the native runner target
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
       - name: Run every fuzz target with a bounded budget
         env:
           WASMPPT_FUZZ_SECONDS: 30

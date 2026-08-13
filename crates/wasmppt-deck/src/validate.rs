@@ -66,15 +66,15 @@ pub fn validate_deck_spec(spec: &DeckSpec, limits: &DeckLimits) -> ValidationRep
             );
         }
         total_resource_bytes = total_resource_bytes.saturating_add(resource.bytes.len());
-        if let Some(size) = resource.intrinsic_size
-            && (size.width == 0 || size.height == 0)
-        {
-            validator.error(
-                DeckDiagnosticCode::INVALID_SEMANTIC_CONTENT,
-                None,
-                Some(resource.id),
-                "resource intrinsic dimensions must be positive",
-            );
+        if let Some(size) = resource.intrinsic_size {
+            if size.width == 0 || size.height == 0 {
+                validator.error(
+                    DeckDiagnosticCode::INVALID_SEMANTIC_CONTENT,
+                    None,
+                    Some(resource.id),
+                    "resource intrinsic dimensions must be positive",
+                );
+            }
         }
     }
     if total_resource_bytes > limits.max_total_resource_bytes {
@@ -136,15 +136,15 @@ impl SpecValidator<'_> {
             );
             return;
         }
-        if let Some(parent) = parent
-            && !range_contains(parent, &node.source)
-        {
-            self.error(
-                DeckDiagnosticCode::INVALID_SOURCE_RANGE,
-                Some(&node.source),
-                Some(node.id),
-                "semantic node source is outside its parent source range",
-            );
+        if let Some(parent) = parent {
+            if !range_contains(parent, &node.source) {
+                self.error(
+                    DeckDiagnosticCode::INVALID_SOURCE_RANGE,
+                    Some(&node.source),
+                    Some(node.id),
+                    "semantic node source is outside its parent source range",
+                );
+            }
         }
         if !split_matches(node) || !role_matches(node) {
             self.error(
@@ -180,15 +180,15 @@ impl SpecValidator<'_> {
                             "rich-text run exceeds the configured string limit",
                         );
                     }
-                    if let Some(link) = &run.hyperlink
-                        && !safe_hyperlink(link.kind, &link.target)
-                    {
-                        self.error(
-                            DeckDiagnosticCode::UNSAFE_HYPERLINK,
-                            Some(&node.source),
-                            Some(node.id),
-                            "hyperlink target does not match its declared safe kind",
-                        );
+                    if let Some(link) = &run.hyperlink {
+                        if !safe_hyperlink(link.kind, &link.target) {
+                            self.error(
+                                DeckDiagnosticCode::UNSAFE_HYPERLINK,
+                                Some(&node.source),
+                                Some(node.id),
+                                "hyperlink target does not match its declared safe kind",
+                            );
+                        }
                     }
                 }
             }
@@ -807,15 +807,15 @@ fn validate_intervals(
     }
     let mut cursor = 0;
     for (start, end) in intervals {
-        if let Some(text) = text
-            && (!text.is_char_boundary(start as usize) || !text.is_char_boundary(end as usize))
-        {
-            coverage_error(
-                report,
-                DeckDiagnosticCode::PLAN_SOURCE_LOSS,
-                id,
-                "text fragment slice does not end on UTF-8 boundaries",
-            );
+        if let Some(text) = text {
+            if !text.is_char_boundary(start as usize) || !text.is_char_boundary(end as usize) {
+                coverage_error(
+                    report,
+                    DeckDiagnosticCode::PLAN_SOURCE_LOSS,
+                    id,
+                    "text fragment slice does not end on UTF-8 boundaries",
+                );
+            }
         }
         if start < cursor || end <= start {
             coverage_error(

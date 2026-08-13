@@ -219,6 +219,16 @@ jobs:
             fixtures/host-adapters/minimal.potx \
             target/host-parity/native.pptx \
             target/host-parity/parity.wppd
+      - name: Generate deterministic native deck evidence
+        run: |
+          mkdir -p target/deck-gates
+          fixture_dir=$(mktemp -d)
+          cargo run --locked -p wasmppt-deck --example write_gate_fixtures -- "$fixture_dir"
+          cmp fixtures/deck-gates/starter.potx "$fixture_dir/starter.potx"
+          cmp fixtures/deck-gates/deck-spec.wdsf "$fixture_dir/deck-spec.wdsf"
+          cmp fixtures/deck-gates/atomic-overflow.wdsf "$fixture_dir/atomic-overflow.wdsf"
+          cargo run --locked -p wasmppt-wasm --example deck_gate_native -- \
+            fixtures/deck-gates target/deck-gates
       - name: Execute the shared workerd fixture
         run: |
           set -o pipefail
@@ -237,6 +247,11 @@ jobs:
             > target/benchmarks/pptxgenjs.json
       - name: Execute the shared browser Worker fixture
         run: npm run test:browser --workspace @corca-ai/wasmppt
+      - name: Enforce native, browser, and workerd deck parity
+        run: >-
+          node scripts/deck-gates.mjs
+          --workerd-log=target/host-parity/workerd.log
+          --output=target/deck-gates
       - name: Enforce native, browser, and workerd PPTX byte parity
         run: |
           node scripts/host-parity.mjs \
@@ -252,6 +267,14 @@ jobs:
           path: target/host-parity
           if-no-files-found: error
           retention-days: 7
+      - name: Publish deck compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: deck-compatibility-${{ github.sha }}
+          path: target/deck-gates
+          if-no-files-found: error
+          retention-days: 14
       - name: Verify native display-list parity
         run: |
           cargo run --locked -p wasmppt-cli -- resolve fixtures/render/basic.pptx 0 \
@@ -363,6 +386,8 @@ jobs:
           cargo run --locked -p wasmppt-deck-compose \
             --example write_compat_fixture -- \
             target/compat/deck-compose.pptx
+          cargo run --locked -p wasmppt-wasm --example deck_gate_native -- \
+            fixtures/deck-gates target/compat/deck-gate
           cargo run --locked -p wasmppt-cli -- \
             validate target/compat/continued-table.pptx
           cargo run --locked -p wasmppt-cli -- \
@@ -372,7 +397,8 @@ jobs:
           for deck in \
             target/compat/generated.pptx \
             target/compat/continued-table.pptx \
-            target/compat/deck-compose.pptx
+            target/compat/deck-compose.pptx \
+            target/compat/deck-gate/native.pptx
           do
             dotnet run --project tools/openxml-validator/OpenXmlValidator.csproj \
               --configuration Release -- "$deck"

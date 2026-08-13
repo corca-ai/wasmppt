@@ -91,7 +91,11 @@ fn starter() -> Vec<u8> {
             "ppt/slideLayouts/content.xml",
             layout(
                 "wasmppt:content-v1",
-                &[placeholder(21, "title", 3), placeholder(22, "body", 4)],
+                &[
+                    placeholder(21, "title", 3),
+                    placeholder(22, "body", 4),
+                    placeholder(23, "sldNum", 6),
+                ],
             ),
         ),
         (
@@ -146,6 +150,7 @@ fn master_placeholders() -> String {
             5,
             (1_000_000, 1_600_000, 10_192_000, 2_200_000),
         ),
+        master_placeholder(7, "sldNum", 6, (11_000_000, 6_300_000, 500_000, 200_000)),
     ]
     .join("")
 }

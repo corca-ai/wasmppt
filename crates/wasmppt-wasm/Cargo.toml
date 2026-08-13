@@ -20,6 +20,10 @@ js-sys.workspace = true
 wasm-bindgen.workspace = true
 wasmppt-opc.workspace = true
 wasmppt-display.workspace = true
+wasmppt-deck.workspace = true
+wasmppt-deck-template.workspace = true
+wasmppt-deck-layout.workspace = true
+wasmppt-deck-compose.workspace = true
 wasmppt-layout.workspace = true
 wasmppt-template.workspace = true
 

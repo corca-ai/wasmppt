@@ -7,9 +7,17 @@ use std::{
 
 use js_sys::{Array, Error as JavaScriptError, Object, Reflect};
 use wasm_bindgen::prelude::*;
-use wasmppt_display::DisplayList;
+use wasmppt_deck::{
+    DeckLimits, DeckPlan, DeckSpec, SemanticContent, SemanticNode, SourceRange, StableId,
+};
+use wasmppt_deck_compose::{ComposeLimits, DeckComposer, PresentationOverlay};
+use wasmppt_deck_layout::{DeckPlanner, FontCatalog, IncrementalPlanUpdate};
+use wasmppt_deck_template::ThemeTemplateCompiler;
+use wasmppt_display::{DisplayList, SemanticSource};
 use wasmppt_layout::{LayoutError, LayoutErrorCode, PresentationDocument};
-use wasmppt_opc::{Error as OpcError, ErrorCode as OpcErrorCode, ZipArchive};
+use wasmppt_opc::{
+    Error as OpcError, ErrorCode as OpcErrorCode, OverlayCursor, PackageLimits, ZipArchive,
+};
 use wasmppt_template::{
     BindingDiagnostic, BindingDiagnosticCode, BindingKind, BindingSource, CompileError,
     CompileErrorCode, CompilerOptions, GenerateError, GenerateErrorCode, GenerationCursor,
@@ -75,7 +83,9 @@ pub struct WasmpptEngine {
     templates: HashMap<u32, Arc<PreparedRecord>>,
     presentations: HashMap<u32, PresentationDocument>,
     live_sessions: HashMap<u32, LiveSessionRecord>,
-    generations: HashMap<u32, GenerationCursor>,
+    deck_templates: HashMap<u32, Arc<DeckTemplateRecord>>,
+    deck_sessions: HashMap<u32, DeckSessionRecord>,
+    generations: HashMap<u32, GenerationRecord>,
 }
 
 #[derive(Debug)]
@@ -89,6 +99,29 @@ struct LiveSessionRecord {
     session: LiveSession,
     document: PresentationDocument,
     scenes: SceneCache,
+}
+
+#[derive(Debug)]
+struct DeckTemplateRecord {
+    bytes: Arc<[u8]>,
+    plan: Arc<wasmppt_deck::DeckTemplatePlan>,
+    cacheable: bool,
+}
+
+#[derive(Debug)]
+struct DeckSessionRecord {
+    revision: u32,
+    template: Arc<DeckTemplateRecord>,
+    spec: DeckSpec,
+    plan: DeckPlan,
+    overlay: PresentationOverlay,
+    document: PresentationDocument,
+    scenes: SceneCache,
+}
+
+enum GenerationRecord {
+    Template(GenerationCursor),
+    Deck(OverlayCursor),
 }
 
 #[derive(Debug)]
@@ -110,6 +143,8 @@ impl Default for WasmpptEngine {
             templates: HashMap::new(),
             presentations: HashMap::new(),
             live_sessions: HashMap::new(),
+            deck_templates: HashMap::new(),
+            deck_sessions: HashMap::new(),
             generations: HashMap::new(),
         }
     }
@@ -443,7 +478,8 @@ impl WasmpptEngine {
             record.session.generation_cursor()
         };
         let generation_handle = self.allocate_handle()?;
-        self.generations.insert(generation_handle, cursor);
+        self.generations
+            .insert(generation_handle, GenerationRecord::Template(cursor));
         Ok(generation_handle)
     }
 
@@ -461,6 +497,238 @@ impl WasmpptEngine {
             output.push(&JsValue::from_f64(value as f64));
         }
         Ok(output)
+    }
+
+    /// Compile a Cortex Theme Starter POTX into a reusable host-neutral deck template plan.
+    pub fn prepare_deck_template(&mut self, template: &[u8]) -> Result<u32, JsValue> {
+        let bytes: Arc<[u8]> = template.to_vec().into();
+        let compiled = ThemeTemplateCompiler::new(PackageLimits::default())
+            .compile(bytes.clone())
+            .map_err(|error| coded_error("WasmpptDeckTemplateError", error))?;
+        self.insert_deck_template(bytes, compiled.plan, compiled.cacheable)
+    }
+
+    /// Restore a compiled deck template plan after verifying its exact POTX identity.
+    pub fn prepare_deck_template_with_plan(
+        &mut self,
+        template: &[u8],
+        plan: &[u8],
+    ) -> Result<u32, JsValue> {
+        let bytes: Arc<[u8]> = template.to_vec().into();
+        let limits = DeckLimits::default();
+        let plan = wasmppt_deck::DeckTemplatePlan::decode(plan, &limits)
+            .map_err(|error| coded_error("WasmpptDeckPlanError", error))?;
+        let compiled = ThemeTemplateCompiler::new(PackageLimits::default())
+            .compile(bytes.clone())
+            .map_err(|error| coded_error("WasmpptDeckTemplateError", error))?;
+        if compiled.plan.id != plan.id || compiled.plan.cache_key != plan.cache_key {
+            return Err(coded_error(
+                "WasmpptDeckPlanError",
+                "deck template plan does not match the supplied POTX",
+            ));
+        }
+        self.insert_deck_template(bytes, plan, compiled.cacheable)
+    }
+
+    pub fn deck_template_plan(&self, handle: u32) -> Result<Vec<u8>, JsValue> {
+        self.deck_template(handle)?
+            .plan
+            .encode(&DeckLimits::default())
+            .map_err(|error| coded_error("WasmpptDeckPlanError", error))
+    }
+
+    pub fn deck_template_cacheable(&self, handle: u32) -> Result<bool, JsValue> {
+        Ok(self.deck_template(handle)?.cacheable)
+    }
+
+    /// Create revision zero by planning and composing one complete WDSF deck specification.
+    pub fn create_deck_session(
+        &mut self,
+        template_handle: u32,
+        spec: &[u8],
+    ) -> Result<u32, JsValue> {
+        let limits = DeckLimits::default();
+        let spec = DeckSpec::decode(spec, &limits)
+            .map_err(|error| coded_error("WasmpptDeckSpecError", error))?;
+        let template = self.deck_template_record(template_handle)?.clone();
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template.plan, &FontCatalog::default(), &limits)
+            .map_err(|error| coded_error("WasmpptDeckLayoutError", error))?;
+        self.insert_deck_session(template, spec, plan)
+    }
+
+    /// Create revision zero from an externally cached WDPL plan after full validation.
+    pub fn create_deck_session_with_plan(
+        &mut self,
+        template_handle: u32,
+        spec: &[u8],
+        plan: &[u8],
+    ) -> Result<u32, JsValue> {
+        let limits = DeckLimits::default();
+        let spec = DeckSpec::decode(spec, &limits)
+            .map_err(|error| coded_error("WasmpptDeckSpecError", error))?;
+        let plan = DeckPlan::decode(plan, &limits)
+            .map_err(|error| coded_error("WasmpptDeckPlanError", error))?;
+        let template = self.deck_template_record(template_handle)?.clone();
+        self.insert_deck_session(template, spec, plan)
+    }
+
+    pub fn deck_session_revision(&self, handle: u32) -> Result<u32, JsValue> {
+        Ok(self.deck_session(handle)?.revision)
+    }
+
+    pub fn deck_session_plan(&self, handle: u32, revision: u32) -> Result<Vec<u8>, JsValue> {
+        let record = self.deck_session(handle)?;
+        require_deck_revision(record, revision)?;
+        record
+            .plan
+            .encode(&DeckLimits::default())
+            .map_err(|error| coded_error("WasmpptDeckPlanError", error))
+    }
+
+    pub fn deck_session_slide_count(&self, handle: u32) -> Result<u32, JsValue> {
+        u32::try_from(self.deck_session(handle)?.plan.pages.len())
+            .map_err(|_| coded_error("WasmpptLimitError", "slide count exceeds u32"))
+    }
+
+    /// Authoring indices include hidden pages; presentable indices never do.
+    pub fn deck_session_presentable_slides(&self, handle: u32) -> Result<Array, JsValue> {
+        let output = Array::new();
+        for (index, page) in self.deck_session(handle)?.plan.pages.iter().enumerate() {
+            if !page.hidden {
+                output.push(&JsValue::from(index as u32));
+            }
+        }
+        Ok(output)
+    }
+
+    /// Atomically decode, incrementally replan, compose, and publish one complete WDSF revision.
+    pub fn apply_deck_session_spec(
+        &mut self,
+        handle: u32,
+        expected_revision: u32,
+        next_revision: u32,
+        spec: &[u8],
+    ) -> Result<Array, JsValue> {
+        if next_revision
+            != expected_revision.checked_add(1).ok_or_else(|| {
+                coded_error("WasmpptRevisionError", "deck session revision is exhausted")
+            })?
+        {
+            return Err(coded_error(
+                "WasmpptRevisionError",
+                "deck session revisions must increase by exactly one",
+            ));
+        }
+        let limits = DeckLimits::default();
+        let next_spec = DeckSpec::decode(spec, &limits)
+            .map_err(|error| coded_error("WasmpptDeckSpecError", error))?;
+        let record = self.deck_session(handle)?;
+        require_deck_revision(record, expected_revision)?;
+        let update = DeckPlanner::default()
+            .replan(
+                &record.spec,
+                &record.plan,
+                &next_spec,
+                &record.template.plan,
+                &FontCatalog::default(),
+                &limits,
+            )
+            .map_err(|error| coded_error("WasmpptDeckLayoutError", error))?;
+        self.publish_deck_revision(handle, next_revision, next_spec, update)
+    }
+
+    pub fn resolve_deck_session_slide(
+        &mut self,
+        handle: u32,
+        revision: u32,
+        slide_index: u32,
+    ) -> Result<Vec<u8>, JsValue> {
+        let record = self.deck_session_mut(handle)?;
+        require_deck_revision(record, revision)?;
+        let fingerprint = record
+            .document
+            .slide_dependency_fingerprint(slide_index as usize)
+            .map_err(layout_error)?;
+        if let Some(bytes) = record.scenes.get((slide_index, fingerprint)) {
+            return Ok(bytes);
+        }
+        let resolved = record
+            .document
+            .resolve_slide(slide_index as usize)
+            .map_err(layout_error)?;
+        let page = record.plan.pages.get(slide_index as usize).ok_or_else(|| {
+            coded_error("WasmpptDeckPlanError", "deck slide index is out of bounds")
+        })?;
+        let mut display = DisplayList::from_resolve(&resolved);
+        annotate_deck_semantics(&mut display, page, &record.spec);
+        let bytes = display.encode();
+        record
+            .scenes
+            .insert((slide_index, fingerprint), bytes.clone());
+        Ok(bytes)
+    }
+
+    pub fn deck_session_slide_fingerprint(
+        &self,
+        handle: u32,
+        revision: u32,
+        slide_index: u32,
+    ) -> Result<String, JsValue> {
+        let record = self.deck_session(handle)?;
+        require_deck_revision(record, revision)?;
+        record
+            .document
+            .slide_dependency_fingerprint(slide_index as usize)
+            .map(fingerprint_hex)
+            .map_err(layout_error)
+    }
+
+    pub fn deck_session_resource(
+        &self,
+        handle: u32,
+        revision: u32,
+        part_name: &str,
+    ) -> Result<Vec<u8>, JsValue> {
+        let record = self.deck_session(handle)?;
+        require_deck_revision(record, revision)?;
+        record.document.read_part(part_name).map_err(layout_error)
+    }
+
+    pub fn deck_session_resource_fingerprint(
+        &self,
+        handle: u32,
+        revision: u32,
+        part_name: &str,
+    ) -> Result<String, JsValue> {
+        let record = self.deck_session(handle)?;
+        require_deck_revision(record, revision)?;
+        record
+            .document
+            .part_fingerprint(part_name)
+            .map(fingerprint_hex)
+            .map_err(layout_error)
+    }
+
+    /// Export from the exact immutable overlay used by this preview revision.
+    pub fn start_deck_session_generation(
+        &mut self,
+        handle: u32,
+        revision: u32,
+    ) -> Result<u32, JsValue> {
+        let cursor = {
+            let record = self.deck_session(handle)?;
+            require_deck_revision(record, revision)?;
+            record.overlay.generation_cursor()
+        };
+        let generation_handle = self.allocate_handle()?;
+        self.generations
+            .insert(generation_handle, GenerationRecord::Deck(cursor));
+        Ok(generation_handle)
+    }
+
+    pub fn deck_session_cache_telemetry(&self, handle: u32) -> Result<Array, JsValue> {
+        Ok(cache_telemetry_array(&self.deck_session(handle)?.scenes))
     }
 
     /// Text-only compatibility entry point returning a pull cursor handle.
@@ -507,19 +775,31 @@ impl WasmpptEngine {
         generation_handle: u32,
         maximum_bytes: u32,
     ) -> Result<Vec<u8>, JsValue> {
-        self.generations
+        match self
+            .generations
             .get_mut(&generation_handle)
             .ok_or_else(|| coded_error("WasmpptHandleError", "unknown generation handle"))?
-            .pull(maximum_bytes as usize)
-            .map_err(generate_error)
+        {
+            GenerationRecord::Template(cursor) => {
+                cursor.pull(maximum_bytes as usize).map_err(generate_error)
+            }
+            GenerationRecord::Deck(cursor) => {
+                cursor.pull(maximum_bytes as usize).map_err(opc_error)
+            }
+        }
     }
 
     pub fn generation_done(&self, generation_handle: u32) -> Result<bool, JsValue> {
-        Ok(self
-            .generations
-            .get(&generation_handle)
-            .ok_or_else(|| coded_error("WasmpptHandleError", "unknown generation handle"))?
-            .is_done())
+        Ok(
+            match self
+                .generations
+                .get(&generation_handle)
+                .ok_or_else(|| coded_error("WasmpptHandleError", "unknown generation handle"))?
+            {
+                GenerationRecord::Template(cursor) => cursor.is_done(),
+                GenerationRecord::Deck(cursor) => cursor.is_done(),
+            },
+        )
     }
 
     pub fn release_template(&mut self, handle: u32) -> bool {
@@ -532,6 +812,14 @@ impl WasmpptEngine {
 
     pub fn release_live_session(&mut self, handle: u32) -> bool {
         self.live_sessions.remove(&handle).is_some()
+    }
+
+    pub fn release_deck_template(&mut self, handle: u32) -> bool {
+        self.deck_templates.remove(&handle).is_some()
+    }
+
+    pub fn release_deck_session(&mut self, handle: u32) -> bool {
+        self.deck_sessions.remove(&handle).is_some()
     }
 
     pub fn release_generation(&mut self, handle: u32) -> bool {
@@ -547,6 +835,8 @@ impl WasmpptEngine {
             if !self.templates.contains_key(&handle)
                 && !self.presentations.contains_key(&handle)
                 && !self.live_sessions.contains_key(&handle)
+                && !self.deck_templates.contains_key(&handle)
+                && !self.deck_sessions.contains_key(&handle)
                 && !self.generations.contains_key(&handle)
             {
                 return Ok(handle);
@@ -609,8 +899,126 @@ impl WasmpptEngine {
             .generate_cursor(data)
             .map_err(generate_error)?;
         let handle = self.allocate_handle()?;
-        self.generations.insert(handle, cursor);
+        self.generations
+            .insert(handle, GenerationRecord::Template(cursor));
         Ok(handle)
+    }
+
+    fn insert_deck_template(
+        &mut self,
+        bytes: Arc<[u8]>,
+        plan: wasmppt_deck::DeckTemplatePlan,
+        cacheable: bool,
+    ) -> Result<u32, JsValue> {
+        let handle = self.allocate_handle()?;
+        self.deck_templates.insert(
+            handle,
+            Arc::new(DeckTemplateRecord {
+                bytes,
+                plan: Arc::new(plan),
+                cacheable,
+            }),
+        );
+        Ok(handle)
+    }
+
+    fn insert_deck_session(
+        &mut self,
+        template: Arc<DeckTemplateRecord>,
+        spec: DeckSpec,
+        plan: DeckPlan,
+    ) -> Result<u32, JsValue> {
+        let overlay = DeckComposer
+            .compose(
+                template.bytes.clone(),
+                &spec,
+                &template.plan,
+                &plan,
+                &DeckLimits::default(),
+                &ComposeLimits::default(),
+            )
+            .map_err(|error| coded_error("WasmpptDeckComposeError", error))?;
+        let document =
+            PresentationDocument::open_source(Arc::new(overlay.clone())).map_err(layout_error)?;
+        let handle = self.allocate_handle()?;
+        self.deck_sessions.insert(
+            handle,
+            DeckSessionRecord {
+                revision: 0,
+                template,
+                spec,
+                plan,
+                overlay,
+                document,
+                scenes: SceneCache::new(SESSION_SCENE_CACHE_BYTES),
+            },
+        );
+        Ok(handle)
+    }
+
+    fn publish_deck_revision(
+        &mut self,
+        handle: u32,
+        next_revision: u32,
+        next_spec: DeckSpec,
+        update: IncrementalPlanUpdate,
+    ) -> Result<Array, JsValue> {
+        let record = self.deck_session(handle)?;
+        let overlay = DeckComposer
+            .compose(
+                record.template.bytes.clone(),
+                &next_spec,
+                &record.template.plan,
+                &update.plan,
+                &DeckLimits::default(),
+                &ComposeLimits::default(),
+            )
+            .map_err(|error| coded_error("WasmpptDeckComposeError", error))?;
+        let changed_parts = overlay.changed_parts_since(&record.overlay);
+        let full_fallback = record.plan.pages.len() != update.plan.pages.len();
+        let source: Arc<dyn wasmppt_opc::PackagePartSource> = Arc::new(overlay.clone());
+        let document = if full_fallback {
+            PresentationDocument::open_source(source).map_err(layout_error)?
+        } else {
+            record.document.with_compatible_source(source)
+        };
+        let invalidated_ids = update
+            .invalidated_pages
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+        let invalidated_slides = if full_fallback {
+            (0..update.plan.pages.len()).collect::<Vec<_>>()
+        } else {
+            update
+                .plan
+                .pages
+                .iter()
+                .enumerate()
+                .filter_map(|(index, page)| {
+                    (invalidated_ids.contains(&page.id) || record.plan.pages[index].id != page.id)
+                        .then_some(index)
+                })
+                .collect::<Vec<_>>()
+        };
+        let metadata = deck_update_array(
+            next_revision,
+            &update,
+            &invalidated_slides,
+            &changed_parts,
+            full_fallback,
+            overlay.stats(),
+        );
+        let record = self.deck_session_mut(handle)?;
+        record.revision = next_revision;
+        record.spec = next_spec;
+        record.plan = update.plan;
+        record.overlay = overlay;
+        record.document = document;
+        if full_fallback {
+            record.scenes = SceneCache::new(SESSION_SCENE_CACHE_BYTES);
+        }
+        Ok(metadata)
     }
 
     fn presentation(&self, handle: u32) -> Result<&PresentationDocument, JsValue> {
@@ -629,6 +1037,28 @@ impl WasmpptEngine {
         self.live_sessions
             .get_mut(&handle)
             .ok_or_else(|| coded_error("WasmpptHandleError", "unknown live session handle"))
+    }
+
+    fn deck_template_record(&self, handle: u32) -> Result<&Arc<DeckTemplateRecord>, JsValue> {
+        self.deck_templates
+            .get(&handle)
+            .ok_or_else(|| coded_error("WasmpptHandleError", "unknown deck template handle"))
+    }
+
+    fn deck_template(&self, handle: u32) -> Result<&DeckTemplateRecord, JsValue> {
+        self.deck_template_record(handle).map(Arc::as_ref)
+    }
+
+    fn deck_session(&self, handle: u32) -> Result<&DeckSessionRecord, JsValue> {
+        self.deck_sessions
+            .get(&handle)
+            .ok_or_else(|| coded_error("WasmpptHandleError", "unknown deck session handle"))
+    }
+
+    fn deck_session_mut(&mut self, handle: u32) -> Result<&mut DeckSessionRecord, JsValue> {
+        self.deck_sessions
+            .get_mut(&handle)
+            .ok_or_else(|| coded_error("WasmpptHandleError", "unknown deck session handle"))
     }
 }
 
@@ -696,6 +1126,196 @@ fn require_revision(record: &LiveSessionRecord, revision: u32) -> Result<(), JsV
     }
 }
 
+fn require_deck_revision(record: &DeckSessionRecord, revision: u32) -> Result<(), JsValue> {
+    if record.revision == revision {
+        Ok(())
+    } else {
+        Err(coded_error(
+            "WasmpptRevisionError",
+            format!(
+                "requested deck revision {revision}, current revision is {}",
+                record.revision
+            ),
+        ))
+    }
+}
+
+fn cache_telemetry_array(cache: &SceneCache) -> Array {
+    let output = Array::new();
+    for value in [
+        cache.resident_bytes as u64,
+        cache.peak_bytes as u64,
+        cache.entries.len() as u64,
+        cache.hits,
+        cache.misses,
+        cache.evictions,
+    ] {
+        output.push(&JsValue::from_f64(value as f64));
+    }
+    output
+}
+
+fn deck_update_array(
+    revision: u32,
+    update: &IncrementalPlanUpdate,
+    invalidated_slides: &[usize],
+    changed_parts: &[String],
+    full_fallback: bool,
+    stats: wasmppt_opc::OverlayStats,
+) -> Array {
+    let output = Array::new();
+    output.push(&JsValue::from(revision));
+    output.push(&JsValue::from(update.plan.pages.len() as u32));
+    let presentable = Array::new();
+    for (index, page) in update.plan.pages.iter().enumerate() {
+        if !page.hidden {
+            presentable.push(&JsValue::from(index as u32));
+        }
+    }
+    output.push(&presentable);
+    let invalidated = Array::new();
+    for index in invalidated_slides {
+        invalidated.push(&JsValue::from(*index as u32));
+    }
+    output.push(&invalidated);
+    let logical = Array::new();
+    for id in &update.invalidated_logical_slides {
+        logical.push(&JsValue::from(id.to_string()));
+    }
+    output.push(&logical);
+    let removed = Array::new();
+    for id in &update.invalidated_previous_pages {
+        removed.push(&JsValue::from(id.to_string()));
+    }
+    output.push(&removed);
+    let parts = Array::new();
+    for part in changed_parts {
+        parts.push(&JsValue::from(part.clone()));
+    }
+    output.push(&parts);
+    output.push(&JsValue::from_f64(update.reused_pages as f64));
+    output.push(&JsValue::from(full_fallback));
+    for value in [
+        stats.logical_parts,
+        stats.materialized_parts,
+        stats.materialized_bytes,
+        stats.reused_source_bytes,
+        stats.removed_parts,
+    ] {
+        output.push(&JsValue::from_f64(value as f64));
+    }
+    output
+}
+
+fn annotate_deck_semantics(
+    display: &mut DisplayList,
+    page: &wasmppt_deck::PhysicalPage,
+    spec: &DeckSpec,
+) {
+    let mut nodes = std::collections::BTreeMap::new();
+    for slide in &spec.logical_slides {
+        index_semantic_nodes(&slide.nodes, &mut nodes);
+    }
+    let mut shape_id = 2u32;
+    let mut reading_order = 0u32;
+    if page.continuation.ordinal > 1 {
+        if let Some(node_id) = page.continuation.repeated_heading_node_id {
+            if let Some(node) = nodes.get(&node_id) {
+                annotate_shape(
+                    display,
+                    shape_id,
+                    None,
+                    node.id,
+                    &node.source,
+                    reading_order,
+                );
+                shape_id = shape_id.saturating_add(1);
+                reading_order = reading_order.saturating_add(1);
+            }
+        }
+    }
+    for fragment in page
+        .regions
+        .iter()
+        .flat_map(|region| region.fragments.iter())
+    {
+        if let Some(node) = nodes.get(&fragment.source_node_id) {
+            annotate_shape(
+                display,
+                shape_id,
+                Some(fragment.frame),
+                fragment.id,
+                &node.source,
+                reading_order,
+            );
+        }
+        shape_id = shape_id.saturating_add(1);
+        reading_order = reading_order.saturating_add(1);
+    }
+}
+
+fn annotate_shape(
+    display: &mut DisplayList,
+    shape_id: u32,
+    expected_bounds: Option<wasmppt_deck::EmuRect>,
+    semantic_id: StableId,
+    source: &SourceRange,
+    reading_order: u32,
+) {
+    let semantic = display.semantics.iter_mut().find(|semantic| {
+        semantic.source.is_none()
+            && semantic.shape_id == shape_id
+            && expected_bounds.is_none_or(|bounds| {
+                semantic.bounds.origin.x == bounds.x
+                    && semantic.bounds.origin.y == bounds.y
+                    && semantic.bounds.size.width == bounds.width
+                    && semantic.bounds.size.height == bounds.height
+            })
+    });
+    if let Some(semantic) = semantic {
+        semantic.reading_order = reading_order;
+        semantic.source = Some(SemanticSource {
+            semantic_id: *semantic_id.as_bytes(),
+            source: source.source.clone(),
+            start: source.start,
+            end: source.end,
+        });
+    }
+}
+
+fn index_semantic_nodes<'a>(
+    input: &'a [SemanticNode],
+    output: &mut std::collections::BTreeMap<StableId, &'a SemanticNode>,
+) {
+    for node in input {
+        output.insert(node.id, node);
+        match &node.content {
+            SemanticContent::Children(children) => index_semantic_nodes(children, output),
+            SemanticContent::List(list) => {
+                for item in &list.items {
+                    index_semantic_nodes(&item.blocks, output);
+                    for children in &item.children {
+                        index_list_nodes(children, output);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn index_list_nodes<'a>(
+    list: &'a wasmppt_deck::ListContent,
+    output: &mut std::collections::BTreeMap<StableId, &'a SemanticNode>,
+) {
+    for item in &list.items {
+        index_semantic_nodes(&item.blocks, output);
+        for children in &item.children {
+            index_list_nodes(children, output);
+        }
+    }
+}
+
 fn fingerprint_hex(fingerprint: [u8; 32]) -> String {
     fingerprint
         .iter()
@@ -753,6 +1373,11 @@ fn coded_error(name: &str, error: impl std::fmt::Display) -> JsValue {
     let (domain, code) = match name {
         "WasmpptPayloadError" => ("payload", "invalid-payload"),
         "WasmpptPlanError" => ("template", "invalid-plan"),
+        "WasmpptDeckSpecError" => ("payload", "invalid-deck-spec"),
+        "WasmpptDeckPlanError" => ("layout", "invalid-deck-plan"),
+        "WasmpptDeckTemplateError" => ("template", "invalid-deck-template"),
+        "WasmpptDeckLayoutError" => ("layout", "deck-planning-failed"),
+        "WasmpptDeckComposeError" => ("generation", "deck-composition-failed"),
         "WasmpptOptionError" => ("runtime", "invalid-option"),
         "WasmpptHandleError" => ("runtime", "unknown-handle"),
         "WasmpptHandleSpaceError" => ("runtime", "handle-space-exhausted"),
@@ -994,5 +1619,147 @@ const fn generate_error_code(value: GenerateErrorCode) -> &'static str {
         GenerateErrorCode::InvalidRevision => "stale-revision",
         GenerateErrorCode::MacroPresent => "macro-present",
         _ => "unknown",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use wasmppt_deck::{
+        EmuRect, LogicalSlide, LogicalSlideKind, PlaceholderIdentity, RegionRole, RichText,
+        RichTextRun, SemanticRole, SplitPolicy, TemplateLayout, TemplateLayoutRole, TemplateRegion,
+        TextMargins, TextMarks,
+    };
+
+    use super::*;
+
+    const POTX: &[u8] = include_bytes!("../../../fixtures/dogfood/garden.potx");
+
+    #[test]
+    fn deck_preview_and_export_share_one_overlay_and_wpdl_carries_source_identity() {
+        let mut engine = WasmpptEngine::new();
+        let compiled = engine.prepare_deck_template(POTX).unwrap();
+        let mut template_plan = engine
+            .deck_template(compiled)
+            .unwrap()
+            .plan
+            .as_ref()
+            .clone();
+        template_plan.diagnostics.clear();
+        template_plan.layouts = vec![TemplateLayout {
+            id: id(100),
+            role: TemplateLayoutRole::Content,
+            matching_name: "test-content".to_owned(),
+            source_part: "ppt/slideLayouts/slideLayout1.xml".to_owned(),
+            master_part: "ppt/slideMasters/slideMaster1.xml".to_owned(),
+            region_ids: vec![id(101)],
+            asset_ids: vec![],
+            background: None,
+        }];
+        template_plan.regions = vec![TemplateRegion {
+            id: id(101),
+            layout_id: id(100),
+            role: RegionRole::Body,
+            placeholder: PlaceholderIdentity {
+                kind: "body".to_owned(),
+                index: 0,
+            },
+            frame: EmuRect {
+                x: 500_000,
+                y: 500_000,
+                width: template_plan.page_size.width - 1_000_000,
+                height: template_plan.page_size.height - 1_000_000,
+            },
+            margins: TextMargins::default(),
+            text_levels: vec![],
+            accepts: vec![SemanticRole::Prose],
+            required: true,
+        }];
+        let template = engine
+            .insert_deck_template(POTX.to_vec().into(), template_plan, true)
+            .unwrap();
+        let spec = deck_spec();
+        let encoded = spec.encode(&DeckLimits::default()).unwrap();
+        let session = engine.create_deck_session(template, &encoded).unwrap();
+        let record = engine.deck_session(session).unwrap();
+        assert!(record.plan.pages.iter().any(|page| page.hidden));
+        assert!(record.plan.pages.iter().any(|page| !page.hidden));
+        let fragment_id = record.plan.pages[0].regions[0].fragments[0].id;
+
+        let display = engine.resolve_deck_session_slide(session, 0, 0).unwrap();
+        assert!(
+            display
+                .windows(b"deck.md".len())
+                .any(|bytes| bytes == b"deck.md")
+        );
+        assert!(
+            display
+                .windows(16)
+                .any(|bytes| bytes == fragment_id.as_bytes())
+        );
+
+        let expected = {
+            let record = engine.deck_session(session).unwrap();
+            let resolved = record.document.resolve_slide(0).unwrap();
+            DisplayList::from_resolve(&resolved).structural_signature()
+        };
+        let generation = engine.start_deck_session_generation(session, 0).unwrap();
+        let mut pptx = Vec::new();
+        while !engine.generation_done(generation).unwrap() {
+            pptx.extend(engine.generation_pull(generation, 4096).unwrap());
+        }
+        let exported = PresentationDocument::open(pptx)
+            .unwrap()
+            .resolve_slide(0)
+            .unwrap();
+        assert_eq!(
+            DisplayList::from_resolve(&exported).structural_signature(),
+            expected
+        );
+
+        assert!(engine.release_generation(generation));
+        assert!(engine.release_deck_session(session));
+        assert!(engine.release_deck_template(template));
+        assert!(engine.release_deck_template(compiled));
+    }
+
+    fn deck_spec() -> DeckSpec {
+        DeckSpec {
+            id: id(1),
+            logical_slides: vec![
+                logical_slide(2, 3, false, "Visible"),
+                logical_slide(4, 5, true, "Hidden"),
+            ],
+            resources: vec![],
+        }
+    }
+
+    fn logical_slide(slide: u8, node: u8, hidden: bool, text: &str) -> LogicalSlide {
+        LogicalSlide {
+            id: id(slide),
+            source: SourceRange::new(
+                "deck.md",
+                u32::from(node) * 10 - 1,
+                u32::from(node) * 10 + 10,
+            ),
+            kind: LogicalSlideKind::Content,
+            hidden,
+            nodes: vec![SemanticNode {
+                id: id(node),
+                source: SourceRange::new("deck.md", u32::from(node) * 10, u32::from(node) * 10 + 9),
+                role: SemanticRole::Prose,
+                split: SplitPolicy::Text,
+                content: SemanticContent::Text(RichText {
+                    runs: vec![RichTextRun {
+                        text: text.to_owned(),
+                        marks: TextMarks::default(),
+                        hyperlink: None,
+                    }],
+                }),
+            }],
+        }
+    }
+
+    fn id(value: u8) -> StableId {
+        StableId::from_bytes([value; 16])
     }
 }

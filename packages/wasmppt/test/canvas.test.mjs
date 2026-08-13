@@ -12,6 +12,7 @@ import {
   decodeOoxmlObfuscatedFont,
   inspectOpenTypeEmbedding,
   inspectRasterImageMetadata,
+  hitTestDisplayScene,
   measureTextBatch,
   renderOffscreenThumbnail,
   wrapText,
@@ -48,6 +49,20 @@ function codePointLength(value) {
   return [...value].length
 }
 
+function sourceSemantic(semanticId, zOrder, readingOrder, bounds) {
+  return {
+    firstCommand: 0,
+    commandCount: 0,
+    shapeId: zOrder + 1,
+    zOrder,
+    readingOrder,
+    kind: 'shape',
+    bounds,
+    name: semanticId,
+    source: { semanticId, source: 'deck.md', start: 10, end: 20 },
+  }
+}
+
 test('display-list decoder rejects corruption and decodes a bounded scene', () => {
   const bytes = minimalDisplayList()
   const scene = decodeDisplayList(bytes)
@@ -56,13 +71,25 @@ test('display-list decoder rejects corruption and decodes a bounded scene', () =
   assert.deepEqual(scene.commands, [
     { kind: 'clear', color: { red: 255, green: 255, blue: 255, alpha: 255 } },
   ])
-  for (const version of [2, 3, 4, 5, 6, 7, 8, 9]) {
+  for (const version of [2, 3, 4, 5, 6, 7, 8, 9, 10]) {
     assert.equal(decodeDisplayList(minimalDisplayList(version)).version, version)
   }
   assert.throws(() => decodeDisplayList(bytes.slice(0, -1)), /truncated/)
   const wrongVersion = bytes.slice()
   new DataView(wrongVersion).setUint16(4, 99, true)
   assert.throws(() => decodeDisplayList(wrongVersion), /version 99/)
+})
+
+test('source hit testing returns the topmost stable semantic target', () => {
+  const scene = {
+    semantics: [
+      sourceSemantic('bottom', 1, 0, { x: 0, y: 0, width: 100, height: 100 }),
+      sourceSemantic('top', 2, 1, { x: 20, y: 20, width: 50, height: 50 }),
+    ],
+  }
+  assert.equal(hitTestDisplayScene(scene, 30, 30)?.source.semanticId, 'top')
+  assert.equal(hitTestDisplayScene(scene, 5, 5)?.source.semanticId, 'bottom')
+  assert.equal(hitTestDisplayScene(scene, 500, 500), undefined)
 })
 
 test('Korean and CJK wrapping permits deterministic character boundaries', () => {
@@ -771,6 +798,16 @@ test('byte-budget LRU does not dispose a resident value while updating its weigh
   assert.equal(cache.get('image'), value)
   cache.clear()
   assert.deepEqual(disposed, ['closed'])
+})
+
+test('byte-budget LRU deletes one invalidated revision entry without flushing siblings', () => {
+  const cache = new ByteBudgetLru(8)
+  cache.set(0, 'first', 3)
+  cache.set(1, 'second', 3)
+  assert.equal(cache.delete(0), true)
+  assert.equal(cache.delete(0), false)
+  assert.equal(cache.get(1), 'second')
+  assert.equal(cache.residentBytes, 3)
 })
 
 test('offscreen thumbnails reject invalid dimensions before host capability checks', async () => {

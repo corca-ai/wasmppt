@@ -1,7 +1,7 @@
 import type { WasmpptErrorEnvelope } from './error.js'
 
-export const WORKER_PROTOCOL_VERSION = 5 as const
-export const LEGACY_WORKER_PROTOCOL_VERSION = 4 as const
+export const WORKER_PROTOCOL_VERSION = 6 as const
+export const LEGACY_WORKER_PROTOCOL_VERSION = 5 as const
 
 export type TextBindings = Readonly<Record<string, string>>
 
@@ -33,7 +33,86 @@ export interface TemplateDiagnostic {
   readonly message: string
 }
 
+export interface DeckSessionUpdate {
+  readonly revision: number
+  readonly slideCount: number
+  readonly presentableSlides: readonly number[]
+  readonly invalidatedSlides: readonly number[]
+  readonly invalidatedLogicalSlideIds: readonly string[]
+  readonly removedPageIds: readonly string[]
+  readonly changedParts: readonly string[]
+  readonly reusedPages: number
+  readonly fullFallback: boolean
+  readonly overlay: {
+    readonly logicalParts: number
+    readonly materializedParts: number
+    readonly materializedBytes: number
+    readonly reusedSourceBytes: number
+    readonly removedParts: number
+  }
+}
+
 export type WorkerRequest =
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'prepare-deck-template'
+      readonly template: ArrayBuffer
+      readonly plan?: ArrayBuffer
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'create-deck-session'
+      readonly templateHandle: number
+      readonly spec: ArrayBuffer
+      readonly plan?: ArrayBuffer
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'update-deck-session'
+      readonly sessionHandle: number
+      readonly expectedRevision: number
+      readonly nextRevision: number
+      readonly spec: ArrayBuffer
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'generate-deck-session'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly chunkBytes: number
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'resolve-deck-slide'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly slideIndex: number
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'deck-session-resource' | 'deck-session-resource-fingerprint'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly partName: string
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'deck-session-cache-telemetry' | 'release-deck-session'
+      readonly sessionHandle: number
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'release-deck-template'
+      readonly templateHandle: number
+    }
   | {
       readonly version: typeof WORKER_PROTOCOL_VERSION
       readonly id: number
@@ -165,6 +244,75 @@ export type WorkerRequest =
     }
 
 export type WorkerResponse =
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'deck-template-prepared'
+      readonly templateHandle: number
+      readonly cacheable: boolean
+      readonly plan: ArrayBuffer
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'deck-session-created'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly slideCount: number
+      readonly presentableSlides: readonly number[]
+      readonly plan: ArrayBuffer
+    }
+  | ({
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'deck-session-updated'
+      readonly sessionHandle: number
+    } & DeckSessionUpdate)
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'deck-slide-resolved'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly slideIndex: number
+      readonly fingerprint: string
+      readonly displayList: ArrayBuffer
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'deck-session-resource'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly partName: string
+      readonly fingerprint: string
+      readonly bytes: ArrayBuffer
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'deck-session-resource-fingerprint'
+      readonly sessionHandle: number
+      readonly revision: number
+      readonly partName: string
+      readonly fingerprint: string
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'deck-session-cache-telemetry'
+      readonly residentBytes: number
+      readonly peakBytes: number
+      readonly entries: number
+      readonly hits: number
+      readonly misses: number
+      readonly evictions: number
+    }
+  | {
+      readonly version: typeof WORKER_PROTOCOL_VERSION
+      readonly id: number
+      readonly type: 'deck-session-released' | 'deck-template-released'
+    }
   | {
       readonly version: typeof WORKER_PROTOCOL_VERSION
       readonly id: number
@@ -337,6 +485,30 @@ export type WorkerResponse =
     }
 
 export interface WorkerEngine {
+  prepare_deck_template(template: Uint8Array): number
+  prepare_deck_template_with_plan(template: Uint8Array, plan: Uint8Array): number
+  deck_template_plan(handle: number): Uint8Array
+  deck_template_cacheable(handle: number): boolean
+  create_deck_session(templateHandle: number, spec: Uint8Array): number
+  create_deck_session_with_plan(templateHandle: number, spec: Uint8Array, plan: Uint8Array): number
+  deck_session_revision(handle: number): number
+  deck_session_plan(handle: number, revision: number): Uint8Array
+  deck_session_slide_count(handle: number): number
+  deck_session_presentable_slides(handle: number): unknown[]
+  apply_deck_session_spec(
+    handle: number,
+    expectedRevision: number,
+    nextRevision: number,
+    spec: Uint8Array,
+  ): unknown[]
+  resolve_deck_session_slide(handle: number, revision: number, slideIndex: number): Uint8Array
+  deck_session_slide_fingerprint(handle: number, revision: number, slideIndex: number): string
+  deck_session_resource(handle: number, revision: number, partName: string): Uint8Array
+  deck_session_resource_fingerprint(handle: number, revision: number, partName: string): string
+  start_deck_session_generation(handle: number, revision: number): number
+  deck_session_cache_telemetry(handle: number): unknown[]
+  release_deck_template(handle: number): boolean
+  release_deck_session(handle: number): boolean
   prepare(template: Uint8Array): number
   prepare_with_options(
     template: Uint8Array,

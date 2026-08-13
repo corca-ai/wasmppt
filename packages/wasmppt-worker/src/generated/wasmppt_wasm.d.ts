@@ -19,6 +19,10 @@ export class WasmpptEngine {
     free(): void;
     [Symbol.dispose](): void;
     /**
+     * Atomically decode, incrementally replan, compose, and publish one complete WDSF revision.
+     */
+    apply_deck_session_spec(handle: number, expected_revision: number, next_revision: number, spec: Uint8Array): Array<any>;
+    /**
      * Atomically apply a partial WPPD payload and return compact revision metadata.
      */
     apply_live_session_payload(handle: number, expected_revision: number, next_revision: number, payload: Uint8Array): Array<any>;
@@ -29,11 +33,32 @@ export class WasmpptEngine {
      */
     capabilities(): EngineCapabilities;
     /**
+     * Create revision zero by planning and composing one complete WDSF deck specification.
+     */
+    create_deck_session(template_handle: number, spec: Uint8Array): number;
+    /**
+     * Create revision zero from an externally cached WDPL plan after full validation.
+     */
+    create_deck_session_with_plan(template_handle: number, spec: Uint8Array, plan: Uint8Array): number;
+    /**
      * Create a revision-zero live session from one prepared template and complete
      * initial generation data. The logical package is opened directly, without a
      * generated PPTX buffer.
      */
     create_live_session_payload(template_handle: number, payload: Uint8Array): number;
+    deck_session_cache_telemetry(handle: number): Array<any>;
+    deck_session_plan(handle: number, revision: number): Uint8Array;
+    /**
+     * Authoring indices include hidden pages; presentable indices never do.
+     */
+    deck_session_presentable_slides(handle: number): Array<any>;
+    deck_session_resource(handle: number, revision: number, part_name: string): Uint8Array;
+    deck_session_resource_fingerprint(handle: number, revision: number, part_name: string): string;
+    deck_session_revision(handle: number): number;
+    deck_session_slide_count(handle: number): number;
+    deck_session_slide_fingerprint(handle: number, revision: number, slide_index: number): string;
+    deck_template_cacheable(handle: number): boolean;
+    deck_template_plan(handle: number): Uint8Array;
     /**
      * Text-only compatibility entry point returning a pull cursor handle.
      */
@@ -55,6 +80,14 @@ export class WasmpptEngine {
      * Compile an immutable template and return an opaque instance-local handle.
      */
     prepare(template: Uint8Array): number;
+    /**
+     * Compile a Cortex Theme Starter POTX into a reusable host-neutral deck template plan.
+     */
+    prepare_deck_template(template: Uint8Array): number;
+    /**
+     * Restore a compiled deck template plan after verifying its exact POTX identity.
+     */
+    prepare_deck_template_with_plan(template: Uint8Array, plan: Uint8Array): number;
     /**
      * Compile with explicit stable v2 option tags.
      */
@@ -78,15 +111,22 @@ export class WasmpptEngine {
      */
     presentation_resource(presentation_handle: number, part_name: string): Uint8Array;
     presentation_slide_count(handle: number): number;
+    release_deck_session(handle: number): boolean;
+    release_deck_template(handle: number): boolean;
     release_generation(handle: number): boolean;
     release_live_session(handle: number): boolean;
     release_presentation(handle: number): boolean;
     release_template(handle: number): boolean;
+    resolve_deck_session_slide(handle: number, revision: number, slide_index: number): Uint8Array;
     resolve_live_session_slide(handle: number, revision: number, slide_index: number): Uint8Array;
     /**
      * Resolve exactly one requested slide to the compact display-list wire format.
      */
     resolve_presentation_slide(presentation_handle: number, slide_index: number): Uint8Array;
+    /**
+     * Export from the exact immutable overlay used by this preview revision.
+     */
+    start_deck_session_generation(handle: number, revision: number): number;
     /**
      * Generate from the versioned binary structured-injection payload.
      */
@@ -120,9 +160,22 @@ export interface InitOutput {
     readonly enginecapabilities_simd: (a: number) => number;
     readonly enginecapabilities_threads: (a: number) => number;
     readonly resolve_display_list: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmpptengine_apply_deck_session_spec: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly wasmpptengine_apply_live_session_payload: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly wasmpptengine_capabilities: (a: number) => number;
+    readonly wasmpptengine_create_deck_session: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly wasmpptengine_create_deck_session_with_plan: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly wasmpptengine_create_live_session_payload: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly wasmpptengine_deck_session_cache_telemetry: (a: number, b: number, c: number) => void;
+    readonly wasmpptengine_deck_session_plan: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmpptengine_deck_session_presentable_slides: (a: number, b: number, c: number) => void;
+    readonly wasmpptengine_deck_session_resource: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+    readonly wasmpptengine_deck_session_resource_fingerprint: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+    readonly wasmpptengine_deck_session_revision: (a: number, b: number, c: number) => void;
+    readonly wasmpptengine_deck_session_slide_count: (a: number, b: number, c: number) => void;
+    readonly wasmpptengine_deck_session_slide_fingerprint: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly wasmpptengine_deck_template_cacheable: (a: number, b: number, c: number) => void;
+    readonly wasmpptengine_deck_template_plan: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_generate_text: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmpptengine_generation_done: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_generation_pull: (a: number, b: number, c: number, d: number) => void;
@@ -135,6 +188,8 @@ export interface InitOutput {
     readonly wasmpptengine_new: () => number;
     readonly wasmpptengine_open_presentation: (a: number, b: number, c: number, d: number) => void;
     readonly wasmpptengine_prepare: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmpptengine_prepare_deck_template: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmpptengine_prepare_deck_template_with_plan: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly wasmpptengine_prepare_with_options: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly wasmpptengine_prepare_with_plan: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly wasmpptengine_prepared_bindings: (a: number, b: number, c: number) => void;
@@ -143,12 +198,16 @@ export interface InitOutput {
     readonly wasmpptengine_prepared_weight: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_presentation_resource: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmpptengine_presentation_slide_count: (a: number, b: number, c: number) => void;
+    readonly wasmpptengine_release_deck_session: (a: number, b: number) => number;
+    readonly wasmpptengine_release_deck_template: (a: number, b: number) => number;
     readonly wasmpptengine_release_generation: (a: number, b: number) => number;
     readonly wasmpptengine_release_live_session: (a: number, b: number) => number;
     readonly wasmpptengine_release_presentation: (a: number, b: number) => number;
     readonly wasmpptengine_release_template: (a: number, b: number) => number;
+    readonly wasmpptengine_resolve_deck_session_slide: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmpptengine_resolve_live_session_slide: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmpptengine_resolve_presentation_slide: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmpptengine_start_deck_session_generation: (a: number, b: number, c: number, d: number) => void;
     readonly wasmpptengine_start_generation_payload: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmpptengine_start_live_session_generation: (a: number, b: number, c: number, d: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;

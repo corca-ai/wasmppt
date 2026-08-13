@@ -22,7 +22,8 @@ custom paths, outer shadows, and connector line ends. WPDL version 7 adds typed 
 normal-AutoFit hints, shape-resize bounds, columns, lazy embedded fonts, and editable 2D text
 outlines, outer shadows, glow, blur, soft edges, and reflection. WPDL version 8 separates inner
 shadow paint from outer shadow paint. WPDL version 9 distinguishes source-faithful AutoFit from
-live-edited recomputation. The decoder retains v1-v8 compatibility.
+live-edited recomputation. WPDL version 10 adds explicit reading order and optional source-backed
+semantic identity and ranges. The decoder retains v1-v9 compatibility.
 
 The resolver reads `cNvPr` description/title attributes and hyperlink relationships. External
 links are retained in the scene. The browser exposes clickable `http`, `https`, `mailto`, and
@@ -36,8 +37,8 @@ links are retained in the scene. The browser exposes clickable `http`, `https`, 
 - HTML text is positioned over the graphic layer, remains selectable, and follows resolved
   z-order as DOM reading order;
 - hyperlinks use anchors and preserve the resolved alternative description;
-- `data-selection-id`, source shape ID, reading order, and command range support editor and
-  selection integrations.
+- `data-selection-id`, source shape ID, explicit reading order, source range, and command range
+  support editor and selection integrations.
 
 Preset and bounded curved custom geometry, solid/linear/radial/pattern fills, strokes, outer shadows,
 connector line ends, group transforms, rotations, flips, and source-cropped images are projected

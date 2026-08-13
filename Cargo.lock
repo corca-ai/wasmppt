@@ -748,6 +748,10 @@ version = "0.0.0"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+ "wasmppt-deck",
+ "wasmppt-deck-compose",
+ "wasmppt-deck-layout",
+ "wasmppt-deck-template",
  "wasmppt-display",
  "wasmppt-layout",
  "wasmppt-opc",

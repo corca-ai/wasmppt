@@ -356,7 +356,7 @@ describe('wasmppt workerd adapter', () => {
       }),
     )
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ signature: '7598126794a9c455' })
+    expect(await response.json()).toEqual({ signature: '0698523062a91bcd' })
   })
 
   it('enforces the warm Cloudflare workerd release budget with raw samples', async () => {

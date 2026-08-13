@@ -598,8 +598,13 @@ async function updateAccessibleOverlay(
     state.textElements.set(key, element)
   }
   element.dataset['shapeId'] = String(semantic.shapeId)
-  element.dataset['selectionId'] = `shape:${semantic.zOrder}:${semantic.shapeId}`
-  element.dataset['readingOrder'] = String(semantic.zOrder)
+  element.dataset['selectionId'] = semantic.source?.semanticId ?? `shape:${semantic.zOrder}:${semantic.shapeId}`
+  element.dataset['readingOrder'] = String(semantic.readingOrder)
+  if (semantic.source !== undefined) {
+    element.dataset['source'] = semantic.source.source
+    element.dataset['sourceStart'] = String(semantic.source.start)
+    element.dataset['sourceEnd'] = String(semantic.source.end)
+  }
   element.dataset['commandFirst'] = String(semantic.firstCommand)
   element.dataset['commandCount'] = String(semantic.commandCount)
   if (semantic.hyperlink !== undefined) element.dataset['hyperlink'] = semantic.hyperlink
@@ -894,7 +899,7 @@ function removeMissing<ElementType extends Element>(
 }
 
 function semanticKey(semantic: SceneSemanticElement): string {
-  return `${semantic.zOrder}:${semantic.shapeId}`
+  return semantic.source?.semanticId ?? `${semantic.zOrder}:${semantic.shapeId}`
 }
 
 function presetPath(geometry: number, width: number, height: number): string {

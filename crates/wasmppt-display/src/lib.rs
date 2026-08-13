@@ -9,7 +9,7 @@ use wasmppt_layout::{
     TextVerticalAlignment, Transform,
 };
 
-pub const DISPLAY_LIST_VERSION: u16 = 9;
+pub const DISPLAY_LIST_VERSION: u16 = 10;
 const MAGIC: &[u8; 4] = b"WPDL";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -28,16 +28,26 @@ pub enum SemanticKind {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SemanticSource {
+    pub semantic_id: [u8; 16],
+    pub source: String,
+    pub start: u32,
+    pub end: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SemanticElement {
     pub first_command: u32,
     pub command_count: u32,
     pub shape_id: u32,
     pub z_order: u32,
+    pub reading_order: u32,
     pub kind: SemanticKind,
     pub bounds: EmuRect,
     pub name: String,
     pub alternative_text: Option<String>,
     pub hyperlink: Option<String>,
+    pub source: Option<SemanticSource>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -285,6 +295,7 @@ impl DisplayList {
                 command_count: list.commands.len() as u32 - first_command,
                 shape_id: element.id,
                 z_order: element.z_order,
+                reading_order: list.semantics.len() as u32,
                 kind: match &element.kind {
                     ElementKind::Shape { .. } => SemanticKind::Shape,
                     ElementKind::Image { .. } => SemanticKind::Image,
@@ -296,6 +307,7 @@ impl DisplayList {
                 name: element.name.clone(),
                 alternative_text: element.alternative_text.clone(),
                 hyperlink: element.hyperlink.clone(),
+                source: None,
             });
         }
         list
@@ -347,6 +359,7 @@ impl DisplayList {
             push_u32(&mut bytes, semantic.command_count);
             push_u32(&mut bytes, semantic.shape_id);
             push_u32(&mut bytes, semantic.z_order);
+            push_u32(&mut bytes, semantic.reading_order);
             bytes.push(match semantic.kind {
                 SemanticKind::Shape => 1,
                 SemanticKind::Image => 2,
@@ -368,6 +381,15 @@ impl DisplayList {
                 &mut bytes,
                 semantic.hyperlink.as_deref().unwrap_or_default().as_bytes(),
             );
+            if let Some(source) = &semantic.source {
+                bytes.push(1);
+                bytes.extend_from_slice(&source.semantic_id);
+                push_blob(&mut bytes, source.source.as_bytes());
+                push_u32(&mut bytes, source.start);
+                push_u32(&mut bytes, source.end);
+            } else {
+                bytes.push(0);
+            }
         }
         for diagnostic in &self.diagnostics {
             bytes.push(diagnostic_code(diagnostic.code));

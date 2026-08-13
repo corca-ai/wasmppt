@@ -62,6 +62,13 @@ export class ByteBudgetLru<Key, Value> {
     return Object.is(this.#entries.get(key)?.value, value)
   }
 
+  delete(key: Key): boolean {
+    const entry = this.#entries.get(key)
+    if (entry === undefined) return false
+    this.#remove(key, entry)
+    return true
+  }
+
   clear(): void {
     for (const entry of this.#entries.values()) this.#dispose?.(entry.value)
     this.#entries.clear()

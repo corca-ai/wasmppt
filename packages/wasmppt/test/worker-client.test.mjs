@@ -55,6 +55,81 @@ test('prepare transfers the caller-owned ArrayBuffer', async () => {
   client.terminate()
 })
 
+test('deck sessions transfer contracts, expose presentable pages, and discard stale scenes', async () => {
+  const worker = new FakeWorker()
+  const client = new WasmpptWorkerClient(worker)
+  const potx = new ArrayBuffer(16)
+  const preparing = client.prepareDeckTemplate(potx)
+  const prepareRequest = worker.messages.at(-1)
+  assert.equal(prepareRequest.type, 'prepare-deck-template')
+  assert.deepEqual(worker.transfers.at(-1), [potx])
+  worker.respond({
+    version: WORKER_PROTOCOL_VERSION,
+    id: prepareRequest.id,
+    type: 'deck-template-prepared',
+    templateHandle: 31,
+    cacheable: true,
+    plan: new ArrayBuffer(8),
+  })
+  assert.equal((await preparing).handle, 31)
+
+  const spec = new ArrayBuffer(32)
+  const creating = client.createDeckSession(31, spec)
+  const createRequest = worker.messages.at(-1)
+  assert.deepEqual(worker.transfers.at(-1), [spec])
+  worker.respond({
+    version: WORKER_PROTOCOL_VERSION,
+    id: createRequest.id,
+    type: 'deck-session-created',
+    sessionHandle: 32,
+    revision: 0,
+    slideCount: 3,
+    presentableSlides: [0, 2],
+    plan: new ArrayBuffer(12),
+  })
+  assert.deepEqual((await creating).presentableSlides, [0, 2])
+
+  const staleResolve = client.resolveDeckSlide(32, 0, 0)
+  const resolveRequest = worker.messages.at(-1)
+  const updating = client.updateDeckSession(32, 0, new ArrayBuffer(36))
+  const updateRequest = worker.messages.at(-1)
+  worker.respond({
+    version: WORKER_PROTOCOL_VERSION,
+    id: updateRequest.id,
+    type: 'deck-session-updated',
+    sessionHandle: 32,
+    revision: 1,
+    slideCount: 3,
+    presentableSlides: [0, 2],
+    invalidatedSlides: [0],
+    invalidatedLogicalSlideIds: ['01'.repeat(16)],
+    removedPageIds: ['02'.repeat(16)],
+    changedParts: ['ppt/slides/slide1.xml'],
+    reusedPages: 2,
+    fullFallback: false,
+    overlay: {
+      logicalParts: 20,
+      materializedParts: 4,
+      materializedBytes: 512,
+      reusedSourceBytes: 2048,
+      removedParts: 0,
+    },
+  })
+  assert.equal((await updating).reusedPages, 2)
+  worker.respond({
+    version: WORKER_PROTOCOL_VERSION,
+    id: resolveRequest.id,
+    type: 'deck-slide-resolved',
+    sessionHandle: 32,
+    revision: 0,
+    slideIndex: 0,
+    fingerprint: 'stale',
+    displayList: new ArrayBuffer(8),
+  })
+  await assert.rejects(staleResolve, /stale deck slide result/)
+  client.terminate()
+})
+
 test('an unknown Worker response cannot consume a live request ID', async () => {
   const worker = new FakeWorker()
   const client = new WasmpptWorkerClient(worker)
@@ -75,7 +150,7 @@ test('an unknown Worker response cannot consume a live request ID', async () => 
   client.terminate()
 })
 
-test('machine-readable errors survive Wasm, protocol v5, and the browser client', async () => {
+test('machine-readable errors survive Wasm, protocol v6, and the browser client', async () => {
   const worker = new FakeWorker()
   const client = new WasmpptWorkerClient(worker)
   const pending = client.prepare(new ArrayBuffer(4))
@@ -106,13 +181,13 @@ test('machine-readable errors survive Wasm, protocol v5, and the browser client'
   client.terminate()
 })
 
-test('protocol v5 client decodes legacy v4 errors without treating messages as codes', async () => {
+test('protocol v6 client decodes legacy v5 errors without treating messages as codes', async () => {
   const worker = new FakeWorker()
   const client = new WasmpptWorkerClient(worker)
   const pending = client.prepare(new ArrayBuffer(4))
   const request = worker.messages[0]
   worker.respond({
-    version: 4,
+    version: 5,
     id: request.id,
     type: 'error',
     name: 'WasmpptCompileError',
@@ -336,6 +411,49 @@ test('runtime preserves chart binding metadata returned by Wasm', async () => {
     shapeId: 4,
     shapeName: 'Sales chart',
   }])
+})
+
+test('runtime exposes revisioned deck planning metadata without copying display lists', async () => {
+  class Scope extends EventTarget {
+    responses = []
+    transfers = []
+    postMessage(message, transfer = []) { this.responses.push(message); this.transfers.push(transfer) }
+  }
+  const scope = new Scope()
+  installWorkerRuntime(scope, {
+    apply_deck_session_spec: () => [
+      4, 3, [0, 2], [1], ['11'.repeat(16)], ['22'.repeat(16)],
+      ['ppt/slides/slide2.xml'], 2, false, 20, 4, 512, 2048, 0,
+    ],
+    deck_session_slide_fingerprint: () => 'fingerprint-4-1',
+    resolve_deck_session_slide: () => new Uint8Array(64),
+  })
+  scope.dispatchEvent(new MessageEvent('message', { data: {
+    version: WORKER_PROTOCOL_VERSION,
+    id: 80,
+    type: 'update-deck-session',
+    sessionHandle: 9,
+    expectedRevision: 3,
+    nextRevision: 4,
+    spec: new ArrayBuffer(24),
+  } }))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(scope.responses.at(-1).type, 'deck-session-updated')
+  assert.deepEqual(scope.responses.at(-1).invalidatedSlides, [1])
+  assert.equal(scope.responses.at(-1).reusedPages, 2)
+
+  scope.dispatchEvent(new MessageEvent('message', { data: {
+    version: WORKER_PROTOCOL_VERSION,
+    id: 81,
+    type: 'resolve-deck-slide',
+    sessionHandle: 9,
+    revision: 4,
+    slideIndex: 1,
+  } }))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(scope.responses.at(-1).type, 'deck-slide-resolved')
+  assert.equal(scope.responses.at(-1).revision, 4)
+  assert.deepEqual(scope.transfers.at(-1), [scope.responses.at(-1).displayList])
 })
 
 test('runtime transports a Wasm error envelope without rewriting machine fields', async () => {

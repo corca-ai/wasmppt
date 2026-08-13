@@ -84,6 +84,12 @@ first/visible/all-slide latency, logical memory, and RSS ceilings are enforced i
 `(large metric / small metric) / (large slides / small slides)` so an absolute ceiling cannot hide
 superlinear scaling. The checked-in ceilings include variance observed across repeated release
 processes; CI refuses reports with fewer than three processes or ten timing samples per process.
+
+The scalar browser artifact has a 3 MiB raw-Wasm ceiling after the revisioned deck planner,
+composer, and POTX compiler joined the browser engine in protocol v6. This is an explicit
+architecture budget, not an exemption: the benchmark still rejects growth beyond that ceiling,
+and the deck-specific multi-host size matrix is completed in the deck compatibility gate.
+
 Every enforced check publishes its absolute and percentage margin in `budgetEvaluation`, including
 passing checks, and the raw artifact is uploaded even when the gate fails. Published artifacts contain the raw JSON and exact
 generated budget fixture for each revision. Browser reports additionally retain first-visible-slide

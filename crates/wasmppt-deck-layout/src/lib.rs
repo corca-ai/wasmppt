@@ -1133,12 +1133,17 @@ fn select_layout<'a>(
     slide: &LogicalSlide,
     template: &'a DeckTemplatePlan,
 ) -> Option<&'a TemplateLayout> {
-    let role = if slide.nodes.iter().any(|node| {
-        matches!(
-            node.role,
-            SemanticRole::Statement | SemanticRole::Quote | SemanticRole::DisplayMath
-        )
-    }) {
+    let role = if slide.kind == LogicalSlideKind::Content
+        && !slide
+            .nodes
+            .first()
+            .is_some_and(|node| matches!(node.role, SemanticRole::Title | SemanticRole::Section))
+        && slide.nodes.iter().any(|node| {
+            matches!(
+                node.role,
+                SemanticRole::Statement | SemanticRole::Quote | SemanticRole::DisplayMath
+            )
+        }) {
         TemplateLayoutRole::Statement
     } else {
         match slide.kind {
@@ -1410,6 +1415,43 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.code == DeckDiagnosticCode::PLAN_FONT_RISK)
         );
+    }
+
+    #[test]
+    fn titled_display_math_keeps_the_content_layout_and_heading() {
+        let spec = spec(vec![
+            text_node(3, SemanticRole::Title, SplitPolicy::Never, "Result"),
+            SemanticNode {
+                id: id(4),
+                source: range(40),
+                role: SemanticRole::DisplayMath,
+                split: SplitPolicy::Never,
+                content: SemanticContent::Svg(wasmppt_deck::SvgContent {
+                    resource_id: id(90),
+                    source_text: Some("y=mx+b".to_owned()),
+                }),
+            },
+        ]);
+        let mut spec = spec;
+        spec.resources.push(DeckResource {
+            id: id(90),
+            kind: ResourceKind::Svg,
+            media_type: "image/svg+xml".to_owned(),
+            bytes: br#"<svg xmlns="http://www.w3.org/2000/svg"/>"#.to_vec(),
+            intrinsic_size: Some(PixelSize {
+                width: 100,
+                height: 20,
+            }),
+        });
+        let template = template_with_statement(5_500_000);
+
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+
+        assert_eq!(plan.pages[0].template_layout_id, id(100));
+        assert_eq!(plan.pages[0].regions[0].fragments[0].source_node_id, id(3));
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
     }
 
     #[test]
@@ -1865,6 +1907,44 @@ mod tests {
             assets: vec![],
             diagnostics: vec![],
         }
+    }
+
+    fn template_with_statement(body_height: Emu) -> DeckTemplatePlan {
+        let mut template = template(body_height);
+        template.layouts.push(TemplateLayout {
+            id: id(110),
+            role: TemplateLayoutRole::Statement,
+            matching_name: "statement".to_owned(),
+            source_part: "ppt/slideLayouts/statement.xml".to_owned(),
+            master_part: "ppt/slideMasters/slideMaster1.xml".to_owned(),
+            region_ids: vec![id(111)],
+            asset_ids: vec![],
+            background: None,
+        });
+        template.regions.push(TemplateRegion {
+            id: id(111),
+            layout_id: id(110),
+            role: RegionRole::Statement,
+            placeholder: PlaceholderIdentity {
+                kind: "ctrTitle".to_owned(),
+                index: 1,
+            },
+            frame: EmuRect {
+                x: 500_000,
+                y: 500_000,
+                width: 9_000_000,
+                height: body_height.min(PAGE.height - 1_000_000),
+            },
+            margins: TextMargins::default(),
+            text_levels: vec![text_level(2_800)],
+            accepts: vec![
+                SemanticRole::Statement,
+                SemanticRole::Quote,
+                SemanticRole::DisplayMath,
+            ],
+            required: true,
+        });
+        template
     }
 
     fn text_level(font_size: u32) -> TemplateTextLevel {

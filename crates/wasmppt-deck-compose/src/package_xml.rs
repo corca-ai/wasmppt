@@ -19,6 +19,7 @@ pub(crate) fn patch_content_types(
     source: Vec<u8>,
     slide_parts: &[String],
     generated_parts: &[(String, &'static str)],
+    removed_parts: &BTreeSet<String>,
 ) -> Result<Vec<u8>, ComposeError> {
     let document = parse(source, "[Content_Types].xml")?;
     let mut patches = Vec::new();
@@ -49,9 +50,11 @@ pub(crate) fn patch_content_types(
                 range: content_type.value_range.clone(),
                 replacement: PPTX_MAIN_TYPE.as_bytes().to_vec(),
             });
-        } else if part_name
-            .is_some_and(|name| name.starts_with("/ppt/slides/") || generated.contains(name))
-        {
+        } else if part_name.is_some_and(|name| {
+            name.starts_with("/ppt/slides/")
+                || generated.contains(name)
+                || removed_parts.contains(name.trim_start_matches('/'))
+        }) {
             patches.push(Patch {
                 range: element_range(&document, index)?,
                 replacement: Vec::new(),

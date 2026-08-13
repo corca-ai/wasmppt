@@ -44,6 +44,11 @@ the adapter's typed hyperlink target matches its safe scheme and that every refe
 is present. Composition deterministically decodes GIF first frames so native and Wasm hosts do
 not produce different still images.
 
+Because the semantic model has no speaker-notes field, deck composition treats notes attached
+to POTX example slides as example content rather than reusable template furniture. Replacing the
+example slides removes their notes-slide parts, relationships, and content-type overrides while
+preserving the shared notes master and unrelated opaque template parts.
+
 Call `StableId::from_source` with a stable document identity, exact source range, and
 semantic role. Inserting an unrelated logical slide therefore does not renumber existing
 content. Derived physical page IDs use the logical slide ID and its one-based continuation

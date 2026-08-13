@@ -896,6 +896,9 @@ fn validate_intervals(
     text: Option<&str>,
     report: &mut ValidationReport,
 ) {
+    if slices == [FragmentSlice::Whole] {
+        return;
+    }
     let intervals = slices
         .iter()
         .filter_map(|slice| match (kind, slice) {
@@ -1036,4 +1039,57 @@ fn safe_hyperlink(kind: HyperlinkKind, target: &str) -> bool {
 
 fn range_contains(parent: &crate::SourceRange, child: &crate::SourceRange) -> bool {
     parent.source == child.source && parent.start <= child.start && child.end <= parent.end
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn whole_is_complete_coverage_for_every_interval_domain() {
+        for kind in [
+            SliceKind::Text,
+            SliceKind::ListItems,
+            SliceKind::TableRows,
+            SliceKind::CodeLines,
+        ] {
+            let mut report = ValidationReport::default();
+
+            validate_intervals(
+                StableId::from_bytes([1; 16]),
+                &[FragmentSlice::Whole],
+                4,
+                kind,
+                None,
+                &mut report,
+            );
+
+            assert!(report.is_valid(), "{:?}", report.diagnostics);
+        }
+    }
+
+    #[test]
+    fn whole_cannot_be_combined_with_partial_coverage() {
+        let mut report = ValidationReport::default();
+
+        validate_intervals(
+            StableId::from_bytes([2; 16]),
+            &[
+                FragmentSlice::Whole,
+                FragmentSlice::Text { start: 0, end: 4 },
+            ],
+            4,
+            SliceKind::Text,
+            Some("test"),
+            &mut report,
+        );
+
+        assert!(!report.is_valid());
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == DeckDiagnosticCode::PLAN_SOURCE_LOSS)
+        );
+    }
 }

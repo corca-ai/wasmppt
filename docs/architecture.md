@@ -83,6 +83,7 @@ The current workspace is:
 
 ```text
 crates/
+  wasmppt-deck/       semantic deck, template-plan, and physical-plan contracts
   wasmppt-opc/        ZIP, content types, relationships, raw entry copying
   wasmppt-xml/        namespace-aware tokenization and range-based rewriting
   wasmppt-pml/        loss-aware PresentationML typed views
@@ -112,6 +113,38 @@ Core crates MUST compile and test without `wasm-bindgen`, `web-sys`, `js-sys`, a
 or a JavaScript runtime. CI will enforce this import and dependency boundary. See
 [Runtime host adapters](hosts.md) for the implemented host APIs and their executable
 shared-fixture contract.
+
+## Semantic deck pipeline
+
+Host authoring adapters convert their source language and authorized resources into a
+source-backed `DeckSpec`. The core contract represents logical slides, semantic content,
+rich-text runs, stable source ranges, split policies, hidden slides, and binary resources;
+it does not parse Markdown or call a host resource API.
+
+```text
+host source adapter
+        |
+        v
+    DeckSpec -----> semantic planner -----> DeckPlan
+        |                                      |
+        |                                physical pages,
+        |                                regions, fragments,
+        |                                type choices
+        v                                      v
+source diagnostics                 PresentationML composition
+```
+
+`DeckTemplatePlan` is the template-side input to the planner. It owns the exact page
+geometry, stable template identity, semantic regions, accepted roles, and template
+diagnostics. A `DeckPlan` names both its source spec and template plan so a consumer
+cannot accidentally compose against a different revision or POTX profile.
+
+The implemented `wasmppt-deck` slice defines these contracts, bounded v1 binary codecs,
+and validators. The validators prove that renderable source fragments appear once and in
+source order, remain on their logical slide and compatible template region, use finite
+in-page geometry, and have stable continuation metadata. Semantic candidate generation,
+pagination, and PresentationML composition are separate later slices. See
+[semantic deck contracts](deck-engine.md) for the public data and wire contract.
 
 ## Package substrate
 

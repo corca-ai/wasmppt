@@ -1,0 +1,19 @@
+[package]
+name = "wasmppt-deck"
+description = "Host-neutral semantic deck and physical layout contracts for wasmppt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+default = []
+
+[dependencies]
+sha2.workspace = true
+
+[lints]
+workspace = true

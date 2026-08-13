@@ -34,6 +34,7 @@ commit. See [quality gates](quality.md) for tier ownership and quarantine policy
 
 | Package | Kind | Host dependency | Initial responsibility |
 | --- | --- | --- | --- |
+| `wasmppt-deck` | library | none | semantic deck and physical-plan contracts |
 | `wasmppt-opc` | library | none | bounded ZIP and OPC substrate |
 | `wasmppt-xml` | library | none | loss-aware namespace and XML tokens |
 | `wasmppt-pml` | library | none | PresentationML typed views |

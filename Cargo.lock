@@ -582,6 +582,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasmppt-deck"
+version = "0.0.0"
+dependencies = [
+ "sha2",
+]
+
+[[package]]
 name = "wasmppt-display"
 version = "0.0.0"
 dependencies = [

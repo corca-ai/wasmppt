@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/wasmppt-cli",
+    "crates/wasmppt-deck",
     "crates/wasmppt-display",
     "crates/wasmppt-layout",
     "crates/wasmppt-metafile",
@@ -36,6 +37,7 @@ unicode-linebreak = "0.1.5"
 sha2 = { version = "0.10.9", default-features = false }
 wasm-bindgen = "0.2.127"
 wasmppt-display = { path = "crates/wasmppt-display", version = "0.0.0" }
+wasmppt-deck = { path = "crates/wasmppt-deck", version = "0.0.0" }
 wasmppt-layout = { path = "crates/wasmppt-layout", version = "0.0.0" }
 wasmppt-metafile = { path = "crates/wasmppt-metafile", version = "0.0.0" }
 wasmppt-native = { path = "crates/wasmppt-native", version = "0.0.0" }

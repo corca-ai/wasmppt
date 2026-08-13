@@ -16,6 +16,8 @@ This is the canonical index for living `wasmppt` documentation.
   types, relationships, conformance detection, diagnostics, and typed views.
 - [Template bindings and TemplatePlan](bindings.md) — PowerPoint authoring,
   split-run tokens, manifests, diagnostics, serialization, and cache identity.
+- [Semantic deck contracts](deck-engine.md) — source-backed `DeckSpec`, template and
+  physical plans, stable identities, exact-ownership validation, and binary boundaries.
 - [High-speed template injection](injection.md) — prepared warm generation,
   text, images, tables, slides, macro stripping, streaming, and validation.
 - [Live editing and incremental preview](live-editing.md) — revisioned deltas,

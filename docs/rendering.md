@@ -41,6 +41,8 @@ The first resolver implements:
   families, color and emphasis; bullets, indentation, spacing and alignment; and
   RTL, tabs, character spacing, baseline shifts, decoration, vertical flow, text-frame
   margins, vertical anchoring, wrapping and autofit mode;
+- slide-number fields materialized from one-based presentation order instead of their
+  cached authoring-time text;
 - bounded move/line/quadratic/cubic/arc/close custom paths and outer shadows.
 
 Unsupported graphic frames and effect DAGs produce

@@ -14,6 +14,12 @@ face indices, and a host-computed identity over the complete set. The plan ident
 encoded source contract, template and cache identity, font-catalog identity, and complete planner
 policy. Equal inputs therefore produce byte-for-byte equal plans.
 
+`DeckPlanner::replan` is the revision fast path. It reuses exact prior physical pages only when
+the template plan, font catalog, planner policy, limits, logical slide value, and every resource
+referenced by that slide are unchanged. A mismatched prior plan identity falls back to a complete
+plan. The result names invalidated logical slides, old and new physical page identities, and the
+reused-page count so a host can invalidate only proven dependencies.
+
 If the requested template font bytes are available, measurement uses `wasmppt-shaper`. Otherwise
 the planner uses deterministic conservative metrics and emits `PLAN_FONT_RISK` for each affected
 source node. Fallback is observable; it is never presented as exact font fidelity.
@@ -67,7 +73,8 @@ fails with `PLAN_WORK_LIMIT`.
 These are denial-of-service and resource contracts, not a UX slide cap. The caller's `DeckLimits`
 still bounds decoded collections and final physical pages for its host environment. Tests cover
 determinism, exact coverage, relation preservation, readable type, atomic overflow, repeated table
-headers, fallback-font diagnostics, and property-generated bounded termination.
+headers, incremental slide reuse, fallback-font diagnostics, and property-generated bounded
+termination.
 
 ## Verification
 

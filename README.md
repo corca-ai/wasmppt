@@ -5,7 +5,7 @@ and rendering PowerPoint Open XML packages in browsers, Cloudflare Workers, and 
 Its primary fast path compiles a POTX/POTM template once, generates PPTX files repeatedly, and
 preserves unknown OOXML content that it does not edit.
 
-Status: pre-alpha. Generation API v2, WPDL v9 rendering, Canvas 2D, DOM/SVG, native adapters, and
+Status: pre-alpha. Generation API v2, WPDL v10 rendering, Canvas 2D, DOM/SVG, native adapters, and
 Cloudflare R2 generation are implemented and continuously tested. Crates and npm packages are
 deliberately unpublished (`publish = false` and `private: true`); there is no stable semver API yet.
 The future stability boundary will cover the documented Rust facades, package-root TypeScript

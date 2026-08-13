@@ -51,6 +51,166 @@ export function installWorkerRuntime(
         return
       }
       switch (message.type) {
+        case 'prepare-deck-template': {
+          progress(scope, message.id, 'prepare', 0, 1)
+          const template = new Uint8Array(message.template)
+          const handle = message.plan === undefined
+            ? engine.prepare_deck_template(template)
+            : engine.prepare_deck_template_with_plan(template, new Uint8Array(message.plan))
+          try {
+            const plan = exactBuffer(engine.deck_template_plan(handle))
+            progress(scope, message.id, 'prepare', 1, 1)
+            scope.postMessage(response({
+              id: message.id,
+              type: 'deck-template-prepared',
+              templateHandle: handle,
+              cacheable: engine.deck_template_cacheable(handle),
+              plan,
+            }), [plan])
+          } catch (error) {
+            engine.release_deck_template(handle)
+            throw error
+          }
+          return
+        }
+        case 'create-deck-session': {
+          progress(scope, message.id, 'session', 0, 1)
+          const spec = new Uint8Array(message.spec)
+          const handle = message.plan === undefined
+            ? engine.create_deck_session(message.templateHandle, spec)
+            : engine.create_deck_session_with_plan(
+                message.templateHandle,
+                spec,
+                new Uint8Array(message.plan),
+              )
+          try {
+            const revision = engine.deck_session_revision(handle)
+            const plan = exactBuffer(engine.deck_session_plan(handle, revision))
+            const presentableSlides = decodeIndexArray(
+              engine.deck_session_presentable_slides(handle),
+              'presentable slide',
+            )
+            progress(scope, message.id, 'session', 1, 1)
+            scope.postMessage(response({
+              id: message.id,
+              type: 'deck-session-created',
+              sessionHandle: handle,
+              revision,
+              slideCount: engine.deck_session_slide_count(handle),
+              presentableSlides,
+              plan,
+            }), [plan])
+          } catch (error) {
+            engine.release_deck_session(handle)
+            throw error
+          }
+          return
+        }
+        case 'update-deck-session': {
+          progress(scope, message.id, 'delta', 0, 1)
+          const update = decodeDeckUpdate(engine.apply_deck_session_spec(
+            message.sessionHandle,
+            message.expectedRevision,
+            message.nextRevision,
+            new Uint8Array(message.spec),
+          ))
+          progress(scope, message.id, 'delta', 1, 1)
+          post(scope, {
+            id: message.id,
+            type: 'deck-session-updated',
+            sessionHandle: message.sessionHandle,
+            ...update,
+          })
+          return
+        }
+        case 'generate-deck-session': {
+          progress(scope, message.id, 'generate', 0, 1)
+          const generation = engine.start_deck_session_generation(
+            message.sessionHandle,
+            message.revision,
+          )
+          await streamGeneration(message.id, generation, message.chunkBytes)
+          return
+        }
+        case 'resolve-deck-slide': {
+          progress(scope, message.id, 'resolve', 0, 1)
+          const fingerprint = engine.deck_session_slide_fingerprint(
+            message.sessionHandle,
+            message.revision,
+            message.slideIndex,
+          )
+          const displayList = exactBuffer(engine.resolve_deck_session_slide(
+            message.sessionHandle,
+            message.revision,
+            message.slideIndex,
+          ))
+          if (cancelled.delete(message.id)) {
+            postCancelled(scope, message.id)
+            return
+          }
+          progress(scope, message.id, 'resolve', 1, 1)
+          scope.postMessage(response({
+            id: message.id,
+            type: 'deck-slide-resolved',
+            sessionHandle: message.sessionHandle,
+            revision: message.revision,
+            slideIndex: message.slideIndex,
+            fingerprint,
+            displayList,
+          }), [displayList])
+          return
+        }
+        case 'deck-session-resource': {
+          const fingerprint = engine.deck_session_resource_fingerprint(
+            message.sessionHandle,
+            message.revision,
+            message.partName,
+          )
+          const bytes = exactBuffer(engine.deck_session_resource(
+            message.sessionHandle,
+            message.revision,
+            message.partName,
+          ))
+          scope.postMessage(response({
+            id: message.id,
+            type: 'deck-session-resource',
+            sessionHandle: message.sessionHandle,
+            revision: message.revision,
+            partName: message.partName,
+            fingerprint,
+            bytes,
+          }), [bytes])
+          return
+        }
+        case 'deck-session-resource-fingerprint': {
+          const fingerprint = engine.deck_session_resource_fingerprint(
+            message.sessionHandle,
+            message.revision,
+            message.partName,
+          )
+          post(scope, {
+            id: message.id,
+            type: 'deck-session-resource-fingerprint',
+            sessionHandle: message.sessionHandle,
+            revision: message.revision,
+            partName: message.partName,
+            fingerprint,
+          })
+          return
+        }
+        case 'deck-session-cache-telemetry': {
+          const telemetry = decodeCacheTelemetry(engine.deck_session_cache_telemetry(message.sessionHandle))
+          post(scope, { id: message.id, type: 'deck-session-cache-telemetry', ...telemetry })
+          return
+        }
+        case 'release-deck-session':
+          engine.release_deck_session(message.sessionHandle)
+          post(scope, { id: message.id, type: 'deck-session-released' })
+          return
+        case 'release-deck-template':
+          engine.release_deck_template(message.templateHandle)
+          post(scope, { id: message.id, type: 'deck-template-released' })
+          return
         case 'prepare': {
           progress(scope, message.id, 'prepare', 0, 1)
           const template = new Uint8Array(message.template)
@@ -387,7 +547,17 @@ function isWorkerRequest(value: unknown): value is WorkerRequest {
     candidate.version === WORKER_PROTOCOL_VERSION &&
     Number.isSafeInteger(candidate.id) &&
     (candidate.id as number) >= 0 &&
-    (candidate.type === 'prepare' ||
+    (candidate.type === 'prepare-deck-template' ||
+      candidate.type === 'create-deck-session' ||
+      candidate.type === 'update-deck-session' ||
+      candidate.type === 'generate-deck-session' ||
+      candidate.type === 'resolve-deck-slide' ||
+      candidate.type === 'deck-session-resource' ||
+      candidate.type === 'deck-session-resource-fingerprint' ||
+      candidate.type === 'deck-session-cache-telemetry' ||
+      candidate.type === 'release-deck-session' ||
+      candidate.type === 'release-deck-template' ||
+      candidate.type === 'prepare' ||
       candidate.type === 'generate' ||
       candidate.type === 'create-live-session' ||
       candidate.type === 'apply-live-delta' ||
@@ -476,6 +646,46 @@ function decodeLiveUpdate(rows: unknown[]): Omit<
       removedParts: overlayValues[5]!,
     },
   }
+}
+
+function decodeDeckUpdate(rows: unknown[]): import('./protocol.js').DeckSessionUpdate {
+  if (rows.length !== 14) throw new TypeError('invalid deck update metadata')
+  const [revision, slideCount, presentableSlides, invalidatedSlides,
+    invalidatedLogicalSlideIds, removedPageIds, changedParts, reusedPages, fullFallback,
+    logicalParts, materializedParts, materializedBytes, reusedSourceBytes, removedParts] = rows
+  const ids = [invalidatedLogicalSlideIds, removedPageIds, changedParts]
+  const overlayValues = [logicalParts, materializedParts, materializedBytes, reusedSourceBytes, removedParts]
+  if (!isNonNegativeInteger(revision) || !isNonNegativeInteger(slideCount) ||
+    !isNonNegativeInteger(reusedPages) || typeof fullFallback !== 'boolean' ||
+    !Array.isArray(presentableSlides) || !presentableSlides.every(isNonNegativeInteger) ||
+    !Array.isArray(invalidatedSlides) || !invalidatedSlides.every(isNonNegativeInteger) ||
+    !ids.every((values) => Array.isArray(values) && values.every((value) => typeof value === 'string')) ||
+    !overlayValues.every(isNonNegativeInteger)) {
+    throw new TypeError('invalid deck update metadata')
+  }
+  return {
+    revision,
+    slideCount,
+    presentableSlides,
+    invalidatedSlides,
+    invalidatedLogicalSlideIds: invalidatedLogicalSlideIds as string[],
+    removedPageIds: removedPageIds as string[],
+    changedParts: changedParts as string[],
+    reusedPages,
+    fullFallback,
+    overlay: {
+      logicalParts: logicalParts as number,
+      materializedParts: materializedParts as number,
+      materializedBytes: materializedBytes as number,
+      reusedSourceBytes: reusedSourceBytes as number,
+      removedParts: removedParts as number,
+    },
+  }
+}
+
+function decodeIndexArray(rows: unknown[], label: string): number[] {
+  if (!rows.every(isNonNegativeInteger)) throw new TypeError(`invalid ${label} metadata`)
+  return rows as number[]
 }
 
 function decodeCacheTelemetry(rows: unknown[]): {

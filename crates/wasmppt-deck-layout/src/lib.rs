@@ -6,13 +6,18 @@
 mod flow;
 mod measure;
 
-use std::{cmp::Ordering, collections::BTreeMap, fmt, sync::Arc};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    sync::Arc,
+};
 
 use flow::{FlowError, FlowUnit, build_flow};
 use measure::{MeasureError, Measurer};
 use sha2::{Digest, Sha256};
 use wasmppt_deck::{
-    ContentFit, DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckSpec,
+    ContentFit, DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckResource, DeckSpec,
     DeckTemplatePlan, DiagnosticSeverity, Emu, EmuRect, FragmentSlice, LogicalSlide,
     LogicalSlideKind, PhysicalPage, PlannedFragment, PlannedRegion, RegionRole, SemanticContent,
     SemanticNode, SemanticRole, StableId, TemplateLayout, TemplateLayoutRole, TemplateRegion,
@@ -108,6 +113,16 @@ impl std::error::Error for PlanError {}
 #[derive(Clone, Debug, Default)]
 pub struct DeckPlanner {
     policy: PlannerPolicy,
+}
+
+/// Exact invalidation metadata produced by an incremental planning pass.
+#[derive(Clone, Debug, PartialEq)]
+pub struct IncrementalPlanUpdate {
+    pub plan: DeckPlan,
+    pub invalidated_logical_slides: Vec<StableId>,
+    pub invalidated_previous_pages: Vec<StableId>,
+    pub invalidated_pages: Vec<StableId>,
+    pub reused_pages: usize,
 }
 
 impl DeckPlanner {
@@ -206,6 +221,181 @@ impl DeckPlanner {
         });
         plan.diagnostics.dedup();
         Ok(plan)
+    }
+
+    /// Replan only logical slides whose semantic content or referenced resources changed.
+    ///
+    /// Reuse is valid only when the caller supplies the same template plan, font catalog,
+    /// planner policy, and contract limits that produced `previous_plan`. A mismatch in any
+    /// identity falls back to a complete plan so the fast path has an explicit boundary.
+    pub fn replan(
+        &self,
+        previous_spec: &DeckSpec,
+        previous_plan: &DeckPlan,
+        next_spec: &DeckSpec,
+        template: &DeckTemplatePlan,
+        fonts: &FontCatalog,
+        contract_limits: &DeckLimits,
+    ) -> Result<IncrementalPlanUpdate, PlanError> {
+        let expected_previous_id = plan_id(
+            previous_spec,
+            template,
+            fonts,
+            &self.policy,
+            contract_limits,
+        );
+        if previous_plan.id != expected_previous_id
+            || previous_plan.spec_id != previous_spec.id
+            || previous_plan.template_id != template.id
+        {
+            let plan = self.plan(next_spec, template, fonts, contract_limits)?;
+            return Ok(IncrementalPlanUpdate {
+                invalidated_logical_slides: next_spec
+                    .logical_slides
+                    .iter()
+                    .map(|slide| slide.id)
+                    .collect(),
+                invalidated_previous_pages: previous_plan
+                    .pages
+                    .iter()
+                    .map(|page| page.id)
+                    .collect(),
+                invalidated_pages: plan.pages.iter().map(|page| page.id).collect(),
+                reused_pages: 0,
+                plan,
+            });
+        }
+
+        validate_planning_inputs(next_spec, template, fonts, contract_limits, &self.policy)?;
+        let previous_slides = previous_spec
+            .logical_slides
+            .iter()
+            .map(|slide| (slide.id, slide))
+            .collect::<BTreeMap<_, _>>();
+        let previous_resources = previous_spec
+            .resources
+            .iter()
+            .map(|resource| (resource.id, resource))
+            .collect::<BTreeMap<_, _>>();
+        let next_resources = next_spec
+            .resources
+            .iter()
+            .map(|resource| (resource.id, resource))
+            .collect::<BTreeMap<_, _>>();
+        let previous_pages = previous_plan.pages.iter().fold(
+            BTreeMap::<StableId, Vec<PhysicalPage>>::new(),
+            |mut pages, page| {
+                pages
+                    .entry(page.logical_slide_id)
+                    .or_default()
+                    .push(page.clone());
+                pages
+            },
+        );
+
+        let mut diagnostics = Vec::new();
+        let mut pages = Vec::new();
+        let mut invalidated_logical_slides = Vec::new();
+        let mut invalidated_previous_pages = Vec::new();
+        let mut invalidated_pages = Vec::new();
+        let mut reused_pages = 0usize;
+        let mut measurer = Measurer::new(fonts, next_spec, &self.policy.limits);
+        let mut reused_node_ids = BTreeSet::new();
+        let mut reused_page_ids = BTreeSet::new();
+
+        for slide in &next_spec.logical_slides {
+            let can_reuse = previous_slides.get(&slide.id).is_some_and(|previous| {
+                *previous == slide
+                    && referenced_resources_equal(slide, &previous_resources, &next_resources)
+            });
+            if can_reuse {
+                if let Some(previous) = previous_pages.get(&slide.id) {
+                    reused_pages = reused_pages.saturating_add(previous.len());
+                    reused_page_ids.extend(previous.iter().map(|page| page.id));
+                    collect_node_ids(&slide.nodes, &mut reused_node_ids);
+                    pages.extend(previous.iter().cloned());
+                    continue;
+                }
+            }
+
+            invalidated_logical_slides.push(slide.id);
+            if let Some(previous) = previous_pages.get(&slide.id) {
+                invalidated_previous_pages.extend(previous.iter().map(|page| page.id));
+            }
+            let layout = select_layout(slide, template).ok_or_else(|| {
+                error(
+                    DeckDiagnosticCode::PLAN_MISSING_LAYOUT,
+                    "template has no compatible layout for a logical slide",
+                    Some(slide.id),
+                )
+            })?;
+            let planned =
+                self.plan_slide(slide, layout, template, &mut measurer, &mut diagnostics)?;
+            invalidated_pages.extend(planned.iter().map(|page| page.id));
+            pages.extend(planned);
+        }
+        for (slide_id, previous) in previous_pages {
+            if !next_spec
+                .logical_slides
+                .iter()
+                .any(|slide| slide.id == slide_id)
+            {
+                invalidated_previous_pages.extend(previous.iter().map(|page| page.id));
+            }
+        }
+        diagnostics.extend(
+            previous_plan
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    diagnostic
+                        .node_id
+                        .is_some_and(|id| reused_node_ids.contains(&id))
+                        || diagnostic
+                            .page_id
+                            .is_some_and(|id| reused_page_ids.contains(&id))
+                })
+                .cloned(),
+        );
+        let mut plan = DeckPlan {
+            id: plan_id(next_spec, template, fonts, &self.policy, contract_limits),
+            spec_id: next_spec.id,
+            template_id: template.id,
+            page_size: template.page_size,
+            pages,
+            diagnostics,
+        };
+        let report = validate_deck_plan(next_spec, template, &plan, contract_limits);
+        if !report.is_valid() {
+            return Err(PlanError {
+                code: report
+                    .diagnostics
+                    .first()
+                    .map(|diagnostic| diagnostic.code)
+                    .unwrap_or(DeckDiagnosticCode::PLAN_TARGET_DRIFT),
+                diagnostics: report.diagnostics,
+            });
+        }
+        plan.diagnostics.sort_by(|left, right| {
+            (left.code.0, left.node_id, &left.message).cmp(&(
+                right.code.0,
+                right.node_id,
+                &right.message,
+            ))
+        });
+        plan.diagnostics.dedup();
+        invalidated_logical_slides.sort_unstable();
+        invalidated_previous_pages.sort_unstable();
+        invalidated_previous_pages.dedup();
+        invalidated_pages.sort_unstable();
+        invalidated_pages.dedup();
+        Ok(IncrementalPlanUpdate {
+            plan,
+            invalidated_logical_slides,
+            invalidated_previous_pages,
+            invalidated_pages,
+            reused_pages,
+        })
     }
 
     fn plan_slide(
@@ -550,6 +740,114 @@ impl DeckPlanner {
             font_size = font_size
                 .saturating_sub(self.policy.font_step.max(1))
                 .max(self.policy.readable_floor);
+        }
+    }
+}
+
+fn validate_planning_inputs(
+    spec: &DeckSpec,
+    template: &DeckTemplatePlan,
+    fonts: &FontCatalog,
+    contract_limits: &DeckLimits,
+    policy: &PlannerPolicy,
+) -> Result<(), PlanError> {
+    let font_bytes = fonts
+        .faces
+        .iter()
+        .map(|face| face.bytes.len())
+        .try_fold(0usize, usize::checked_add);
+    if fonts.faces.len() > policy.limits.max_font_faces
+        || font_bytes.is_none_or(|bytes| bytes > policy.limits.max_font_bytes)
+    {
+        return Err(error(
+            DeckDiagnosticCode::PLAN_WORK_LIMIT,
+            "font catalog exceeds the configured planning bound",
+            None,
+        ));
+    }
+    let report = validate_deck_spec(spec, contract_limits);
+    if !report.is_valid() {
+        return Err(PlanError {
+            code: DeckDiagnosticCode::INVALID_SEMANTIC_CONTENT,
+            diagnostics: report.diagnostics,
+        });
+    }
+    if template
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+    {
+        return Err(error(
+            DeckDiagnosticCode::PLAN_MISSING_LAYOUT,
+            "cannot plan with an invalid template profile",
+            None,
+        ));
+    }
+    Ok(())
+}
+
+fn referenced_resources_equal(
+    slide: &LogicalSlide,
+    previous: &BTreeMap<StableId, &DeckResource>,
+    next: &BTreeMap<StableId, &DeckResource>,
+) -> bool {
+    let mut ids = BTreeSet::new();
+    collect_resource_ids(&slide.nodes, &mut ids);
+    ids.into_iter().all(|id| previous.get(&id) == next.get(&id))
+}
+
+fn collect_resource_ids(nodes: &[SemanticNode], output: &mut BTreeSet<StableId>) {
+    for node in nodes {
+        match &node.content {
+            SemanticContent::Image(image) => {
+                output.insert(image.resource_id);
+            }
+            SemanticContent::Svg(svg) => {
+                output.insert(svg.resource_id);
+            }
+            SemanticContent::Children(children) => collect_resource_ids(children, output),
+            SemanticContent::List(list) => {
+                for item in &list.items {
+                    collect_resource_ids(&item.blocks, output);
+                    for children in &item.children {
+                        collect_list_resource_ids(children, output);
+                    }
+                }
+            }
+            SemanticContent::Text(_)
+            | SemanticContent::Table(_)
+            | SemanticContent::Chart(_)
+            | SemanticContent::Code(_) => {}
+        }
+    }
+}
+
+fn collect_list_resource_ids(list: &wasmppt_deck::ListContent, output: &mut BTreeSet<StableId>) {
+    for item in &list.items {
+        collect_resource_ids(&item.blocks, output);
+        for children in &item.children {
+            collect_list_resource_ids(children, output);
+        }
+    }
+}
+
+fn collect_node_ids(nodes: &[SemanticNode], output: &mut BTreeSet<StableId>) {
+    for node in nodes {
+        output.insert(node.id);
+        match &node.content {
+            SemanticContent::Children(children) => collect_node_ids(children, output),
+            SemanticContent::List(list) => collect_list_node_ids(list, output),
+            _ => {}
+        }
+    }
+}
+
+fn collect_list_node_ids(list: &wasmppt_deck::ListContent, output: &mut BTreeSet<StableId>) {
+    for item in &list.items {
+        output.insert(item.id);
+        collect_node_ids(&item.blocks, output);
+        for children in &item.children {
+            collect_list_node_ids(children, output);
         }
     }
 }
@@ -1302,6 +1600,82 @@ mod tests {
         assert_ne!(baseline.id, template_id);
         assert_ne!(baseline.id, font_id);
         assert_ne!(baseline.id, policy_id);
+    }
+
+    #[test]
+    fn incremental_planning_reuses_only_proven_independent_slides() {
+        let first_slide = LogicalSlide {
+            id: id(2),
+            source: SourceRange::new("deck.md", 0, 100),
+            kind: LogicalSlideKind::Content,
+            hidden: false,
+            nodes: vec![
+                text_node(3, SemanticRole::Title, SplitPolicy::Never, "First"),
+                text_node(4, SemanticRole::Prose, SplitPolicy::Text, "Unchanged."),
+            ],
+        };
+        let second_slide = LogicalSlide {
+            id: id(12),
+            source: SourceRange::new("deck.md", 101, 200),
+            kind: LogicalSlideKind::Content,
+            hidden: false,
+            nodes: vec![
+                text_node(13, SemanticRole::Title, SplitPolicy::Never, "Second"),
+                text_node(14, SemanticRole::Prose, SplitPolicy::Text, "Before."),
+            ],
+        };
+        let previous_spec = DeckSpec {
+            id: id(1),
+            logical_slides: vec![first_slide, second_slide],
+            resources: vec![],
+        };
+        let template = template(1_000_000);
+        let planner = DeckPlanner::default();
+        let previous_plan = planner
+            .plan(
+                &previous_spec,
+                &template,
+                &FontCatalog::default(),
+                &limits(),
+            )
+            .unwrap();
+        let first_page_ids = previous_plan
+            .pages
+            .iter()
+            .filter(|page| page.logical_slide_id == id(2))
+            .map(|page| page.id)
+            .collect::<Vec<_>>();
+
+        let mut next_spec = previous_spec.clone();
+        next_spec.id = id(21);
+        let SemanticContent::Text(text) = &mut next_spec.logical_slides[1].nodes[1].content else {
+            unreachable!();
+        };
+        text.runs[0].text = "After.".to_owned();
+        let update = planner
+            .replan(
+                &previous_spec,
+                &previous_plan,
+                &next_spec,
+                &template,
+                &FontCatalog::default(),
+                &limits(),
+            )
+            .unwrap();
+
+        assert_eq!(update.invalidated_logical_slides, vec![id(12)]);
+        assert_eq!(update.reused_pages, first_page_ids.len());
+        assert_eq!(
+            update
+                .plan
+                .pages
+                .iter()
+                .filter(|page| page.logical_slide_id == id(2))
+                .map(|page| page.id)
+                .collect::<Vec<_>>(),
+            first_page_ids
+        );
+        assert!(validate_deck_plan(&next_spec, &template, &update.plan, &limits()).is_valid());
     }
 
     proptest! {

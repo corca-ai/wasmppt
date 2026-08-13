@@ -1,6 +1,7 @@
 import {
   LEGACY_WORKER_PROTOCOL_VERSION,
   WORKER_PROTOCOL_VERSION,
+  type DeckSessionUpdate,
   type TemplateBinding,
   type TemplateCompilerOptions,
   type TemplateDiagnostic,
@@ -34,6 +35,28 @@ export interface PreparedBrowserTemplate {
   readonly plan: ArrayBuffer
   readonly bindings: readonly TemplateBinding[]
   readonly diagnostics: readonly TemplateDiagnostic[]
+}
+
+export interface PreparedDeckTemplate {
+  readonly handle: number
+  readonly cacheable: boolean
+  readonly plan: ArrayBuffer
+}
+
+export interface OpenedDeckSession {
+  readonly handle: number
+  readonly revision: number
+  readonly slideCount: number
+  readonly presentableSlides: readonly number[]
+  readonly plan: ArrayBuffer
+}
+
+export interface ResolvedDeckSlide {
+  readonly handle: number
+  readonly revision: number
+  readonly slideIndex: number
+  readonly fingerprint: string
+  readonly displayList: ArrayBuffer
 }
 
 export interface PrepareOptions extends TemplateCompilerOptions {
@@ -136,6 +159,8 @@ export class WasmpptWorkerClient {
   readonly #resourceInflight = new Map<string, Promise<ArrayBuffer>>()
   readonly #releasedPresentations = new Set<number>()
   readonly #releasedLiveSessions = new Set<number>()
+  readonly #releasedDeckSessions = new Set<number>()
+  readonly #deckRevisions = new Map<number, number>()
   readonly #liveResourceFingerprints = new Map<string, string>()
   readonly #resourceCacheLimit: number
   #resourceCacheBytes = 0
@@ -185,6 +210,266 @@ export class WasmpptWorkerClient {
       bindings: response.bindings,
       diagnostics: response.diagnostics,
     }
+  }
+
+  /** Transfer and compile a POTX governed by the deck template contract. */
+  async prepareDeckTemplate(template: ArrayBuffer, plan?: ArrayBuffer): Promise<PreparedDeckTemplate> {
+    this.#assertOpen()
+    const id = this.#allocateId()
+    const result = this.#unaryRequest(id, 'prepare')
+    const transfer: Transferable[] = [template]
+    if (plan !== undefined) transfer.push(plan)
+    this.#worker.postMessage({
+      version: WORKER_PROTOCOL_VERSION,
+      id,
+      type: 'prepare-deck-template',
+      template,
+      ...(plan === undefined ? {} : { plan }),
+    }, transfer)
+    const response = await result
+    if (response.type !== 'deck-template-prepared') {
+      throw new Error('invalid deck template response')
+    }
+    return {
+      handle: response.templateHandle,
+      cacheable: response.cacheable,
+      plan: response.plan,
+    }
+  }
+
+  /** Create a revisioned authoring session from caller-owned WDSF and optional WDPL bytes. */
+  async createDeckSession(
+    templateHandle: number,
+    spec: ArrayBuffer,
+    plan?: ArrayBuffer,
+    options: ResolveSlideOptions = {},
+  ): Promise<OpenedDeckSession> {
+    this.#assertOpen()
+    const id = this.#allocateId()
+    const result = this.#unaryRequest(id, 'session', options.signal, options.onProgress)
+    const transfer: Transferable[] = [spec]
+    if (plan !== undefined) transfer.push(plan)
+    this.#worker.postMessage({
+      version: WORKER_PROTOCOL_VERSION,
+      id,
+      type: 'create-deck-session',
+      templateHandle,
+      spec,
+      ...(plan === undefined ? {} : { plan }),
+    }, transfer)
+    const response = await result
+    if (response.type !== 'deck-session-created') throw new Error('invalid deck session response')
+    this.#releasedDeckSessions.delete(response.sessionHandle)
+    this.#deckRevisions.set(response.sessionHandle, response.revision)
+    return {
+      handle: response.sessionHandle,
+      revision: response.revision,
+      slideCount: response.slideCount,
+      presentableSlides: response.presentableSlides,
+      plan: response.plan,
+    }
+  }
+
+  async updateDeckSession(
+    sessionHandle: number,
+    expectedRevision: number,
+    spec: ArrayBuffer,
+    options: ResolveSlideOptions = {},
+  ): Promise<DeckSessionUpdate> {
+    this.#assertOpen()
+    assertRevision(expectedRevision)
+    const nextRevision = expectedRevision + 1
+    assertRevision(nextRevision)
+    if (this.#deckRevisions.get(sessionHandle) !== expectedRevision) {
+      throw new Error('deck session update does not target the current client revision')
+    }
+    const id = this.#allocateId()
+    const result = this.#unaryRequest(id, 'delta', options.signal, options.onProgress)
+    this.#worker.postMessage({
+      version: WORKER_PROTOCOL_VERSION,
+      id,
+      type: 'update-deck-session',
+      sessionHandle,
+      expectedRevision,
+      nextRevision,
+      spec,
+    }, [spec])
+    const response = await result
+    if (response.type !== 'deck-session-updated') throw new Error('invalid deck update response')
+    this.#deckRevisions.set(sessionHandle, response.revision)
+    const prefix = `${sessionHandle}\0`
+    if (response.fullFallback) {
+      for (const key of this.#liveResourceFingerprints.keys()) {
+        if (key.startsWith(prefix)) this.#liveResourceFingerprints.delete(key)
+      }
+    } else {
+      for (const partName of response.changedParts) {
+        this.#liveResourceFingerprints.delete(`${prefix}${partName}`)
+      }
+    }
+    return response
+  }
+
+  async resolveDeckSlide(
+    sessionHandle: number,
+    revision: number,
+    slideIndex: number,
+    options: ResolveSlideOptions = {},
+  ): Promise<ResolvedDeckSlide> {
+    this.#assertOpen()
+    assertRevision(revision)
+    if (!Number.isSafeInteger(slideIndex) || slideIndex < 0) {
+      throw new RangeError('slideIndex must be a non-negative safe integer')
+    }
+    if (this.#deckRevisions.get(sessionHandle) !== revision) {
+      throw new Error('deck slide request targets a stale revision')
+    }
+    const id = this.#allocateId()
+    const result = this.#unaryRequest(id, 'resolve', options.signal, options.onProgress)
+    this.#worker.postMessage({
+      version: WORKER_PROTOCOL_VERSION,
+      id,
+      type: 'resolve-deck-slide',
+      sessionHandle,
+      revision,
+      slideIndex,
+    })
+    const response = await result
+    if (response.type !== 'deck-slide-resolved') throw new Error('invalid deck resolve response')
+    if (this.#deckRevisions.get(sessionHandle) !== response.revision) {
+      throw new Error('discarded stale deck slide result')
+    }
+    return {
+      handle: response.sessionHandle,
+      revision: response.revision,
+      slideIndex: response.slideIndex,
+      fingerprint: response.fingerprint,
+      displayList: response.displayList,
+    }
+  }
+
+  async deckSessionResource(
+    sessionHandle: number,
+    revision: number,
+    partName: string,
+    options: ResolveSlideOptions = {},
+  ): Promise<LiveSessionResource> {
+    this.#assertOpen()
+    const fingerprint = await this.deckSessionResourceFingerprint(
+      sessionHandle,
+      revision,
+      partName,
+      options,
+    )
+    const cacheKey = `content\0deck\0${fingerprint}`
+    const cached = this.#resourceCache.get(cacheKey)
+    if (cached !== undefined) return { fingerprint, bytes: cached }
+    const id = this.#allocateId()
+    const result = this.#unaryRequest(id, 'resource', options.signal, options.onProgress)
+    this.#worker.postMessage({
+      version: WORKER_PROTOCOL_VERSION,
+      id,
+      type: 'deck-session-resource',
+      sessionHandle,
+      revision,
+      partName,
+    })
+    const response = await result
+    if (response.type !== 'deck-session-resource' || response.fingerprint !== fingerprint) {
+      throw new Error('deck resource changed during one revision')
+    }
+    if (this.#deckRevisions.get(sessionHandle) !== revision) {
+      throw new Error('discarded stale deck resource result')
+    }
+    if (!this.#releasedDeckSessions.has(sessionHandle)) this.#storeResource(cacheKey, response.bytes)
+    return { fingerprint, bytes: response.bytes }
+  }
+
+  async deckSessionResourceFingerprint(
+    sessionHandle: number,
+    revision: number,
+    partName: string,
+    options: ResolveSlideOptions = {},
+  ): Promise<string> {
+    this.#assertOpen()
+    assertRevision(revision)
+    if (partName.length === 0) throw new TypeError('partName must not be empty')
+    if (this.#deckRevisions.get(sessionHandle) !== revision) {
+      throw new Error('deck resource request targets a stale revision')
+    }
+    const key = `${sessionHandle}\0${partName}`
+    const cached = this.#liveResourceFingerprints.get(key)
+    if (cached !== undefined) return cached
+    const id = this.#allocateId()
+    const result = this.#unaryRequest(id, 'resource', options.signal, options.onProgress)
+    this.#worker.postMessage({
+      version: WORKER_PROTOCOL_VERSION,
+      id,
+      type: 'deck-session-resource-fingerprint',
+      sessionHandle,
+      revision,
+      partName,
+    })
+    const response = await result
+    if (response.type !== 'deck-session-resource-fingerprint') {
+      throw new Error('invalid deck resource fingerprint response')
+    }
+    if (this.#deckRevisions.get(sessionHandle) !== response.revision) {
+      throw new Error('discarded stale deck resource fingerprint')
+    }
+    this.#liveResourceFingerprints.set(key, response.fingerprint)
+    return response.fingerprint
+  }
+
+  async deckSessionCacheTelemetry(sessionHandle: number): Promise<LiveSessionCacheTelemetry> {
+    this.#assertOpen()
+    const id = this.#allocateId()
+    const result = this.#unaryRequest(id, 'telemetry')
+    this.#worker.postMessage({
+      version: WORKER_PROTOCOL_VERSION,
+      id,
+      type: 'deck-session-cache-telemetry',
+      sessionHandle,
+    })
+    const response = await result
+    if (response.type !== 'deck-session-cache-telemetry') {
+      throw new Error('invalid deck cache telemetry response')
+    }
+    return response
+  }
+
+  async releaseDeckSession(sessionHandle: number): Promise<void> {
+    this.#assertOpen()
+    this.#releasedDeckSessions.add(sessionHandle)
+    this.#deckRevisions.delete(sessionHandle)
+    const prefix = `${sessionHandle}\0`
+    for (const key of this.#liveResourceFingerprints.keys()) {
+      if (key.startsWith(prefix)) this.#liveResourceFingerprints.delete(key)
+    }
+    const id = this.#allocateId()
+    const result = this.#unaryRequest(id, 'release-session')
+    this.#worker.postMessage({
+      version: WORKER_PROTOCOL_VERSION,
+      id,
+      type: 'release-deck-session',
+      sessionHandle,
+    })
+    const response = await result
+    if (response.type !== 'deck-session-released') throw new Error('invalid deck release response')
+  }
+
+  async releaseDeckTemplate(templateHandle: number): Promise<void> {
+    this.#assertOpen()
+    const id = this.#allocateId()
+    const result = this.#unaryRequest(id, 'release')
+    this.#worker.postMessage({
+      version: WORKER_PROTOCOL_VERSION,
+      id,
+      type: 'release-deck-template',
+      templateHandle,
+    })
+    const response = await result
+    if (response.type !== 'deck-template-released') throw new Error('invalid deck template release response')
   }
 
   async createLiveSession(
@@ -740,6 +1025,84 @@ export class WasmpptWorkerClient {
     return output.buffer
   }
 
+  /** Stream a PPTX from the exact immutable overlay used by one deck preview revision. */
+  generateDeckStream(
+    sessionHandle: number,
+    revision: number,
+    options: GenerateOptions = {},
+  ): ReadableStream<Uint8Array> {
+    this.#assertOpen()
+    assertRevision(revision)
+    if (this.#deckRevisions.get(sessionHandle) !== revision) {
+      throw new Error('deck export targets a stale revision')
+    }
+    const id = this.#allocateId()
+    const chunkBytes = options.chunkBytes ?? 256 * 1024
+    if (!Number.isSafeInteger(chunkBytes) || chunkBytes <= 0) {
+      throw new RangeError('chunkBytes must be a positive safe integer')
+    }
+    if (options.signal?.aborted === true) {
+      return new ReadableStream<Uint8Array>({
+        start: (controller) => controller.error(abortError()),
+      })
+    }
+    return new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        const abort = (): void => {
+          this.#worker.postMessage({
+            version: WORKER_PROTOCOL_VERSION,
+            id: this.#allocateId(),
+            type: 'cancel',
+            targetId: id,
+          })
+        }
+        options.signal?.addEventListener('abort', abort, { once: true })
+        this.#pending.set(id, {
+          kind: 'generate',
+          controller,
+          onProgress: options.onProgress,
+          abortCleanup: () => options.signal?.removeEventListener('abort', abort),
+        })
+        this.#worker.postMessage({
+          version: WORKER_PROTOCOL_VERSION,
+          id,
+          type: 'generate-deck-session',
+          sessionHandle,
+          revision,
+          chunkBytes,
+        })
+      },
+      cancel: () => {
+        this.#worker.postMessage({
+          version: WORKER_PROTOCOL_VERSION,
+          id: this.#allocateId(),
+          type: 'cancel',
+          targetId: id,
+        })
+      },
+    })
+  }
+
+  async generateDeck(
+    sessionHandle: number,
+    revision: number,
+    options: GenerateOptions = {},
+  ): Promise<ArrayBuffer> {
+    const chunks: Uint8Array[] = []
+    let length = 0
+    for await (const chunk of this.generateDeckStream(sessionHandle, revision, options)) {
+      chunks.push(chunk)
+      length += chunk.byteLength
+    }
+    const output = new Uint8Array(length)
+    let offset = 0
+    for (const chunk of chunks) {
+      output.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    return output.buffer
+  }
+
   /** Generate a complete caller-owned PPTX buffer by draining `generateStream`. */
   async generate(
     templateHandle: number,
@@ -787,6 +1150,8 @@ export class WasmpptWorkerClient {
     this.#resourceCache.clear()
     this.#releasedPresentations.clear()
     this.#releasedLiveSessions.clear()
+    this.#releasedDeckSessions.clear()
+    this.#deckRevisions.clear()
     this.#liveResourceFingerprints.clear()
     this.#resourceCacheBytes = 0
     this.#failAll(new Error('wasmppt Worker was terminated'))
@@ -895,7 +1260,16 @@ function isWorkerResponse(value: unknown): value is WorkerResponse {
     candidate.version === WORKER_PROTOCOL_VERSION &&
     Number.isSafeInteger(candidate.id) &&
     (candidate.id as number) >= 0 &&
-    (candidate.type === 'progress' ||
+    (candidate.type === 'deck-template-prepared' ||
+      candidate.type === 'deck-session-created' ||
+      candidate.type === 'deck-session-updated' ||
+      candidate.type === 'deck-slide-resolved' ||
+      candidate.type === 'deck-session-resource' ||
+      candidate.type === 'deck-session-resource-fingerprint' ||
+      candidate.type === 'deck-session-cache-telemetry' ||
+      candidate.type === 'deck-session-released' ||
+      candidate.type === 'deck-template-released' ||
+      candidate.type === 'progress' ||
       candidate.type === 'prepared' ||
       candidate.type === 'live-session-created' ||
       candidate.type === 'live-session-updated' ||

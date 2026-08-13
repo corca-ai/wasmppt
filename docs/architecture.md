@@ -481,7 +481,8 @@ they are not silently approximated as fully supported.
 
 ## Text-fidelity architecture
 
-WPDL v9 keeps text layout backend-neutral and marks live-edited slide parts for AutoFit
+WPDL v10 adds source-backed semantic IDs, source ranges, explicit reading order, and hit-test
+bounds. WPDL v9 keeps text layout backend-neutral and marks live-edited slide parts for AutoFit
 recomputation; v8 introduced distinct inner-shadow paint. Rust resolves paragraph/run inheritance, typed point or
 percentage spacing, authored normal-AutoFit hints, shape-resize mode, columns, numbering markers,
 and common 2D text paint: outlines, inner/outer shadows, glow, blur, soft edges, and reflection.

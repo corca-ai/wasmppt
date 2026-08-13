@@ -162,11 +162,18 @@ export interface SceneSemanticElement {
   readonly commandCount: number
   readonly shapeId: number
   readonly zOrder: number
+  readonly readingOrder: number
   readonly kind: 'shape' | 'image' | 'table' | 'chart' | 'preserved-graphic'
   readonly bounds: EmuRect
   readonly name: string
   readonly alternativeText?: string
   readonly hyperlink?: string
+  readonly source?: {
+    readonly semanticId: string
+    readonly source: string
+    readonly start: number
+    readonly end: number
+  }
 }
 
 export type DisplayDiagnosticCode =
@@ -297,7 +304,7 @@ export interface DisplayScene {
 }
 
 /**
- * Decode WPDL v1-v9 defensively before touching Canvas or DOM APIs.
+ * Decode WPDL v1-v10 defensively before touching Canvas APIs.
  * Counts, references, safe-integer coordinates, group balance, truncation, and trailing bytes are
  * validated before a scene is returned.
  */
@@ -306,7 +313,7 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
   const reader = new BinaryReader(bytes)
   if (reader.ascii(4) !== 'WPDL') throw new Error('display list has an invalid magic value')
   const version = reader.u16()
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8 && version !== 9) {
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8 && version !== 9 && version !== 10) {
     throw new Error(`unsupported display-list version ${version}`)
   }
   if (reader.u16() !== 0) throw new Error('display-list reserved flags are non-zero')
@@ -362,12 +369,26 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
     const semanticCommandCount = reader.u32()
     const shapeId = reader.u32()
     const zOrder = reader.u32()
+    const readingOrder = version >= 10 ? reader.u32() : zOrder
     const kindCode = reader.u8()
     if (kindCode < 1 || kindCode > 5) throw new Error('semantic element has an unknown kind')
     const bounds = readRect(reader)
     const name = reader.utf8Blob()
     const alternativeText = reader.utf8Blob()
     const hyperlink = reader.utf8Blob()
+    let source: SceneSemanticElement['source']
+    if (version >= 10) {
+      const present = reader.u8()
+      if (present > 1) throw new Error('semantic source presence flag is invalid')
+      if (present === 1) {
+        const semanticId = reader.hex(16)
+        const sourceName = reader.utf8Blob()
+        const start = reader.u32()
+        const end = reader.u32()
+        if (sourceName === '' || start > end) throw new Error('semantic source range is invalid')
+        source = { semanticId, source: sourceName, start, end }
+      }
+    }
     if (firstCommand + semanticCommandCount > commands.length) {
       throw new Error('semantic element command range is out of bounds')
     }
@@ -376,11 +397,13 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
       commandCount: semanticCommandCount,
       shapeId,
       zOrder,
+      readingOrder,
       kind: semanticKind(kindCode),
       bounds,
       name,
       alternativeText: alternativeText === '' ? undefined : alternativeText,
       hyperlink: hyperlink === '' ? undefined : hyperlink,
+      ...(source === undefined ? {} : { source }),
     })
   }
   const diagnostics: SceneDiagnostic[] = []
@@ -409,6 +432,45 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
     diagnostics: Object.freeze(diagnostics),
     byteLength: bytes.byteLength,
   })
+}
+
+/** Return the topmost source-backed semantic target at one slide-space EMU point. */
+export function hitTestDisplayScene(
+  scene: DisplayScene,
+  x: number,
+  y: number,
+): SceneSemanticElement | undefined {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return undefined
+  let hit: SceneSemanticElement | undefined
+  for (const semantic of scene.semantics) {
+    if (semantic.source === undefined || !containsPoint(semantic.bounds, x, y)) continue
+    if (hit === undefined || semantic.zOrder > hit.zOrder ||
+      (semantic.zOrder === hit.zOrder && semantic.readingOrder > hit.readingOrder)) {
+      hit = semantic
+    }
+  }
+  return hit
+}
+
+/** Convert one Canvas CSS-space point to slide EMUs before semantic hit testing. */
+export function hitTestDisplaySceneAtCanvasPoint(
+  scene: DisplayScene,
+  canvas: HTMLCanvasElement,
+  x: number,
+  y: number,
+): SceneSemanticElement | undefined {
+  const bounds = canvas.getBoundingClientRect()
+  if (bounds.width <= 0 || bounds.height <= 0) return undefined
+  return hitTestDisplayScene(
+    scene,
+    (x - bounds.left) * scene.width / bounds.width,
+    (y - bounds.top) * scene.height / bounds.height,
+  )
+}
+
+function containsPoint(bounds: EmuRect, x: number, y: number): boolean {
+  return x >= bounds.x && y >= bounds.y &&
+    x <= bounds.x + bounds.width && y <= bounds.y + bounds.height
 }
 
 export type FontScript = 'latin' | 'east-asian' | 'complex'
@@ -2133,7 +2195,7 @@ export interface SceneResolver {
   resolveSlide(
     presentationHandle: number,
     slideIndex: number,
-    options?: { readonly signal?: AbortSignal },
+    options?: { readonly signal?: AbortSignal; readonly revision?: number },
   ): Promise<ArrayBuffer>
 }
 
@@ -2193,6 +2255,7 @@ export class VirtualizedCanvasViewer {
   readonly #onTelemetry: VirtualizedViewerOptions['onTelemetry']
   readonly #mounted = new Map<number, HTMLCanvasElement>()
   #revision = 0
+  #contentRevision = 0
   #abort = new AbortController()
   #disposed = false
 
@@ -2227,6 +2290,30 @@ export class VirtualizedCanvasViewer {
 
   get cachedSceneBytes(): number {
     return this.#sceneCache.residentBytes
+  }
+
+  /** Advance the immutable overlay revision and retain only explicitly proven reusable scenes. */
+  setContentRevision(revision: number, invalidatedSlides?: readonly number[]): void {
+    if (this.#disposed) throw new Error('viewer is disposed')
+    if (!Number.isSafeInteger(revision) || revision < this.#contentRevision) {
+      throw new RangeError('content revision must be a monotonic non-negative safe integer')
+    }
+    if (revision === this.#contentRevision) return
+    this.#abort.abort()
+    this.#abort = new AbortController()
+    this.#revision += 1
+    this.#contentRevision = revision
+    if (invalidatedSlides === undefined) {
+      this.#sceneCache.clear()
+      for (const canvas of this.#mounted.values()) canvas.remove()
+      this.#mounted.clear()
+      return
+    }
+    for (const index of invalidatedSlides) {
+      this.#sceneCache.delete(index)
+      this.#mounted.get(index)?.remove()
+      this.#mounted.delete(index)
+    }
   }
 
   async setVisibleSlides(indices: readonly number[]): Promise<void> {
@@ -2282,7 +2369,10 @@ export class VirtualizedCanvasViewer {
   async #scene(index: number, signal: AbortSignal): Promise<DisplayScene> {
     const cached = this.#sceneCache.get(index)
     if (cached !== undefined) return cached
-    const bytes = await this.#resolver.resolveSlide(this.#presentationHandle, index, { signal })
+    const bytes = await this.#resolver.resolveSlide(this.#presentationHandle, index, {
+      signal,
+      revision: this.#contentRevision,
+    })
     throwIfAborted(signal)
     const scene = decodeDisplayList(bytes)
     this.#sceneCache.set(index, scene, scene.byteLength)
@@ -2324,6 +2414,12 @@ class BinaryReader {
 
   ascii(length: number): string {
     return String.fromCharCode(...this.take(length))
+  }
+
+  hex(length: number): string {
+    return [...this.take(length)]
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('')
   }
 
   u8(): number {

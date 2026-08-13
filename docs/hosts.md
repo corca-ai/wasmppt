@@ -58,7 +58,7 @@ version must equal the Rust `wasm-bindgen` dependency.
 
 ## Browser Worker protocol
 
-Protocol version 5 uses monotonically allocated request IDs and discriminated messages
+Protocol version 6 uses monotonically allocated request IDs and discriminated messages
 for prepare, generate, release, cancel, progress, chunk, success, and error events. The
 main thread transfers the input `ArrayBuffer`, so ownership moves to the module Worker
 instead of paying a structured-clone copy. Generation data uses the versioned `WPPD` binary
@@ -66,6 +66,14 @@ payload so image bytes need no base64 conversion. Generated chunks are also tran
 The protocol also carries revisioned delta, live-slide resolution, cache telemetry, lazy
 content-fingerprinted resource reads, and EMF/WMF-to-SVG requests; the latter fails explicitly
 when a host chooses not to install the optional converter.
+
+The v6 `deck-*` operations compile or restore a POTX plan, create and update complete WDSF
+revisions, return the current WDPL and hidden-filtered presentable page indices, resolve one
+physical page, stream resources, and export the exact preview overlay. Changed logical slides,
+physical pages, and package parts are explicit. WDSF, WDPL, WPDL, and resource buffers transfer
+ownership across the Worker boundary; bounded content-addressed caches retain only reusable data.
+Hidden pages remain addressable by authoring index and carry PresentationML `show="0"`; the
+presentable/export page-index set omits them without constructing a second preview revision.
 
 `WasmpptWorkerClient` owns every pending Promise and stream controller. Explicit
 termination, Worker `error`, and `messageerror` reject all pending operations. Cancellation
@@ -82,12 +90,12 @@ informational, may change, and MUST NOT be parsed. Rust compile, generation, and
 are non-exhaustive. Their adapters preserve lower-level OPC and XML codes in `causeCode` instead of
 embedding the only copy in prose.
 
-Browser protocol v5 `error` and `cancelled` responses carry this envelope. `WasmpptWorkerClient`
+Browser protocol v6 `error` and `cancelled` responses carry this envelope. `WasmpptWorkerClient`
 rejects with `WasmpptError`, whose `domain`, `code`, and `envelope` are public. Cancellation keeps
 the familiar JavaScript name `AbortError` while its stable code is `runtime/cancelled`. Unknown
 opaque handles use `runtime/unknown-handle`; a revision mismatch uses `runtime/stale-revision`.
-The client continues to decode v4 `name`/`message` error and cancellation responses during the
-protocol migration, assigning legacy errors `runtime/legacy-error`; new requests always use v5.
+The client continues to decode v5 `name`/`message` error and cancellation responses during the
+protocol migration, assigning legacy errors `runtime/legacy-error`; new requests always use v6.
 
 `createLiveSession`, `applyLiveDelta`, `resolveLiveSlide`, and `generateLiveStream` operate on one
 Worker-owned session. Exact revision checks make stale work observable. Changed binding IDs, parts,

@@ -72,9 +72,12 @@ theme, layout, master, media, chart, or other reachable dependency. See
 - UTF-8 string and image-resource tables;
 - a fixed `WPDL` header, schema version, slide size, and table counts;
 - semantic command ranges for source shape IDs, reading order, accessible names, and links;
+- optional stable 128-bit semantic IDs and exact source ranges used by deck authoring hit tests;
 - resolver diagnostics shared without reinterpretation by every rendering backend.
 
-WPDL version 9 distinguishes source-faithful normal-AutoFit hints from live-edited recomputation.
+WPDL version 10 adds explicit reading order and optional source-backed semantic identity and range
+records. WPDL version 9 distinguishes source-faithful normal-AutoFit hints from live-edited
+recomputation.
 WPDL version 8 separates inner text shadows from outer shadows while retaining the complete v7
 contract. WPDL version 7 adds typed paragraph spacing, authored normal-AutoFit hints, shape-resize AutoFit,
 columns, embedded-font resources, and common editable-text effects including outlines, shadows,

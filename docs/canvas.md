@@ -20,7 +20,7 @@ the common display-list semantics on Canvas 2D:
 - preset paths, fills, strokes, rotation, flips, and nested group transforms;
 - linear/radial gradients, patterns, curved bounded custom paths, outer shadows, connectors, and line ends;
 - relationship-addressed images with PowerPoint source cropping;
-- shared WPDL v9 paragraph/run layout for mixed styles, script-specific theme fonts,
+- shared WPDL v10 paragraph/run layout for mixed styles, script-specific theme fonts,
   RTL, tabs, vertical flow, decoration, baseline/character spacing, bullets, indentation,
   wrapping, autofit, alignment and text-frame anchoring;
 - deterministic cache eviction and disposal for decoded images.
@@ -71,6 +71,11 @@ independently; cycles or cross-shape overflow are therefore never guessed from v
 viewport revision aborts stale resolution and drawing work. Visible slides complete before
 neighbor prefetch begins. The scene LRU and decoded-image LRU both have explicit byte budgets and
 hit/miss telemetry.
+`setContentRevision` advances an immutable deck revision, removes only the slide scenes named by
+the engine's invalidation result, and aborts older resolution work. Presentation canvases and
+storyboard thumbnails can therefore request the same revisioned WPDL while preserving reusable
+offscreen scenes. `hitTestDisplayScene` and `hitTestDisplaySceneAtCanvasPoint` return only
+source-backed semantic targets, ordered by z-order and stable reading order.
 `WasmpptWorkerClient` also deduplicates in-flight raw and converted resources per presentation
 and part name and exposes its bounded resident-byte count. Evicted image objects
 are closed when their host resource supports `close()`. `dispose()` aborts work, removes every
@@ -100,7 +105,8 @@ baselines and per-slide tolerance reports belong to the compatibility-gate slice
 
 ## Current boundary
 
-The renderer supports WPDL v9 while retaining v1-v8 decoding. Version 9 marks text from a
+The renderer supports WPDL v10 while retaining v1-v9 decoding. Version 10 carries stable semantic
+IDs, source ranges, reading order, and hit-test bounds for Canvas authoring. Version 9 marks text from a
 materialized live-edit overlay so normal AutoFit recomputes the largest fitting scale instead of
 blindly retaining a stale authored hint. Embedded font relationships travel
 as lazy resources; `registerEmbeddedFonts` applies size and OpenType embedding-permission checks

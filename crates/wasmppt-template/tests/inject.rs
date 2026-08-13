@@ -112,6 +112,85 @@ fn strict_template() -> Vec<u8> {
     writer.finish().unwrap().0.into_inner()
 }
 
+fn template_with_slide_background(color: &str) -> Vec<u8> {
+    rewrite_template(|name, source| {
+        if name == "ppt/slides/slide1.xml" {
+            source.replace(
+                "<p:cSld>",
+                &format!(
+                    r#"<p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="{color}"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>"#,
+                ),
+            )
+        } else {
+            source
+        }
+    })
+}
+
+fn template_with_master_background(color: Option<&str>) -> Vec<u8> {
+    let source = rewrite_template(|_, source| source);
+    let archive = ZipArchive::from_bytes(source).unwrap();
+    let options = EntryOptions::deterministic(CompressionMethod::Deflate);
+    let mut writer = ZipWriter::new(VecSink::new());
+    for entry in archive.entries() {
+        writer
+            .write_entry(&entry.name, &archive.read_entry(entry).unwrap(), &options)
+            .unwrap();
+    }
+    let background = color.map_or_else(String::new, |color| {
+        format!(
+            r#"<p:bg><p:bgPr><a:solidFill><a:srgbClr val="{color}"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>"#,
+        )
+    });
+    let inherited = [
+        (
+            "ppt/slides/_rels/slide1.xml.rels",
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rLayout" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>"#.to_owned(),
+        ),
+        (
+            "ppt/slideLayouts/slideLayout1.xml",
+            r#"<p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree/></p:cSld></p:sldLayout>"#.to_owned(),
+        ),
+        (
+            "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rMaster" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/></Relationships>"#.to_owned(),
+        ),
+        (
+            "ppt/slideMasters/slideMaster1.xml",
+            format!(
+                r#"<p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld>{background}<p:spTree/></p:cSld></p:sldMaster>"#,
+            ),
+        ),
+    ];
+    for (name, bytes) in inherited {
+        writer
+            .write_entry(name, bytes.as_bytes(), &options)
+            .unwrap();
+    }
+    writer.finish().unwrap().0.into_inner()
+}
+
+fn rewrite_template(mut rewrite: impl FnMut(&str, String) -> String) -> Vec<u8> {
+    let source = template(
+        "application/vnd.openxmlformats-officedocument.presentationml.template.main+xml",
+        false,
+    );
+    let archive = ZipArchive::from_bytes(source).unwrap();
+    let options = EntryOptions::deterministic(CompressionMethod::Deflate);
+    let mut writer = ZipWriter::new(VecSink::new());
+    for entry in archive.entries() {
+        let source = String::from_utf8(archive.read_entry(entry).unwrap()).unwrap();
+        writer
+            .write_entry(
+                &entry.name,
+                rewrite(&entry.name, source).as_bytes(),
+                &options,
+            )
+            .unwrap();
+    }
+    writer.finish().unwrap().0.into_inner()
+}
+
 fn named_chart_template() -> Vec<u8> {
     let archive = ZipArchive::from_bytes(ADVANCED_FIXTURE.to_vec()).unwrap();
     let options = EntryOptions::deterministic(CompressionMethod::Deflate);
@@ -270,6 +349,14 @@ fn potm_generation_strips_macros_and_injects_escaped_unicode() {
     assert!(!text.to_ascii_lowercase().contains("macro?"));
     assert!(text.contains("민수 &amp; &lt;팀&gt;"));
     assert!(text.contains("presentation.main+xml"));
+    let slide = String::from_utf8(
+        output
+            .read_entry(output.entry("ppt/slides/slide1.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(slide.contains("<p:bg xmlns:p="));
+    assert!(slide.contains(r#"<a:srgbClr val="FFFFFF"/>"#));
     let graph = PackageGraph::build(&output).unwrap();
     assert!(!graph.diagnostics().iter().any(|diagnostic| matches!(
         diagnostic.code,
@@ -277,6 +364,88 @@ fn potm_generation_strips_macros_and_injects_escaped_unicode() {
             | wasmppt_opc::DiagnosticCode::InvalidRelationshipsXml
             | wasmppt_opc::DiagnosticCode::InvalidContentTypesXml
     )));
+}
+
+#[test]
+fn generation_preserves_an_explicit_slide_background() {
+    let bytes = template_with_slide_background("123456");
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let generated = PreparedTemplate::new(bytes, plan)
+        .unwrap()
+        .generate(&InjectionData::new().with_text("name", "Ada"))
+        .unwrap();
+    let output = ZipArchive::from_bytes(generated.bytes).unwrap();
+    let slide = String::from_utf8(
+        output
+            .read_entry(output.entry("ppt/slides/slide1.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(slide.contains(r#"<a:srgbClr val="123456"/>"#));
+    assert!(!slide.contains(r#"<a:srgbClr val="FFFFFF"/>"#));
+}
+
+#[test]
+fn generation_preserves_an_inherited_master_background() {
+    let bytes = template_with_master_background(Some("654321"));
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let generated = PreparedTemplate::new(bytes, plan)
+        .unwrap()
+        .generate(&InjectionData::new().with_text("name", "Ada"))
+        .unwrap();
+    let output = ZipArchive::from_bytes(generated.bytes).unwrap();
+    let slide = String::from_utf8(
+        output
+            .read_entry(output.entry("ppt/slides/slide1.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    let master = String::from_utf8(
+        output
+            .read_entry(output.entry("ppt/slideMasters/slideMaster1.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(!slide.contains("<p:bg"));
+    assert!(master.contains(r#"<a:srgbClr val="654321"/>"#));
+}
+
+#[test]
+fn generation_defaults_a_missing_background_on_the_master() {
+    let bytes = template_with_master_background(None);
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let generated = PreparedTemplate::new(bytes, plan)
+        .unwrap()
+        .generate(&InjectionData::new().with_text("name", "Ada"))
+        .unwrap();
+    let output = ZipArchive::from_bytes(generated.bytes).unwrap();
+    let slide = String::from_utf8(
+        output
+            .read_entry(output.entry("ppt/slides/slide1.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    let master = String::from_utf8(
+        output
+            .read_entry(output.entry("ppt/slideMasters/slideMaster1.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(!slide.contains("<p:bg"));
+    assert!(master.contains("<p:bg xmlns:p="));
+    assert!(master.contains(r#"<a:srgbClr val="FFFFFF"/>"#));
 }
 
 #[test]

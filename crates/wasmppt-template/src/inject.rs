@@ -7,7 +7,7 @@ use std::{
 use sha2::{Digest, Sha256};
 use wasmppt_opc::{
     CompressionMethod, Entry, EntryOptions, Error as PackageError, ErrorCode as PackageErrorCode,
-    MemorySource, OutputSink, PackageGraph, PackagePartSource, ReadAt, RelationshipTarget,
+    MemorySource, OutputSink, PackageGraph, PackagePartSource, PartId, ReadAt, RelationshipTarget,
     RewriteMode, StreamingZipWriter, VecSink, WriteStats, ZipArchive, ZipWriter,
 };
 use wasmppt_pml::SlideView;
@@ -15,7 +15,7 @@ use wasmppt_xml::{TokenKind, XmlDocument};
 
 use crate::{
     BindingKind, BindingTarget, MacroPolicy, RelationshipAction, TemplatePlan,
-    policy::{prohibited_content, prohibited_part},
+    policy::{is_template_main_type, prohibited_content, prohibited_part},
 };
 
 mod patch;
@@ -1040,6 +1040,19 @@ impl PreparedTemplate {
         let table_plans = prepare_table_plans(&archive, &plan)?;
         let chart_plans = prepare_chart_plans(&archive, &plan)?;
         let slide_deck = prepare_slide_deck(&archive)?;
+        let graph = PackageGraph::build(&archive).map_err(|error| {
+            GenerateError::new(
+                GenerateErrorCode::InvalidTemplate,
+                format!("cannot build package graph: {error}"),
+            )
+        })?;
+        let default_background_patches = graph
+            .part_by_name(&slide_deck.presentation_part)
+            .and_then(|part| graph.content_type(part))
+            .filter(|content_type| is_template_main_type(content_type))
+            .map(|_| prepare_default_background_patches(&archive, &graph, &slide_deck))
+            .transpose()?
+            .unwrap_or_default();
         let (semantic_shape_plans, maximum_shape_ids) =
             prepare_semantic_shape_plans(&archive, &plan)?;
         let notes_plans = prepare_notes_plans(&archive)?;
@@ -1080,7 +1093,7 @@ impl PreparedTemplate {
                 continue;
             }
             let source = archive.read_entry(entry).map_err(package_error)?;
-            let patches = if entry.name == "[Content_Types].xml"
+            let mut patches = if entry.name == "[Content_Types].xml"
                 || entry.name.ends_with(".rels")
                 || entry.name.ends_with(".xml")
             {
@@ -1088,6 +1101,9 @@ impl PreparedTemplate {
             } else {
                 Vec::new()
             };
+            if let Some(patch) = default_background_patches.get(&entry.name) {
+                patches.push(patch.clone());
+            }
             if !patches.is_empty()
                 || binding_parts.contains(entry.name.as_str())
                 || image_relationship_parts.contains(entry.name.as_str())
@@ -3092,6 +3108,144 @@ fn spreadsheet_column(mut number: usize) -> String {
         number /= 26;
     }
     output
+}
+
+const TRANSITIONAL_PRESENTATION_NS: &str =
+    "http://schemas.openxmlformats.org/presentationml/2006/main";
+const STRICT_PRESENTATION_NS: &str = "http://purl.oclc.org/ooxml/presentationml/main";
+const TRANSITIONAL_DRAWING_NS: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
+const STRICT_DRAWING_NS: &str = "http://purl.oclc.org/ooxml/drawingml/main";
+
+fn prepare_default_background_patches(
+    archive: &ZipArchive<MemorySource>,
+    graph: &PackageGraph,
+    slide_deck: &SlideDeckPlan,
+) -> Result<HashMap<String, Patch>, GenerateError> {
+    let mut patches = HashMap::new();
+    for slide in &slide_deck.slides {
+        let slide_part = graph.part_by_name(&slide.part_name).ok_or_else(|| {
+            GenerateError::new(
+                GenerateErrorCode::InvalidTemplate,
+                format!(
+                    "slide part is missing from package graph: {}",
+                    slide.part_name
+                ),
+            )
+        })?;
+        let layout = related_part(graph, slide_part.id, "/slideLayout");
+        let master = layout.and_then(|part| related_part(graph, part, "/slideMaster"));
+        let mut has_background = false;
+        for part in [Some(slide_part.id), layout, master].into_iter().flatten() {
+            has_background |= part_has_background(archive, graph, part)?;
+        }
+        if has_background {
+            continue;
+        }
+        let target = master.or(layout).unwrap_or(slide_part.id);
+        let target_name = graph.part_name(graph.part(target));
+        if let std::collections::hash_map::Entry::Vacant(entry) =
+            patches.entry(target_name.to_owned())
+        {
+            let source = read_graph_part(archive, graph, target)?;
+            entry.insert(default_background_patch(target_name, &source)?);
+        }
+    }
+    Ok(patches)
+}
+
+fn related_part(graph: &PackageGraph, source: PartId, suffix: &str) -> Option<PartId> {
+    graph
+        .part(source)
+        .relationships
+        .iter()
+        .find(|relationship| graph.relationship_type(relationship).ends_with(suffix))
+        .and_then(|relationship| match relationship.target {
+            RelationshipTarget::Internal(part) => Some(part),
+            _ => None,
+        })
+}
+
+fn read_graph_part(
+    archive: &ZipArchive<MemorySource>,
+    graph: &PackageGraph,
+    part: PartId,
+) -> Result<Vec<u8>, GenerateError> {
+    let name = graph.part_name(graph.part(part));
+    let entry = archive.entry(name).ok_or_else(|| {
+        GenerateError::new(
+            GenerateErrorCode::InvalidTemplate,
+            format!("package graph part is missing from archive: {name}"),
+        )
+    })?;
+    archive.read_entry(entry).map_err(package_error)
+}
+
+fn part_has_background(
+    archive: &ZipArchive<MemorySource>,
+    graph: &PackageGraph,
+    part: PartId,
+) -> Result<bool, GenerateError> {
+    let name = graph.part_name(graph.part(part));
+    let source = read_graph_part(archive, graph, part)?;
+    let document =
+        XmlDocument::parse(source).map_err(|error| GenerateError::xml_in_part(error, name))?;
+    Ok(document.tokens().iter().any(|token| {
+        matches!(
+            &token.kind,
+            TokenKind::Start { name, .. }
+                if name.local == "bg"
+                    && name.namespace.is_some_and(|namespace| matches!(
+                        document.namespace(namespace),
+                        TRANSITIONAL_PRESENTATION_NS | STRICT_PRESENTATION_NS
+                    ))
+        )
+    }))
+}
+
+fn default_background_patch(name: &str, source: &[u8]) -> Result<Patch, GenerateError> {
+    let document = XmlDocument::parse(source.to_vec())
+        .map_err(|error| GenerateError::xml_in_part(error, name))?;
+    let (insertion_offset, presentation_namespace) = document
+        .tokens()
+        .iter()
+        .find_map(|token| {
+            let TokenKind::Start {
+                name, empty: false, ..
+            } = &token.kind
+            else {
+                return None;
+            };
+            (name.local == "cSld")
+                .then(|| {
+                    name.namespace
+                        .map(|namespace| (token.range.end, document.namespace(namespace)))
+                })
+                .flatten()
+        })
+        .ok_or_else(|| {
+            GenerateError::new(
+                GenerateErrorCode::InvalidTemplate,
+                format!("slide common data element is missing from {name}"),
+            )
+        })?;
+    let drawing_namespace = match presentation_namespace {
+        TRANSITIONAL_PRESENTATION_NS => TRANSITIONAL_DRAWING_NS,
+        STRICT_PRESENTATION_NS => STRICT_DRAWING_NS,
+        _ => {
+            return Err(GenerateError::new(
+                GenerateErrorCode::InvalidTemplate,
+                format!("slide common data has an unsupported namespace in {name}"),
+            ));
+        }
+    };
+    let replacement = format!(
+        r#"<p:bg xmlns:p="{presentation_namespace}" xmlns:a="{drawing_namespace}"><p:bgPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>"#,
+    )
+    .into_bytes();
+    Ok(Patch {
+        range: insertion_offset..insertion_offset,
+        replacement,
+    })
 }
 
 fn prepare_slide_deck(

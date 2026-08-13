@@ -129,6 +129,10 @@ pub struct PackageGraph {
 /// bytes and complete name set for one immutable logical revision.
 pub trait PackagePartSource: std::fmt::Debug {
     fn part_names(&self) -> Vec<String>;
+    /// Whether this logical revision materialized bytes that differ from its physical source.
+    fn is_modified(&self, _name: &str) -> bool {
+        false
+    }
     fn contains_part(&self, name: &str) -> bool {
         self.part_names().iter().any(|candidate| candidate == name)
     }

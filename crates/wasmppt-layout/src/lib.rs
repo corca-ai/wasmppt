@@ -216,6 +216,7 @@ pub struct ResolvedTextStyle {
     pub baseline: i32,
     pub outline: Option<Stroke>,
     pub shadow: Option<OuterShadow>,
+    pub inner_shadow: Option<OuterShadow>,
     pub fill: Option<Fill>,
     pub glow: Option<TextGlow>,
     pub blur_radius: Emu,
@@ -290,6 +291,8 @@ pub struct ResolvedTextFrame {
     pub autofit_font_scale: Option<i32>,
     /// Stored percentage line-spacing reduction in thousandths of a percent.
     pub autofit_line_spacing_reduction: Option<i32>,
+    /// Recompute the largest fit because this logical slide revision changed its source text.
+    pub autofit_recompute: bool,
     pub flow: TextFlow,
     pub column_count: u8,
     pub column_spacing: Emu,
@@ -316,6 +319,7 @@ impl Default for ResolvedTextStyle {
             baseline: 0,
             outline: None,
             shadow: None,
+            inner_shadow: None,
             fill: None,
             glow: None,
             blur_radius: 0,

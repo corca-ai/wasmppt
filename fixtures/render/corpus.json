@@ -10,7 +10,13 @@
         { "id": "raster-images", "slideIndex": 0, "region": [280, 80, 61, 1] },
         { "id": "shapes", "slideIndex": 1, "region": [0, 0, 640, 360] },
         { "id": "charts", "slideIndex": 1, "region": [0, 0, 640, 360] },
-        { "id": "metafiles", "slideIndex": 1, "region": [0, 0, 640, 360] }
+        { "id": "metafiles", "slideIndex": 1, "region": [0, 0, 640, 360] },
+        { "id": "shape-autofit", "slideIndex": 2, "region": [20, 15, 180, 55] },
+        { "id": "normal-autofit", "slideIndex": 2, "region": [220, 15, 180, 55] },
+        { "id": "unicode-wrap", "slideIndex": 2, "region": [415, 15, 200, 55] },
+        { "id": "paragraph-metrics", "slideIndex": 2, "region": [20, 88, 275, 120] },
+        { "id": "columns", "slideIndex": 2, "region": [315, 88, 300, 120] },
+        { "id": "text-effects", "slideIndex": 2, "region": [20, 230, 595, 95] }
       ]
     }
   ]

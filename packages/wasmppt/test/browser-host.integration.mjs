@@ -25,6 +25,19 @@ const renderCorpus = JSON.parse(
 const featureRegions = Object.fromEntries(
   renderCorpus.presentations[0].features.map((feature) => [feature.id, feature.region]),
 )
+const fidelityFeatureDefinitions = [
+  { id: 'shape-autofit', slideIndex: 2, structureIndex: 2 },
+  { id: 'normal-autofit', slideIndex: 2, structureIndex: 3 },
+  { id: 'unicode-wrap', slideIndex: 2, structureIndex: 4 },
+  { id: 'paragraph-metrics', slideIndex: 2, structureIndex: 5 },
+  { id: 'columns', slideIndex: 2, structureIndex: 6 },
+  { id: 'text-effects', slideIndex: 2, structureIndex: 7 },
+]
+
+function structuralTextPassed(structure) {
+  return structure !== undefined && structure.lineCount > 0 && structure.runCount > 0 &&
+    structure.sourceRangesValid && structure.bounds?.width > 0 && structure.bounds?.height > 0
+}
 
 const benchmarkFixtureDirectory = join(workspaceDirectory, 'target/benchmark-fixtures')
 await mkdir(benchmarkFixtureDirectory, { recursive: true })
@@ -55,6 +68,7 @@ const routes = new Map([
   ['/dist/protocol.js', [join(packageDirectory, 'dist/protocol.js'), 'text/javascript']],
   ['/dist/canvas.js', [join(packageDirectory, 'dist/canvas.js'), 'text/javascript']],
   ['/dist/dom-svg.js', [join(packageDirectory, 'dist/dom-svg.js'), 'text/javascript']],
+  ['/dist/shaper.js', [join(packageDirectory, 'dist/shaper.js'), 'text/javascript']],
   [
     '/dist/worker-runtime.js',
     [join(packageDirectory, 'dist/worker-runtime.js'), 'text/javascript'],
@@ -74,6 +88,18 @@ const routes = new Map([
   [
     '/wasm/metafile/wasmppt_metafile_wasm_bg.wasm',
     [join(generatedDirectory, 'metafile/wasmppt_metafile_wasm_bg.wasm'), 'application/wasm'],
+  ],
+  [
+    '/wasm/shaper/wasmppt_shaper_wasm.js',
+    [join(generatedDirectory, 'shaper/wasmppt_shaper_wasm.js'), 'text/javascript'],
+  ],
+  [
+    '/wasm/shaper/wasmppt_shaper_wasm_bg.wasm',
+    [join(generatedDirectory, 'shaper/wasmppt_shaper_wasm_bg.wasm'), 'application/wasm'],
+  ],
+  [
+    '/font.ttf',
+    [join(workspaceDirectory, 'node_modules/katex/dist/fonts/KaTeX_Main-Regular.ttf'), 'font/ttf'],
   ],
   [
     '/fixture.potx',
@@ -202,6 +228,38 @@ try {
       wrapText,
     } = await import('/dist/canvas.js')
     const { DomSvgRenderer, VirtualizedDomViewer } = await import('/dist/dom-svg.js')
+    const { WasmFontShaper } = await import('/dist/shaper.js')
+    const shaperModule = await import('/wasm/shaper/wasmppt_shaper_wasm.js')
+    await shaperModule.default({
+      module_or_path: new URL('/wasm/shaper/wasmppt_shaper_wasm_bg.wasm', location.href),
+    })
+    const exactFontBytes = new Uint8Array(await fetch('/font.ttf').then((response) => response.arrayBuffer()))
+    const exactShaper = new WasmFontShaper(shaperModule)
+    const exactShapeFirst = await exactShaper.shape({
+      fontBytes: exactFontBytes,
+      text: 'office',
+      direction: 'ltr',
+      language: 'en-US',
+      script: 'Latn',
+      features: ['liga'],
+    })
+    const exactShapeSecond = await exactShaper.shape({
+      fontBytes: exactFontBytes,
+      text: 'office',
+      direction: 'ltr',
+      language: 'en-US',
+      script: 'Latn',
+      features: ['liga'],
+    })
+    const exactShapeWithoutLigatures = await exactShaper.shape({
+      fontBytes: exactFontBytes,
+      text: 'office',
+      direction: 'ltr',
+      language: 'en-US',
+      script: 'Latn',
+      features: ['-liga'],
+    })
+    const exactBreakTokens = await exactShaper.breakText('alpha beta\n日本語')
     const worker = new Worker('/worker.js', { type: 'module' })
     await new Promise((resolvePromise, reject) => {
       const timer = setTimeout(() => reject(new Error('browser Worker initialization timed out')), 10_000)
@@ -386,6 +444,8 @@ try {
     const scene = decodeDisplayList(displayBytes)
     const advancedDisplayBytes = await client.resolveSlide(opened.handle, 1)
     const advancedScene = decodeDisplayList(advancedDisplayBytes)
+    const fidelityDisplayBytes = await client.resolveSlide(opened.handle, 2)
+    const fidelityScene = decodeDisplayList(fidelityDisplayBytes)
     const domHost = document.createElement('div')
     document.body.append(domHost)
     const domRenderer = new DomSvgRenderer()
@@ -517,6 +577,58 @@ try {
       inlineImages: advancedDomHost.querySelectorAll('image').length,
       metafileSvgBytes,
       domDiagnosticCodes: advancedDom.diagnostics.map((diagnostic) => diagnostic.code),
+    }
+    const fidelityCanvas = document.createElement('canvas')
+    fidelityCanvas.id = 'wasmppt-visual-slide-3'
+    fidelityCanvas.width = 640
+    fidelityCanvas.height = 360
+    document.body.append(fidelityCanvas)
+    const fidelityContext = fidelityCanvas.getContext('2d', { alpha: false })
+    const fidelityTelemetry = await renderer.render(fidelityScene, fidelityContext, {
+      fontResolver: new FontResolver({
+        theme: { latin: 'Arial', eastAsian: 'Arial', complexScript: 'Arial' },
+      }),
+    })
+    const fidelityDomHost = document.createElement('div')
+    document.body.append(fidelityDomHost)
+    await new DomSvgRenderer().render(fidelityScene, fidelityDomHost, {
+      revision: 1,
+      slideIndex: 2,
+    })
+    const fidelityStructure = Object.fromEntries([2, 3, 4, 5, 6, 7].map((shapeId) => {
+      const element = fidelityDomHost.querySelector(`.wasmppt-dom-text-layer [data-shape-id="${shapeId}"]`)
+      const runs = [...(element?.querySelectorAll(':scope > span > span') ?? [])]
+      const bounds = element?.getBoundingClientRect()
+      return [String(shapeId), {
+        lineCount: new Set(runs.map((run) => Math.round(Number.parseFloat(run.style.top)))).size,
+        runCount: runs.length,
+        sourceRangesValid: runs.every((run) =>
+          run.dataset.sourceStart === undefined ||
+          Number(run.dataset.sourceEnd) >= Number(run.dataset.sourceStart)),
+        bounds: bounds === undefined ? undefined : { width: bounds.width, height: bounds.height },
+      }]
+    }))
+    const fidelityRegions = {
+      'shape-autofit': [20, 15, 180, 55],
+      'normal-autofit': [220, 15, 180, 55],
+      'unicode-wrap': [415, 15, 200, 55],
+      'paragraph-metrics': [20, 88, 275, 120],
+      columns: [315, 88, 300, 120],
+      'text-effects': [20, 230, 595, 95],
+    }
+    const fidelityRegionPixels = Object.fromEntries(Object.entries(fidelityRegions).map(([id, region]) => {
+      const pixels = fidelityContext.getImageData(...region).data
+      let colored = 0
+      for (let offset = 0; offset < pixels.length; offset += 4) {
+        if (pixels[offset] !== 255 || pixels[offset + 1] !== 255 || pixels[offset + 2] !== 255) colored += 1
+      }
+      return [id, colored]
+    }))
+    const fidelityFacts = {
+      commandCount: fidelityTelemetry.commandCount,
+      diagnosticCodes: fidelityScene.diagnostics.map((diagnostic) => diagnostic.code),
+      structure: fidelityStructure,
+      regionPixels: fidelityRegionPixels,
     }
     const { default: PptxBrowserRenderer } = await import('/competitors/pptx-browser/index.js')
     const competitorFixture = await fetch('/competitor-fixture.pptx').then((response) => response.arrayBuffer())
@@ -717,11 +829,20 @@ try {
       koreanLines,
       telemetry,
       advancedFacts,
+      fidelityFacts,
       pptxBrowserComparison: { samplesMs: competitorSamplesMs, correctness: competitorFacts },
       domFacts,
       domMountedAtPeak,
       domMountedAfterScroll,
       domMountedAfterDispose,
+      exactShaping: {
+        cacheIdentity: exactShapeFirst === exactShapeSecond,
+        unitsPerEm: exactShapeFirst.unitsPerEm,
+        glyphCount: exactShapeFirst.glyphs.length,
+        glyphCountWithoutLigatures: exactShapeWithoutLigatures.glyphs.length,
+        clusters: exactShapeFirst.glyphs.map((glyph) => glyph.cluster),
+        breakTokens: exactBreakTokens,
+      },
     }
   })
   assert.equal(result.transferredByteLength, 0, 'template ArrayBuffer was cloned, not transferred')
@@ -770,7 +891,7 @@ try {
   }
   assert.deepEqual(result.zipSignature, [0x50, 0x4b])
   assert(result.outputBytes > 0)
-  assert.equal(result.slideCount, 2)
+  assert.equal(result.slideCount, 3)
   assert.equal(result.commandCount, 12)
   assert.equal(result.decodedImageBytesAfterClear, 0)
   assert.deepEqual(result.koreanLines, ['가나다', '라마바', '사'])
@@ -799,6 +920,20 @@ try {
   assert.equal(result.advancedFacts.inlineImages, 1)
   assert(result.advancedFacts.commandCount > 10)
   assert(result.advancedFacts.svgPathCount > 10)
+  assert(result.fidelityFacts.commandCount >= 13)
+  assert.deepEqual(result.fidelityFacts.diagnosticCodes, [])
+  for (const shape of Object.values(result.fidelityFacts.structure)) {
+    assert.equal(structuralTextPassed(shape), true)
+  }
+  const firstStructure = Object.values(result.fidelityFacts.structure)[0]
+  assert.equal(
+    structuralTextPassed({ ...firstStructure, lineCount: 0 }),
+    false,
+    'a deliberate one-line structural regression must fail closed',
+  )
+  for (const coloredPixels of Object.values(result.fidelityFacts.regionPixels)) {
+    assert(coloredPixels > 100)
+  }
   assert.equal(result.pptxBrowserComparison.correctness.slideCount, 10)
   assert.equal(result.pptxBrowserComparison.correctness.width, 640)
   assert.equal(result.domFacts.text, 'Actual title')
@@ -826,6 +961,12 @@ try {
   assert.equal(result.domMountedAtPeak, 2)
   assert.equal(result.domMountedAfterScroll, 1)
   assert.equal(result.domMountedAfterDispose, 0)
+  assert.equal(result.exactShaping.cacheIdentity, true)
+  assert(result.exactShaping.unitsPerEm > 0)
+  assert(result.exactShaping.glyphCount > 0)
+  assert(result.exactShaping.glyphCountWithoutLigatures >= result.exactShaping.glyphCount)
+  assert(result.exactShaping.clusters.every((cluster) => cluster >= 0 && cluster < 6))
+  assert.deepEqual(result.exactShaping.breakTokens, ['alpha', ' ', 'beta', '\n', '日', '本', '語'])
   assert.match(result.pixelHash, /^[0-9a-f]{8}$/)
   assert.deepEqual(result.pixelSamples.background, [255, 255, 255, 255])
   assert.deepEqual(result.pixelSamples.imageLeft, [255, 0, 255, 255])
@@ -863,6 +1004,9 @@ try {
   await page.locator('#wasmppt-visual-slide-2').screenshot({
     path: join(visualDirectory, 'slide-2-actual.png'),
   })
+  await page.locator('#wasmppt-visual-slide-3').screenshot({
+    path: join(visualDirectory, 'slide-3-actual.png'),
+  })
   const expectedSamples = {
     background: [255, 255, 255, 255],
     imageLeft: [255, 0, 255, 255],
@@ -898,6 +1042,13 @@ try {
         tolerance: { minimumColoredPixels: 10_000 },
         passed: result.advancedFacts.coloredPixels > 10_000,
       },
+      {
+        slideIndex: 2,
+        actual: 'slide-3-actual.png',
+        featureRegionsPassed: Object.values(result.fidelityFacts.regionPixels)
+          .every((pixels) => pixels > 100),
+        passed: Object.values(result.fidelityFacts.regionPixels).every((pixels) => pixels > 100),
+      },
     ],
     features: [
       { id: 'text', slideIndex: 0, region: featureRegions.text, metric: 'minimum-dark-pixels', actual: result.darkGroupPixels, tolerance: 100, passed: result.darkGroupPixels > 100 && result.domFacts.titleLineCount === 1, structural: { lineCount: result.domFacts.titleLineCount, expectedLineCount: 1, bounds: result.domFacts.titleBounds } },
@@ -905,6 +1056,17 @@ try {
       { id: 'raster-images', slideIndex: 0, region: featureRegions['raster-images'], metric: 'sampled-pixel-differences', actual: sampledPixelDifferences, tolerance: 0, passed: sampledPixelDifferences === 0 },
       { id: 'charts', slideIndex: 1, region: featureRegions.charts, metric: 'minimum-svg-paths', actual: result.advancedFacts.svgPathCount, tolerance: 10, passed: result.advancedFacts.svgPathCount > 10 },
       { id: 'metafiles', slideIndex: 1, region: featureRegions.metafiles, metric: 'minimum-converted-bytes', actual: result.advancedFacts.metafileSvgBytes, tolerance: 1, passed: result.advancedFacts.metafileSvgBytes > 0 },
+      ...fidelityFeatureDefinitions.map((feature) => ({
+        id: feature.id,
+        slideIndex: feature.slideIndex,
+        region: featureRegions[feature.id],
+        metric: 'minimum-colored-pixels',
+        actual: result.fidelityFacts.regionPixels[feature.id],
+        tolerance: 100,
+        passed: result.fidelityFacts.regionPixels[feature.id] > 100 &&
+          structuralTextPassed(result.fidelityFacts.structure[String(feature.structureIndex)]),
+        structural: result.fidelityFacts.structure[String(feature.structureIndex)],
+      })),
     ],
   }
   assert(visualReport.slides.every((slide) => slide.passed))

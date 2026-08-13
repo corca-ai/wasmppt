@@ -37,6 +37,9 @@ jobs:
         run: >-
           ./tools/office-consumers/powerpoint.ps1
           fixtures/render/basic.pptx target/powerpoint-ground-truth
+      - name: Prove the visual gate rejects a one-pixel regression
+        shell: pwsh
+        run: ./tools/office-consumers/test-compare-visuals.ps1
       - name: Compare every slide against PowerPoint with declared tolerance
         shell: pwsh
         run: >-

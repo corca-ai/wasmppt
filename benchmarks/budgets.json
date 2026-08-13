@@ -65,6 +65,8 @@
     "maximumColdPrepareMs": 1000,
     "maximumWarmInjectionP95Ms": 500,
     "maximumBinaryBytes": 2097152,
+    "maximumMetafileBinaryBytes": 1310720,
+    "maximumShaperBinaryBytes": 1048576,
     "maximumFirstVisibleSlideMs": 500,
     "maximumLiveInputToPixelsP95Ms": 750,
     "maximumLiveBackgroundExportMs": 3000,

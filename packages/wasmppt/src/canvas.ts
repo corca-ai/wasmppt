@@ -1,3 +1,5 @@
+import type { FontByteShaper, ShapedFontRun } from './shaper.js'
+
 const EMU_PER_CSS_PIXEL = 9_525
 
 export interface RgbaColor {
@@ -52,6 +54,7 @@ export interface SceneTextStyle {
   readonly baseline: number
   readonly outline?: { readonly color: RgbaColor; readonly width: number; readonly dash?: string }
   readonly shadow?: { readonly color: RgbaColor; readonly blurRadius: number; readonly distance: number; readonly direction: number }
+  readonly innerShadow?: { readonly color: RgbaColor; readonly blurRadius: number; readonly distance: number; readonly direction: number }
   readonly fill?: SceneFill
   readonly glow?: { readonly color: RgbaColor; readonly radius: number }
   readonly blurRadius: number
@@ -110,6 +113,7 @@ export interface SceneTextFrame {
   readonly autofit: 'none' | 'shrink-text' | 'resize-shape'
   readonly autofitFontScale?: number
   readonly autofitLineSpacingReduction?: number
+  readonly autofitRecompute: boolean
   readonly flow: 'horizontal' | 'vertical' | 'vertical-270'
   readonly columnCount: number
   readonly columnSpacing: number
@@ -284,7 +288,7 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
   const reader = new BinaryReader(bytes)
   if (reader.ascii(4) !== 'WPDL') throw new Error('display list has an invalid magic value')
   const version = reader.u16()
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7) {
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8 && version !== 9) {
     throw new Error(`unsupported display-list version ${version}`)
   }
   if (reader.u16() !== 0) throw new Error('display-list reserved flags are non-zero')
@@ -400,6 +404,7 @@ export interface ThemeFontSet {
 export interface WebFontDefinition {
   readonly family: string
   readonly source: string | ArrayBuffer
+  readonly faceIndex?: number
   readonly descriptors?: FontFaceDescriptors
 }
 
@@ -409,6 +414,10 @@ export interface ResolvedFont {
   readonly script: FontScript
   readonly exact: boolean
   readonly css: string
+  readonly sizePixels: number
+  readonly shapingKey?: string
+  readonly fontBytes?: Uint8Array
+  readonly faceIndex?: number
 }
 
 export interface FontResolverOptions {
@@ -417,6 +426,7 @@ export interface FontResolverOptions {
   readonly webFonts?: readonly WebFontDefinition[]
   readonly fallback?: Partial<Record<FontScript, string>>
   readonly host?: FontLoadingHost
+  readonly shaper?: FontByteShaper
 }
 
 export interface FontLoadingHost {
@@ -431,6 +441,7 @@ export class FontResolver {
   readonly #webFonts = new Map<string, WebFontDefinition[]>()
   readonly #fallback: Record<FontScript, string>
   readonly #host: FontLoadingHost
+  readonly #shaper?: FontByteShaper
   readonly #loaded = new Map<string, Promise<void>>()
   readonly #resolved = new Map<string, Promise<ResolvedFont>>()
 
@@ -448,6 +459,7 @@ export class FontResolver {
       complex: options.fallback?.complex ?? 'sans-serif',
     }
     this.#host = options.host ?? new BrowserFontLoadingHost()
+    this.#shaper = options.shaper
   }
 
   async resolve(
@@ -482,7 +494,7 @@ export class FontResolver {
     const script = detectFontScript(text)
     const requested = requestedFamily ?? this.#themeFamily(script)
     const family = this.#substitutions[requested] ?? requested
-    await this.#load(family, emphasis)
+    const loadedDefinitions = await this.#load(family, emphasis)
     const prefix = `${emphasis.italic === true ? 'italic' : 'normal'} ${emphasis.bold === true ? '700' : '400'}`
     const css = `${prefix} ${sizePixels}px ${quoteFontFamily(family)}`
     const exact = this.#host.check(css, representativeText(script, text))
@@ -491,13 +503,49 @@ export class FontResolver {
     const cssFamily = exact
       ? `${quoteFontFamily(family)}, ${quoteFontFamily(fallbackFamily)}`
       : quoteFontFamily(fallbackFamily)
+    const byteDefinition = exact
+      ? loadedDefinitions.find((definition) => definition.source instanceof ArrayBuffer)
+      : undefined
     return Object.freeze({
       requestedFamily: requested,
       family: resolvedFamily,
       script,
       exact,
       css: `${prefix} ${sizePixels}px ${cssFamily}`,
+      sizePixels,
+      ...(byteDefinition?.source instanceof ArrayBuffer
+        ? {
+            shapingKey: `${family}\0${byteDefinition.faceIndex ?? 0}\0${emphasis.bold === true ? 1 : 0}${emphasis.italic === true ? 1 : 0}`,
+            fontBytes: new Uint8Array(byteDefinition.source),
+            faceIndex: byteDefinition.faceIndex ?? 0,
+          }
+        : {}),
     })
+  }
+
+  /** Shapes from exact registered font bytes when the optional shaper is configured. */
+  async shape(
+    text: string,
+    font: ResolvedFont,
+    direction: 'ltr' | 'rtl' | 'ttb' | 'btt',
+  ): Promise<ShapedFontRun | undefined> {
+    if (this.#shaper === undefined || font.fontBytes === undefined) return undefined
+    return this.#shaper.shape({
+      fontBytes: font.fontBytes,
+      faceIndex: font.faceIndex,
+      text,
+      direction,
+    })
+  }
+
+  /** Returns a UAX #14 break plan when the optional text engine is installed. */
+  async breakText(text: string): Promise<readonly string[]> {
+    if (this.#shaper === undefined) return lineBreakTokens(text)
+    const tokens = await this.#shaper.breakText(text)
+    return Object.freeze(tokens.flatMap((token) =>
+      /\p{Script=Thai}|\p{Script=Lao}|\p{Script=Khmer}/u.test(token)
+        ? lineBreakTokens(token)
+        : [token]))
   }
 
   #themeFamily(script: FontScript): string {
@@ -517,9 +565,9 @@ export class FontResolver {
   async #load(
     family: string,
     emphasis: { readonly bold?: boolean; readonly italic?: boolean },
-  ): Promise<void> {
+  ): Promise<readonly WebFontDefinition[]> {
     const definitions = this.#webFonts.get(family)
-    if (definitions === undefined) return
+    if (definitions === undefined) return []
     const weight = emphasis.bold === true ? '700' : '400'
     const style = emphasis.italic === true ? 'italic' : 'normal'
     const matching = definitions.filter((definition) =>
@@ -535,6 +583,7 @@ export class FontResolver {
       }
       await loading
     }))
+    return selected
   }
 }
 
@@ -783,11 +832,13 @@ export interface RichTextLayoutRun {
   readonly direction: 'ltr' | 'rtl'
   readonly outline?: SceneTextStyle['outline']
   readonly shadow?: SceneTextStyle['shadow']
+  readonly innerShadow?: SceneTextStyle['innerShadow']
   readonly fill?: SceneFill
   readonly glow?: SceneTextStyle['glow']
   readonly blurRadius: number
   readonly softEdgeRadius: number
   readonly reflection: boolean
+  readonly shaped?: ShapedFontRun
   readonly warpRotation: number
   readonly bulletImageResource?: number
   readonly paragraphIndex: number
@@ -859,11 +910,10 @@ export async function buildRichTextLayout(
     }),
   )
   const breakPlans = new Map<SceneTextRun, readonly string[]>()
-  for (const paragraph of command.frame.paragraphs) {
-    for (const run of paragraph.runs) {
-      breakPlans.set(run, command.frame.wrap ? lineBreakTokens(run.text) : [run.text])
-    }
-  }
+  await Promise.all(command.frame.paragraphs.flatMap((paragraph) =>
+    paragraph.runs.map(async (run) => {
+      breakPlans.set(run, command.frame.wrap ? await resolver.breakText(run.text) : [run.text])
+    })))
   const measureRequests: TextMeasureRequest[] = []
   let measureFontIndex = 0
   for (const paragraph of command.frame.paragraphs) {
@@ -885,6 +935,30 @@ export async function buildRichTextLayout(
   const measurementLookup = new Map(
     measureRequests.map((request, index) => [`${request.font}\0${request.text}`, measured[index]!]),
   )
+  const shapingLookup = new Map<string, ShapedFontRun>()
+  const shapingTasks: Promise<void>[] = []
+  let shapingFontIndex = 0
+  for (const paragraph of command.frame.paragraphs) {
+    const direction = paragraph.direction
+    if ((paragraph.bullet !== undefined || paragraph.bulletImageResource !== undefined) && paragraph.runs[0] !== undefined) {
+      const font = resolved[shapingFontIndex++]!
+      const value = paragraph.bulletImageResource === undefined ? `${paragraph.bullet} ` : '◼ '
+      shapingTasks.push(resolver.shape(value, font, direction).then((run) => {
+        if (run !== undefined) shapingLookup.set(shapedLookupKey(font, direction, value), run)
+      }))
+    }
+    for (const sourceRun of paragraph.runs) {
+      const font = resolved[shapingFontIndex++]!
+      for (const token of breakPlans.get(sourceRun) ?? [sourceRun.text]) {
+        if (token === '\n' || token === '\t') continue
+        const value = token.replaceAll('\u00AD', '')
+        shapingTasks.push(resolver.shape(value, font, direction).then((run) => {
+          if (run !== undefined) shapingLookup.set(shapedLookupKey(font, direction, value), run)
+        }))
+      }
+    }
+  }
+  await Promise.all(shapingTasks)
   type LayoutLine = {
     readonly runs: Array<Omit<RichTextLayoutRun, 'x' | 'baseline' | 'warpRotation'>>
     readonly height: number
@@ -907,7 +981,14 @@ export async function buildRichTextLayout(
     font: ResolvedFont,
     token: string,
     characterSpacing: number,
+    direction: 'ltr' | 'rtl',
   ): number => {
+    const shaped = shapingLookup.get(shapedLookupKey(font, direction, token))
+    if (shaped !== undefined) {
+      const advance = Math.abs(shaped.glyphs.reduce((sum, glyph) => sum + glyph.xAdvance, 0))
+      return advance / shaped.unitsPerEm * font.sizePixels +
+        characterGapCount(token) * characterSpacing
+    }
     const key = `${font.css}\0${token}`
     let width = measurementLookup.get(key)
     if (width === undefined) {
@@ -990,7 +1071,12 @@ export async function buildRichTextLayout(
             continue
           }
           const measureToken = (value: string): number =>
-            baseTokenWidth(font, value.replaceAll('\u00AD', ''), baseSpacing) * scale
+            baseTokenWidth(
+              font,
+              value.replaceAll('\u00AD', ''),
+              baseSpacing,
+              paragraph.direction,
+            ) * scale
           const followingTokens = rawToken === '\t' ? tokens.slice(tokenIndex + 1) : []
           const followingBoundary = followingTokens.findIndex((value) => value === '\n' || value === '\t')
           const following = followingTokens
@@ -1053,11 +1139,17 @@ export async function buildRichTextLayout(
               direction: paragraph.direction,
               outline: run.style.outline,
               shadow: run.style.shadow,
+              innerShadow: run.style.innerShadow,
               fill: run.style.fill,
               glow: run.style.glow,
               blurRadius: run.style.blurRadius,
               softEdgeRadius: run.style.softEdgeRadius,
               reflection: run.style.reflection,
+              shaped: shapingLookup.get(shapedLookupKey(
+                font,
+                paragraph.direction,
+                token.replaceAll('\u00AD', ''),
+              )),
               bulletImageResource: isBullet && rawToken.trim() !== ''
                 ? paragraph.bulletImageResource
                 : undefined,
@@ -1113,7 +1205,29 @@ export async function buildRichTextLayout(
     ? Math.min(1, Math.max(0.01, (command.frame.autofitFontScale ?? 100_000) / 100_000))
     : 1
   let scaledLayout = layoutAtScale(authoredScale)
-  if (command.frame.autofit === 'shrink-text' && !fits(scaledLayout)) {
+  if (command.frame.autofit === 'shrink-text' && command.frame.autofitRecompute) {
+    const fullSize = layoutAtScale(1)
+    if (fits(fullSize)) {
+      scaledLayout = fullSize
+    } else {
+      let lowerScale = fits(scaledLayout) ? authoredScale : 0.1
+      let best = fits(scaledLayout) ? scaledLayout : layoutAtScale(lowerScale)
+      let upperScale = 1
+      if (fits(best)) {
+        for (let iteration = 0; iteration < 10; iteration += 1) {
+          const candidateScale = (lowerScale + upperScale) / 2
+          const candidate = layoutAtScale(candidateScale)
+          if (fits(candidate)) {
+            lowerScale = candidateScale
+            best = candidate
+          } else {
+            upperScale = candidateScale
+          }
+        }
+      }
+      scaledLayout = best
+    }
+  } else if (command.frame.autofit === 'shrink-text' && !fits(scaledLayout)) {
     let lowerScale = 0.1
     let upperScale = authoredScale
     let best = layoutAtScale(lowerScale)
@@ -1225,18 +1339,19 @@ function applyTextWarp(
   const amplitude = Math.min(height / 2, height * warp.adjustment / 200_000)
   let offset = 0
   let rotation = 0
-  if (warp.preset === 'archUp' || warp.preset === 'archUpPour') {
+  if (warp.preset === 'textArchUp' || warp.preset === 'textArchUpPour' || warp.preset === 'archUp' || warp.preset === 'archUpPour') {
     offset = -amplitude * (1 - normalized * normalized)
     rotation = normalized * 20
-  } else if (warp.preset === 'archDown' || warp.preset === 'archDownPour') {
+  } else if (warp.preset === 'textArchDown' || warp.preset === 'textArchDownPour' || warp.preset === 'archDown' || warp.preset === 'archDownPour') {
     offset = amplitude * (1 - normalized * normalized)
     rotation = -normalized * 20
-  } else if (warp.preset === 'wave1' || warp.preset === 'wave2') {
-    offset = Math.sin((normalized + 1) * Math.PI * (warp.preset === 'wave2' ? 2 : 1)) * amplitude
-    rotation = Math.cos((normalized + 1) * Math.PI * (warp.preset === 'wave2' ? 2 : 1)) * 12
-  } else if (warp.preset === 'inflate') {
+  } else if (warp.preset === 'textWave1' || warp.preset === 'textWave2' || warp.preset === 'wave1' || warp.preset === 'wave2') {
+    const doubleWave = warp.preset === 'textWave2' || warp.preset === 'wave2'
+    offset = Math.sin((normalized + 1) * Math.PI * (doubleWave ? 2 : 1)) * amplitude
+    rotation = Math.cos((normalized + 1) * Math.PI * (doubleWave ? 2 : 1)) * 12
+  } else if (warp.preset === 'textInflate' || warp.preset === 'inflate') {
     offset = -amplitude * (1 - normalized * normalized)
-  } else if (warp.preset === 'deflate') {
+  } else if (warp.preset === 'textDeflate' || warp.preset === 'deflate') {
     offset = amplitude * (1 - normalized * normalized)
   }
   return { ...run, baseline: run.baseline + offset, warpRotation: rotation }
@@ -1353,6 +1468,19 @@ function drawRichTextLayout(
       context.fillText(run.text, start, run.baseline)
       context.restore()
     }
+    if (run.innerShadow !== undefined && bulletImage === undefined && run.fill?.kind !== 'none') {
+      const radians = run.innerShadow.direction / 60_000 * Math.PI / 180
+      context.save()
+      context.globalCompositeOperation = 'source-atop'
+      context.strokeStyle = cssColor(run.innerShadow.color)
+      context.lineWidth = Math.max(0.5, run.fontSize / 18)
+      context.shadowColor = cssColor(run.innerShadow.color)
+      context.shadowBlur = toPixels(run.innerShadow.blurRadius)
+      context.shadowOffsetX = Math.cos(radians) * toPixels(run.innerShadow.distance)
+      context.shadowOffsetY = Math.sin(radians) * toPixels(run.innerShadow.distance)
+      context.strokeText(run.text, start, run.baseline)
+      context.restore()
+    }
     context.shadowColor = 'transparent'
     context.shadowBlur = 0
     context.shadowOffsetX = 0
@@ -1360,7 +1488,9 @@ function drawRichTextLayout(
     if (run.outline !== undefined) {
       context.strokeStyle = cssColor(run.outline.color)
       context.lineWidth = Math.max(0.5, toPixels(run.outline.width))
+      context.setLineDash(dashPattern(run.outline.dash, context.lineWidth))
       context.strokeText(run.text, start, run.baseline)
+      context.setLineDash([])
     }
     if (spaced.letterSpacing !== undefined) spaced.letterSpacing = '0px'
     if (run.underline || run.strike) {
@@ -1405,6 +1535,14 @@ function applyScaledLineSpacing(
 
 function scaleCssFont(css: string, scale: number): string {
   return css.replace(/([0-9.]+)px/, (_match, size: string) => `${Number(size) * scale}px`)
+}
+
+function shapedLookupKey(
+  font: ResolvedFont,
+  direction: 'ltr' | 'rtl',
+  text: string,
+): string {
+  return `${font.shapingKey ?? font.css}\0${direction}\0${text}`
 }
 
 export interface DecodedImage {
@@ -2391,6 +2529,7 @@ function readCommand(
       if (autofitCode > 2) throw new Error('display list contains an unknown text autofit mode')
       const autofitFontScale = version >= 6 ? optionalI32(reader) : undefined
       const autofitLineSpacingReduction = version >= 6 ? optionalI32(reader) : undefined
+      const autofitRecompute = version >= 9 && reader.u8() !== 0
       const flowCode = version >= 5 ? reader.u8() : 0
       if (flowCode > 2) throw new Error('display list contains an unknown text flow')
       const columnCount = version >= 6 ? reader.u8() : 1
@@ -2489,6 +2628,7 @@ function readCommand(
           autofit: autofitCode === 1 ? 'shrink-text' : autofitCode === 2 ? 'resize-shape' : 'none',
           autofitFontScale,
           autofitLineSpacingReduction,
+          autofitRecompute,
           flow: flowCode === 1 ? 'vertical' : flowCode === 2 ? 'vertical-270' : 'horizontal',
           columnCount,
           columnSpacing,
@@ -2672,6 +2812,12 @@ function readTextStyle(reader: BinaryReader, version: number): SceneTextStyle {
     distance: reader.safeI64('text shadow distance'),
     direction: reader.i32(),
   }
+  const innerShadow = version < 8 || reader.u8() === 0 ? undefined : {
+      color: readColor(reader),
+      blurRadius: reader.safeI64('text inner shadow blur radius'),
+      distance: reader.safeI64('text inner shadow distance'),
+      direction: reader.i32(),
+    }
   const fill = reader.u8() === 0 ? undefined : readFill(reader)
   const glow = reader.u8() === 0 ? undefined : {
     color: readColor(reader),
@@ -2680,7 +2826,7 @@ function readTextStyle(reader: BinaryReader, version: number): SceneTextStyle {
   const blurRadius = reader.safeI64('text blur radius')
   const softEdgeRadius = reader.safeI64('text soft-edge radius')
   const reflection = reader.u8() !== 0
-  return { ...base, outline, shadow, fill, glow, blurRadius, softEdgeRadius, reflection }
+  return { ...base, outline, shadow, innerShadow, fill, glow, blurRadius, softEdgeRadius, reflection }
 }
 
 function textFillStyle(

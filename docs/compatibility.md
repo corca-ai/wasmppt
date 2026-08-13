@@ -55,7 +55,8 @@ orientation before decode and enforce both compressed-byte and decoded-pixel lim
 ## Visual reports
 
 The real Chromium integration writes `target/visual-report/report.json` plus one actual PNG per
-slide. Schema 2 also records scored regions for text, shapes, raster images, charts, and metafiles;
+slide. Schema 2 also records scored regions for text, shapes, raster images, charts, metafiles,
+AutoFit modes, Unicode wrapping, paragraph metrics, columns, and text effects;
 each feature has an explicit metric, tolerance, actual value, and pass/fail state. Each slide records
 its pixel fingerprint. Slide one has zero tolerance for stable sampled background, group-fill, and
 cropped-image colors. Slide two requires a declared minimum amount of non-background output for its
@@ -67,6 +68,9 @@ with ImageMagick. The JSON report publishes different-pixel count, total pixels,
 per-channel fuzz rule, and the current 35% whole-slide tolerance. A checked-in manifest pins the
 fixture hash, export size, metric, redistribution statement, and baseline owner. PowerPoint emits
 its version, platform, fixture hash, and font inventory; missing or stale provenance fails closed.
+The controlled-runner self-test changes exactly one pixel at zero tolerance and requires the
+comparison script to emit a failed JSON row and difference image. The Chromium gate likewise
+mutates a structural line-count fact and proves that the feature score fails closed.
 This deliberately generous
 baseline reflects the project's explicit advanced-feature gaps; tightening it is a versioned
 compatibility change, and exceeding it blocks a release.
@@ -93,7 +97,7 @@ machines inspect the uploaded report but never synthesize a PowerPoint reference
 
 ## Diagnostics and policy evolution
 
-WPDL v2 through v7 transport resolver diagnostics unchanged to Canvas and DOM/SVG. New diagnostic variants
+WPDL v2 through v9 transport resolver diagnostics unchanged to Canvas and DOM/SVG. New diagnostic variants
 append stable numeric wire codes. Unknown future codes decode as `unknown`, so older frontends fail
 honestly without corrupting the scene. Security-limit regressions and unknown-markup loss are test
 failures, never benchmark tradeoffs.

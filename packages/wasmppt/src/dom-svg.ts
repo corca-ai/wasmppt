@@ -655,10 +655,11 @@ async function updateAccessibleOverlay(
         WebkitTextStroke: run.outline === undefined
           ? 'initial'
           : `${run.outline.width / EMU_PER_CSS_PIXEL}px ${cssColor(run.outline.color)}`,
-        textShadow: run.shadow === undefined ? 'none' : (() => {
-          const radians = run.shadow.direction / 60_000 * Math.PI / 180
-          return `${Math.cos(radians) * run.shadow.distance / EMU_PER_CSS_PIXEL}px ${Math.sin(radians) * run.shadow.distance / EMU_PER_CSS_PIXEL}px ${run.shadow.blurRadius / EMU_PER_CSS_PIXEL}px ${cssColor(run.shadow.color)}`
-        })(),
+        textShadow: [run.shadow, run.innerShadow].filter((shadow) => shadow !== undefined)
+          .map((shadow) => {
+            const radians = shadow.direction / 60_000 * Math.PI / 180
+            return `${Math.cos(radians) * shadow.distance / EMU_PER_CSS_PIXEL}px ${Math.sin(radians) * shadow.distance / EMU_PER_CSS_PIXEL}px ${shadow.blurRadius / EMU_PER_CSS_PIXEL}px ${cssColor(shadow.color)}`
+          }).join(', ') || 'none',
         filter: [
           run.glow === undefined ? '' : `drop-shadow(0 0 ${run.glow.radius / EMU_PER_CSS_PIXEL}px ${cssColor(run.glow.color)})`,
           Math.max(run.blurRadius, run.softEdgeRadius) <= 0 ? '' : `blur(${Math.max(run.blurRadius, run.softEdgeRadius) / EMU_PER_CSS_PIXEL}px)`,

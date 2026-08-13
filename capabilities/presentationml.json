@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "displayListVersion": 7,
+  "displayListVersion": 9,
   "features": [
-    { "id": "text", "read": "paragraph-run-v7-autofit-unicode-columns-tabs-numbering-effects", "preserve": "yes", "edit": "text-binding", "render": "canvas-dom-shared-layout-autofit-columns" },
-    { "id": "embedded-fonts", "read": "presentation-font-list-and-lazy-parts", "preserve": "yes", "edit": "no", "render": "permission-checked-browser-fontface" },
+    { "id": "text", "read": "paragraph-run-v9-autofit-unicode-columns-tabs-numbering-effects", "preserve": "yes", "edit": "text-binding", "render": "canvas-dom-shared-layout-autofit-columns" },
+    { "id": "embedded-fonts", "read": "presentation-font-list-and-lazy-parts", "preserve": "yes", "edit": "no", "render": "permission-checked-fontface-and-optional-rustybuzz-shaping" },
     { "id": "text-autofit", "read": "none-normal-shape-resize-with-authored-hints", "preserve": "yes", "edit": "text-binding-recomputes-fit", "render": "shared-layout-bounded" },
     { "id": "text-effects-2d", "read": "solid-gradient-pattern-fill-outline-inner-outer-shadow-glow-blur-soft-edge-reflection-eight-warps", "preserve": "yes", "edit": "no", "render": "canvas-dom-editable-text" },
-    { "id": "text-bullets", "read": "character-auto-number-picture-relationship", "preserve": "yes", "edit": "text-binding", "render": "canvas-dom-semantic-marker" },
+    { "id": "text-bullets", "read": "character-inherited-auto-number-picture-font-color-size", "preserve": "yes", "edit": "text-binding", "render": "canvas-dom-semantic-marker" },
     { "id": "images-raster", "read": "yes", "preserve": "yes", "edit": "image-binding", "render": "canvas-svg" },
     { "id": "images-svg-gif", "read": "bounded-metadata", "preserve": "yes", "edit": "image-binding", "render": "lazy-safe-svg-first-gif-frame" },
     { "id": "audio-video", "read": "relationship-and-poster", "preserve": "yes", "edit": "no", "render": "poster-or-non-activating-placeholder" },

@@ -428,7 +428,8 @@ they are not silently approximated as fully supported.
 
 ## Text-fidelity architecture
 
-WPDL v7 keeps text layout backend-neutral. Rust resolves paragraph/run inheritance, typed point or
+WPDL v9 keeps text layout backend-neutral and marks live-edited slide parts for AutoFit
+recomputation; v8 introduced distinct inner-shadow paint. Rust resolves paragraph/run inheritance, typed point or
 percentage spacing, authored normal-AutoFit hints, shape-resize mode, columns, numbering markers,
 and common 2D text paint: outlines, inner/outer shadows, glow, blur, soft edges, and reflection.
 Canvas and DOM/SVG consume one positioned run plan, so line
@@ -446,10 +447,15 @@ Presentation-level embedded-font entries are carried as lazy package-part names 
 bytes in the display list. The browser host reads a part only on first use, enforces a 32 MiB default
 limit, inspects OpenType `OS/2.fsType`, and refuses restricted or structurally unknown faces before
 `FontFace` registration. Generation-only Wasm therefore does not instantiate font machinery.
-Browser font shaping is exact when that accepted face loads; a separately loadable deterministic
-shaper remains the documented route for non-browser hosts.
+The independently emitted `wasmppt-shaper-wasm` module uses rustybuzz over the same accepted bytes.
+It returns backend-neutral glyph advances, offsets, IDs, UTF-8 clusters, and safe-break flags;
+bounded host caches key the result by font-byte fingerprint, face, language, script, OpenType
+features, variation coordinates, direction, and text. Canvas and DOM still
+paint semantic text with the registered face while consuming those exact advances for shared layout.
 
-The built-in line breaker never splits the covered extended grapheme forms (combining sequences,
+The optional text module supplies UAX #14 opportunities and caches plans by rule version, language
+hint, and exact text under the same byte budget as shaped runs. The built-in fallback never splits the covered extended grapheme
+forms (combining sequences,
 variation selectors, emoji modifiers, ZWJ sequences, and regional-indicator pairs), honors NBSP,
 WJ, ZWSP, soft hyphen, preserved newlines, and common Japanese prohibited-start/end punctuation,
 and uses a documented dictionary-less fallback for Thai, Lao, and Khmer. Advanced bidi and vertical

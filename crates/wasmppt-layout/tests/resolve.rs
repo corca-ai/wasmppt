@@ -13,7 +13,7 @@ const DOGFOOD_TEMPLATE: &[u8] = include_bytes!("../../../fixtures/dogfood/report
 #[test]
 fn opening_is_lazy_and_one_slide_touches_only_its_dependency_branch() {
     let deck = PresentationDocument::open(FIXTURE.to_vec()).unwrap();
-    assert_eq!(deck.slide_count(), 2);
+    assert_eq!(deck.slide_count(), 3);
     assert_eq!(deck.open_trace().parsed_xml_parts, ["ppt/presentation.xml"]);
 
     let output = deck.resolve_slide(0).unwrap();
@@ -150,10 +150,10 @@ fn resolves_inheritance_theme_groups_geometry_images_and_diagnostics() {
 fn dependency_invalidation_is_exact_for_disjoint_branches() {
     let deck = PresentationDocument::open(FIXTURE.to_vec()).unwrap();
     assert_eq!(deck.invalidated_slides("ppt/theme/theme1.xml"), [0]);
-    assert_eq!(deck.invalidated_slides("ppt/theme/theme2.xml"), [1]);
+    assert_eq!(deck.invalidated_slides("ppt/theme/theme2.xml"), [1, 2]);
     assert_eq!(
         deck.invalidated_slides("ppt/slideLayouts/slideLayout2.xml"),
-        [1]
+        [1, 2]
     );
     assert_eq!(deck.invalidated_slides("ppt/media/image1.png"), [0]);
     assert_eq!(deck.invalidated_slides("ppt/charts/chart1.xml"), [1]);
@@ -163,6 +163,84 @@ fn dependency_invalidation_is_exact_for_disjoint_branches() {
         [1]
     );
     assert!(deck.invalidated_slides("ppt/missing.xml").is_empty());
+}
+
+#[test]
+fn resolves_the_powerpoint_text_fidelity_fixture_without_style_leakage() {
+    let output = PresentationDocument::open(FIXTURE.to_vec())
+        .unwrap()
+        .resolve_slide(2)
+        .unwrap();
+    assert!(output.diagnostics.is_empty());
+
+    let shape_autofit = output
+        .slide
+        .elements
+        .iter()
+        .find(|element| element.name == "Shape AutoFit")
+        .unwrap()
+        .text_frame
+        .as_ref()
+        .unwrap();
+    assert_eq!(shape_autofit.autofit, TextAutofit::ResizeShape);
+
+    let normal_autofit = output
+        .slide
+        .elements
+        .iter()
+        .find(|element| element.name == "Normal AutoFit")
+        .unwrap()
+        .text_frame
+        .as_ref()
+        .unwrap();
+    assert_eq!(normal_autofit.autofit, TextAutofit::ShrinkText);
+    assert_eq!(normal_autofit.autofit_font_scale, Some(80_000));
+    assert_eq!(normal_autofit.autofit_line_spacing_reduction, Some(15_000));
+
+    let paragraphs = output
+        .slide
+        .elements
+        .iter()
+        .find(|element| element.name == "Paragraph metrics and bullets")
+        .unwrap()
+        .text_frame
+        .as_ref()
+        .unwrap();
+    assert_eq!(paragraphs.paragraphs[0].bullet.as_deref(), Some("b)"));
+    assert_eq!(paragraphs.paragraphs[1].bullet.as_deref(), Some("c)"));
+    assert_eq!(paragraphs.paragraphs[2].bullet, None);
+    assert_eq!(paragraphs.paragraphs[3].bullet, None);
+    assert!(paragraphs.paragraphs[2].runs[0].text.is_empty());
+
+    let columns = output
+        .slide
+        .elements
+        .iter()
+        .find(|element| element.name == "Three columns")
+        .unwrap()
+        .text_frame
+        .as_ref()
+        .unwrap();
+    assert_eq!(columns.column_count, 3);
+    assert_eq!(columns.column_spacing, 160_000);
+
+    let effects = output
+        .slide
+        .elements
+        .iter()
+        .find(|element| element.name == "2D text effects")
+        .unwrap()
+        .text_frame
+        .as_ref()
+        .unwrap();
+    assert_eq!(effects.warp.as_ref().unwrap().preset, "textWave1");
+    let style = &effects.paragraphs[0].runs[0].style;
+    assert!(matches!(style.fill, Some(Fill::LinearGradient { .. })));
+    assert!(style.outline.is_some());
+    assert!(style.shadow.is_some());
+    assert!(style.inner_shadow.is_some());
+    assert!(style.glow.is_some());
+    assert!(style.reflection);
 }
 
 #[test]

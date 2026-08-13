@@ -20,7 +20,7 @@ the common display-list semantics on Canvas 2D:
 - preset paths, fills, strokes, rotation, flips, and nested group transforms;
 - linear/radial gradients, patterns, curved bounded custom paths, outer shadows, connectors, and line ends;
 - relationship-addressed images with PowerPoint source cropping;
-- shared WPDL v7 paragraph/run layout for mixed styles, script-specific theme fonts,
+- shared WPDL v9 paragraph/run layout for mixed styles, script-specific theme fonts,
   RTL, tabs, vertical flow, decoration, baseline/character spacing, bullets, indentation,
   wrapping, autofit, alignment and text-frame anchoring;
 - deterministic cache eviction and disposal for decoded images.
@@ -93,10 +93,15 @@ baselines and per-slide tolerance reports belong to the compatibility-gate slice
 
 ## Current boundary
 
-The renderer supports WPDL v7 while retaining v1-v6 decoding. Embedded font relationships travel
+The renderer supports WPDL v9 while retaining v1-v8 decoding. Version 9 marks text from a
+materialized live-edit overlay so normal AutoFit recomputes the largest fitting scale instead of
+blindly retaining a stale authored hint. Embedded font relationships travel
 as lazy resources; `registerEmbeddedFonts` applies size and OpenType embedding-permission checks
-before registering exact `FontFace` bytes. A deterministic standalone shaper for hosts without a
-browser font stack, general effect DAGs, and native SmartArt drawing remain incomplete.
+before registering exact `FontFace` bytes. Hosts may additionally load the independent
+`wasmppt-shaper-wasm` artifact: its rustybuzz pipeline returns deterministic font-unit advances,
+offsets, glyph IDs, UTF-8 clusters, and safe-break flags which are retained in the shared layout
+plan. Its request identity also covers language, script, OpenType features, and variation
+coordinates. General effect DAGs and native SmartArt drawing remain incomplete.
 Common editable 2D text paint covers solid/linear/radial/pattern fills, outlines, inner/outer
 shadows, glow, blur, soft edges, a bounded reflection, and arch, wave, inflate, and deflate warp
 presets. Unsupported effect-DAG nodes retain

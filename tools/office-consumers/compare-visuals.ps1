@@ -22,9 +22,10 @@ if ($provenance.fixtureSha256 -ne $manifest.fixtureSha256) { throw "PowerPoint f
 if ($provenance.exportWidth -ne $manifest.exportWidth -or $provenance.exportHeight -ne $manifest.exportHeight) {
     throw "PowerPoint export dimensions differ from the pinned manifest"
 }
+if ($provenance.slideCount -ne $manifest.slideCount) { throw "PowerPoint slide count differs from the pinned manifest" }
 if (@($provenance.fonts).Count -eq 0) { throw "PowerPoint font inventory is empty" }
 try {
-    for ($index = 1; $index -le 2; $index++) {
+    for ($index = 1; $index -le [int]$manifest.slideCount; $index++) {
         $expected = Join-Path $ExpectedDirectory "Slide$index.PNG"
         $actual = Join-Path $ActualDirectory "slide-$index-actual.png"
         $difference = Join-Path $ActualDirectory "slide-$index-difference.png"

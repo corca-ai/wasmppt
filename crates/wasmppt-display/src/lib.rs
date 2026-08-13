@@ -9,7 +9,7 @@ use wasmppt_layout::{
     TextVerticalAlignment, Transform,
 };
 
-pub const DISPLAY_LIST_VERSION: u16 = 7;
+pub const DISPLAY_LIST_VERSION: u16 = 9;
 const MAGIC: &[u8; 4] = b"WPDL";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1524,6 +1524,7 @@ fn encode_command(output: &mut Vec<u8>, command: &DisplayCommand) {
                 output,
                 frame.autofit_line_spacing_reduction.unwrap_or(i32::MIN),
             );
+            output.push(u8::from(frame.autofit_recompute));
             output.push(match frame.flow {
                 TextFlow::Horizontal => 0,
                 TextFlow::Vertical => 1,
@@ -1824,6 +1825,13 @@ fn encode_text_style(output: &mut Vec<u8>, style: &ResolvedTextStyle) {
     }
     output.push(u8::from(style.shadow.is_some()));
     if let Some(shadow) = style.shadow {
+        encode_color(output, shadow.color);
+        push_i64(output, shadow.blur_radius);
+        push_i64(output, shadow.distance);
+        push_i32(output, shadow.direction);
+    }
+    output.push(u8::from(style.inner_shadow.is_some()));
+    if let Some(shadow) = style.inner_shadow {
         encode_color(output, shadow.color);
         push_i64(output, shadow.blur_radius);
         push_i64(output, shadow.distance);

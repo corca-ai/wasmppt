@@ -56,7 +56,7 @@ test('display-list decoder rejects corruption and decodes a bounded scene', () =
   assert.deepEqual(scene.commands, [
     { kind: 'clear', color: { red: 255, green: 255, blue: 255, alpha: 255 } },
   ])
-  for (const version of [2, 3, 4, 5, 6, 7]) {
+  for (const version of [2, 3, 4, 5, 6, 7, 8, 9]) {
     assert.equal(decodeDisplayList(minimalDisplayList(version)).version, version)
   }
   assert.throws(() => decodeDisplayList(bytes.slice(0, -1)), /truncated/)
@@ -275,6 +275,81 @@ test('text measurement is grouped by exact font without changing result order', 
   assert.equal(measurementCount, 3)
 })
 
+test('shared rich-text plan carries exact font-byte advances and clusters', async () => {
+  let shapeCalls = 0
+  const shaper = {
+    async breakText(text) { return [text] },
+    async shape(request) {
+      shapeCalls += 1
+      assert.equal(request.text, 'office')
+      return {
+        unitsPerEm: 1_000,
+        glyphs: [...request.text].map((_, cluster) => ({
+          glyphId: cluster + 1,
+          cluster,
+          xAdvance: 100,
+          yAdvance: 0,
+          xOffset: 0,
+          yOffset: 0,
+          safeToBreak: true,
+        })),
+      }
+    },
+  }
+  const fontBytes = new ArrayBuffer(32)
+  const resolver = new FontResolver({
+    shaper,
+    webFonts: [{ family: 'Exact', source: fontBytes }],
+    host: { load: async () => {}, check: () => true },
+  })
+  const style = {
+    fontSize: 1_200,
+    color: { red: 0, green: 0, blue: 0, alpha: 255 },
+    fontFamily: 'Exact',
+    bold: false,
+    italic: false,
+    underline: false,
+    strike: false,
+    characterSpacing: 0,
+    baseline: 0,
+    alignment: 'left',
+    verticalAlignment: 'top',
+    marginLeft: 0,
+    marginTop: 0,
+    marginRight: 0,
+    marginBottom: 0,
+  }
+  const command = {
+    kind: 'draw-rich-text',
+    bounds: { x: 0, y: 0, width: 952_500, height: 952_500 },
+    frame: {
+      paragraphs: [{
+        runs: [{ text: 'office', style }],
+        alignment: 'left',
+        level: 0,
+        marginLeft: 0,
+        indent: 0,
+        direction: 'ltr',
+        tabs: [],
+      }],
+      verticalAlignment: 'top',
+      marginLeft: 0,
+      marginTop: 0,
+      marginRight: 0,
+      marginBottom: 0,
+      wrap: true,
+      autofit: 'none',
+      flow: 'horizontal',
+    },
+  }
+  const context = { font: '', measureText: () => ({ width: 999 }) }
+  const plan = await buildRichTextLayout(context, command, resolver)
+  assert.equal(shapeCalls, 1)
+  assert.equal(plan.runs.length, 1)
+  assert.equal(plan.runs[0].width, 9.6)
+  assert.deepEqual(plan.runs[0].shaped.glyphs.map((glyph) => glyph.cluster), [0, 1, 2, 3, 4, 5])
+})
+
 test('paragraph space-before shifts every line from the start of the paragraph', async () => {
   const context = {
     font: '',
@@ -371,6 +446,7 @@ test('normAutofit honors authored scale and percentage line-spacing reduction', 
       autofit: 'shrink-text',
       autofitFontScale: 80_000,
       autofitLineSpacingReduction: 20_000,
+      autofitRecompute: false,
       flow: 'horizontal',
     },
   }
@@ -378,6 +454,16 @@ test('normAutofit honors authored scale and percentage line-spacing reduction', 
   const plan = await buildRichTextLayout(context, command)
   assert(Math.abs(plan.runs[0].fontSize - 12.8) < 1e-9)
   assert(Math.abs(plan.runs[1].baseline - plan.runs[0].baseline - 15.36) < 1e-9)
+
+  command.frame.autofitRecompute = true
+  const edited = await buildRichTextLayout(context, command)
+  assert.equal(edited.runs[0].fontSize, 16)
+  assert(edited.runs[0].fontSize > plan.runs[0].fontSize)
+
+  command.bounds.height = 250_000
+  const editedOverflow = await buildRichTextLayout(context, command)
+  assert(editedOverflow.runs[0].fontSize < 16)
+  assert(editedOverflow.contentHeight <= command.bounds.height / 9_525)
 })
 
 test('shape-resize autofit keeps font size and expands the effective bounds', async () => {
@@ -427,6 +513,26 @@ test('shape-resize autofit keeps font size and expands the effective bounds', as
   assert.equal(plan.effectiveBounds.y, command.bounds.y)
   assert.equal(plan.effectiveBounds.width, command.bounds.width)
   assert(Math.abs(plan.effectiveBounds.height / 9_525 - 38.4) < 1e-9)
+
+  const rotatedCommand = structuredClone(command)
+  rotatedCommand.frame.flow = 'vertical'
+  rotatedCommand.frame.verticalAlignment = 'center'
+  rotatedCommand.frame.paragraphs[0].runs[0].text = Array.from(
+    { length: 20 },
+    (_, index) => `line ${index}`,
+  ).join('\n')
+  const rotated = await buildRichTextLayout(context, rotatedCommand)
+  assert(rotated.effectiveBounds.width > rotatedCommand.bounds.width)
+  assert(rotated.effectiveBounds.x < rotatedCommand.bounds.x)
+  assert.equal(rotated.effectiveBounds.y, rotatedCommand.bounds.y)
+  assert.equal(rotated.rotationDegrees, 90)
+
+  const pathologicalCommand = structuredClone(command)
+  pathologicalCommand.frame.wrap = false
+  pathologicalCommand.frame.paragraphs[0].runs[0].text = 'W'.repeat(20_000)
+  const pathological = await buildRichTextLayout(context, pathologicalCommand)
+  assert.equal(pathological.effectiveBounds.width, 91_440_000)
+  assert(Number.isFinite(pathological.effectiveBounds.height))
 })
 
 test('multi-column text flows lines into bounded column rectangles', async () => {

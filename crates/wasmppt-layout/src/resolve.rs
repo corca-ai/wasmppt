@@ -94,6 +94,8 @@ struct RawTextFrame {
     column_spacing: i64,
     default_tab_size: i64,
     warp: Option<TextWarp>,
+    unsupported_warp: Option<String>,
+    invalid_autofit_hint: bool,
 }
 
 #[derive(Debug, Default)]
@@ -122,6 +124,7 @@ struct PartialTextStyle {
     baseline: Option<i32>,
     outline: Option<Option<Stroke>>,
     shadow: Option<Option<OuterShadow>>,
+    inner_shadow: Option<Option<OuterShadow>>,
     text_fill: Option<Fill>,
     glow: Option<Option<TextGlow>>,
     blur_radius: Option<i64>,
@@ -134,6 +137,11 @@ struct PartialTextStyle {
     margin_right: Option<i64>,
     margin_bottom: Option<i64>,
     bullet: Option<Option<String>>,
+    bullet_font_family: Option<Option<String>>,
+    bullet_color: Option<Option<RgbaColor>>,
+    bullet_size: Option<Option<TextSpacing>>,
+    auto_number_scheme: Option<Option<String>>,
+    auto_number_start: Option<u32>,
 }
 
 impl PartialTextStyle {
@@ -149,6 +157,7 @@ impl PartialTextStyle {
             || self.baseline.is_some()
             || self.outline.is_some()
             || self.shadow.is_some()
+            || self.inner_shadow.is_some()
             || self.text_fill.is_some()
             || self.glow.is_some()
             || self.blur_radius.is_some()
@@ -161,6 +170,11 @@ impl PartialTextStyle {
             || self.margin_right.is_some()
             || self.margin_bottom.is_some()
             || self.bullet.is_some()
+            || self.bullet_font_family.is_some()
+            || self.bullet_color.is_some()
+            || self.bullet_size.is_some()
+            || self.auto_number_scheme.is_some()
+            || self.auto_number_start.is_some()
     }
 
     fn overlay(&mut self, other: &Self) {
@@ -182,6 +196,7 @@ impl PartialTextStyle {
         replace_some!(baseline);
         replace_some!(outline);
         replace_some!(shadow);
+        replace_some!(inner_shadow);
         replace_some!(text_fill);
         replace_some!(glow);
         replace_some!(blur_radius);
@@ -194,6 +209,11 @@ impl PartialTextStyle {
         replace_some!(margin_right);
         replace_some!(margin_bottom);
         replace_some!(bullet);
+        replace_some!(bullet_font_family);
+        replace_some!(bullet_color);
+        replace_some!(bullet_size);
+        replace_some!(auto_number_scheme);
+        replace_some!(auto_number_start);
     }
 
     fn fill_missing_from(&mut self, fallback: &Self) {
@@ -215,6 +235,7 @@ impl PartialTextStyle {
         fill_missing!(baseline);
         fill_missing!(outline);
         fill_missing!(shadow);
+        fill_missing!(inner_shadow);
         fill_missing!(text_fill);
         fill_missing!(glow);
         fill_missing!(blur_radius);
@@ -227,6 +248,11 @@ impl PartialTextStyle {
         fill_missing!(margin_right);
         fill_missing!(margin_bottom);
         fill_missing!(bullet);
+        fill_missing!(bullet_font_family);
+        fill_missing!(bullet_color);
+        fill_missing!(bullet_size);
+        fill_missing!(auto_number_scheme);
+        fill_missing!(auto_number_start);
     }
 
     fn resolve(&self) -> ResolvedTextStyle {
@@ -243,6 +269,7 @@ impl PartialTextStyle {
             baseline: self.baseline.unwrap_or(defaults.baseline),
             outline: self.outline.clone().flatten(),
             shadow: self.shadow.flatten(),
+            inner_shadow: self.inner_shadow.flatten(),
             fill: self.text_fill.clone(),
             glow: self.glow.flatten(),
             blur_radius: self.blur_radius.unwrap_or(defaults.blur_radius),
@@ -460,6 +487,15 @@ pub(crate) fn resolve_slide_parts_cached(
                     })
                 })
             });
+            let text_relationship_part = if raw.text_frame.is_some() {
+                slide_id
+            } else if inherited_layout.is_some_and(|shape| shape.text_frame.is_some()) {
+                layout_id.unwrap_or(slide_id)
+            } else if inherited_master.is_some_and(|shape| shape.text_frame.is_some()) {
+                master_id.unwrap_or(slide_id)
+            } else {
+                slide_id
+            };
             let mut merged = merge_shape(raw, inherited_layout, inherited_master);
             if let Some((_, master_part, _)) = &master {
                 let master_styles =
@@ -471,6 +507,7 @@ pub(crate) fn resolve_slide_parts_cached(
                 &mut element_resolver,
                 SourceLevel::Slide,
                 slide_id,
+                text_relationship_part,
                 &slide_name,
             ));
         }
@@ -643,7 +680,7 @@ fn append_non_placeholder(
         .filter(|shape| shape.placeholder.is_none())
     {
         output.push(resolve_element(
-            shape, resolver, source, part_id, &part_name,
+            shape, resolver, source, part_id, part_id, &part_name,
         ));
     }
 }
@@ -689,7 +726,7 @@ fn append_unmaterialized_placeholders(
             continue;
         }
         output.push(resolve_element(
-            shape, resolver, source, part_id, &part_name,
+            shape, resolver, source, part_id, part_id, &part_name,
         ));
     }
 }
@@ -706,6 +743,7 @@ fn resolve_element(
     resolver: &mut ElementResolver<'_>,
     source: SourceLevel,
     source_part: PartId,
+    text_relationship_part: PartId,
     source_name: &str,
 ) -> ResolvedElement {
     let graph = resolver.graph;
@@ -788,7 +826,16 @@ fn resolve_element(
             geometry: shape.geometry.unwrap_or(PresetGeometry::Rect),
         }
     };
-    resolved_element(shape, source, kind, graph, source_part)
+    let source_modified = resolver.source.is_modified(source_name);
+    resolved_element(
+        shape,
+        source,
+        kind,
+        graph,
+        source_part,
+        text_relationship_part,
+        source_modified,
+    )
 }
 
 fn resolved_element(
@@ -797,6 +844,8 @@ fn resolved_element(
     kind: ElementKind,
     graph: &PackageGraph,
     source_part: PartId,
+    text_relationship_part: PartId,
+    source_modified: bool,
 ) -> ResolvedElement {
     let text_style = shape.text_style.resolve();
     let text = apply_paragraph_markers(
@@ -837,12 +886,12 @@ fn resolved_element(
         text,
         text_style,
         text_frame: shape.text_frame.as_ref().map(|frame| {
-            let mut resolved = resolve_text_frame(frame, &shape.text_style);
+            let mut resolved = resolve_text_frame(frame, &shape.text_style, source_modified);
             for (raw, paragraph) in frame.paragraphs.iter().zip(&mut resolved.paragraphs) {
                 if let Some(id) = &raw.bullet_image_relationship_id {
                     paragraph.bullet_image = Some(ResolvedBulletImage {
                         relationship_id: id.clone(),
-                        part_name: relationship_target(graph, source_part, id)
+                        part_name: relationship_target(graph, text_relationship_part, id)
                             .map(|part| graph.part_name(graph.part(part)).to_owned()),
                     });
                 }
@@ -868,7 +917,11 @@ fn resolved_element(
     }
 }
 
-fn resolve_text_frame(frame: &RawTextFrame, inherited: &PartialTextStyle) -> ResolvedTextFrame {
+fn resolve_text_frame(
+    frame: &RawTextFrame,
+    inherited: &PartialTextStyle,
+    autofit_recompute: bool,
+) -> ResolvedTextFrame {
     let base = inherited.resolve();
     let mut numbering = [0_u32; 9];
     ResolvedTextFrame {
@@ -876,13 +929,25 @@ fn resolve_text_frame(frame: &RawTextFrame, inherited: &PartialTextStyle) -> Res
             .paragraphs
             .iter()
             .map(|paragraph| {
-                let mut paragraph_style = inherited.clone();
-                paragraph_style.overlay(&paragraph.style);
+                let paragraph_style = paragraph.style.clone();
                 let resolved_paragraph = paragraph_style.resolve();
-                let bullet = if let Some(scheme) = paragraph.auto_number_scheme.as_deref() {
+                let inherited_auto_number = paragraph
+                    .style
+                    .auto_number_scheme
+                    .as_ref()
+                    .and_then(|scheme| scheme.as_deref());
+                let auto_number_scheme = paragraph
+                    .auto_number_scheme
+                    .as_deref()
+                    .or(inherited_auto_number);
+                let bullet = if let Some(scheme) = auto_number_scheme {
                     let level = paragraph.level as usize;
                     let next = if numbering[level] == 0 {
-                        paragraph.auto_number_start.max(1)
+                        if paragraph.auto_number_scheme.is_some() {
+                            paragraph.auto_number_start.max(1)
+                        } else {
+                            paragraph.style.auto_number_start.unwrap_or(1).max(1)
+                        }
                     } else {
                         numbering[level].saturating_add(1)
                     };
@@ -896,7 +961,6 @@ fn resolve_text_frame(frame: &RawTextFrame, inherited: &PartialTextStyle) -> Res
                         .style
                         .bullet
                         .as_ref()
-                        .or(inherited.bullet.as_ref())
                         .and_then(|bullet| bullet.clone())
                 };
                 let runs = paragraph
@@ -920,14 +984,32 @@ fn resolve_text_frame(frame: &RawTextFrame, inherited: &PartialTextStyle) -> Res
                         .first()
                         .map(|run| run.style.clone())
                         .unwrap_or_else(|| resolved_paragraph.clone());
-                    if let Some(family) = &paragraph.bullet_font_family {
+                    let bullet_font_family = paragraph
+                        .style
+                        .bullet_font_family
+                        .as_ref()
+                        .map(|value| value.as_ref())
+                        .unwrap_or(paragraph.bullet_font_family.as_ref());
+                    if let Some(family) = bullet_font_family {
                         style.font_family = Some(family.clone());
                     }
-                    if let Some(color) = paragraph.bullet_color {
+                    let bullet_color = paragraph
+                        .style
+                        .bullet_color
+                        .as_ref()
+                        .copied()
+                        .unwrap_or(paragraph.bullet_color);
+                    if let Some(color) = bullet_color {
                         style.color = color;
                         style.fill = Some(Fill::Solid(color));
                     }
-                    if let Some(size) = paragraph.bullet_size {
+                    let bullet_size = paragraph
+                        .style
+                        .bullet_size
+                        .as_ref()
+                        .copied()
+                        .unwrap_or(paragraph.bullet_size);
+                    if let Some(size) = bullet_size {
                         style.font_size = match size {
                             TextSpacing::Percent(value) => {
                                 ((i64::from(style.font_size) * i64::from(value)) / 100_000)
@@ -965,6 +1047,9 @@ fn resolve_text_frame(frame: &RawTextFrame, inherited: &PartialTextStyle) -> Res
         autofit: frame.autofit,
         autofit_font_scale: frame.autofit_font_scale,
         autofit_line_spacing_reduction: frame.autofit_line_spacing_reduction,
+        autofit_recompute: autofit_recompute
+            && (frame.autofit_font_scale.is_some()
+                || frame.autofit_line_spacing_reduction.is_some()),
         flow: frame.flow,
         column_count: frame.column_count,
         column_spacing: frame.column_spacing,
@@ -1381,8 +1466,9 @@ fn parse_table(document: &XmlDocument, start: usize, end: usize, theme: &Theme) 
                 });
                 cells.push(ResolvedTableCell {
                     text,
-                    text_frame: parse_text_frame(document, cell_index, cell_end, theme)
-                        .map(|frame| resolve_text_frame(&frame, &PartialTextStyle::default())),
+                    text_frame: parse_text_frame(document, cell_index, cell_end, theme).map(
+                        |frame| resolve_text_frame(&frame, &PartialTextStyle::default(), false),
+                    ),
                     row_span: plain_u32(cell_attributes, "rowSpan").unwrap_or(1),
                     column_span: plain_u32(cell_attributes, "gridSpan").unwrap_or(1),
                     horizontal_merge: plain(cell_attributes, "hMerge").is_some_and(ooxml_bool),
@@ -1806,7 +1892,33 @@ fn parse_shape(
                     }
                     "xfrm" if shape.transform.is_none() => {
                         if let Some(xfrm_end) = element_end(document, index) {
-                            shape.transform = Some(parse_transform(document, index, xfrm_end));
+                            let mut transform = parse_transform(document, index, xfrm_end);
+                            const MAX_DIMENSION: i64 = 91_440_000;
+                            let has_explicit_extent = document.tokens()[index..=xfrm_end]
+                                .iter()
+                                .any(|token| {
+                                    matches!(
+                                        &token.kind,
+                                        TokenKind::Start { name, .. } if name.local == "ext"
+                                    )
+                                });
+                            if has_explicit_extent
+                                && (!(1..=MAX_DIMENSION).contains(&transform.bounds.size.width)
+                                    || !(1..=MAX_DIMENSION)
+                                        .contains(&transform.bounds.size.height))
+                            {
+                                diagnostics.push((
+                                    ResolveDiagnosticCode::InvalidValue,
+                                    Some(shape.id),
+                                    "shape dimensions are outside the supported range and were clamped"
+                                        .to_owned(),
+                                ));
+                                transform.bounds.size.width =
+                                    transform.bounds.size.width.clamp(1, MAX_DIMENSION);
+                                transform.bounds.size.height =
+                                    transform.bounds.size.height.clamp(1, MAX_DIMENSION);
+                            }
+                            shape.transform = Some(transform);
                         }
                     }
                     "bodyPr" => {
@@ -1993,6 +2105,29 @@ fn parse_shape(
     defaults.overlay(&run_style);
     shape.text_style = defaults;
     shape.text_frame = parse_text_frame(document, start, end, theme);
+    if let Some(preset) = shape
+        .text_frame
+        .as_ref()
+        .and_then(|frame| frame.unsupported_warp.as_deref())
+    {
+        diagnostics.push((
+            ResolveDiagnosticCode::UnsupportedEffect,
+            Some(shape.id),
+            format!("text warp preset {preset} is retained and rendered without warping"),
+        ));
+    }
+    if shape
+        .text_frame
+        .as_ref()
+        .is_some_and(|frame| frame.invalid_autofit_hint)
+    {
+        diagnostics.push((
+            ResolveDiagnosticCode::InvalidValue,
+            Some(shape.id),
+            "normal AutoFit hints are malformed or outside the supported range and were clamped"
+                .to_owned(),
+        ));
+    }
     shape
 }
 
@@ -2214,6 +2349,9 @@ fn parse_text_frame(
     let mut column_spacing = 0;
     let mut default_tab_size = 457_200;
     let mut warp = None;
+    let mut unsupported_warp = None;
+    let mut invalid_autofit_hint = false;
+    let mut local_list_styles = TextStyleLevels::default();
     for index in body..=body_end {
         let TokenKind::Start {
             name, attributes, ..
@@ -2237,17 +2375,31 @@ fn parse_text_frame(
             }
             "normAutofit" => {
                 autofit = TextAutofit::ShrinkText;
-                autofit_font_scale = plain_percentage(attributes, "fontScale")
-                    .map(|value| value.clamp(1_000, 100_000));
-                autofit_line_spacing_reduction = plain_percentage(attributes, "lnSpcReduction")
-                    .map(|value| value.clamp(0, 100_000));
+                let font_scale = plain_percentage(attributes, "fontScale");
+                let line_spacing_reduction = plain_percentage(attributes, "lnSpcReduction");
+                invalid_autofit_hint |= plain(attributes, "fontScale").is_some()
+                    && font_scale.is_none_or(|value| !(1_000..=100_000).contains(&value));
+                invalid_autofit_hint |= plain(attributes, "lnSpcReduction").is_some()
+                    && line_spacing_reduction.is_none_or(|value| !(0..=100_000).contains(&value));
+                autofit_font_scale = font_scale.map(|value| value.clamp(1_000, 100_000));
+                autofit_line_spacing_reduction =
+                    line_spacing_reduction.map(|value| value.clamp(0, 100_000));
             }
             "spAutoFit" => autofit = TextAutofit::ResizeShape,
             "prstTxWarp" => {
                 let preset = plain(attributes, "prst").unwrap_or_default();
                 if matches!(
                     preset,
-                    "archUp"
+                    "textArchUp"
+                        | "textArchDown"
+                        | "textArchUpPour"
+                        | "textArchDownPour"
+                        | "textWave1"
+                        | "textWave2"
+                        | "textInflate"
+                        | "textDeflate"
+                        // Decode aliases emitted by pre-v7 development snapshots.
+                        | "archUp"
                         | "archDown"
                         | "archUpPour"
                         | "archDownPour"
@@ -2279,10 +2431,39 @@ fn parse_text_frame(
                         preset: preset.to_owned(),
                         adjustment,
                     });
+                } else if !preset.is_empty() {
+                    unsupported_warp = Some(preset.to_owned());
                 }
             }
             "noAutofit" => autofit = TextAutofit::None,
             _ => {}
+        }
+    }
+    if let Some(list_start) = (body..=body_end).find(|index| {
+        matches!(
+            &document.tokens()[*index].kind,
+            TokenKind::Start { name, .. } if name.local == "lstStyle"
+        )
+    }) {
+        let list_end = element_end(document, list_start)
+            .unwrap_or(list_start)
+            .min(body_end);
+        for level in 0..9 {
+            let local = format!("lvl{}pPr", level + 1);
+            if let Some(level_start) = (list_start..=list_end).find(|candidate| {
+                matches!(
+                    &document.tokens()[*candidate].kind,
+                    TokenKind::Start { name, .. } if name.local == local
+                )
+            }) {
+                let level_end = element_end(document, level_start)
+                    .unwrap_or(level_start)
+                    .min(list_end);
+                local_list_styles.levels[level] =
+                    parse_text_style_range(document, level_start, level_end, theme);
+            } else if level > 0 {
+                local_list_styles.levels[level] = local_list_styles.levels[level - 1].clone();
+            }
         }
     }
     let mut paragraphs = Vec::new();
@@ -2297,7 +2478,11 @@ fn parse_text_frame(
             continue;
         }
         let paragraph_end = element_end(document, index).unwrap_or(index).min(body_end);
-        paragraphs.push(parse_rich_paragraph(document, index, paragraph_end, theme));
+        let mut paragraph = parse_rich_paragraph(document, index, paragraph_end, theme);
+        let mut effective_style = local_list_styles.levels[paragraph.level as usize].clone();
+        effective_style.overlay(&paragraph.style);
+        paragraph.style = effective_style;
+        paragraphs.push(paragraph);
         index = paragraph_end + 1;
     }
     (!paragraphs.is_empty()).then_some(RawTextFrame {
@@ -2311,6 +2496,8 @@ fn parse_text_frame(
         column_spacing,
         default_tab_size,
         warp,
+        unsupported_warp,
+        invalid_autofit_hint,
     })
 }
 
@@ -2822,7 +3009,7 @@ fn parse_text_style_range(
             }
             "innerShdw" => {
                 let shadow_end = element_end(document, index).unwrap_or(index).min(end);
-                style.shadow = Some(parse_outer_shadow(document, index, shadow_end, theme));
+                style.inner_shadow = Some(parse_outer_shadow(document, index, shadow_end, theme));
             }
             "glow" => {
                 let glow_end = element_end(document, index).unwrap_or(index).min(end);
@@ -2852,13 +3039,41 @@ fn parse_text_style_range(
             "reflection" => style.reflection = Some(true),
             "buChar" => {
                 style.bullet = Some(Some(plain(attributes, "char").unwrap_or("•").to_owned()));
+                style.auto_number_scheme = Some(None);
             }
             "buAutoNum" => {
                 let start = plain_u32(attributes, "startAt").unwrap_or(1);
                 style.bullet = Some(Some(format!("{start}.")));
+                style.auto_number_scheme = Some(plain(attributes, "type").map(str::to_owned));
+                style.auto_number_start = Some(start.clamp(1, 32_767));
             }
-            "buBlip" => style.bullet = Some(Some("◼".to_owned())),
-            "buNone" => style.bullet = Some(None),
+            "buBlip" => {
+                style.bullet = Some(Some("◼".to_owned()));
+                style.auto_number_scheme = Some(None);
+            }
+            "buNone" => {
+                style.bullet = Some(None);
+                style.auto_number_scheme = Some(None);
+            }
+            "buFont" => {
+                style.bullet_font_family = Some(
+                    plain(attributes, "typeface").map(|family| resolve_theme_font(family, theme)),
+                );
+            }
+            "buFontTx" => style.bullet_font_family = Some(None),
+            "buClr" => {
+                let color_end = element_end(document, index).unwrap_or(index).min(end);
+                style.bullet_color = Some(parse_color(document, index, color_end, theme));
+            }
+            "buClrTx" => style.bullet_color = Some(None),
+            "buSzPct" => {
+                style.bullet_size =
+                    Some(plain_percentage(attributes, "val").map(TextSpacing::Percent));
+            }
+            "buSzPts" => {
+                style.bullet_size = Some(plain_i32(attributes, "val").map(TextSpacing::Points));
+            }
+            "buSzTx" => style.bullet_size = Some(None),
             _ => {}
         }
     }
@@ -3665,5 +3880,109 @@ mod tests {
         assert_eq!(paragraph.bullet_font_family.as_deref(), Some("Marker Font"));
         assert_eq!(paragraph.bullet_size, Some(TextSpacing::Percent(80_000)));
         assert_eq!(paragraph.bullet_color.unwrap().red, 0x12);
+    }
+
+    #[test]
+    fn inherited_bullet_paint_and_text_relative_resets_are_resolved() {
+        let source = br#"<p:sp xmlns:p="p" xmlns:a="a"><p:txBody><a:bodyPr/><a:lstStyle><a:lvl1pPr><a:buChar char="*"/><a:buFont typeface="Marker Font"/><a:buClr><a:srgbClr val="123456"/></a:buClr><a:buSzPct val="50000"/></a:lvl1pPr></a:lstStyle><a:p><a:r><a:rPr sz="2000"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:latin typeface="Arial"/></a:rPr><a:t>inherited</a:t></a:r></a:p><a:p><a:pPr><a:buFontTx/><a:buClrTx/><a:buSzTx/></a:pPr><a:r><a:rPr sz="1800"><a:solidFill><a:srgbClr val="00AA00"/></a:solidFill><a:latin typeface="Arial"/></a:rPr><a:t>text relative</a:t></a:r></a:p></p:txBody></p:sp>"#;
+        let document = XmlDocument::parse(source.as_slice()).unwrap();
+        let shape = parse_shape(
+            &document,
+            0,
+            element_end(&document, 0).unwrap(),
+            Vec::new(),
+            &Theme::default(),
+            &mut Vec::new(),
+        );
+        let resolved = resolve_text_frame(
+            shape.text_frame.as_ref().unwrap(),
+            &PartialTextStyle::default(),
+            false,
+        );
+        let inherited = resolved.paragraphs[0].bullet_style.as_ref().unwrap();
+        assert_eq!(resolved.paragraphs[0].bullet.as_deref(), Some("*"));
+        assert_eq!(inherited.font_family.as_deref(), Some("Marker Font"));
+        assert_eq!(inherited.font_size, 1_000);
+        assert_eq!(inherited.color.red, 0x12);
+
+        let text_relative = resolved.paragraphs[1].bullet_style.as_ref().unwrap();
+        assert_eq!(text_relative.font_family.as_deref(), Some("Arial"));
+        assert_eq!(text_relative.font_size, 1_800);
+        assert_eq!(text_relative.color.green, 0xaa);
+    }
+
+    #[test]
+    fn inherited_automatic_numbering_continues_and_can_be_reset() {
+        let source = br#"<p:sp xmlns:p="p" xmlns:a="a"><p:txBody><a:bodyPr/><a:lstStyle><a:lvl1pPr><a:buAutoNum type="romanUcPeriod" startAt="4"/></a:lvl1pPr></a:lstStyle><a:p><a:r><a:t>four</a:t></a:r></a:p><a:p><a:r><a:t>five</a:t></a:r></a:p><a:p><a:pPr><a:buNone/></a:pPr><a:r><a:t>plain</a:t></a:r></a:p></p:txBody></p:sp>"#;
+        let document = XmlDocument::parse(source.as_slice()).unwrap();
+        let shape = parse_shape(
+            &document,
+            0,
+            element_end(&document, 0).unwrap(),
+            Vec::new(),
+            &Theme::default(),
+            &mut Vec::new(),
+        );
+        let resolved = resolve_text_frame(
+            shape.text_frame.as_ref().unwrap(),
+            &PartialTextStyle::default(),
+            false,
+        );
+        assert_eq!(resolved.paragraphs[0].bullet.as_deref(), Some("IV."));
+        assert_eq!(resolved.paragraphs[1].bullet.as_deref(), Some("V."));
+        assert_eq!(resolved.paragraphs[2].bullet, None);
+    }
+
+    #[test]
+    fn unsupported_text_warp_is_diagnosed_and_falls_back_to_readable_text() {
+        let source = br#"<p:sp xmlns:p="p" xmlns:a="a"><p:nvSpPr><p:cNvPr id="9" name="warp"/></p:nvSpPr><p:txBody><a:bodyPr><a:prstTxWarp prst="textCanDown"/></a:bodyPr><a:p><a:r><a:t>readable</a:t></a:r></a:p></p:txBody></p:sp>"#;
+        let document = XmlDocument::parse(source.as_slice()).unwrap();
+        let mut diagnostics = Vec::new();
+        let shape = parse_shape(
+            &document,
+            0,
+            element_end(&document, 0).unwrap(),
+            Vec::new(),
+            &Theme::default(),
+            &mut diagnostics,
+        );
+        assert_eq!(shape.text.as_deref(), Some("readable"));
+        assert!(shape.text_frame.as_ref().unwrap().warp.is_none());
+        assert!(diagnostics.iter().any(|(code, shape_id, message)| {
+            *code == ResolveDiagnosticCode::UnsupportedEffect
+                && *shape_id == Some(9)
+                && message.contains("textCanDown")
+        }));
+    }
+
+    #[test]
+    fn pathological_shape_dimensions_are_diagnosed_and_bounded() {
+        let source = br#"<p:sp xmlns:p="p" xmlns:a="a"><p:nvSpPr><p:cNvPr id="10" name="bad bounds"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="-1" cy="999999999"/></a:xfrm></p:spPr><p:txBody><a:bodyPr><a:normAutofit fontScale="0" lnSpcReduction="garbage"/></a:bodyPr><a:p><a:r><a:t>bounded</a:t></a:r></a:p></p:txBody></p:sp>"#;
+        let document = XmlDocument::parse(source.as_slice()).unwrap();
+        let mut diagnostics = Vec::new();
+        let shape = parse_shape(
+            &document,
+            0,
+            element_end(&document, 0).unwrap(),
+            Vec::new(),
+            &Theme::default(),
+            &mut diagnostics,
+        );
+        let bounds = shape.transform.unwrap().bounds.size;
+        assert_eq!(bounds.width, 1);
+        assert_eq!(bounds.height, 91_440_000);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .filter(|(code, shape_id, _)| {
+                    *code == ResolveDiagnosticCode::InvalidValue && *shape_id == Some(10)
+                })
+                .count(),
+            2
+        );
+        let frame = shape.text_frame.as_ref().unwrap();
+        assert_eq!(frame.autofit_font_scale, Some(1_000));
+        assert_eq!(frame.autofit_line_spacing_reduction, None);
+        assert!(resolve_text_frame(frame, &PartialTextStyle::default(), true).autofit_recompute);
     }
 }

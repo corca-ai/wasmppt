@@ -153,7 +153,8 @@ cannot accidentally compose against a different revision or POTX profile.
 observable fallback measurement, and automatic pagination. The validators prove that renderable
 source fragments appear once and in source order, remain on their logical slide and compatible
 template region, use finite in-page geometry, and have stable continuation metadata.
-`wasmppt-deck-compose` projects the validated tuple into editable slide XML and an immutable
+`wasmppt-deck-compose` projects the validated tuple into editable slide XML, native tables and
+supported 2D charts with coordinated embedded workbooks, and an immutable
 `PresentationOverlay`. Only changed package parts are materialized; untouched template entries
 remain raw compressed bytes and exact export is drained through bounded pulls. See
 [semantic deck contracts](deck-engine.md) for the public data and wire contract and

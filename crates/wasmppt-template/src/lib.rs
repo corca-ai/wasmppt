@@ -27,9 +27,12 @@ use wasmppt_opc::{DiagnosticCode as GraphDiagnosticCode, PackageGraph, ReadAt, Z
 use wasmppt_pml::{ShapeView, SlideView};
 use wasmppt_xml::{TokenKind, XmlDocument};
 
+mod chart;
 mod inject;
 mod payload;
 mod policy;
+
+pub use chart::{EditableChartKind, EditableChartParts, build_editable_chart};
 
 pub use inject::{
     ChartData, ChartSeriesData, GenerateError, GenerateErrorCode, GenerateOutput, GenerateStats,

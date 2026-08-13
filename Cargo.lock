@@ -629,6 +629,7 @@ dependencies = [
  "wasmppt-deck",
  "wasmppt-layout",
  "wasmppt-opc",
+ "wasmppt-template",
  "wasmppt-xml",
 ]
 

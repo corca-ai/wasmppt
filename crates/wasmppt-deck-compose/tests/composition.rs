@@ -3,16 +3,17 @@ use std::{borrow::Cow, sync::Arc};
 use gif::{Encoder, Frame};
 use sha2::{Digest, Sha256};
 use wasmppt_deck::{
-    ContentFit, Continuation, DeckLimits, DeckPlan, DeckResource, DeckSpec, DeckTemplatePlan,
-    EmuRect, EmuSize, FragmentSlice, HyperlinkKind, ImageContent, ListContent, ListItem,
-    LogicalSlide, LogicalSlideKind, PhysicalPage, PixelSize, PlaceholderIdentity, PlannedFragment,
-    PlannedRegion, RegionRole, ResourceKind, RichText, RichTextRun, SafeHyperlink, SemanticContent,
-    SemanticNode, SemanticRole, SourceRange, SplitPolicy, StableId, SvgContent, TemplateLayout,
-    TemplateLayoutRole, TemplateRegion, TemplateTextColor, TemplateTextLevel, TemplateTheme,
-    TextMargins, TextMarks, TypeChoice, validate_deck_plan,
+    ChartContent, ChartKind, ChartSeries, ContentFit, Continuation, DeckLimits, DeckPlan,
+    DeckResource, DeckSpec, DeckTemplatePlan, EmuRect, EmuSize, FragmentSlice, HyperlinkKind,
+    ImageContent, ListContent, ListItem, LogicalSlide, LogicalSlideKind, PhysicalPage, PixelSize,
+    PlaceholderIdentity, PlannedFragment, PlannedRegion, RegionRole, ResourceKind, RichText,
+    RichTextRun, SafeHyperlink, SemanticContent, SemanticNode, SemanticRole, SourceRange,
+    SplitPolicy, StableId, SvgContent, TableCell, TableColumn, TableContent, TableRow,
+    TemplateLayout, TemplateLayoutRole, TemplateRegion, TemplateTextColor, TemplateTextLevel,
+    TemplateTheme, TextMargins, TextMarks, TypeChoice, validate_deck_plan,
 };
 use wasmppt_deck_compose::{ComposeErrorCode, ComposeLimits, DeckComposer};
-use wasmppt_layout::PresentationDocument;
+use wasmppt_layout::{ChartKind as ResolvedChartKind, ElementKind, PresentationDocument};
 use wasmppt_opc::{
     CompressionMethod, EntryOptions, PackageGraph, PackagePartSource, VecSink, ZipArchive,
     ZipWriter,
@@ -466,4 +467,267 @@ fn composition_is_deterministic_and_rejects_template_drift_and_unsafe_links() {
         )
         .unwrap_err();
     assert_eq!(error.code(), ComposeErrorCode::TemplateMismatch);
+}
+
+#[test]
+fn composes_split_editable_table_and_chart_with_live_export_parity() {
+    let (bytes, mut spec, mut template, mut plan) = fixture();
+    let cell = |value: u8, text: &str| TableCell {
+        id: id(value),
+        source: range(u32::from(value), u32::from(value) + 1),
+        content: rich(text),
+    };
+    let table_id = id(70);
+    let table = SemanticNode {
+        id: table_id,
+        source: range(100, 160),
+        role: SemanticRole::Table,
+        split: SplitPolicy::TableRows,
+        content: SemanticContent::Table(TableContent {
+            columns: vec![
+                TableColumn {
+                    id: id(71),
+                    source: range(101, 102),
+                },
+                TableColumn {
+                    id: id(72),
+                    source: range(102, 103),
+                },
+            ],
+            header_rows: 1,
+            rows: vec![
+                TableRow {
+                    id: id(73),
+                    source: range(110, 120),
+                    cells: vec![cell(74, "Quarter"), cell(75, "Revenue")],
+                },
+                TableRow {
+                    id: id(76),
+                    source: range(121, 130),
+                    cells: vec![cell(77, "Q1"), cell(78, "12.5")],
+                },
+                TableRow {
+                    id: id(79),
+                    source: range(131, 140),
+                    cells: vec![cell(80, "Q2"), cell(81, "24.0")],
+                },
+            ],
+        }),
+    };
+    let chart_id = id(82);
+    let chart = SemanticNode {
+        id: chart_id,
+        source: range(161, 180),
+        role: SemanticRole::Chart,
+        split: SplitPolicy::Never,
+        content: SemanticContent::Chart(ChartContent {
+            kind: ChartKind::Column,
+            categories: vec!["Q1".to_owned(), "Q2".to_owned()],
+            series: vec![ChartSeries {
+                name: "Revenue".to_owned(),
+                values: vec![12.5, 24.0],
+            }],
+        }),
+    };
+    spec.logical_slides[0].nodes = vec![table, chart];
+    spec.logical_slides[0].source = range(0, 200);
+    template.regions[0].accepts = vec![SemanticRole::Table, SemanticRole::Chart];
+    template.theme.colors = vec![
+        wasmppt_deck::ThemeColor {
+            slot: "accent1".to_owned(),
+            rgb: 0x12_3456,
+        },
+        wasmppt_deck::ThemeColor {
+            slot: "lt1".to_owned(),
+            rgb: 0xff_ffff,
+        },
+        wasmppt_deck::ThemeColor {
+            slot: "lt2".to_owned(),
+            rgb: 0xee_eeee,
+        },
+        wasmppt_deck::ThemeColor {
+            slot: "dk1".to_owned(),
+            rgb: 0x22_2222,
+        },
+    ];
+    let table_first = PlannedFragment {
+        id: PlannedFragment::expected_id(table_id, FragmentSlice::TableRows { start: 0, end: 2 }),
+        source_node_id: table_id,
+        slice: FragmentSlice::TableRows { start: 0, end: 2 },
+        frame: EmuRect {
+            x: 400_000,
+            y: 400_000,
+            width: 9_000_000,
+            height: 2_000_000,
+        },
+        type_choice: TypeChoice {
+            font_size: 1_600,
+            columns: 1,
+            fit: ContentFit::None,
+        },
+        repeat_table_header_rows: 0,
+    };
+    let table_second = PlannedFragment {
+        id: PlannedFragment::expected_id(table_id, FragmentSlice::TableRows { start: 2, end: 3 }),
+        source_node_id: table_id,
+        slice: FragmentSlice::TableRows { start: 2, end: 3 },
+        frame: EmuRect {
+            x: 400_000,
+            y: 400_000,
+            width: 9_000_000,
+            height: 1_500_000,
+        },
+        type_choice: TypeChoice {
+            font_size: 1_600,
+            columns: 1,
+            fit: ContentFit::None,
+        },
+        repeat_table_header_rows: 1,
+    };
+    let chart_fragment = PlannedFragment {
+        id: PlannedFragment::expected_id(chart_id, FragmentSlice::Whole),
+        source_node_id: chart_id,
+        slice: FragmentSlice::Whole,
+        frame: EmuRect {
+            x: 400_000,
+            y: 2_100_000,
+            width: 9_000_000,
+            height: 3_000_000,
+        },
+        type_choice: TypeChoice {
+            font_size: 0,
+            columns: 1,
+            fit: ContentFit::Contain,
+        },
+        repeat_table_header_rows: 0,
+    };
+    let slide_id = spec.logical_slides[0].id;
+    let layout_id = template.layouts[0].id;
+    let region_id = template.regions[0].id;
+    plan.pages = vec![
+        PhysicalPage {
+            id: slide_id.derive(b"physical-page", 1),
+            logical_slide_id: slide_id,
+            template_layout_id: layout_id,
+            hidden: false,
+            continuation: Continuation {
+                ordinal: 1,
+                total: 2,
+                repeated_heading_node_id: None,
+                label: Some("1/2".to_owned()),
+            },
+            regions: vec![PlannedRegion {
+                template_region_id: region_id,
+                frame: template.regions[0].frame,
+                fragments: vec![table_first],
+            }],
+        },
+        PhysicalPage {
+            id: slide_id.derive(b"physical-page", 2),
+            logical_slide_id: slide_id,
+            template_layout_id: layout_id,
+            hidden: false,
+            continuation: Continuation {
+                ordinal: 2,
+                total: 2,
+                repeated_heading_node_id: None,
+                label: Some("2/2".to_owned()),
+            },
+            regions: vec![PlannedRegion {
+                template_region_id: region_id,
+                frame: template.regions[0].frame,
+                fragments: vec![table_second, chart_fragment],
+            }],
+        },
+    ];
+    let report = validate_deck_plan(&spec, &template, &plan, &DeckLimits::default());
+    assert!(report.is_valid(), "{:#?}", report.diagnostics);
+    let overlay = DeckComposer
+        .compose(
+            Arc::<[u8]>::from(bytes),
+            &spec,
+            &template,
+            &plan,
+            &DeckLimits::default(),
+            &ComposeLimits::default(),
+        )
+        .unwrap();
+    let slide_two = String::from_utf8(overlay.read_part("ppt/slides/slide2.xml").unwrap()).unwrap();
+    assert_eq!(slide_two.matches("<a:t>Quarter</a:t>").count(), 1);
+    assert_eq!(slide_two.matches("<a:t>Q2</a:t>").count(), 1);
+    assert!(slide_two.contains("val=\"123456\"") && slide_two.contains("<c:chart"));
+
+    let direct = PresentationDocument::open_source(Arc::new(overlay.clone())).unwrap();
+    let first_slide = direct.resolve_slide(0).unwrap();
+    let first_table = first_slide
+        .slide
+        .elements
+        .iter()
+        .find_map(|element| match &element.kind {
+            ElementKind::Table { table } => Some(table),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        first_table
+            .rows
+            .iter()
+            .map(|row| row.cells[0].text.as_str())
+            .collect::<Vec<_>>(),
+        ["Quarter", "Q1"]
+    );
+    let direct_slide = direct.resolve_slide(1).unwrap();
+    let resolved_table = direct_slide
+        .slide
+        .elements
+        .iter()
+        .find_map(|element| match &element.kind {
+            ElementKind::Table { table } => Some(table),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        resolved_table
+            .rows
+            .iter()
+            .map(|row| row.cells[0].text.as_str())
+            .collect::<Vec<_>>(),
+        ["Quarter", "Q2"]
+    );
+    assert!(resolved_table.rows[0].cells[0].text_frame.is_some());
+    let resolved_chart = direct_slide
+        .slide
+        .elements
+        .iter()
+        .find_map(|element| match &element.kind {
+            ElementKind::Chart { chart } => Some(chart),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(resolved_chart.kind, ResolvedChartKind::Column);
+    assert_eq!(resolved_chart.series[0].categories, ["Q1", "Q2"]);
+    assert_eq!(resolved_chart.series[0].values, [12.5, 24.0]);
+    assert!(
+        resolved_chart
+            .embedded_workbook
+            .as_deref()
+            .is_some_and(|name| name.ends_with(".xlsx"))
+    );
+
+    let mut cursor = overlay.generation_cursor();
+    let mut exported = Vec::new();
+    while !cursor.is_done() {
+        exported.extend(cursor.pull(31).unwrap());
+    }
+    let reopened = PresentationDocument::open(exported.clone()).unwrap();
+    assert_eq!(direct_slide.slide, reopened.resolve_slide(1).unwrap().slide);
+    let package = ZipArchive::from_bytes(exported).unwrap();
+    let workbook_name = package
+        .part_names()
+        .into_iter()
+        .find(|name| name.starts_with("ppt/embeddings/deck-"))
+        .unwrap();
+    let workbook = ZipArchive::from_bytes(package.read_part(&workbook_name).unwrap()).unwrap();
+    let sheet = String::from_utf8(workbook.read_part("xl/worksheets/sheet1.xml").unwrap()).unwrap();
+    assert!(sheet.contains("Q2") && sheet.contains(">24<"));
 }

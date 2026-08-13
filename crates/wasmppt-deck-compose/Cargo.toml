@@ -18,6 +18,7 @@ png.workspace = true
 sha2.workspace = true
 wasmppt-deck.workspace = true
 wasmppt-opc.workspace = true
+wasmppt-template.workspace = true
 wasmppt-xml.workspace = true
 
 [dev-dependencies]

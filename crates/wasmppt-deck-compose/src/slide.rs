@@ -1,10 +1,12 @@
 use std::collections::BTreeMap;
 
 use wasmppt_deck::{
-    ContentFit, EmuRect, EmuSize, FragmentSlice, HyperlinkKind, ListContent, PhysicalPage,
-    PlannedFragment, RegionRole, RichText, RichTextRun, SemanticContent, SemanticNode, StableId,
-    TemplateLayout, TemplateRegion, TemplateTextLevel,
+    ChartContent, ChartKind, ContentFit, EmuRect, EmuSize, FragmentSlice, HyperlinkKind,
+    ListContent, PhysicalPage, PlannedFragment, RegionRole, RichText, RichTextRun, SemanticContent,
+    SemanticNode, StableId, TableContent, TemplateLayout, TemplateRegion, TemplateTextLevel,
+    TemplateTheme,
 };
+use wasmppt_template::{ChartData, ChartSeriesData, EditableChartKind, build_editable_chart};
 
 use crate::{ComposeError, ComposeErrorCode, media::PreparedMedia, xml_attr, xml_text};
 
@@ -13,6 +15,13 @@ const OFFICE_REL: &str = "http://schemas.openxmlformats.org/officeDocument/2006/
 pub(crate) struct ComposedSlide {
     pub(crate) xml: Vec<u8>,
     pub(crate) relationships: Vec<u8>,
+    pub(crate) parts: Vec<ComposedPart>,
+}
+
+pub(crate) struct ComposedPart {
+    pub(crate) name: String,
+    pub(crate) content_type: Option<&'static str>,
+    pub(crate) bytes: Vec<u8>,
 }
 
 struct SlideWriter<'a> {
@@ -20,14 +29,17 @@ struct SlideWriter<'a> {
     relationships: String,
     next_shape_id: u32,
     next_relationship_id: u32,
+    parts: Vec<ComposedPart>,
     nodes: &'a BTreeMap<StableId, &'a SemanticNode>,
     media: &'a BTreeMap<StableId, PreparedMedia>,
+    theme: &'a TemplateTheme,
 }
 
 pub(crate) fn compose_slide(
     page: &PhysicalPage,
     layout: &TemplateLayout,
     page_size: EmuSize,
+    theme: &TemplateTheme,
     regions: &BTreeMap<StableId, &TemplateRegion>,
     nodes: &BTreeMap<StableId, &SemanticNode>,
     media: &BTreeMap<StableId, PreparedMedia>,
@@ -48,8 +60,10 @@ pub(crate) fn compose_slide(
         ),
         next_shape_id: 2,
         next_relationship_id: 2,
+        parts: Vec::new(),
         nodes,
         media,
+        theme,
     };
 
     if page.continuation.ordinal > 1 {
@@ -121,6 +135,7 @@ pub(crate) fn compose_slide(
     Ok(ComposedSlide {
         xml: writer.xml.into_bytes(),
         relationships: writer.relationships.into_bytes(),
+        parts: writer.parts,
     })
 }
 
@@ -239,11 +254,182 @@ impl SlideWriter<'_> {
                     )
                 }
             }
-            SemanticContent::Table(_) | SemanticContent::Chart(_) => Err(ComposeError::new(
-                ComposeErrorCode::UnsupportedContent,
-                "table and chart composition is delivered by the next deck-engine slice",
-            )),
+            SemanticContent::Table(table) => self.table(fragment, table, region),
+            SemanticContent::Chart(chart) => self.chart(fragment, chart),
         }
+    }
+
+    fn table(
+        &mut self,
+        fragment: &PlannedFragment,
+        table: &TableContent,
+        region: &TemplateRegion,
+    ) -> Result<(), ComposeError> {
+        let (start, end) = match fragment.slice {
+            FragmentSlice::Whole => (0, table.rows.len()),
+            FragmentSlice::TableRows { start, end } => (start as usize, end as usize),
+            _ => {
+                return Err(ComposeError::new(
+                    ComposeErrorCode::InvalidContract,
+                    "table fragment has a non-table slice",
+                ));
+            }
+        };
+        let selected = table
+            .rows
+            .get(start..end)
+            .filter(|rows| !rows.is_empty())
+            .ok_or_else(|| {
+                ComposeError::new(
+                    ComposeErrorCode::InvalidContract,
+                    "table slice is empty or outside its source",
+                )
+            })?;
+        let repeated = usize::try_from(fragment.repeat_table_header_rows).map_err(|_| {
+            ComposeError::new(ComposeErrorCode::WorkLimit, "table header count overflow")
+        })?;
+        let header_count = usize::try_from(table.header_rows)
+            .map_err(|_| {
+                ComposeError::new(ComposeErrorCode::WorkLimit, "table header count overflow")
+            })?
+            .min(table.rows.len());
+        if repeated > header_count || (start == 0 && repeated != 0) {
+            return Err(ComposeError::new(
+                ComposeErrorCode::InvalidContract,
+                "planned repeated table headers do not match the source table",
+            ));
+        }
+        let rows = table.rows[..repeated]
+            .iter()
+            .chain(selected.iter())
+            .collect::<Vec<_>>();
+        let column_count = table.columns.len();
+        if column_count == 0 || rows.iter().any(|row| row.cells.len() != column_count) {
+            return Err(ComposeError::new(
+                ComposeErrorCode::InvalidContract,
+                "table rows must match the declared non-empty column set",
+            ));
+        }
+
+        let shape_id = self.take_shape_id()?;
+        let frame = fragment.frame;
+        self.xml.push_str(&format!(
+            "<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id=\"{shape_id}\" name=\"Table {shape_id}\"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x=\"{}\" y=\"{}\"/><a:ext cx=\"{}\" cy=\"{}\"/></p:xfrm><a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/table\"><a:tbl><a:tblPr firstRow=\"{}\" bandRow=\"1\"/><a:tblGrid>",
+            frame.x,
+            frame.y,
+            frame.width,
+            frame.height,
+            u8::from(header_count > 0)
+        ));
+        for width in distributed_lengths(frame.width, column_count)? {
+            self.xml.push_str(&format!("<a:gridCol w=\"{width}\"/>"));
+        }
+        self.xml.push_str("</a:tblGrid>");
+        let row_heights = distributed_lengths(frame.height, rows.len())?;
+        let style = region.text_levels.first();
+        for (rendered_index, (row, height)) in rows.iter().zip(row_heights).enumerate() {
+            let source_index = if rendered_index < repeated {
+                rendered_index
+            } else {
+                start + rendered_index - repeated
+            };
+            let header = source_index < header_count;
+            self.xml.push_str(&format!("<a:tr h=\"{height}\">"));
+            for cell in &row.cells {
+                self.xml.push_str("<a:tc><a:txBody><a:bodyPr/><a:lstStyle>");
+                self.xml.push_str("</a:lstStyle>");
+                self.paragraph(
+                    &Paragraph::rich(cell.content.runs.clone(), 0),
+                    style,
+                    Some(fragment.type_choice.font_size),
+                )?;
+                self.xml.push_str("</a:txBody><a:tcPr marL=\"91440\" marR=\"91440\" marT=\"45720\" marB=\"45720\">");
+                let fill = if header {
+                    theme_rgb(self.theme, "accent1", 0x0044_72c4)
+                } else if rendered_index % 2 == 1 {
+                    theme_rgb(self.theme, "lt2", 0x00e7_e6e6)
+                } else {
+                    theme_rgb(self.theme, "lt1", 0x00ff_ffff)
+                };
+                self.xml.push_str(&format!(
+                    "<a:solidFill><a:srgbClr val=\"{fill:06X}\"/></a:solidFill>"
+                ));
+                let border = theme_rgb(self.theme, "dk1", 0x007f_7f7f);
+                for side in ["L", "R", "T", "B"] {
+                    self.xml.push_str(&format!("<a:ln{side} w=\"9525\"><a:solidFill><a:srgbClr val=\"{border:06X}\"/></a:solidFill><a:prstDash val=\"solid\"/></a:ln{side}>"));
+                }
+                self.xml.push_str("</a:tcPr></a:tc>");
+            }
+            self.xml.push_str("</a:tr>");
+        }
+        self.xml
+            .push_str("</a:tbl></a:graphicData></a:graphic></p:graphicFrame>");
+        Ok(())
+    }
+
+    fn chart(
+        &mut self,
+        fragment: &PlannedFragment,
+        chart: &ChartContent,
+    ) -> Result<(), ComposeError> {
+        if fragment.slice != FragmentSlice::Whole {
+            return Err(ComposeError::new(
+                ComposeErrorCode::InvalidContract,
+                "charts are atomic and require a whole fragment",
+            ));
+        }
+        let data = ChartData {
+            categories: chart.categories.clone(),
+            series: chart
+                .series
+                .iter()
+                .map(|series| ChartSeriesData {
+                    name: series.name.clone(),
+                    values: series.values.clone(),
+                })
+                .collect(),
+        };
+        let parts = build_editable_chart(chart_kind(chart.kind), &data).map_err(|error| {
+            ComposeError::new(ComposeErrorCode::InvalidContract, error.to_string())
+        })?;
+        let token = crate::stable_id_hex(fragment.id);
+        let chart_part = format!("ppt/charts/deck-{token}.xml");
+        let workbook_part = format!("ppt/embeddings/deck-{token}.xlsx");
+        let chart_relationship_part = format!("ppt/charts/_rels/deck-{token}.xml.rels");
+        let relationship_id = self.take_relationship_id()?;
+        self.relationships.push_str(&format!(
+            "<Relationship Id=\"{}\" Type=\"{OFFICE_REL}/chart\" Target=\"../charts/deck-{token}.xml\"/>",
+            xml_attr(&relationship_id)
+        ));
+        self.parts.push(ComposedPart {
+            name: chart_part,
+            content_type: Some("application/vnd.openxmlformats-officedocument.drawingml.chart+xml"),
+            bytes: parts.chart_xml,
+        });
+        self.parts.push(ComposedPart {
+            name: workbook_part,
+            content_type: Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            bytes: parts.workbook,
+        });
+        self.parts.push(ComposedPart {
+            name: chart_relationship_part,
+            content_type: None,
+            bytes: format!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"{OFFICE_REL}/package\" Target=\"../embeddings/deck-{token}.xlsx\"/></Relationships>"
+            )
+            .into_bytes(),
+        });
+        let shape_id = self.take_shape_id()?;
+        let frame = fragment.frame;
+        self.xml.push_str(&format!(
+            "<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id=\"{shape_id}\" name=\"Chart {shape_id}\"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x=\"{}\" y=\"{}\"/><a:ext cx=\"{}\" cy=\"{}\"/></p:xfrm><a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/chart\"><c:chart xmlns:c=\"http://schemas.openxmlformats.org/drawingml/2006/chart\" r:id=\"{}\"/></a:graphicData></a:graphic></p:graphicFrame>",
+            frame.x,
+            frame.y,
+            frame.width,
+            frame.height,
+            xml_attr(&relationship_id)
+        ));
+        Ok(())
     }
 
     fn text_shape(
@@ -647,5 +833,49 @@ fn role_name(node: &SemanticNode) -> &'static str {
             "Vector graphic"
         }
         _ => "Content",
+    }
+}
+
+fn distributed_lengths(total: i64, count: usize) -> Result<Vec<i64>, ComposeError> {
+    if count == 0 || total <= 0 {
+        return Err(ComposeError::new(
+            ComposeErrorCode::InvalidContract,
+            "table geometry must have positive dimensions and members",
+        ));
+    }
+    let count_i64 = i64::try_from(count)
+        .map_err(|_| ComposeError::new(ComposeErrorCode::WorkLimit, "table size overflow"))?;
+    let base = total / count_i64;
+    if base <= 0 {
+        return Err(ComposeError::new(
+            ComposeErrorCode::InvalidContract,
+            "table frame is too small for its rows or columns",
+        ));
+    }
+    let remainder = total % count_i64;
+    let remainder = usize::try_from(remainder)
+        .map_err(|_| ComposeError::new(ComposeErrorCode::WorkLimit, "table size overflow"))?;
+    Ok((0..count)
+        .map(|index| base + if index < remainder { 1 } else { 0 })
+        .collect())
+}
+
+fn theme_rgb(theme: &TemplateTheme, slot: &str, fallback: u32) -> u32 {
+    theme
+        .colors
+        .iter()
+        .find(|color| color.slot == slot)
+        .map_or(fallback, |color| color.rgb & 0x00ff_ffff)
+}
+
+const fn chart_kind(kind: ChartKind) -> EditableChartKind {
+    match kind {
+        ChartKind::Bar => EditableChartKind::Bar,
+        ChartKind::Column => EditableChartKind::Column,
+        ChartKind::Line => EditableChartKind::Line,
+        ChartKind::Area => EditableChartKind::Area,
+        ChartKind::Pie => EditableChartKind::Pie,
+        ChartKind::Doughnut => EditableChartKind::Doughnut,
+        ChartKind::Scatter => EditableChartKind::Scatter,
     }
 }

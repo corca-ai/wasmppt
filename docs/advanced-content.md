@@ -19,6 +19,11 @@ Continuation partitions rows without browser font measurement and clones the com
 source slide through the same deterministic topology path as explicit slide copies. It rejects a
 second continuation table or an explicit copy request on the same source slide before emission.
 
+Deck composition creates native tables directly from planned row slices. It repeats declared
+header rows only on derived slices, uses region rich-text properties for cells, and derives fills
+and borders from the compiled theme. Equal deterministic row and column allocation is the explicit
+fallback because the semantic deck contract carries no author-invented row or column measurements.
+
 ## Charts
 
 Column, bar, line, pie, doughnut, area, scatter, bubble, and two-dimensional combination charts read series/category/numeric
@@ -37,6 +42,12 @@ cache and workbook values are gone. Open XML identifies a numeric series cache a
 see Microsoft's [NumberingCache API mapping](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.drawing.charts.numberreference.numberingcache?view=openxml-3.0.1).
 Chart updates may use stable `wasmppt:chart:<id>` Alt Text metadata, so host applications do not
 depend on producer-assigned chart part names.
+
+The shared editable-chart projector also creates new bar, column, line, area, pie, doughnut, and
+scatter chart parts for deck composition. It starts from a bounded host-neutral skeleton and then
+uses the same cache/formula and nested-workbook mutation functions as template injection. Scatter
+categories are parsed as finite numeric X values. Composer output therefore cannot expose a chart
+revision whose cache and workbook disagree.
 
 ## Advanced content policy
 

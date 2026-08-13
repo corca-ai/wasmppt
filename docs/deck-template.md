@@ -27,7 +27,8 @@ gets stable missing-layout diagnostics instead of a guessed profile. PowerPoint 
 Title layouts require title and subtitle regions. Content layouts require title and body
 regions. Statement layouts require a centered-title or title region mapped to the statement
 role. Optional picture, footer, date, slide-number, and other supported placeholders remain
-available without becoming role identifiers.
+available without becoming role identifiers. Footer, date, and slide-number placeholders are
+compiled as preserved page-furniture assets rather than semantic regions.
 
 ## Resolved profile
 
@@ -58,6 +59,9 @@ overlap checks fail before profile allocation. Compilation additionally validate
 - required placeholder roles, positive inherited geometry, and a positive page size;
 - absence of VBA, ActiveX, OLE/package embeddings, custom UI, digital signatures, and macro or
   program actions.
+
+Ordinary package metadata relationships such as core properties remain valid; only the exact
+embedded-package relationship is active content.
 
 Contract diagnostics accumulate in one deterministic result. ZIP indexing or graph construction
 failures return `ThemeCompileError`; inspectable profile failures return a plan with error

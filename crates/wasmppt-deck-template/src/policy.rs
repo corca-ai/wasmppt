@@ -80,11 +80,11 @@ fn prohibited_relationship_type(lower: &str) -> bool {
         "vbadata",
         "activex",
         "oleobject",
-        "/package",
-        "/control",
         "customui",
         "digital-signature",
     ]
     .iter()
     .any(|needle| lower.contains(needle))
+        || lower.ends_with("/package")
+        || lower.ends_with("/control")
 }

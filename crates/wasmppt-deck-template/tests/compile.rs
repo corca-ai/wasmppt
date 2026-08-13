@@ -1,4 +1,6 @@
-use wasmppt_deck::{DeckDiagnosticCode, DeckLimits, RegionRole, TemplateLayoutRole};
+use wasmppt_deck::{
+    DeckDiagnosticCode, DeckLimits, RegionRole, TemplateAssetKind, TemplateLayoutRole,
+};
 use wasmppt_deck_template::ThemeTemplateCompiler;
 use wasmppt_opc::{CompressionMethod, EntryOptions, VecSink, ZipWriter};
 
@@ -44,8 +46,12 @@ fn starter_with_content(
         (
             "_rels/.rels",
             format!(
-                r#"<Relationships xmlns="{REL}"><Relationship Id="rId1" Type="{OFFICE_REL}/officeDocument" Target="ppt/presentation.xml"/></Relationships>"#,
+                r#"<Relationships xmlns="{REL}"><Relationship Id="rId1" Type="{OFFICE_REL}/officeDocument" Target="ppt/presentation.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>"#,
             ),
+        ),
+        (
+            "docProps/core.xml",
+            r#"<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"/>"#.to_owned(),
         ),
         (
             "ppt/presentation.xml",
@@ -284,6 +290,37 @@ fn visible_names_and_example_slides_do_not_drive_discovery() {
 }
 
 #[test]
+fn preserves_page_furniture_as_assets_without_semantic_regions() {
+    let bytes = starter_with_content(
+        "Furniture",
+        vec![],
+        Some(vec![
+            placeholder(21, "title", 3, false, "Furniture"),
+            placeholder(22, "body", 4, true, "Furniture"),
+            placeholder(23, "sldNum", 9, false, "Furniture"),
+        ]),
+    );
+    let result = ThemeTemplateCompiler::default().compile(bytes).unwrap();
+
+    assert!(result.cacheable, "{:?}", result.plan.diagnostics);
+    assert_eq!(result.plan.regions.len(), 5);
+    assert!(
+        result
+            .plan
+            .regions
+            .iter()
+            .all(|region| region.role != RegionRole::Footer)
+    );
+    assert!(
+        result
+            .plan
+            .assets
+            .iter()
+            .any(|asset| asset.kind == TemplateAssetKind::Footer)
+    );
+}
+
+#[test]
 fn reports_missing_and_duplicate_contract_problems_together() {
     let entries = vec![
         (
@@ -396,4 +433,24 @@ fn rejects_macro_content_before_cache_and_is_deterministic() {
         first.plan.encode(&DeckLimits::default()).unwrap(),
         second.plan.encode(&DeckLimits::default()).unwrap()
     );
+}
+
+#[test]
+fn rejects_an_exact_embedded_package_relationship() {
+    let bytes = starter(
+        "Package",
+        vec![(
+            "ppt/slideLayouts/_rels/package.xml.rels",
+            format!(
+                r#"<Relationships xmlns="{REL}"><Relationship Id="embedded" Type="{OFFICE_REL}/package" Target="../embeddings/object.bin"/></Relationships>"#,
+            ),
+        )],
+    );
+    let result = ThemeTemplateCompiler::default().compile(bytes).unwrap();
+
+    assert!(!result.cacheable);
+    assert!(result.plan.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == DeckDiagnosticCode::TEMPLATE_UNSAFE_CONTENT
+            && diagnostic.message.contains("package.xml.rels")
+    }));
 }

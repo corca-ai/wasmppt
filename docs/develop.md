@@ -191,7 +191,8 @@ budgets and correctness rules in the [performance contract](performance.md).
 `npm run build:pages` assembles the static dogfood application under `target/pages` from the
 checked-in Wasm host bindings, browser package, and two dogfood POTX templates. `npm run test:pages`
 serves that directory and uses real Chrome to apply one editor delta to both templates, render both
-previews, and download both generated PPTX files.
+previews, and save both generated PPTX files under `target/pages-downloads`. CI validates those
+exact browser downloads with the Microsoft Open XML SDK before publishing the Pages artifact.
 CI reuses the single revision-bound Wasm artifact for this gate and deploys the exact tested static
 directory to GitHub Pages on `main`. See the [browser dogfood playground](playground.md).
 

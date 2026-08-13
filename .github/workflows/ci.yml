@@ -229,6 +229,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
       - name: Install JavaScript dependencies
         run: npm ci
       - name: Download the shared Wasm host artifacts
@@ -242,6 +245,13 @@ jobs:
         run: |
           npm run build:pages
           npm run test:pages
+      - name: Validate downloaded presentations with Microsoft Open XML SDK
+        run: |
+          for deck in target/pages-downloads/*.pptx
+          do
+            dotnet run --project tools/openxml-validator/OpenXmlValidator.csproj \
+              --configuration Release -- "$deck"
+          done
       - name: Upload GitHub Pages artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v5

@@ -85,6 +85,7 @@ The current workspace is:
 crates/
   wasmppt-deck/       semantic deck, template-plan, and physical-plan contracts
   wasmppt-deck-template/ explicit Cortex Theme Starter POTX profile compiler
+  wasmppt-deck-layout/ bounded semantic layout and automatic pagination
   wasmppt-opc/        ZIP, content types, relationships, raw entry copying
   wasmppt-xml/        namespace-aware tokenization and range-based rewriting
   wasmppt-pml/        loss-aware PresentationML typed views
@@ -126,7 +127,7 @@ it does not parse Markdown or call a host resource API.
 host source adapter
         |
         v
-    DeckSpec -----> semantic planner -----> DeckPlan
+    DeckSpec -----> wasmppt-deck-layout -----> DeckPlan
         |                                      |
         |                                physical pages,
         |                                regions, fragments,
@@ -143,13 +144,15 @@ Starter POTX profile without inspecting example slides or visible names. A `Deck
 both its source spec and template plan so a consumer
 cannot accidentally compose against a different revision or POTX profile.
 
-The implemented `wasmppt-deck` slice defines these contracts, bounded binary codecs,
-and validators. The validators prove that renderable source fragments appear once and in
-source order, remain on their logical slide and compatible template region, use finite
-in-page geometry, and have stable continuation metadata. Semantic candidate generation,
-pagination, and PresentationML composition are separate later slices. See
+`wasmppt-deck` defines the contracts, bounded binary codecs, and validators;
+`wasmppt-deck-layout` implements host-neutral semantic candidate generation, exact-font or
+observable fallback measurement, and automatic pagination. The validators prove that renderable
+source fragments appear once and in source order, remain on their logical slide and compatible
+template region, use finite in-page geometry, and have stable continuation metadata.
+PresentationML composition remains a separate later slice. See
 [semantic deck contracts](deck-engine.md) for the public data and wire contract and
-[Cortex Theme Starter compiler](deck-template.md) for the POTX profile boundary.
+[Cortex Theme Starter compiler](deck-template.md) for the POTX profile boundary, and
+[semantic layout and pagination](deck-layout.md) for planner policy.
 
 ## Package substrate
 

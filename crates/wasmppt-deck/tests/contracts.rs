@@ -85,6 +85,24 @@ fn reports_each_plan_integrity_failure_with_a_stable_code() {
         DeckDiagnosticCode::PLAN_TARGET_DRIFT,
     );
 
+    let mut layout_drift = plan.clone();
+    layout_drift.pages[1].template_layout_id = id(250);
+    assert_code(
+        &spec,
+        &template,
+        &layout_drift,
+        DeckDiagnosticCode::PLAN_TARGET_DRIFT,
+    );
+
+    let mut repeated_table_drift = plan.clone();
+    repeated_table_drift.pages[1].regions[0].fragments[0].repeat_table_header_rows = 1;
+    assert_code(
+        &spec,
+        &template,
+        &repeated_table_drift,
+        DeckDiagnosticCode::PLAN_TARGET_DRIFT,
+    );
+
     let mut geometry = plan.clone();
     geometry.pages[0].regions[0].fragments[0].frame.x = FRAME.x + FRAME.width;
     assert_code(
@@ -100,6 +118,18 @@ fn reports_each_plan_integrity_failure_with_a_stable_code() {
         &spec,
         &template,
         &continuation,
+        DeckDiagnosticCode::PLAN_INVALID_CONTINUATION,
+    );
+
+    let mut continuation_chrome = plan.clone();
+    continuation_chrome.pages[1].continuation.label = Some("continued".to_owned());
+    continuation_chrome.pages[1]
+        .continuation
+        .repeated_heading_node_id = Some(id(3));
+    assert_code(
+        &spec,
+        &template,
+        &continuation_chrome,
         DeckDiagnosticCode::PLAN_INVALID_CONTINUATION,
     );
 
@@ -193,7 +223,7 @@ fn golden_payloads_are_stable() {
     let limits = DeckLimits::default();
     assert_golden(
         rich_spec().encode(&limits).unwrap(),
-        include_str!("../../../fixtures/deck-contracts/deck-spec-v1.hex"),
+        include_str!("../../../fixtures/deck-contracts/deck-spec-v2.hex"),
     );
     assert_golden(
         template_plan_with_unknown_diagnostic()
@@ -205,7 +235,7 @@ fn golden_payloads_are_stable() {
         valid_plan(&simple_spec(), &template_plan_with_unknown_diagnostic())
             .encode(&limits)
             .unwrap(),
-        include_str!("../../../fixtures/deck-contracts/deck-plan-v1.hex"),
+        include_str!("../../../fixtures/deck-contracts/deck-plan-v2.hex"),
     );
 }
 
@@ -231,7 +261,7 @@ fn decoding_is_bounded_and_fails_closed() {
     );
 
     let mut future = bytes;
-    future[4..8].copy_from_slice(&2u32.to_le_bytes());
+    future[4..8].copy_from_slice(&3u32.to_le_bytes());
     assert_eq!(
         DeckSpec::decode(&future, &DeckLimits::default())
             .unwrap_err()
@@ -626,8 +656,14 @@ fn page(
     PhysicalPage {
         id: slide.id.derive(b"physical-page", ordinal),
         logical_slide_id: slide.id,
+        template_layout_id: id(52),
         hidden: slide.hidden,
-        continuation: Continuation { ordinal, total },
+        continuation: Continuation {
+            ordinal,
+            total,
+            repeated_heading_node_id: None,
+            label: (total > 1).then(|| format!("{ordinal}/{total}")),
+        },
         regions: vec![PlannedRegion {
             template_region_id: id(51),
             frame: FRAME,
@@ -652,6 +688,7 @@ fn fragment(source_node_id: StableId, slice: FragmentSlice, y: Emu) -> PlannedFr
             columns: 1,
             fit: ContentFit::None,
         },
+        repeat_table_header_rows: 0,
     }
 }
 

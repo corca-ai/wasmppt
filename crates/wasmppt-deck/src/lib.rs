@@ -152,6 +152,7 @@ pub enum SplitPolicy {
     Text,
     ListItems,
     TableRows,
+    CodeLines,
     Children,
 }
 
@@ -163,7 +164,7 @@ pub struct DeckSpec {
 }
 
 impl DeckSpec {
-    pub const SCHEMA_VERSION: u32 = 1;
+    pub const SCHEMA_VERSION: u32 = 2;
 
     pub fn encode(&self, limits: &DeckLimits) -> Result<Vec<u8>, WireError> {
         wire::encode_spec(self, limits)
@@ -567,7 +568,7 @@ pub struct DeckPlan {
 }
 
 impl DeckPlan {
-    pub const SCHEMA_VERSION: u32 = 1;
+    pub const SCHEMA_VERSION: u32 = 2;
 
     pub fn encode(&self, limits: &DeckLimits) -> Result<Vec<u8>, WireError> {
         wire::encode_plan(self, limits)
@@ -582,17 +583,22 @@ impl DeckPlan {
 pub struct PhysicalPage {
     pub id: StableId,
     pub logical_slide_id: StableId,
+    pub template_layout_id: StableId,
     pub hidden: bool,
     pub continuation: Continuation,
     pub regions: Vec<PlannedRegion>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Continuation {
     /// One-based page ordinal within one logical slide.
     pub ordinal: u32,
     /// Total physical pages owned by the same logical slide.
     pub total: u32,
+    /// H2/title source repeated as chrome on derived pages; not another source fragment.
+    pub repeated_heading_node_id: Option<StableId>,
+    /// Minimal derived-page marker, exactly `n/total` when present.
+    pub label: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -609,6 +615,8 @@ pub struct PlannedFragment {
     pub slice: FragmentSlice,
     pub frame: EmuRect,
     pub type_choice: TypeChoice,
+    /// Header rows repeated before this table continuation fragment.
+    pub repeat_table_header_rows: u32,
 }
 
 impl PlannedFragment {
@@ -634,6 +642,11 @@ impl PlannedFragment {
                 digest.update(start.to_le_bytes());
                 digest.update(end.to_le_bytes());
             }
+            FragmentSlice::CodeLines { start, end } => {
+                digest.update([4]);
+                digest.update(start.to_le_bytes());
+                digest.update(end.to_le_bytes());
+            }
         }
         StableId::from_digest(digest.finalize())
     }
@@ -645,6 +658,7 @@ pub enum FragmentSlice {
     Text { start: u32, end: u32 },
     ListItems { start: u32, end: u32 },
     TableRows { start: u32, end: u32 },
+    CodeLines { start: u32, end: u32 },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -698,6 +712,10 @@ impl DeckDiagnosticCode {
     pub const TEMPLATE_INVALID_PAGE_SIZE: Self = Self(208);
     pub const TEMPLATE_MISSING_THEME: Self = Self(209);
     pub const TEMPLATE_INVALID_XML: Self = Self(210);
+    pub const PLAN_FONT_RISK: Self = Self(300);
+    pub const PLAN_ATOMIC_OVERFLOW: Self = Self(301);
+    pub const PLAN_WORK_LIMIT: Self = Self(302);
+    pub const PLAN_MISSING_LAYOUT: Self = Self(303);
 
     #[must_use]
     pub const fn known_name(self) -> Option<&'static str> {
@@ -726,6 +744,10 @@ impl DeckDiagnosticCode {
             208 => Some("template-invalid-page-size"),
             209 => Some("template-missing-theme"),
             210 => Some("template-invalid-xml"),
+            300 => Some("plan-font-risk"),
+            301 => Some("plan-atomic-overflow"),
+            302 => Some("plan-work-limit"),
+            303 => Some("plan-missing-layout"),
             _ => None,
         }
     }

@@ -655,9 +655,12 @@ impl<'a> Writer<'a> {
     fn physical_page(&mut self, page: &PhysicalPage) -> Result<(), WireError> {
         self.id(page.id)?;
         self.id(page.logical_slide_id)?;
+        self.id(page.template_layout_id)?;
         self.bool(page.hidden)?;
         self.u32(page.continuation.ordinal)?;
         self.u32(page.continuation.total)?;
+        self.optional_id(page.continuation.repeated_heading_node_id)?;
+        self.optional_string(page.continuation.label.as_deref())?;
         self.vec(&page.regions, |writer, region| {
             writer.planned_region(region)
         })
@@ -682,7 +685,8 @@ impl<'a> Writer<'a> {
             writer.rect(fragment.frame)?;
             writer.u32(fragment.type_choice.font_size)?;
             writer.u16(fragment.type_choice.columns)?;
-            writer.byte(content_fit_tag(fragment.type_choice.fit))
+            writer.byte(content_fit_tag(fragment.type_choice.fit))?;
+            writer.u32(fragment.repeat_table_header_rows)
         })
     }
 
@@ -701,6 +705,11 @@ impl<'a> Writer<'a> {
             }
             FragmentSlice::TableRows { start, end } => {
                 self.byte(3)?;
+                self.u32(start)?;
+                self.u32(end)
+            }
+            FragmentSlice::CodeLines { start, end } => {
+                self.byte(4)?;
                 self.u32(start)?;
                 self.u32(end)
             }
@@ -1237,10 +1246,13 @@ impl<'a> Reader<'a> {
         Ok(PhysicalPage {
             id: self.id()?,
             logical_slide_id: self.id()?,
+            template_layout_id: self.id()?,
             hidden: self.bool()?,
             continuation: Continuation {
                 ordinal: self.u32()?,
                 total: self.u32()?,
+                repeated_heading_node_id: self.optional_id()?,
+                label: self.optional_string()?,
             },
             regions: self.vec("planned regions", Reader::planned_region)?,
         })
@@ -1274,6 +1286,7 @@ impl<'a> Reader<'a> {
                     columns: self.u16()?,
                     fit: content_fit(self.byte()?)?,
                 },
+                repeat_table_header_rows: self.u32()?,
             });
         }
         Ok(PlannedRegion {
@@ -1295,6 +1308,10 @@ impl<'a> Reader<'a> {
                 end: self.u32()?,
             }),
             3 => Ok(FragmentSlice::TableRows {
+                start: self.u32()?,
+                end: self.u32()?,
+            }),
+            4 => Ok(FragmentSlice::CodeLines {
                 start: self.u32()?,
                 end: self.u32()?,
             }),
@@ -1366,7 +1383,8 @@ const fn split_policy_tag(value: SplitPolicy) -> u8 {
         SplitPolicy::Text => 1,
         SplitPolicy::ListItems => 2,
         SplitPolicy::TableRows => 3,
-        SplitPolicy::Children => 4,
+        SplitPolicy::CodeLines => 4,
+        SplitPolicy::Children => 5,
     }
 }
 
@@ -1376,7 +1394,8 @@ fn split_policy(value: u8) -> Result<SplitPolicy, WireError> {
         1 => Ok(SplitPolicy::Text),
         2 => Ok(SplitPolicy::ListItems),
         3 => Ok(SplitPolicy::TableRows),
-        4 => Ok(SplitPolicy::Children),
+        4 => Ok(SplitPolicy::CodeLines),
+        5 => Ok(SplitPolicy::Children),
         _ => Err(invalid_tag("split policy")),
     }
 }

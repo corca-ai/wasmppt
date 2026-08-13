@@ -1,0 +1,24 @@
+[package]
+name = "wasmppt-deck-layout"
+description = "Bounded semantic layout and automatic pagination for wasmppt decks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+default = []
+
+[dependencies]
+sha2.workspace = true
+wasmppt-deck.workspace = true
+wasmppt-shaper.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

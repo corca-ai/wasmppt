@@ -3,6 +3,7 @@ members = [
     "crates/wasmppt-cli",
     "crates/wasmppt-deck",
     "crates/wasmppt-deck-template",
+    "crates/wasmppt-deck-layout",
     "crates/wasmppt-display",
     "crates/wasmppt-layout",
     "crates/wasmppt-metafile",
@@ -40,6 +41,7 @@ wasm-bindgen = "0.2.127"
 wasmppt-display = { path = "crates/wasmppt-display", version = "0.0.0" }
 wasmppt-deck = { path = "crates/wasmppt-deck", version = "0.0.0" }
 wasmppt-deck-template = { path = "crates/wasmppt-deck-template", version = "0.0.0" }
+wasmppt-deck-layout = { path = "crates/wasmppt-deck-layout", version = "0.0.0" }
 wasmppt-layout = { path = "crates/wasmppt-layout", version = "0.0.0" }
 wasmppt-metafile = { path = "crates/wasmppt-metafile", version = "0.0.0" }
 wasmppt-native = { path = "crates/wasmppt-native", version = "0.0.0" }

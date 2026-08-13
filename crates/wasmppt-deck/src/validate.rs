@@ -12,6 +12,7 @@ enum CoverageDomain {
     Text(u32),
     ListItems(u32),
     TableRows(u32),
+    CodeLines(u32),
 }
 
 struct IndexedNode<'a> {
@@ -441,6 +442,11 @@ pub fn validate_deck_plan(
         .iter()
         .map(|region| (region.id, region))
         .collect::<BTreeMap<_, _>>();
+    let layouts = template
+        .layouts
+        .iter()
+        .map(|layout| layout.id)
+        .collect::<BTreeSet<_>>();
     for region in &template.regions {
         if !region.frame.is_within(page_bounds) || region.accepts.is_empty() {
             plan_error(
@@ -456,10 +462,13 @@ pub fn validate_deck_plan(
     validate_pages(
         spec,
         plan,
-        &nodes,
-        &regions,
-        page_bounds,
-        limits,
+        &PlanValidationContext {
+            nodes: &nodes,
+            regions: &regions,
+            layouts: &layouts,
+            page_bounds,
+            limits,
+        },
         &mut report,
     );
     validate_coverage(&coverage, plan, &nodes, &mut report);
@@ -492,6 +501,9 @@ fn index_node<'a>(
         (SemanticContent::Table(table), SplitPolicy::TableRows) => {
             CoverageDomain::TableRows(table.rows.len() as u32)
         }
+        (SemanticContent::Code(code), SplitPolicy::CodeLines) => {
+            CoverageDomain::CodeLines(logical_line_count(&code.code))
+        }
         _ => CoverageDomain::Whole,
     };
     let order = coverage.len();
@@ -507,13 +519,18 @@ fn index_node<'a>(
     );
 }
 
+struct PlanValidationContext<'a> {
+    nodes: &'a BTreeMap<StableId, IndexedNode<'a>>,
+    regions: &'a BTreeMap<StableId, &'a crate::TemplateRegion>,
+    layouts: &'a BTreeSet<StableId>,
+    page_bounds: EmuRect,
+    limits: &'a DeckLimits,
+}
+
 fn validate_pages(
     spec: &DeckSpec,
     plan: &DeckPlan,
-    nodes: &BTreeMap<StableId, IndexedNode<'_>>,
-    regions: &BTreeMap<StableId, &crate::TemplateRegion>,
-    page_bounds: EmuRect,
-    limits: &DeckLimits,
+    context: &PlanValidationContext<'_>,
     report: &mut ValidationReport,
 ) {
     let slides = spec
@@ -532,6 +549,15 @@ fn validate_pages(
             previous_slide = Some(page.logical_slide_id);
         }
         grouped.entry(page.logical_slide_id).or_default().push(page);
+        if !context.layouts.contains(&page.template_layout_id) {
+            plan_error(
+                report,
+                DeckDiagnosticCode::PLAN_TARGET_DRIFT,
+                Some(page.id),
+                None,
+                "physical page references an unknown template layout",
+            );
+        }
         let Some(slide) = slides.get(&page.logical_slide_id) else {
             plan_error(
                 report,
@@ -551,8 +577,10 @@ fn validate_pages(
                 "physical page hidden state differs from its logical slide",
             );
         }
+        let mut tables_seen_on_page = BTreeSet::new();
         for planned_region in &page.regions {
-            let Some(template_region) = regions.get(&planned_region.template_region_id) else {
+            let Some(template_region) = context.regions.get(&planned_region.template_region_id)
+            else {
                 plan_error(
                     report,
                     DeckDiagnosticCode::PLAN_TARGET_DRIFT,
@@ -562,8 +590,17 @@ fn validate_pages(
                 );
                 continue;
             };
+            if template_region.layout_id != page.template_layout_id {
+                plan_error(
+                    report,
+                    DeckDiagnosticCode::PLAN_TARGET_DRIFT,
+                    Some(page.id),
+                    None,
+                    "planned region belongs to a different template layout",
+                );
+            }
             if !planned_region.frame.is_within(template_region.frame)
-                || !planned_region.frame.is_within(page_bounds)
+                || !planned_region.frame.is_within(context.page_bounds)
             {
                 plan_error(
                     report,
@@ -575,13 +612,34 @@ fn validate_pages(
             }
             for fragment in &planned_region.fragments {
                 fragment_count = fragment_count.saturating_add(1);
+                let expected_repeated_header_rows = match (
+                    &context
+                        .nodes
+                        .get(&fragment.source_node_id)
+                        .map(|indexed| &indexed.node.content),
+                    fragment.slice,
+                ) {
+                    (
+                        Some(SemanticContent::Table(table)),
+                        FragmentSlice::TableRows { start, .. },
+                    ) if tables_seen_on_page.insert(fragment.source_node_id)
+                        && table.header_rows > 0
+                        && start >= table.header_rows =>
+                    {
+                        table.header_rows
+                    }
+                    _ => 0,
+                };
                 validate_fragment(
                     fragment,
-                    page.id,
-                    page.logical_slide_id,
-                    planned_region.frame,
-                    template_region,
-                    nodes,
+                    &FragmentTarget {
+                        page_id: page.id,
+                        slide_id: page.logical_slide_id,
+                        region_frame: planned_region.frame,
+                        template_region,
+                        expected_repeated_header_rows,
+                    },
+                    context.nodes,
                     report,
                 );
             }
@@ -602,7 +660,7 @@ fn validate_pages(
             "physical page groups do not follow logical slide source order",
         );
     }
-    if fragment_count > limits.max_planned_fragments {
+    if fragment_count > context.limits.max_planned_fragments {
         plan_error(
             report,
             DeckDiagnosticCode::PLAN_SOURCE_DUPLICATION,
@@ -624,6 +682,18 @@ fn validate_pages(
             continue;
         };
         let total = pages.len() as u32;
+        let heading = context
+            .nodes
+            .values()
+            .filter(|indexed| {
+                indexed.slide_id == slide.id
+                    && matches!(
+                        indexed.node.role,
+                        SemanticRole::Title | SemanticRole::Section
+                    )
+            })
+            .min_by_key(|indexed| indexed.order)
+            .map(|indexed| indexed.node.id);
         for (index, page) in pages.iter().enumerate() {
             let ordinal = index as u32 + 1;
             if page.continuation.ordinal != ordinal
@@ -638,16 +708,41 @@ fn validate_pages(
                     "continuation ordinal, total, or stable page identity is inconsistent",
                 );
             }
+            let expected_label = (total > 1).then(|| format!("{ordinal}/{total}"));
+            if page.continuation.label != expected_label {
+                plan_error(
+                    report,
+                    DeckDiagnosticCode::PLAN_INVALID_CONTINUATION,
+                    Some(page.id),
+                    Some(slide.id),
+                    "continuation label is not the minimal n/total marker",
+                );
+            }
+            let expected_heading = (ordinal > 1).then_some(heading).flatten();
+            if page.continuation.repeated_heading_node_id != expected_heading {
+                plan_error(
+                    report,
+                    DeckDiagnosticCode::PLAN_INVALID_CONTINUATION,
+                    Some(page.id),
+                    Some(slide.id),
+                    "derived page repeated-heading metadata is inconsistent",
+                );
+            }
         }
     }
 }
 
-fn validate_fragment(
-    fragment: &PlannedFragment,
+struct FragmentTarget<'a> {
     page_id: StableId,
     slide_id: StableId,
     region_frame: EmuRect,
-    template_region: &crate::TemplateRegion,
+    template_region: &'a crate::TemplateRegion,
+    expected_repeated_header_rows: u32,
+}
+
+fn validate_fragment(
+    fragment: &PlannedFragment,
+    target: &FragmentTarget<'_>,
     nodes: &BTreeMap<StableId, IndexedNode<'_>>,
     report: &mut ValidationReport,
 ) {
@@ -655,26 +750,28 @@ fn validate_fragment(
         plan_error(
             report,
             DeckDiagnosticCode::PLAN_TARGET_DRIFT,
-            Some(page_id),
+            Some(target.page_id),
             Some(fragment.source_node_id),
             "planned fragment references an unknown source node",
         );
         return;
     };
-    if indexed.slide_id != slide_id || !template_region.accepts.contains(&indexed.node.role) {
+    if indexed.slide_id != target.slide_id
+        || !target.template_region.accepts.contains(&indexed.node.role)
+    {
         plan_error(
             report,
             DeckDiagnosticCode::PLAN_TARGET_DRIFT,
-            Some(page_id),
+            Some(target.page_id),
             Some(fragment.source_node_id),
             "planned fragment moved to another logical slide or incompatible template region",
         );
     }
-    if !fragment.frame.is_within(region_frame) || fragment.type_choice.columns == 0 {
+    if !fragment.frame.is_within(target.region_frame) || fragment.type_choice.columns == 0 {
         plan_error(
             report,
             DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
-            Some(page_id),
+            Some(target.page_id),
             Some(fragment.source_node_id),
             "fragment frame is outside its planned region or has invalid type geometry",
         );
@@ -683,9 +780,18 @@ fn validate_fragment(
         plan_error(
             report,
             DeckDiagnosticCode::PLAN_UNSTABLE_ID,
-            Some(page_id),
+            Some(target.page_id),
             Some(fragment.source_node_id),
             "fragment identity is not derived from its source node and slice",
+        );
+    }
+    if fragment.repeat_table_header_rows != target.expected_repeated_header_rows {
+        plan_error(
+            report,
+            DeckDiagnosticCode::PLAN_TARGET_DRIFT,
+            Some(target.page_id),
+            Some(fragment.source_node_id),
+            "table continuation header metadata is inconsistent",
         );
     }
 }
@@ -741,6 +847,9 @@ fn validate_coverage(
             CoverageDomain::TableRows(end) => {
                 validate_intervals(*id, &slices, end, SliceKind::TableRows, None, report)
             }
+            CoverageDomain::CodeLines(end) => {
+                validate_intervals(*id, &slices, end, SliceKind::CodeLines, None, report)
+            }
         }
     }
 }
@@ -776,6 +885,7 @@ enum SliceKind {
     Text,
     ListItems,
     TableRows,
+    CodeLines,
 }
 
 fn validate_intervals(
@@ -794,6 +904,7 @@ fn validate_intervals(
             | (SliceKind::TableRows, FragmentSlice::TableRows { start, end }) => {
                 Some((*start, *end))
             }
+            (SliceKind::CodeLines, FragmentSlice::CodeLines { start, end }) => Some((*start, *end)),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -878,8 +989,13 @@ fn split_matches(node: &SemanticNode) -> bool {
             (SemanticContent::Text(_), SplitPolicy::Text)
                 | (SemanticContent::List(_), SplitPolicy::ListItems)
                 | (SemanticContent::Table(_), SplitPolicy::TableRows)
+                | (SemanticContent::Code(_), SplitPolicy::CodeLines)
                 | (SemanticContent::Children(_), SplitPolicy::Children)
         )
+}
+
+fn logical_line_count(text: &str) -> u32 {
+    u32::try_from(text.split_inclusive('\n').count().max(1)).unwrap_or(u32::MAX)
 }
 
 fn role_matches(node: &SemanticNode) -> bool {

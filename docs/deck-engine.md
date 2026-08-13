@@ -1,7 +1,7 @@
 # Semantic deck contracts
 
-Status: host-neutral contracts, validators, template-profile compiler, and versioned binary
-codecs implemented; planning and composition are not implemented in this slice
+Status: host-neutral contracts, validators, template-profile compiler, bounded planning, and
+versioned binary codecs implemented; composition is not implemented in this slice
 
 `wasmppt-deck` is the boundary between a host application's authoring model and the
 wasmppt semantic layout and composition pipeline. It keeps Markdown, project storage,
@@ -35,7 +35,7 @@ package.
 - title, subtitle, prose, section, nested list, figure, caption, gallery, table,
   chart, code, diagram, display math, quote, credit, definition, and statement roles;
 - bold, italic, strikethrough, inline-code, and typed safe-hyperlink rich-text runs;
-- explicit `Never`, `Text`, `ListItems`, `TableRows`, and `Children` split policy;
+- explicit `Never`, `Text`, `ListItems`, `TableRows`, `CodeLines`, and `Children` split policy;
 - raster and SVG resources as binary bytes with media type and optional dimensions.
 
 The model intentionally has no speaker-notes field. Markdown parsing, URL authorization,
@@ -59,13 +59,15 @@ copy unknown markup from the hash-matched POTX rather than reconstructing it. Vi
 and shape names are not part of this contract.
 
 `DeckPlan` contains physical pages grouped by logical slide. A page carries its stable ID,
-hidden state, one-based continuation ordinal and total, and planned regions. Each
+selected template-layout ID, hidden state, one-based continuation ordinal and total, repeated
+heading identity, minimal `n/total` label, and planned regions. Each
 `PlannedFragment` owns:
 
 - one source node;
-- a whole, UTF-8 text, list-item, or table-row slice;
+- a whole, UTF-8 text, list-item, table-row, or code-line slice;
 - an exact frame inside its planned and template regions;
-- explicit font size, column count, and content-fit choice.
+- explicit font size, column count, and content-fit choice;
+- repeated table-header row count for the first continued table fragment on a page.
 
 The plan names its `DeckSpec` and `DeckTemplatePlan` identities and repeats the exact page
 size. Composition MUST reject a mismatched input set rather than silently reflow it.
@@ -85,6 +87,8 @@ shape, finite chart values, and configured safety limits.
 - template, planned-region, and fragment geometry is positive and contained;
 - physical page groups preserve logical-slide order;
 - continuation ordinals, totals, hidden state, page IDs, and fragment IDs are stable.
+- selected layouts, repeated headings, continuation labels, and repeated table headers agree
+  exactly with their source and template ownership.
 
 Failures use append-only numeric `DeckDiagnosticCode` values. The public code wrapper
 retains unknown future numeric values, and `known_name` returns `None` instead of mapping
@@ -96,9 +100,9 @@ The little-endian envelopes are:
 
 | Magic | Version | Value |
 | --- | ---: | --- |
-| `WDSF` | 1 | `DeckSpec` and binary resources |
+| `WDSF` | 2 | `DeckSpec` and binary resources |
 | `WDTP` | 2 | `DeckTemplatePlan` |
-| `WDPL` | 1 | `DeckPlan` |
+| `WDPL` | 2 | `DeckPlan` |
 
 Vectors and strings are length-prefixed. Media remains raw bytes rather than JSON or
 base64. Encoding order follows source and plan vector order, so equal values produce
@@ -108,7 +112,8 @@ and fragment limits before allocating the declared content.
 
 `DeckLimitCode` values are append-only and identify each bounded dimension. Callers may
 tighten `DeckLimits` for a host but MUST NOT turn a limit failure into partial content.
-Checked-in hexadecimal fixtures pin WDSF v1, WDTP v2, and WDPL v1.
+Checked-in hexadecimal fixtures pin WDSF v2, WDTP v2, and WDPL v2. Older semantic-plan
+payloads are intentionally unsupported because the planner boundary is replaced atomically.
 
 ## Verification
 
@@ -117,6 +122,8 @@ cargo test -p wasmppt-deck --all-features
 cargo clippy -p wasmppt-deck --all-targets --all-features -- -D warnings
 cargo test -p wasmppt-deck-template --all-features
 cargo clippy -p wasmppt-deck-template --all-targets --all-features -- -D warnings
+cargo test -p wasmppt-deck-layout --all-features
+cargo clippy -p wasmppt-deck-layout --all-targets --all-features -- -D warnings
 npm run check:core-boundary
 ```
 
@@ -133,3 +140,5 @@ reordering, target drift, geometry, continuation metadata, and derived IDs.
 - [Template bindings](bindings.md) describes the separate compiled-template injection
   workload.
 - [Cortex Theme Starter compiler](deck-template.md) describes the explicit POTX profile.
+- [Semantic layout and pagination](deck-layout.md) defines planner measurement, search, and
+  continuation policy.

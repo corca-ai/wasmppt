@@ -14,8 +14,10 @@ fill, stroke, and text primitives used
 by ordinary shapes, so Canvas and SVG do not own table layout logic. Template generation retains
 the compiled repeated-row mechanism: it clones the original `a:tr`, patches bound cell text, and
 preserves unsupported cell and row extension markup. Generation exposes transactional `fail`,
-bounded `clip`, and height-preserving `shrink` overflow policies. Multi-slide continuation stays
-an explicit template/slide-repetition choice.
+bounded `clip`, height-preserving `shrink`, and capacity-driven `continue` overflow policies.
+Continuation partitions rows without browser font measurement and clones the complete authored
+source slide through the same deterministic topology path as explicit slide copies. It rejects a
+second continuation table or an explicit copy request on the same source slide before emission.
 
 ## Charts
 

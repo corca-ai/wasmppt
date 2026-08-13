@@ -189,7 +189,8 @@ relationship actions. The implemented generation inputs are:
 
 - text replacement with explicit run-style policy;
 - image replacement with crop and relationship policy;
-- repeated rows identified by `table_id.field` text bindings, with fail/clip/shrink overflow;
+- repeated rows identified by `table_id.field` text bindings, with fail/clip/shrink/continue
+  overflow and explicit continuation capacity;
 - deterministic slide exclusion and cloning by slide part name;
 - complete category and series replacement for a supported named chart or chart part, including its cache
   and related embedded workbook;

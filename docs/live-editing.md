@@ -57,7 +57,10 @@ materializes one slide XML part and shares every unrelated rewritten part from t
 Image edits additionally invalidate their slide, relationship part, media part, and content types.
 Tables, charts and workbooks, semantic shapes, hyperlinks, and notes use their corresponding plan
 dependencies. Slide inclusion or cloning changes topology and takes the conservative full rebuild
-path.
+path. A table using the `continue` overflow policy also takes that path whenever its rows or policy
+change, because the accepted revision may add or remove slide parts. Preview and export then read
+the same rebuilt overlay; a rejected capacity or topology conflict leaves the earlier graph and
+revision intact.
 
 Every resolved slide fingerprint hashes the slide's complete reachable dependency branch and exact
 part bytes. Reverse OPC relationships map changed parts to affected slides. Missing proof selects a
@@ -118,6 +121,11 @@ The native benchmark runs text-heavy, image-heavy, and mixed templates at 10, 50
 Its live samples separate delta application, dependency invalidation, invalidated-slide resolution,
 input-to-render-ready latency, and background export. It records copy counts, maximum invalidated
 slides, shared materialized parts, output bytes, and peak resident estimates.
+
+A focused native operation matrix separately measures a one-slide table edit, chart/workbook edit,
+explicit slide-topology edit, and an eight-to-nine-row continuation update with two rows per slide.
+The continuation case has its own latency, invalidated-slide, and resident-memory budgets in
+`benchmarks/budgets.json`.
 
 Chromium repeats the mixed 10/50/200 matrix through the real module Worker and scalar Wasm. Each
 sample applies editor input, resolves slide zero, paints Canvas pixels, and records render/cache

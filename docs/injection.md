@@ -34,7 +34,7 @@ Browser callers pass one `GenerationData` object to `generateStream` or `generat
     hero: { bytes: pngBytes, extension: 'png', contentType: 'image/png' }
   },
   tables: { metrics: [{ label: 'Latency', value: '12 ms' }] },
-  tablePolicies: { metrics: { maximumRows: 12, overflow: 'shrink' } },
+  tablePolicies: { metrics: { maximumRows: 12, overflow: 'continue' } },
   slides: { 'ppt/slides/slide2.xml': 2 },
   charts: {
     sales: {
@@ -78,9 +78,17 @@ survive while bound text ranges change.
 
 `tablePolicies` makes overflow intentional. `fail` rejects the request transactionally,
 `clip` emits only the declared capacity, and `shrink` keeps all rows while scaling cloned row
-heights to the declared capacity. A zero capacity is invalid. Continuation-slide pagination is
-not implicit; authors use the existing deterministic slide repetition API when a table must span
-slides.
+heights to the declared capacity. `continue` partitions rows at the explicit `maximumRows`
+boundary and inserts deterministic copies of the authored source slide for later partitions; it
+does not measure fonts or guess row height. Zero rows retain one slide with no repeated row, and a
+zero capacity is invalid.
+
+Only one continuation table may own a source slide. A continuation policy conflicts with an
+explicit `slides` copy request for the same source, so ambiguous topology is rejected before any
+output is emitted. The complete source slide is cloned, preserving layout, static headers and
+footers, table styles, merged-cell and unknown row markup, media, and external hyperlinks. As with
+ordinary slide cloning, generated copies drop the notes relationship rather than share one notes
+part. PowerPoint's displayed slide number follows the new presentation order.
 
 ## Images
 
@@ -157,14 +165,15 @@ Rust tests cover WPPD v1/v2, POTX, Strict POTX targeted editing, synthetic POTM 
 explicit and inherited background preservation, missing-background defaulting, split-run text, escaping, Unicode, image
 media/relationships/crops/content types, repeated table rows, deterministic slide clones,
 slide exclusion, hyperlinks, notes, opaque parts, malformed bindings, and a non-seekable
-sink, semantic conditions/repetition/rich text, named chart bindings, explicit table overflow,
-notes edits, and buffered/streaming parity.
+sink, semantic conditions/repetition/rich text, named chart bindings, explicit table overflow and
+multi-slide continuation, notes edits, and buffered/streaming parity.
 
 CI also downloads [Apache POI's](https://github.com/apache/poi) Apache-licensed
 `bug59273.potx` at a pinned SHA-256,
 converts it through the forward-only CLI path, validates ZIP and relationship structure,
-and runs Microsoft `DocumentFormat.OpenXml` 3.5.1 validation over the resulting PPTX. The
-validator wrapper is in `tools/openxml-validator`.
+and runs Microsoft `DocumentFormat.OpenXml` 3.5.1 validation over the resulting PPTX and a
+dogfood-template output whose five rows continue across three authored table slides. The validator
+wrapper is in `tools/openxml-validator`.
 
 Local commands are:
 

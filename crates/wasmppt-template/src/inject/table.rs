@@ -33,6 +33,10 @@ pub(super) fn apply_table_policy<'a>(
         )),
         TableOverflowPolicy::Clip => Ok((&rows[..maximum_rows], None)),
         TableOverflowPolicy::Shrink => Ok((rows, Some((maximum_rows, rows.len())))),
+        TableOverflowPolicy::Continue => Err(GenerateError::new(
+            GenerateErrorCode::InvalidTable,
+            format!("table {id} continuation requires slide topology planning"),
+        )),
     }
 }
 
@@ -110,6 +114,11 @@ mod tests {
             apply_table_policy("sales", &rows, Some(&policy(TableOverflowPolicy::Shrink))).unwrap();
         assert_eq!(all.len(), 3);
         assert_eq!(shrink, Some((2, 3)));
+
+        let error =
+            apply_table_policy("sales", &rows, Some(&policy(TableOverflowPolicy::Continue)))
+                .unwrap_err();
+        assert_eq!(error.code(), GenerateErrorCode::InvalidTable);
     }
 
     #[test]

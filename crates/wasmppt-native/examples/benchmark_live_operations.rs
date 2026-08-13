@@ -5,7 +5,7 @@ use wasmppt_layout::PresentationDocument;
 use wasmppt_opc::ZipArchive;
 use wasmppt_template::{
     BindingKind, ChartData, ChartSeriesData, ImageData, InjectionData, PreparedTemplate,
-    TemplateCompiler,
+    TableOverflowPolicy, TablePolicyData, TemplateCompiler,
 };
 
 const DOGFOOD: &[u8] = include_bytes!("../../../fixtures/dogfood/report.potx");
@@ -34,11 +34,20 @@ fn main() {
         delta.set_slide_copies("ppt/slides/slide2.xml", 2);
         delta
     });
+    let continuation = measure(&dogfood, iterations, continuation_data, |iteration| {
+        let mut delta = InjectionData::new();
+        delta.set_table_rows(
+            "metrics",
+            continuation_rows(9, &format!("continuation {iteration}")),
+        );
+        delta
+    });
     println!(
-        "{{\"schema\":1,\"iterations\":{iterations},\"operations\":{{\"table\":{},\"chart\":{},\"slideTopology\":{}}}}}",
+        "{{\"schema\":1,\"iterations\":{iterations},\"operations\":{{\"table\":{},\"chart\":{},\"slideTopology\":{},\"tableContinuation\":{}}}}}",
         table.json(),
         chart.json(),
         topology.json(),
+        continuation.json(),
     );
 }
 
@@ -153,6 +162,19 @@ fn dogfood_data(prepared: &PreparedTemplate) -> InjectionData {
     data
 }
 
+fn continuation_data(prepared: &PreparedTemplate) -> InjectionData {
+    let mut data = complete_binding_data(prepared);
+    data.set_table_rows("metrics", continuation_rows(8, "initial"));
+    data.set_table_policy(
+        "metrics",
+        TablePolicyData {
+            maximum_rows: 2,
+            overflow: TableOverflowPolicy::Continue,
+        },
+    );
+    data
+}
+
 fn advanced_data(prepared: &PreparedTemplate) -> InjectionData {
     complete_binding_data(prepared)
 }
@@ -163,6 +185,17 @@ fn rows(value: &str) -> Vec<BTreeMap<String, String>> {
         .map(|label| {
             BTreeMap::from([
                 ("label".to_owned(), label.to_owned()),
+                ("value".to_owned(), value.to_owned()),
+            ])
+        })
+        .collect()
+}
+
+fn continuation_rows(count: usize, value: &str) -> Vec<BTreeMap<String, String>> {
+    (0..count)
+        .map(|index| {
+            BTreeMap::from([
+                ("label".to_owned(), format!("Metric {index}")),
                 ("value".to_owned(), value.to_owned()),
             ])
         })

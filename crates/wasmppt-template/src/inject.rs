@@ -90,6 +90,7 @@ pub enum TableOverflowPolicy {
     Fail,
     Clip,
     Shrink,
+    Continue,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -349,8 +350,21 @@ struct SlideOperations {
 struct SlideClone {
     source_part: String,
     part_name: String,
+    copy_index: usize,
     source_relationship_part: Option<String>,
     relationship_part: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct TableContinuation {
+    row_range: Range<usize>,
+    page_patches: Vec<Patch>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct TableContinuations {
+    slide_copies: BTreeMap<String, usize>,
+    by_slide: HashMap<String, TableContinuation>,
 }
 
 #[derive(Clone, Debug)]
@@ -854,7 +868,23 @@ impl LiveSession {
         }
 
         let changed_bindings = injection_delta_keys(&delta);
-        let affected_parts = self.prepared.incremental_affected_parts(&delta);
+        let continuation_topology_may_change = delta
+            .table_rows
+            .keys()
+            .chain(delta.table_policies.keys())
+            .any(|id| {
+                self.data
+                    .table_policies
+                    .get(id)
+                    .is_some_and(|policy| policy.overflow == TableOverflowPolicy::Continue)
+                    || delta
+                        .table_policies
+                        .get(id)
+                        .is_some_and(|policy| policy.overflow == TableOverflowPolicy::Continue)
+            });
+        let affected_parts = (!continuation_topology_may_change)
+            .then(|| self.prepared.incremental_affected_parts(&delta))
+            .flatten();
         let changed_binding_set = changed_bindings.iter().cloned().collect::<BTreeSet<_>>();
         let undo = merge_injection_data(&mut self.data, delta);
         let next_overlay = match self.prepared.prepare_overlay_reusing(
@@ -1359,6 +1389,163 @@ impl PreparedTemplate {
         Ok(())
     }
 
+    fn repeated_table_patch(
+        &self,
+        id: &str,
+        table: &TablePlan,
+        rows: &[BTreeMap<String, String>],
+        shrink: Option<(usize, usize)>,
+    ) -> Result<Patch, GenerateError> {
+        let source = self.cached_part(&table.part_name)?;
+        let template_row = source.get(table.row_range.clone()).ok_or_else(|| {
+            GenerateError::new(
+                GenerateErrorCode::InvalidBindingRange,
+                "table row range is invalid",
+            )
+        })?;
+        let mut replacement = Vec::new();
+        for row in rows {
+            let mut row_patches = Vec::new();
+            if let Some((numerator, denominator)) = shrink {
+                if let Some(patch) =
+                    table_row_height_patch(template_row, numerator as u64, denominator as u64)?
+                {
+                    row_patches.push(patch);
+                }
+            }
+            for binding in &table.bindings {
+                let field = binding
+                    .id
+                    .strip_prefix(id)
+                    .and_then(|value| value.strip_prefix('.'))
+                    .ok_or_else(|| {
+                        GenerateError::new(
+                            GenerateErrorCode::InvalidTemplate,
+                            "table binding prefix mismatch",
+                        )
+                    })?;
+                let value = row.get(field).ok_or_else(|| missing_value(&binding.id))?;
+                for mut patch in text_patches(binding, value, source)? {
+                    patch.range = patch.range.start - table.row_range.start
+                        ..patch.range.end - table.row_range.start;
+                    row_patches.push(patch);
+                }
+            }
+            replacement.extend(apply_patches(template_row, row_patches)?);
+        }
+        Ok(Patch {
+            range: table.row_range.clone(),
+            replacement,
+        })
+    }
+
+    fn append_table_patches(
+        &self,
+        data: &InjectionData,
+        dynamic: &mut HashMap<String, Vec<Patch>>,
+    ) -> Result<TableContinuations, GenerateError> {
+        let mut continuations = TableContinuations {
+            slide_copies: data.slide_copies.clone(),
+            ..TableContinuations::default()
+        };
+        for (id, rows) in &data.table_rows {
+            let table = self.table_plans.get(id).ok_or_else(|| {
+                GenerateError::new(
+                    GenerateErrorCode::InvalidTemplate,
+                    format!("no repeated table row named {id}"),
+                )
+            })?;
+            let policy = data.table_policies.get(id);
+            if policy.is_some_and(|policy| policy.overflow == TableOverflowPolicy::Continue) {
+                let policy = policy.expect("continuation policy is present");
+                let maximum_rows = usize::try_from(policy.maximum_rows).unwrap_or(usize::MAX);
+                if maximum_rows == 0 {
+                    return Err(GenerateError::new(
+                        GenerateErrorCode::InvalidTable,
+                        format!("table {id} maximum rows must be positive"),
+                    ));
+                }
+                if !self.slide_deck.used_slide_parts.contains(&table.part_name) {
+                    return Err(GenerateError::new(
+                        GenerateErrorCode::InvalidTable,
+                        format!("continuation table {id} is not authored on a presentation slide"),
+                    ));
+                }
+                if data.slide_copies.contains_key(&table.part_name) {
+                    return Err(GenerateError::new(
+                        GenerateErrorCode::InvalidTable,
+                        format!(
+                            "continuation table {id} conflicts with an explicit slide copy request for {}",
+                            table.part_name
+                        ),
+                    ));
+                }
+                if continuations.by_slide.contains_key(&table.part_name) {
+                    return Err(GenerateError::new(
+                        GenerateErrorCode::InvalidTable,
+                        format!(
+                            "slide {} has more than one continuation table",
+                            table.part_name
+                        ),
+                    ));
+                }
+                let page_patches = if rows.is_empty() {
+                    vec![self.repeated_table_patch(id, table, rows, None)?]
+                } else {
+                    rows.chunks(maximum_rows)
+                        .map(|page| self.repeated_table_patch(id, table, page, None))
+                        .collect::<Result<Vec<_>, _>>()?
+                };
+                let page_count = page_patches.len();
+                let first_page_patch = page_patches[0].clone();
+                continuations.by_slide.insert(
+                    table.part_name.clone(),
+                    TableContinuation {
+                        row_range: table.row_range.clone(),
+                        page_patches,
+                    },
+                );
+                continuations
+                    .slide_copies
+                    .insert(table.part_name.clone(), page_count);
+                dynamic
+                    .entry(table.part_name.clone())
+                    .or_default()
+                    .push(first_page_patch);
+            } else {
+                let (rows, shrink) = apply_table_policy(id, rows, policy)?;
+                dynamic
+                    .entry(table.part_name.clone())
+                    .or_default()
+                    .push(self.repeated_table_patch(id, table, rows, shrink)?);
+            }
+        }
+        Ok(continuations)
+    }
+
+    fn clone_slide_patches(
+        &self,
+        clone: &SlideClone,
+        dynamic: &HashMap<String, Vec<Patch>>,
+        continuations: &TableContinuations,
+    ) -> Vec<Patch> {
+        let continuation = continuations.by_slide.get(&clone.source_part);
+        let mut patches = dynamic
+            .get(&clone.source_part)
+            .into_iter()
+            .flatten()
+            .filter(|patch| continuation.is_none_or(|value| patch.range != value.row_range))
+            .cloned()
+            .collect::<Vec<_>>();
+        if let Some(patch) = continuation
+            .and_then(|value| value.page_patches.get(clone.copy_index))
+            .cloned()
+        {
+            patches.push(patch);
+        }
+        patches
+    }
+
     /// Generate a complete caller-owned PPTX buffer.
     pub fn generate(&self, data: &InjectionData) -> Result<GenerateOutput, GenerateError> {
         let (sink, stats) = self.generate_to(data, VecSink::new())?;
@@ -1376,12 +1563,13 @@ impl PreparedTemplate {
         data: &InjectionData,
         sink: S,
     ) -> Result<(S, GenerateStats), GenerateError> {
-        let slide_operations = self.prepare_slide_operations(&data.slide_copies)?;
         let mut dynamic = HashMap::<String, Vec<Patch>>::new();
         let mut new_media = BTreeMap::<String, (&ImageData, EntryOptions)>::new();
         let mut replaced_media = HashSet::new();
         let mut image_types = BTreeMap::<String, String>::new();
         self.append_v2_patches(data, &mut dynamic)?;
+        let continuations = self.append_table_patches(data, &mut dynamic)?;
+        let slide_operations = self.prepare_slide_operations(&continuations.slide_copies)?;
         let active_table_bindings = self
             .table_plans
             .iter()
@@ -1478,59 +1666,6 @@ impl PreparedTemplate {
                     }
                 }
             }
-        }
-        for (id, rows) in &data.table_rows {
-            let table = self.table_plans.get(id).ok_or_else(|| {
-                GenerateError::new(
-                    GenerateErrorCode::InvalidTemplate,
-                    format!("no repeated table row named {id}"),
-                )
-            })?;
-            let source = self.cached_part(&table.part_name)?;
-            let template_row = source.get(table.row_range.clone()).ok_or_else(|| {
-                GenerateError::new(
-                    GenerateErrorCode::InvalidBindingRange,
-                    "table row range is invalid",
-                )
-            })?;
-            let (rows, shrink) = apply_table_policy(id, rows, data.table_policies.get(id))?;
-            let mut replacement = Vec::new();
-            for row in rows {
-                let mut row_patches = Vec::new();
-                if let Some((numerator, denominator)) = shrink {
-                    if let Some(patch) =
-                        table_row_height_patch(template_row, numerator as u64, denominator as u64)?
-                    {
-                        row_patches.push(patch);
-                    }
-                }
-                for binding in &table.bindings {
-                    let field = binding
-                        .id
-                        .strip_prefix(id)
-                        .and_then(|value| value.strip_prefix('.'))
-                        .ok_or_else(|| {
-                            GenerateError::new(
-                                GenerateErrorCode::InvalidTemplate,
-                                "table binding prefix mismatch",
-                            )
-                        })?;
-                    let value = row.get(field).ok_or_else(|| missing_value(&binding.id))?;
-                    for mut patch in text_patches(binding, value, source)? {
-                        patch.range = patch.range.start - table.row_range.start
-                            ..patch.range.end - table.row_range.start;
-                        row_patches.push(patch);
-                    }
-                }
-                replacement.extend(apply_patches(template_row, row_patches)?);
-            }
-            dynamic
-                .entry(table.part_name.clone())
-                .or_default()
-                .push(Patch {
-                    range: table.row_range.clone(),
-                    replacement,
-                });
         }
         let mut updated_chart_parts = HashSet::new();
         for (part_name, chart) in &data.charts {
@@ -1662,13 +1797,7 @@ impl PreparedTemplate {
                 .flatten()
                 .cloned()
                 .collect::<Vec<_>>();
-            patches.extend(
-                dynamic
-                    .get(&clone.source_part)
-                    .into_iter()
-                    .flatten()
-                    .cloned(),
-            );
+            patches.extend(self.clone_slide_patches(&clone, &dynamic, &continuations));
             let bytes = apply_patches(self.cached_part(&clone.source_part)?, patches)?;
             record_dirty_bytes(
                 &mut dirty_uncompressed_bytes,
@@ -1745,12 +1874,13 @@ impl PreparedTemplate {
         affected_parts: Option<&HashSet<String>>,
         changed_bindings: &BTreeSet<String>,
     ) -> Result<PreparedOverlay, GenerateError> {
-        let slide_operations = self.prepare_slide_operations(&data.slide_copies)?;
         let mut dynamic = HashMap::<String, Vec<Patch>>::new();
         let mut new_media = BTreeMap::<String, (String, ImageData, EntryOptions)>::new();
         let mut replaced_media = HashSet::new();
         let mut image_types = BTreeMap::<String, String>::new();
         self.append_v2_patches(data, &mut dynamic)?;
+        let continuations = self.append_table_patches(data, &mut dynamic)?;
+        let slide_operations = self.prepare_slide_operations(&continuations.slide_copies)?;
         let active_table_bindings = self
             .table_plans
             .iter()
@@ -1837,59 +1967,6 @@ impl PreparedTemplate {
                     }
                 }
             }
-        }
-        for (id, rows) in &data.table_rows {
-            let table = self.table_plans.get(id).ok_or_else(|| {
-                GenerateError::new(
-                    GenerateErrorCode::InvalidTemplate,
-                    format!("no repeated table row named {id}"),
-                )
-            })?;
-            let source = self.cached_part(&table.part_name)?;
-            let template_row = source.get(table.row_range.clone()).ok_or_else(|| {
-                GenerateError::new(
-                    GenerateErrorCode::InvalidBindingRange,
-                    "table row range is invalid",
-                )
-            })?;
-            let (rows, shrink) = apply_table_policy(id, rows, data.table_policies.get(id))?;
-            let mut replacement = Vec::new();
-            for row in rows {
-                let mut row_patches = Vec::new();
-                if let Some((numerator, denominator)) = shrink {
-                    if let Some(patch) =
-                        table_row_height_patch(template_row, numerator as u64, denominator as u64)?
-                    {
-                        row_patches.push(patch);
-                    }
-                }
-                for binding in &table.bindings {
-                    let field = binding
-                        .id
-                        .strip_prefix(id)
-                        .and_then(|value| value.strip_prefix('.'))
-                        .ok_or_else(|| {
-                            GenerateError::new(
-                                GenerateErrorCode::InvalidTemplate,
-                                "table binding prefix mismatch",
-                            )
-                        })?;
-                    let value = row.get(field).ok_or_else(|| missing_value(&binding.id))?;
-                    for mut patch in text_patches(binding, value, source)? {
-                        patch.range = patch.range.start - table.row_range.start
-                            ..patch.range.end - table.row_range.start;
-                        row_patches.push(patch);
-                    }
-                }
-                replacement.extend(apply_patches(template_row, row_patches)?);
-            }
-            dynamic
-                .entry(table.part_name.clone())
-                .or_default()
-                .push(Patch {
-                    range: table.row_range.clone(),
-                    replacement,
-                });
         }
         let mut updated_chart_parts = HashSet::new();
         for (part_name, chart) in &data.charts {
@@ -2043,13 +2120,7 @@ impl PreparedTemplate {
                 .flatten()
                 .cloned()
                 .collect::<Vec<_>>();
-            patches.extend(
-                dynamic
-                    .get(&clone.source_part)
-                    .into_iter()
-                    .flatten()
-                    .cloned(),
-            );
+            patches.extend(self.clone_slide_patches(&clone, &dynamic, &continuations));
             entries.push_back(GenerationEntry::Owned {
                 name: clone.part_name,
                 bytes: apply_patches(self.cached_part(&clone.source_part)?, patches)?.into(),
@@ -2193,7 +2264,7 @@ impl PreparedTemplate {
                 )
             })?;
             let mut list_replacement = original.to_vec();
-            for _ in 1..copies {
+            for copy_index in 1..copies {
                 while used_relationships.contains(&format!("rId{next_relationship}")) {
                     next_relationship = next_relationship.checked_add(1).ok_or_else(|| {
                         GenerateError::new(
@@ -2252,6 +2323,7 @@ impl PreparedTemplate {
                 operations.clones.push(SlideClone {
                     source_part: slide.part_name.clone(),
                     part_name,
+                    copy_index,
                     source_relationship_part,
                     relationship_part,
                 });

@@ -185,6 +185,7 @@ impl<'a> Reader<'a> {
                         0 => TableOverflowPolicy::Fail,
                         1 => TableOverflowPolicy::Clip,
                         2 => TableOverflowPolicy::Shrink,
+                        3 => TableOverflowPolicy::Continue,
                         _ => {
                             return Err(InjectionDecodeError::new("invalid table overflow policy"));
                         }
@@ -427,6 +428,30 @@ mod tests {
     fn decodes_v2_payloads_from_before_the_optional_table_policy_extension() {
         let bytes = hex_bytes(&GOLDEN_HEX[..GOLDEN_HEX.len() - 8]);
         assert!(InjectionData::decode(&bytes).is_ok());
+    }
+
+    #[test]
+    fn decodes_the_table_continuation_policy_tag() {
+        let mut bytes = Vec::from(MAGIC.as_slice());
+        put_u32(&mut bytes, INJECTION_SCHEMA_VERSION);
+        for _ in 0..7 {
+            put_u32(&mut bytes, 0);
+        }
+        put_u32(&mut bytes, 1);
+        put_string(&mut bytes, "metrics");
+        put_u32(&mut bytes, 12);
+        bytes.push(3);
+
+        let decoded = InjectionData::decode(&bytes).unwrap();
+        let mut expected = InjectionData::new();
+        expected.set_table_policy(
+            "metrics",
+            TablePolicyData {
+                maximum_rows: 12,
+                overflow: TableOverflowPolicy::Continue,
+            },
+        );
+        assert_eq!(decoded, expected);
     }
 
     fn hex_bytes(value: &str) -> Vec<u8> {

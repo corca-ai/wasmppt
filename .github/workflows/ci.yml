@@ -357,10 +357,20 @@ jobs:
             convert target/compat/bug59273.potx target/compat/generated.pptx
           cargo run --locked -p wasmppt-cli -- validate target/compat/generated.pptx
           cargo run --locked -p wasmppt-cli -- audit-macro-free target/compat/generated.pptx
+          cargo run --locked -p wasmppt-native \
+            --example write_table_continuation_fixture -- \
+            target/compat/continued-table.pptx
+          cargo run --locked -p wasmppt-cli -- \
+            validate target/compat/continued-table.pptx
       - name: Validate output with Microsoft Open XML SDK
-        run: >-
-          dotnet run --project tools/openxml-validator/OpenXmlValidator.csproj
-          --configuration Release -- target/compat/generated.pptx
+        run: |
+          for deck in \
+            target/compat/generated.pptx \
+            target/compat/continued-table.pptx
+          do
+            dotnet run --project tools/openxml-validator/OpenXmlValidator.csproj \
+              --configuration Release -- "$deck"
+          done
       - name: Resolve a real-world slide without silent fallback
         run: |
           cargo run --locked -p wasmppt-cli -- resolve target/compat/generated.pptx 0

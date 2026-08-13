@@ -60,6 +60,7 @@ function passingReport() {
         table: operationResult(),
         chart: operationResult(),
         slideTopology: { ...operationResult(), maximumInvalidatedSlides: 3 },
+        tableContinuation: { ...operationResult(), maximumInvalidatedSlides: 6 },
       },
     },
   }

@@ -44,7 +44,7 @@ export interface ChartBinding {
 
 export interface TablePolicyBinding {
   readonly maximumRows: number
-  readonly overflow: 'fail' | 'clip' | 'shrink'
+  readonly overflow: 'fail' | 'clip' | 'shrink' | 'continue'
 }
 
 export interface GenerationData {
@@ -167,6 +167,7 @@ export function encodeInjectionData(data: GenerationData = {}): ArrayBuffer {
     const overflowTag = policy.overflow === 'fail' ? 0
       : policy.overflow === 'clip' ? 1
         : policy.overflow === 'shrink' ? 2
+          : policy.overflow === 'continue' ? 3
           : undefined
     if (overflowTag === undefined) throw new TypeError(`${id}.overflow is invalid`)
     writer.u8(overflowTag)

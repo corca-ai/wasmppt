@@ -247,10 +247,10 @@ fn image_template() -> Vec<u8> {
 fn table_template() -> Vec<u8> {
     let options = EntryOptions::deterministic(CompressionMethod::Deflate);
     let mut writer = ZipWriter::new(VecSink::new());
-    let entries: [(&str, &[u8]); 5] = [
+    let entries: [(&str, &[u8]); 8] = [
         (
             "[Content_Types].xml",
-            br#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.template.main+xml"/></Types>"#,
+            br#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.template.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/notesSlides/notesSlide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/></Types>"#,
         ),
         (
             "_rels/.rels",
@@ -266,13 +266,65 @@ fn table_template() -> Vec<u8> {
         ),
         (
             "ppt/slides/slide1.xml",
-            br#"<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="8" name="Table"/></p:nvSpPr><p:txBody><a:tbl><a:tr h="1"><a:tc><a:p><a:r><a:t>{{items.name}}</a:t></a:r></a:p></a:tc><a:tc><a:p><a:r><a:t>{{items.amount}}</a:t></a:r></a:p></a:tc></a:tr></a:tbl></p:txBody></p:sp></p:spTree></p:cSld></p:sld>"#,
+            br#"<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="8" name="Table"/></p:nvSpPr><p:txBody><a:tbl><a:tblPr firstRow="1"><a:tableStyleId>TableStyleMedium2</a:tableStyleId></a:tblPr><a:tr h="1" data-opaque="keep"><a:tc gridSpan="2"><a:p><a:r><a:t>{{items.name}}</a:t></a:r></a:p></a:tc><a:tc><a:p><a:r><a:t>{{items.amount}}</a:t></a:r></a:p></a:tc><a:extLst><a:ext uri="urn:wasmppt:future"><future:row xmlns:future="urn:wasmppt:future">keep</future:row></a:ext></a:extLst></a:tr></a:tbl></p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="9" name="Continuation footer"><a:hlinkClick r:id="rLink"/></p:cNvPr></p:nvSpPr><p:txBody><a:p><a:r><a:t>STATIC FOOTER</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>"#,
         ),
+        (
+            "ppt/slides/_rels/slide1.xml.rels",
+            br#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rLink" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/continued-table" TargetMode="External"/><Relationship Id="rNotes" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide1.xml"/></Relationships>"#,
+        ),
+        (
+            "ppt/notesSlides/notesSlide1.xml",
+            br#"<p:notes xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree/></p:cSld></p:notes>"#,
+        ),
+        ("ppt/opaque.bin", b"opaque continuation payload"),
     ];
     for (name, bytes) in entries {
         writer.write_entry(name, bytes, &options).unwrap();
     }
     writer.finish().unwrap().0.into_inner()
+}
+
+fn table_template_with_second_binding() -> Vec<u8> {
+    let source = ZipArchive::from_bytes(table_template()).unwrap();
+    let options = EntryOptions::deterministic(CompressionMethod::Deflate);
+    let mut writer = ZipWriter::new(VecSink::new());
+    for entry in source.entries() {
+        let mut bytes = source.read_entry(entry).unwrap();
+        if entry.name == "ppt/slides/slide1.xml" {
+            bytes = String::from_utf8(bytes)
+                .unwrap()
+                .replace(
+                    "</p:spTree>",
+                    r#"<p:sp><p:nvSpPr><p:cNvPr id="10" name="Second table"/></p:nvSpPr><p:txBody><a:tbl><a:tr h="1"><a:tc><a:p><a:r><a:t>{{other.name}}</a:t></a:r></a:p></a:tc><a:tc><a:p><a:r><a:t>{{other.amount}}</a:t></a:r></a:p></a:tc></a:tr></a:tbl></p:txBody></p:sp></p:spTree>"#,
+                )
+                .into_bytes();
+        }
+        writer.write_entry(&entry.name, &bytes, &options).unwrap();
+    }
+    writer.finish().unwrap().0.into_inner()
+}
+
+fn table_rows(count: usize) -> Vec<BTreeMap<String, String>> {
+    (0..count)
+        .map(|index| {
+            BTreeMap::from([
+                ("name".to_owned(), format!("Row {index}")),
+                ("amount".to_owned(), index.to_string()),
+            ])
+        })
+        .collect()
+}
+
+fn continuation_data(count: usize, maximum_rows: u32) -> InjectionData {
+    InjectionData::new()
+        .with_table_rows("items", table_rows(count))
+        .with_table_policy(
+            "items",
+            TablePolicyData {
+                maximum_rows,
+                overflow: TableOverflowPolicy::Continue,
+            },
+        )
 }
 
 fn clone_template() -> Vec<u8> {
@@ -721,7 +773,9 @@ fn table_row_repetition_preserves_row_markup_and_escapes_values() {
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(slide.matches("<a:tr h=\"1\">").count(), 2);
+    assert_eq!(slide.matches("<a:tr h=\"1\"").count(), 2);
+    assert_eq!(slide.matches("data-opaque=\"keep\"").count(), 2);
+    assert_eq!(slide.matches("<future:row").count(), 2);
     assert!(slide.contains("Alpha"));
     assert!(slide.contains("B &amp; &lt;C&gt;"));
     assert!(!slide.contains("{{items."));
@@ -786,6 +840,183 @@ fn table_overflow_policies_fail_clip_or_shrink_before_emission() {
         assert_eq!(slide.matches("<a:tr").count(), expected_rows);
         assert!(slide.contains(expected_height));
     }
+}
+
+#[test]
+fn table_continuation_partitions_rows_deterministically_and_preserves_slide_semantics() {
+    let bytes = table_template();
+    let source = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let opaque = source
+        .read_compressed(source.entry("ppt/opaque.bin").unwrap())
+        .unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&source)
+        .unwrap()
+        .plan;
+    let prepared = PreparedTemplate::new(bytes, plan).unwrap();
+
+    for (row_count, expected_pages, expected_rows) in [
+        (0, 1, vec![0]),
+        (1, 1, vec![1]),
+        (2, 1, vec![2]),
+        (5, 3, vec![2, 2, 1]),
+    ] {
+        let data = continuation_data(row_count, 2);
+        let first = prepared.generate(&data).unwrap();
+        let second = prepared.generate(&data).unwrap();
+        assert_eq!(first.bytes, second.bytes);
+        let package = ZipArchive::from_bytes(first.bytes).unwrap();
+        let presentation = String::from_utf8(
+            package
+                .read_entry(package.entry("ppt/presentation.xml").unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(presentation.matches("<p:sldId ").count(), expected_pages);
+
+        for (index, expected_row_count) in expected_rows.into_iter().enumerate() {
+            let slide_name = format!("ppt/slides/slide{}.xml", index + 1);
+            let slide = String::from_utf8(
+                package
+                    .read_entry(package.entry(&slide_name).unwrap())
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(slide.matches("<a:tr h=\"1\"").count(), expected_row_count);
+            assert_eq!(
+                slide.matches("data-opaque=\"keep\"").count(),
+                expected_row_count
+            );
+            assert_eq!(slide.matches("gridSpan=\"2\"").count(), expected_row_count);
+            assert_eq!(slide.matches("<future:row").count(), expected_row_count);
+            assert!(slide.contains("TableStyleMedium2"));
+            assert!(slide.contains("STATIC FOOTER"));
+            assert!(!slide.contains("{{items."));
+        }
+
+        for number in 2..=expected_pages {
+            let relationships = format!("ppt/slides/_rels/slide{number}.xml.rels");
+            let relationships = String::from_utf8(
+                package
+                    .read_entry(package.entry(&relationships).unwrap())
+                    .unwrap(),
+            )
+            .unwrap();
+            assert!(relationships.contains("https://example.com/continued-table"));
+            assert!(!relationships.contains("notesSlide"));
+        }
+        assert_eq!(
+            package
+                .read_compressed(package.entry("ppt/opaque.bin").unwrap())
+                .unwrap(),
+            opaque
+        );
+        assert!(
+            !PackageGraph::build(&package)
+                .unwrap()
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| matches!(
+                    diagnostic.code,
+                    wasmppt_opc::DiagnosticCode::MissingRelationshipTarget
+                        | wasmppt_opc::DiagnosticCode::InvalidRelationshipsXml
+                        | wasmppt_opc::DiagnosticCode::InvalidContentTypesXml
+                ))
+        );
+    }
+}
+
+#[test]
+fn table_continuation_rejects_ambiguous_topology_before_emission() {
+    let bytes = table_template();
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let prepared = PreparedTemplate::new(bytes, plan).unwrap();
+    let conflict = prepared
+        .generate(&continuation_data(3, 2).with_slide_copies("ppt/slides/slide1.xml", 2))
+        .unwrap_err();
+    assert_eq!(conflict.code(), GenerateErrorCode::InvalidTable);
+    assert!(conflict.to_string().contains("explicit slide copy"));
+
+    let bytes = table_template_with_second_binding();
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let prepared = PreparedTemplate::new(bytes, plan).unwrap();
+    let ambiguous = prepared
+        .generate(
+            &continuation_data(3, 2)
+                .with_table_rows("other", table_rows(3))
+                .with_table_policy(
+                    "other",
+                    TablePolicyData {
+                        maximum_rows: 2,
+                        overflow: TableOverflowPolicy::Continue,
+                    },
+                ),
+        )
+        .unwrap_err();
+    assert_eq!(ambiguous.code(), GenerateErrorCode::InvalidTable);
+    assert!(
+        ambiguous
+            .to_string()
+            .contains("more than one continuation table")
+    );
+
+    let missing_field = vec![BTreeMap::from([(
+        "name".to_owned(),
+        "incomplete".to_owned(),
+    )])];
+    let transactional = prepared
+        .generate(
+            &InjectionData::new()
+                .with_table_rows("items", missing_field)
+                .with_table_policy(
+                    "items",
+                    TablePolicyData {
+                        maximum_rows: 2,
+                        overflow: TableOverflowPolicy::Continue,
+                    },
+                )
+                .with_table_rows("other", Vec::new()),
+        )
+        .unwrap_err();
+    assert_eq!(transactional.code(), GenerateErrorCode::MissingValue);
+}
+
+#[test]
+fn table_continuation_handles_large_row_sets_with_explicit_bounds() {
+    let bytes = table_template();
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let output = PreparedTemplate::new(bytes, plan)
+        .unwrap()
+        .generate(&continuation_data(1_000, 25))
+        .unwrap();
+    let package = ZipArchive::from_bytes(output.bytes).unwrap();
+    let presentation = String::from_utf8(
+        package
+            .read_entry(package.entry("ppt/presentation.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(presentation.matches("<p:sldId ").count(), 40);
+    let last = String::from_utf8(
+        package
+            .read_entry(package.entry("ppt/slides/slide40.xml").unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(last.contains("Row 999"));
+    assert_eq!(last.matches("<a:tr h=\"1\"").count(), 25);
 }
 
 #[test]
@@ -971,6 +1202,82 @@ fn live_session_resolves_overlay_bytes_and_streams_the_identical_revision() {
         actual.extend(cursor.pull(11).unwrap());
     }
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn live_table_continuation_rebuilds_topology_and_exports_the_current_revision() {
+    let bytes = table_template();
+    let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let prepared = Arc::new(PreparedTemplate::new(bytes, plan).unwrap());
+    let mut session = prepared
+        .start_live_session(continuation_data(2, 2))
+        .unwrap();
+    let initial_presentation =
+        String::from_utf8(session.overlay().read_part("ppt/presentation.xml").unwrap()).unwrap();
+    assert_eq!(initial_presentation.matches("<p:sldId ").count(), 1);
+
+    let update = session
+        .apply_delta(
+            0,
+            1,
+            InjectionData::new().with_table_rows("items", table_rows(3)),
+        )
+        .unwrap();
+    assert_eq!(update.revision, 1);
+    assert!(update.graph_changed);
+    let presentation =
+        String::from_utf8(session.overlay().read_part("ppt/presentation.xml").unwrap()).unwrap();
+    assert_eq!(presentation.matches("<p:sldId ").count(), 2);
+    let second_slide = String::from_utf8(
+        session
+            .overlay()
+            .read_part("ppt/slides/slide2.xml")
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(second_slide.contains("Row 2"));
+    assert_eq!(second_slide.matches("<a:tr h=\"1\"").count(), 1);
+
+    let mut cursor = session.generation_cursor();
+    let mut exported = Vec::new();
+    while !cursor.is_done() {
+        exported.extend(cursor.pull(31).unwrap());
+    }
+    let exported = ZipArchive::from_bytes(exported).unwrap();
+    assert_eq!(
+        exported
+            .read_entry(exported.entry("ppt/slides/slide2.xml").unwrap())
+            .unwrap(),
+        session
+            .overlay()
+            .read_part("ppt/slides/slide2.xml")
+            .unwrap()
+    );
+
+    let before = session
+        .overlay()
+        .part_fingerprint("ppt/presentation.xml")
+        .unwrap();
+    let rejected = session
+        .apply_delta(
+            1,
+            2,
+            InjectionData::new().with_slide_copies("ppt/slides/slide1.xml", 2),
+        )
+        .unwrap_err();
+    assert_eq!(rejected.code(), GenerateErrorCode::InvalidTable);
+    assert_eq!(session.revision(), 1);
+    assert_eq!(
+        session
+            .overlay()
+            .part_fingerprint("ppt/presentation.xml")
+            .unwrap(),
+        before
+    );
 }
 
 #[test]

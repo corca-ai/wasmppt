@@ -15,7 +15,10 @@ test('benchmark matrix and all three release hosts remain machine-checkable', ()
   assert(budgets.native.invariants.maximumOutputChunkBytes > 0)
   assert.equal(budgets.native.invariants.maximumInflatedEntries, 0)
   assert.deepEqual(Object.keys(budgets.nativeLive), ['10', '50', '200'])
-  assert.deepEqual(Object.keys(budgets.nativeLiveOperations), ['table', 'chart', 'slideTopology'])
+  assert.deepEqual(
+    Object.keys(budgets.nativeLiveOperations),
+    ['table', 'chart', 'slideTopology', 'tableContinuation'],
+  )
   assert(budgets.browserScalarWasm.maximumBinaryBytes > 0)
   assert(budgets.browserScalarWasm.maximumFirstVisibleSlideMs > 0)
   assert(budgets.browserScalarWasm.maximumLiveInputToPixelsP95Ms > 0)

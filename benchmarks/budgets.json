@@ -110,6 +110,12 @@
       "maximumInputToRenderReadyP95Ns": 200000000,
       "maximumInvalidatedSlides": 3,
       "maximumResidentBytes": 536870912
+    },
+    "tableContinuation": {
+      "maximumApplyDeltaP95Ns": 150000000,
+      "maximumInputToRenderReadyP95Ns": 300000000,
+      "maximumInvalidatedSlides": 6,
+      "maximumResidentBytes": 536870912
     }
   },
   "browserScalarWasm": {

@@ -1,8 +1,7 @@
 # OPC and ZIP Substrate
 
-This document describes the implemented bounded ZIP layer in `wasmppt-opc`. Higher-level
-Open Packaging Conventions (OPC) relationships and content types are introduced by the
-next architecture slice.
+This document describes the implemented bounded ZIP and Open Packaging Conventions (OPC)
+layer in `wasmppt-opc`.
 
 ## Implemented behavior
 
@@ -26,6 +25,15 @@ strictly forward-only.
 pulls. It streams raw entry payloads straight from `ReadAt`, retains only the active changed
 entry's compressed bytes, and emits the central directory after all entries. A byte-for-byte
 parity test drains it in seven-byte chunks; template generation separately tests one-byte pulls.
+
+`PackageOverlay` exposes one complete immutable logical package revision while retaining only
+new or changed part bytes. Removed names disappear from its complete name set, unchanged reads
+are served from the source archive, and `PackageGraph` and slide resolution can consume the live
+overlay without a ZIP round trip. Its pull cursor raw-copies unchanged compressed payloads and
+streams an exact physical revision; overlay limits independently bound materialized part count
+and bytes. `changed_parts_since` compares materialized and name-set candidates when source bytes
+match; when physical sources differ, it conservatively compares the complete logical name union.
+That explicit boundary prevents a raw source change from being mistaken for cache reuse.
 
 ## Deterministic mode
 

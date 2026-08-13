@@ -1,5 +1,6 @@
 export const CORE_PACKAGES = new Set([
   'wasmppt-deck',
+  'wasmppt-deck-compose',
   'wasmppt-deck-layout',
   'wasmppt-deck-template',
   'wasmppt-display',

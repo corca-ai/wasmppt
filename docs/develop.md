@@ -37,6 +37,7 @@ commit. See [quality gates](quality.md) for tier ownership and quarantine policy
 | `wasmppt-deck` | library | none | semantic deck and physical-plan contracts |
 | `wasmppt-deck-template` | library | none | explicit Cortex Theme Starter POTX profiles |
 | `wasmppt-deck-layout` | library | none | bounded semantic layout and pagination |
+| `wasmppt-deck-compose` | library | none | editable PresentationML and live package overlays |
 | `wasmppt-opc` | library | none | bounded ZIP and OPC substrate |
 | `wasmppt-xml` | library | none | loss-aware namespace and XML tokens |
 | `wasmppt-pml` | library | none | PresentationML typed views |
@@ -65,6 +66,10 @@ planning and parsing:
 - `wasmppt-deck-layout` consumes only validated deck and template contracts plus optional
   exact font bytes. It owns semantic grouping, bounded candidate search, measurement caches,
   pagination, and deterministic `DeckPlan` production; host font and DOM APIs stay outside it.
+- `wasmppt-deck-compose` validates an exact spec/template/plan tuple, projects its pages into
+  editable PresentationML, and owns only the changed topology, slide, relationship, and media
+  bytes in an immutable overlay. It delegates ZIP reuse and streaming to `wasmppt-opc` and has
+  no DOM, JavaScript generator, filesystem, or browser dependency.
 - `wasmppt-template::inject` owns package reads, generation state, caching, and output
   orchestration. Its `patch` module owns bounded XML replacements, escaping, and relationship
   target normalization; its `table` module owns row overflow and height-scaling policy. Neither

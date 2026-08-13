@@ -1,0 +1,651 @@
+use std::collections::BTreeMap;
+
+use wasmppt_deck::{
+    ContentFit, EmuRect, EmuSize, FragmentSlice, HyperlinkKind, ListContent, PhysicalPage,
+    PlannedFragment, RegionRole, RichText, RichTextRun, SemanticContent, SemanticNode, StableId,
+    TemplateLayout, TemplateRegion, TemplateTextLevel,
+};
+
+use crate::{ComposeError, ComposeErrorCode, media::PreparedMedia, xml_attr, xml_text};
+
+const OFFICE_REL: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+pub(crate) struct ComposedSlide {
+    pub(crate) xml: Vec<u8>,
+    pub(crate) relationships: Vec<u8>,
+}
+
+struct SlideWriter<'a> {
+    xml: String,
+    relationships: String,
+    next_shape_id: u32,
+    next_relationship_id: u32,
+    nodes: &'a BTreeMap<StableId, &'a SemanticNode>,
+    media: &'a BTreeMap<StableId, PreparedMedia>,
+}
+
+pub(crate) fn compose_slide(
+    page: &PhysicalPage,
+    layout: &TemplateLayout,
+    page_size: EmuSize,
+    regions: &BTreeMap<StableId, &TemplateRegion>,
+    nodes: &BTreeMap<StableId, &SemanticNode>,
+    media: &BTreeMap<StableId, PreparedMedia>,
+) -> Result<ComposedSlide, ComposeError> {
+    let visibility = if page.hidden { " show=\"0\"" } else { "" };
+    let mut writer = SlideWriter {
+        xml: format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><p:sld xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"{OFFICE_REL}\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"{visibility}><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>"
+        ),
+        relationships: format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"{OFFICE_REL}/slideLayout\" Target=\"../{}\"/>",
+            xml_attr(
+                layout
+                    .source_part
+                    .strip_prefix("ppt/")
+                    .unwrap_or(&layout.source_part)
+            )
+        ),
+        next_shape_id: 2,
+        next_relationship_id: 2,
+        nodes,
+        media,
+    };
+
+    if page.continuation.ordinal > 1 {
+        if let Some(node_id) = page.continuation.repeated_heading_node_id {
+            if let Some(node) = nodes.get(&node_id) {
+                if let SemanticContent::Text(text) = &node.content {
+                    let continuation_region = layout.region_ids.iter().find_map(|id| {
+                        regions
+                            .get(id)
+                            .copied()
+                            .filter(|region| region.role == RegionRole::Title)
+                    });
+                    let frame = continuation_region.map_or_else(
+                        || EmuRect {
+                            x: page_size.width / 20,
+                            y: page_size.height / 25,
+                            width: page_size.width / 10 * 9,
+                            height: page_size.height / 8,
+                        },
+                        |region| region.frame,
+                    );
+                    writer.text_shape(
+                        frame,
+                        "Continuation heading",
+                        &[Paragraph::rich(text.runs.clone(), 0)],
+                        continuation_region,
+                        Some(2_400),
+                    )?;
+                }
+            }
+        }
+    }
+
+    for planned_region in &page.regions {
+        let region = regions
+            .get(&planned_region.template_region_id)
+            .copied()
+            .ok_or_else(|| {
+                ComposeError::new(
+                    ComposeErrorCode::InvalidContract,
+                    format!(
+                        "planned region references missing template region {}",
+                        planned_region.template_region_id
+                    ),
+                )
+            })?;
+        for fragment in &planned_region.fragments {
+            writer.fragment(fragment, region)?;
+        }
+    }
+    if let Some(label) = &page.continuation.label {
+        writer.text_shape(
+            EmuRect {
+                x: page_size.width / 5 * 4,
+                y: page_size.height / 20 * 19,
+                width: page_size.width / 20 * 3,
+                height: page_size.height / 25,
+            },
+            "Continuation marker",
+            &[Paragraph::plain(label.clone(), 0)],
+            None,
+            Some(900),
+        )?;
+    }
+    writer
+        .xml
+        .push_str("</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>");
+    writer.relationships.push_str("</Relationships>");
+    Ok(ComposedSlide {
+        xml: writer.xml.into_bytes(),
+        relationships: writer.relationships.into_bytes(),
+    })
+}
+
+impl SlideWriter<'_> {
+    fn fragment(
+        &mut self,
+        fragment: &PlannedFragment,
+        region: &TemplateRegion,
+    ) -> Result<(), ComposeError> {
+        let node = self
+            .nodes
+            .get(&fragment.source_node_id)
+            .copied()
+            .ok_or_else(|| {
+                ComposeError::new(
+                    ComposeErrorCode::InvalidContract,
+                    format!(
+                        "fragment references missing node {}",
+                        fragment.source_node_id
+                    ),
+                )
+            })?;
+        match &node.content {
+            SemanticContent::Text(text) => {
+                let runs = slice_rich_text(text, fragment.slice)?;
+                self.text_shape(
+                    fragment.frame,
+                    role_name(node),
+                    &[Paragraph::rich(runs, 0)],
+                    Some(region),
+                    Some(fragment.type_choice.font_size),
+                )
+            }
+            SemanticContent::Code(code) => {
+                let lines = slice_code(&code.code, fragment.slice)?;
+                let paragraphs = lines
+                    .into_iter()
+                    .map(|line| Paragraph {
+                        runs: vec![RichTextRun {
+                            text: line,
+                            marks: wasmppt_deck::TextMarks {
+                                inline_code: true,
+                                ..Default::default()
+                            },
+                            hyperlink: None,
+                        }],
+                        level: 0,
+                        bullet: Bullet::None,
+                    })
+                    .collect::<Vec<_>>();
+                self.text_shape(
+                    fragment.frame,
+                    role_name(node),
+                    &paragraphs,
+                    Some(region),
+                    Some(fragment.type_choice.font_size),
+                )
+            }
+            SemanticContent::List(list) => {
+                let paragraphs = list_paragraphs(list, fragment.slice)?;
+                self.text_shape(
+                    fragment.frame,
+                    role_name(node),
+                    &paragraphs,
+                    Some(region),
+                    Some(fragment.type_choice.font_size),
+                )
+            }
+            SemanticContent::Image(image) => {
+                let media = self.media.get(&image.resource_id).ok_or_else(|| {
+                    ComposeError::new(
+                        ComposeErrorCode::InvalidContract,
+                        "prepared image is missing",
+                    )
+                })?;
+                self.picture(
+                    fragment.frame,
+                    &image.alt_text,
+                    media,
+                    fragment.type_choice.fit,
+                    false,
+                )
+            }
+            SemanticContent::Svg(svg) => {
+                let media = self.media.get(&svg.resource_id).ok_or_else(|| {
+                    ComposeError::new(ComposeErrorCode::InvalidContract, "prepared SVG is missing")
+                })?;
+                self.picture(
+                    fragment.frame,
+                    svg.source_text.as_deref().unwrap_or("Vector graphic"),
+                    media,
+                    fragment.type_choice.fit,
+                    true,
+                )
+            }
+            SemanticContent::Children(children) => {
+                let paragraphs = children
+                    .iter()
+                    .filter_map(|child| match &child.content {
+                        SemanticContent::Text(text) => Some(Paragraph::rich(text.runs.clone(), 0)),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                if paragraphs.is_empty() {
+                    Err(ComposeError::new(
+                        ComposeErrorCode::UnsupportedContent,
+                        "container fragment has no directly editable text",
+                    ))
+                } else {
+                    self.text_shape(
+                        fragment.frame,
+                        role_name(node),
+                        &paragraphs,
+                        Some(region),
+                        Some(fragment.type_choice.font_size),
+                    )
+                }
+            }
+            SemanticContent::Table(_) | SemanticContent::Chart(_) => Err(ComposeError::new(
+                ComposeErrorCode::UnsupportedContent,
+                "table and chart composition is delivered by the next deck-engine slice",
+            )),
+        }
+    }
+
+    fn text_shape(
+        &mut self,
+        frame: EmuRect,
+        name: &str,
+        paragraphs: &[Paragraph],
+        region: Option<&TemplateRegion>,
+        requested_font_size: Option<u32>,
+    ) -> Result<(), ComposeError> {
+        let shape_id = self.take_shape_id()?;
+        let style = region.and_then(|region| region.text_levels.first());
+        self.xml.push_str(&format!(
+            "<p:sp><p:nvSpPr><p:cNvPr id=\"{shape_id}\" name=\"{}\"/><p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x=\"{}\" y=\"{}\"/><a:ext cx=\"{}\" cy=\"{}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr{} wrap=\"square\"/><a:lstStyle>",
+            xml_attr(name), frame.x, frame.y, frame.width, frame.height,
+            margins(region)
+        ));
+        self.xml.push_str("</a:lstStyle>");
+        for paragraph in paragraphs {
+            self.paragraph(paragraph, style, requested_font_size)?;
+        }
+        self.xml.push_str("</p:txBody></p:sp>");
+        Ok(())
+    }
+
+    fn paragraph(
+        &mut self,
+        paragraph: &Paragraph,
+        style: Option<&TemplateTextLevel>,
+        requested: Option<u32>,
+    ) -> Result<(), ComposeError> {
+        let level = paragraph.level.min(8);
+        let margin = style
+            .and_then(|level| level.margin_left)
+            .unwrap_or(342_900 + i64::from(level) * 342_900);
+        let indent = style.and_then(|level| level.indent).unwrap_or(-285_750);
+        self.xml.push_str(&format!(
+            "<a:p><a:pPr lvl=\"{level}\" marL=\"{margin}\" indent=\"{indent}\">"
+        ));
+        match paragraph.bullet {
+            Bullet::None => self.xml.push_str("<a:buNone/>"),
+            Bullet::Unordered => self.xml.push_str("<a:buChar char=\"•\"/>"),
+            Bullet::Ordered(start) => self.xml.push_str(&format!(
+                "<a:buAutoNum type=\"arabicPeriod\" startAt=\"{}\"/>",
+                start.max(1)
+            )),
+        }
+        self.xml.push_str("</a:pPr>");
+        for run in &paragraph.runs {
+            let hyperlink = run
+                .hyperlink
+                .as_ref()
+                .map(|link| self.hyperlink(link))
+                .transpose()?
+                .flatten();
+            self.xml.push_str("<a:r><a:rPr lang=\"en-US\"");
+            let font_size = requested
+                .filter(|size| *size > 0)
+                .or_else(|| style.and_then(|style| style.font_size))
+                .unwrap_or(1_800);
+            self.xml.push_str(&format!(" sz=\"{font_size}\""));
+            if run.marks.bold || style.and_then(|style| style.bold).unwrap_or(false) {
+                self.xml.push_str(" b=\"1\"");
+            }
+            if run.marks.italic || style.and_then(|style| style.italic).unwrap_or(false) {
+                self.xml.push_str(" i=\"1\"");
+            }
+            if run.marks.strikethrough {
+                self.xml.push_str(" strike=\"sngStrike\"");
+            }
+            self.xml.push('>');
+            if let Some(color) = style.and_then(|style| style.color.as_ref()) {
+                if let Some(scheme) = &color.scheme {
+                    self.xml.push_str(&format!(
+                        "<a:solidFill><a:schemeClr val=\"{}\"/></a:solidFill>",
+                        xml_attr(scheme)
+                    ));
+                } else {
+                    self.xml.push_str(&format!(
+                        "<a:solidFill><a:srgbClr val=\"{:06X}\"/></a:solidFill>",
+                        color.rgb & 0x00ff_ffff
+                    ));
+                }
+            }
+            let typeface = if run.marks.inline_code {
+                Some("Courier New")
+            } else {
+                style.and_then(|style| style.latin_typeface.as_deref())
+            };
+            if let Some(typeface) = typeface {
+                self.xml
+                    .push_str(&format!("<a:latin typeface=\"{}\"/>", xml_attr(typeface)));
+            }
+            if let Some(id) = hyperlink {
+                self.xml
+                    .push_str(&format!("<a:hlinkClick r:id=\"{}\"/>", xml_attr(&id)));
+            }
+            self.xml.push_str("</a:rPr><a:t>");
+            self.xml.push_str(&xml_text(&run.text));
+            self.xml.push_str("</a:t></a:r>");
+        }
+        self.xml.push_str("<a:endParaRPr/></a:p>");
+        Ok(())
+    }
+
+    fn hyperlink(
+        &mut self,
+        link: &wasmppt_deck::SafeHyperlink,
+    ) -> Result<Option<String>, ComposeError> {
+        let target = match link.kind {
+            HyperlinkKind::Web => link.target.clone(),
+            HyperlinkKind::Email | HyperlinkKind::Telephone => link.target.clone(),
+            HyperlinkKind::SourceAnchor => return Ok(None),
+        };
+        let id = self.take_relationship_id()?;
+        self.relationships.push_str(&format!(
+            "<Relationship Id=\"{}\" Type=\"{OFFICE_REL}/hyperlink\" Target=\"{}\" TargetMode=\"External\"/>",
+            xml_attr(&id), xml_attr(&target)
+        ));
+        Ok(Some(id))
+    }
+
+    fn picture(
+        &mut self,
+        frame: EmuRect,
+        alt: &str,
+        media: &PreparedMedia,
+        fit: ContentFit,
+        svg: bool,
+    ) -> Result<(), ComposeError> {
+        let shape_id = self.take_shape_id()?;
+        let relationship_id = self.take_relationship_id()?;
+        let target = media
+            .part_name
+            .strip_prefix("ppt/")
+            .unwrap_or(&media.part_name);
+        self.relationships.push_str(&format!(
+            "<Relationship Id=\"{}\" Type=\"{OFFICE_REL}/image\" Target=\"../{}\"/>",
+            xml_attr(&relationship_id),
+            xml_attr(target)
+        ));
+        let crop = crop(media, frame, fit);
+        let svg_extension = if svg {
+            format!(
+                "<a:extLst><a:ext uri=\"{{96DAC541-7B7A-43D3-8B79-37D633B846F1}}\"><asvg:svgBlip xmlns:asvg=\"http://schemas.microsoft.com/office/drawing/2016/SVG/main\" r:embed=\"{}\"/></a:ext></a:extLst>",
+                xml_attr(&relationship_id)
+            )
+        } else {
+            String::new()
+        };
+        self.xml.push_str(&format!(
+            "<p:pic><p:nvPicPr><p:cNvPr id=\"{shape_id}\" name=\"Media {shape_id}\" descr=\"{}\"/><p:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed=\"{}\">{svg_extension}</a:blip>{crop}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x=\"{}\" y=\"{}\"/><a:ext cx=\"{}\" cy=\"{}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr></p:pic>",
+            xml_attr(alt), xml_attr(&relationship_id), frame.x, frame.y, frame.width, frame.height
+        ));
+        Ok(())
+    }
+
+    fn take_shape_id(&mut self) -> Result<u32, ComposeError> {
+        let id = self.next_shape_id;
+        self.next_shape_id = self.next_shape_id.checked_add(1).ok_or_else(|| {
+            ComposeError::new(ComposeErrorCode::WorkLimit, "shape identifier overflow")
+        })?;
+        Ok(id)
+    }
+
+    fn take_relationship_id(&mut self) -> Result<String, ComposeError> {
+        let id = self.next_relationship_id;
+        self.next_relationship_id = self.next_relationship_id.checked_add(1).ok_or_else(|| {
+            ComposeError::new(
+                ComposeErrorCode::WorkLimit,
+                "relationship identifier overflow",
+            )
+        })?;
+        Ok(format!("rId{id}"))
+    }
+}
+
+#[derive(Clone)]
+struct Paragraph {
+    runs: Vec<RichTextRun>,
+    level: u8,
+    bullet: Bullet,
+}
+
+impl Paragraph {
+    fn rich(runs: Vec<RichTextRun>, level: u8) -> Self {
+        Self {
+            runs,
+            level,
+            bullet: Bullet::None,
+        }
+    }
+    fn plain(text: String, level: u8) -> Self {
+        Self::rich(
+            vec![RichTextRun {
+                text,
+                marks: Default::default(),
+                hyperlink: None,
+            }],
+            level,
+        )
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Bullet {
+    None,
+    Unordered,
+    Ordered(u32),
+}
+
+fn slice_rich_text(
+    text: &RichText,
+    slice: FragmentSlice,
+) -> Result<Vec<RichTextRun>, ComposeError> {
+    let (start, end) = match slice {
+        FragmentSlice::Whole => (0, text.plain_text().len()),
+        FragmentSlice::Text { start, end } => (start as usize, end as usize),
+        _ => {
+            return Err(ComposeError::new(
+                ComposeErrorCode::InvalidContract,
+                "text fragment has a non-text slice",
+            ));
+        }
+    };
+    let mut output = Vec::new();
+    let mut offset = 0usize;
+    for run in &text.runs {
+        let run_end = offset.checked_add(run.text.len()).ok_or_else(|| {
+            ComposeError::new(ComposeErrorCode::WorkLimit, "rich-text byte count overflow")
+        })?;
+        let overlap_start = start.max(offset);
+        let overlap_end = end.min(run_end);
+        if overlap_start < overlap_end {
+            let local_start = overlap_start - offset;
+            let local_end = overlap_end - offset;
+            let selected = run.text.get(local_start..local_end).ok_or_else(|| {
+                ComposeError::new(
+                    ComposeErrorCode::InvalidContract,
+                    "text slice is not on UTF-8 boundaries",
+                )
+            })?;
+            let mut selected_run = run.clone();
+            selected_run.text = selected.to_owned();
+            output.push(selected_run);
+        }
+        offset = run_end;
+    }
+    if start > end || end > offset || output.is_empty() {
+        return Err(ComposeError::new(
+            ComposeErrorCode::InvalidContract,
+            "text slice is empty or outside its source",
+        ));
+    }
+    Ok(output)
+}
+
+fn slice_code(code: &str, slice: FragmentSlice) -> Result<Vec<String>, ComposeError> {
+    let lines = code.split('\n').map(ToOwned::to_owned).collect::<Vec<_>>();
+    let (start, end) = match slice {
+        FragmentSlice::Whole => (0, lines.len()),
+        FragmentSlice::CodeLines { start, end } => (start as usize, end as usize),
+        _ => {
+            return Err(ComposeError::new(
+                ComposeErrorCode::InvalidContract,
+                "code fragment has a non-code slice",
+            ));
+        }
+    };
+    lines
+        .get(start..end)
+        .map(<[String]>::to_vec)
+        .filter(|lines| !lines.is_empty())
+        .ok_or_else(|| {
+            ComposeError::new(
+                ComposeErrorCode::InvalidContract,
+                "code slice is empty or outside its source",
+            )
+        })
+}
+
+fn list_paragraphs(
+    list: &ListContent,
+    slice: FragmentSlice,
+) -> Result<Vec<Paragraph>, ComposeError> {
+    let (start, end) = match slice {
+        FragmentSlice::Whole => (0, list.items.len()),
+        FragmentSlice::ListItems { start, end } => (start as usize, end as usize),
+        _ => {
+            return Err(ComposeError::new(
+                ComposeErrorCode::InvalidContract,
+                "list fragment has a non-list slice",
+            ));
+        }
+    };
+    let items = list
+        .items
+        .get(start..end)
+        .filter(|items| !items.is_empty())
+        .ok_or_else(|| {
+            ComposeError::new(
+                ComposeErrorCode::InvalidContract,
+                "list slice is empty or outside its source",
+            )
+        })?;
+    let mut output = Vec::new();
+    append_list(
+        items,
+        list.ordered,
+        list.start.saturating_add(start as u32),
+        0,
+        &mut output,
+    );
+    Ok(output)
+}
+
+fn append_list(
+    items: &[wasmppt_deck::ListItem],
+    ordered: bool,
+    start: u32,
+    level: u8,
+    output: &mut Vec<Paragraph>,
+) {
+    for (index, item) in items.iter().enumerate() {
+        let mut first = true;
+        for block in &item.blocks {
+            if let SemanticContent::Text(text) = &block.content {
+                output.push(Paragraph {
+                    runs: text.runs.clone(),
+                    level,
+                    bullet: if first {
+                        if ordered {
+                            Bullet::Ordered(start.saturating_add(index as u32))
+                        } else {
+                            Bullet::Unordered
+                        }
+                    } else {
+                        Bullet::None
+                    },
+                });
+                first = false;
+            }
+        }
+        for child in &item.children {
+            append_list(
+                &child.items,
+                child.ordered,
+                child.start,
+                level.saturating_add(1),
+                output,
+            );
+        }
+    }
+}
+
+fn crop(media: &PreparedMedia, frame: EmuRect, fit: ContentFit) -> String {
+    let Some(size) = media.size else {
+        return "<a:srcRect/>".to_owned();
+    };
+    if fit != ContentFit::Cover
+        || frame.width <= 0
+        || frame.height <= 0
+        || size.width == 0
+        || size.height == 0
+    {
+        return "<a:srcRect/>".to_owned();
+    }
+    let image_ratio = f64::from(size.width) / f64::from(size.height);
+    let frame_ratio = frame.width as f64 / frame.height as f64;
+    if image_ratio > frame_ratio {
+        let side = (((1.0 - frame_ratio / image_ratio) / 2.0) * 100_000.0).round() as u32;
+        format!("<a:srcRect l=\"{side}\" r=\"{side}\"/>")
+    } else {
+        let side = (((1.0 - image_ratio / frame_ratio) / 2.0) * 100_000.0).round() as u32;
+        format!("<a:srcRect t=\"{side}\" b=\"{side}\"/>")
+    }
+}
+
+fn margins(region: Option<&TemplateRegion>) -> String {
+    region
+        .map(|region| {
+            format!(
+                " lIns=\"{}\" tIns=\"{}\" rIns=\"{}\" bIns=\"{}\"",
+                region.margins.left,
+                region.margins.top,
+                region.margins.right,
+                region.margins.bottom
+            )
+        })
+        .unwrap_or_default()
+}
+
+fn role_name(node: &SemanticNode) -> &'static str {
+    match node.role {
+        wasmppt_deck::SemanticRole::Title => "Title",
+        wasmppt_deck::SemanticRole::Subtitle => "Subtitle",
+        wasmppt_deck::SemanticRole::List => "List",
+        wasmppt_deck::SemanticRole::Figure => "Figure",
+        wasmppt_deck::SemanticRole::Code => "Code",
+        wasmppt_deck::SemanticRole::Diagram | wasmppt_deck::SemanticRole::DisplayMath => {
+            "Vector graphic"
+        }
+        _ => "Content",
+    }
+}

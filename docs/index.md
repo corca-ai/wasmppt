@@ -22,6 +22,8 @@ This is the canonical index for living `wasmppt` documentation.
   resolved template profiles, active-content policy, and deterministic cache identity.
 - [Semantic layout and pagination](deck-layout.md) — bounded candidate search, exact font
   measurement, authored content relations, continuation policy, and deterministic plans.
+- [Editable deck composition](deck-compose.md) — loss-aware plan projection, live package
+  overlays, editable text and lists, image/SVG policy, and pull-based PPTX export.
 - [High-speed template injection](injection.md) — prepared warm generation,
   text, images, tables, slides, macro stripping, streaming, and validation.
 - [Live editing and incremental preview](live-editing.md) — revisioned deltas,

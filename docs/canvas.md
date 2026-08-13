@@ -25,6 +25,13 @@ the common display-list semantics on Canvas 2D:
   wrapping, autofit, alignment and text-frame anchoring;
 - deterministic cache eviction and disposal for decoded images.
 
+Backend-neutral preset paths and shape/group transform matrices live in `scene/geometry`.
+Canvas only projects that shared plan through the Canvas path and transform APIs; it does not
+maintain a second preset-geometry table. The byte-budgeted cache is independently owned by
+`cache/byte-budget-lru`, while the WPDL decoder remains a pure byte-to-scene operation that does
+not read `document`, construct a canvas, or test browser capabilities. Existing symbols continue
+to be re-exported from the package root and `canvas.js` compatibility entry point.
+
 Canvas 2D and `OffscreenCanvasRenderingContext2D` expose the same core drawing and text
 measurement operations. `renderOffscreenThumbnail` renders a bounded thumbnail in a Worker and
 returns a transferable `ImageBitmap`; hosts without OffscreenCanvas receive an explicit fallback

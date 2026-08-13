@@ -12,8 +12,23 @@ await mkdir(resolve(output, 'fixtures'), { recursive: true })
 for (const file of ['index.html', 'style.css', 'app.js', 'worker.js']) {
   await cp(resolve(root, 'examples/browser-dogfood', file), resolve(output, file))
 }
-for (const file of ['worker-client.js', 'worker-runtime.js', 'protocol.js', 'injection.js', 'canvas.js', 'shaper.js']) {
+for (const file of [
+  'worker-client.js',
+  'worker-runtime.js',
+  'protocol.js',
+  'error.js',
+  'injection.js',
+  'canvas.js',
+  'shaper.js',
+]) {
   await cp(resolve(root, 'packages/wasmppt/dist', file), resolve(output, 'lib', file))
+}
+for (const directory of ['cache', 'scene']) {
+  await cp(
+    resolve(root, 'packages/wasmppt/dist', directory),
+    resolve(output, 'lib', directory),
+    { recursive: true },
+  )
 }
 for (const file of ['wasmppt_shaper_wasm.js', 'wasmppt_shaper_wasm_bg.wasm']) {
   await cp(

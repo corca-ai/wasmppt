@@ -185,6 +185,23 @@ const server = createServer(async (request, response) => {
     }
     return
   }
+  if (request.url?.startsWith('/dist/')) {
+    const relative = request.url.slice('/dist/'.length)
+    if (!relative || relative.includes('..') || !relative.endsWith('.js')) {
+      response.writeHead(404)
+      response.end('not found')
+      return
+    }
+    try {
+      const source = await readFile(join(packageDirectory, 'dist', relative))
+      response.writeHead(200, { 'content-type': 'text/javascript' })
+      response.end(source)
+    } catch {
+      response.writeHead(404)
+      response.end('not found')
+    }
+    return
+  }
   const route = routes.get(request.url ?? '')
   if (route === undefined) {
     response.writeHead(404)

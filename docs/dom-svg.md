@@ -47,6 +47,11 @@ integration fixture asserts the same resolved title fill, stroke width, image bo
 transform command range. Features that are not lowered by the shared core have identical
 diagnostic codes in both backends.
 
+DOM/SVG and Canvas also consume the same `scene/geometry` preset path plan and transform math.
+SVG serialization and DOM accessibility remain adapter policy, but adding or correcting a preset
+or group transform has one backend-neutral owner. Focused tests project every supported preset to
+both Canvas operations and SVG path data before the browser visual fingerprint gate runs.
+
 ## Incremental updates and virtualization
 
 Each host retains its slide root and keyed semantic elements. A newer revision updates existing

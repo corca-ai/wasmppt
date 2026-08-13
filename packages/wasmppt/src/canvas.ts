@@ -1,6 +1,15 @@
 import type { FontByteShaper, ShapedFontRun } from './shaper.js'
+import { ByteBudgetLru } from './cache/byte-budget-lru.js'
+import {
+  EMU_PER_CSS_PIXEL,
+  groupTransformMatrix,
+  presetGeometryPath,
+  projectPresetGeometryToCanvas,
+  shapeTransformMatrix,
+  toCssPixels,
+} from './scene/geometry.js'
 
-const EMU_PER_CSS_PIXEL = 9_525
+export { ByteBudgetLru } from './cache/byte-budget-lru.js'
 
 export interface RgbaColor {
   readonly red: number
@@ -2290,102 +2299,6 @@ export class VirtualizedCanvasViewer {
   }
 }
 
-export class ByteBudgetLru<Key, Value> {
-  readonly #entries = new Map<Key, { readonly value: Value; readonly weight: number }>()
-  readonly #maxBytes: number
-  readonly #dispose?: (value: Value) => void
-  #residentBytes = 0
-  #hits = 0
-  #misses = 0
-
-  constructor(maxBytes: number, dispose?: (value: Value) => void) {
-    if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
-      throw new RangeError('byte budget must be a non-negative safe integer')
-    }
-    this.#maxBytes = maxBytes
-    this.#dispose = dispose
-  }
-
-  get residentBytes(): number {
-    return this.#residentBytes
-  }
-
-  get size(): number {
-    return this.#entries.size
-  }
-
-  get hits(): number { return this.#hits }
-
-  get misses(): number { return this.#misses }
-
-  get hitRate(): number {
-    const requests = this.#hits + this.#misses
-    return requests === 0 ? 0 : this.#hits / requests
-  }
-
-  get(key: Key): Value | undefined {
-    const entry = this.#entries.get(key)
-    if (entry === undefined) {
-      this.#misses += 1
-      return undefined
-    }
-    this.#hits += 1
-    this.#entries.delete(key)
-    this.#entries.set(key, entry)
-    return entry.value
-  }
-
-  set(key: Key, value: Value, weight: number): boolean {
-    if (!Number.isSafeInteger(weight) || weight < 0) throw new RangeError('cache weight is invalid')
-    const previous = this.#entries.get(key)
-    if (previous !== undefined && Object.is(previous.value, value)) {
-      if (weight > this.#maxBytes) {
-        this.#remove(key, previous)
-        return false
-      }
-      this.#entries.delete(key)
-      this.#residentBytes -= previous.weight
-      this.#entries.set(key, { value, weight })
-      this.#residentBytes += weight
-      this.#evictToBudget()
-      return Object.is(this.#entries.get(key)?.value, value)
-    }
-    if (previous !== undefined) this.#remove(key, previous)
-    if (weight > this.#maxBytes) {
-      this.#dispose?.(value)
-      return false
-    }
-    this.#entries.set(key, { value, weight })
-    this.#residentBytes += weight
-    this.#evictToBudget()
-    return Object.is(this.#entries.get(key)?.value, value)
-  }
-
-  #evictToBudget(): void {
-    while (this.#residentBytes > this.#maxBytes) {
-      const oldest = this.#entries.entries().next().value as
-        | [Key, { readonly value: Value; readonly weight: number }]
-        | undefined
-      if (oldest === undefined) break
-      this.#remove(oldest[0], oldest[1])
-    }
-  }
-
-  clear(): void {
-    for (const entry of this.#entries.values()) this.#dispose?.(entry.value)
-    this.#entries.clear()
-    this.#residentBytes = 0
-    this.#hits = 0
-    this.#misses = 0
-  }
-
-  #remove(key: Key, entry: { readonly value: Value; readonly weight: number }): void {
-    this.#entries.delete(key)
-    this.#residentBytes -= entry.weight
-    this.#dispose?.(entry.value)
-  }
-}
-
 class BinaryReader {
   readonly #bytes: Uint8Array
   readonly #view: DataView
@@ -3200,16 +3113,8 @@ function cssColor(color: RgbaColor): string {
 }
 
 function applyGroup(context: CanvasRenderingContext2D, group: SceneGroupTransform): void {
-  const bounds = pixelRect(group.outer.bounds)
-  context.translate(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
-  context.rotate((group.outer.rotation / 60_000) * (Math.PI / 180))
-  context.scale(group.outer.flipHorizontal ? -1 : 1, group.outer.flipVertical ? -1 : 1)
-  context.translate(-bounds.width / 2, -bounds.height / 2)
-  context.scale(
-    group.childWidth === 0 ? 1 : bounds.width / toPixels(group.childWidth),
-    group.childHeight === 0 ? 1 : bounds.height / toPixels(group.childHeight),
-  )
-  context.translate(-toPixels(group.childX), -toPixels(group.childY))
+  const matrix = toCssPixels(groupTransformMatrix(group))
+  context.transform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f)
 }
 
 function canvasGradient(
@@ -3406,10 +3311,8 @@ function drawPreset(
 
 function applyShapeTransform(context: CanvasRenderingContext2D, transform: SceneTransform): EmuRect {
   const bounds = pixelRect(transform.bounds)
-  context.translate(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
-  context.rotate((transform.rotation / 60_000) * (Math.PI / 180))
-  context.scale(transform.flipHorizontal ? -1 : 1, transform.flipVertical ? -1 : 1)
-  context.translate(-bounds.width / 2, -bounds.height / 2)
+  const matrix = toCssPixels(shapeTransformMatrix(transform))
+  context.transform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f)
   return { x: 0, y: 0, width: bounds.width, height: bounds.height }
 }
 
@@ -3419,79 +3322,7 @@ function presetPath(
   width: number,
   height: number,
 ): void {
-  if (geometry === 3) {
-    context.ellipse(width / 2, height / 2, Math.abs(width / 2), Math.abs(height / 2), 0, 0, Math.PI * 2)
-  } else if (geometry === 4) {
-    context.moveTo(0, 0)
-    context.lineTo(width, height)
-  } else if (geometry === 5 || geometry === 6) {
-    context.moveTo(geometry === 5 ? width / 2 : 0, 0)
-    context.lineTo(width, height)
-    context.lineTo(0, height)
-    context.closePath()
-  } else if (geometry === 7) {
-    context.moveTo(width / 2, 0)
-    context.lineTo(width, height / 2)
-    context.lineTo(width / 2, height)
-    context.lineTo(0, height / 2)
-    context.closePath()
-  } else if (geometry === 8) {
-    context.moveTo(width / 4, 0)
-    context.lineTo(width, 0)
-    context.lineTo((width * 3) / 4, height)
-    context.lineTo(0, height)
-    context.closePath()
-  } else if (geometry === 9) {
-    context.moveTo(width / 4, 0)
-    context.lineTo((width * 3) / 4, 0)
-    context.lineTo(width, height / 2)
-    context.lineTo((width * 3) / 4, height)
-    context.lineTo(width / 4, height)
-    context.lineTo(0, height / 2)
-    context.closePath()
-  } else if (geometry === 10 || geometry === 11 || geometry === 12) {
-    const points = geometry === 10 ? 5 : geometry === 11 ? 8 : 10
-    for (let index = 0; index < points; index += 1) {
-      const angle = -Math.PI / 2 + index * Math.PI * 2 / points
-      const radius = geometry === 12 && index % 2 === 1 ? 0.22 : 0.5
-      const x = width / 2 + Math.cos(angle) * width * radius
-      const y = height / 2 + Math.sin(angle) * height * radius
-      if (index === 0) context.moveTo(x, y)
-      else context.lineTo(x, y)
-    }
-    context.closePath()
-  } else if (geometry === 13) {
-    context.moveTo(width * 0.35, 0); context.lineTo(width * 0.65, 0)
-    context.lineTo(width * 0.65, height * 0.35); context.lineTo(width, height * 0.35)
-    context.lineTo(width, height * 0.65); context.lineTo(width * 0.65, height * 0.65)
-    context.lineTo(width * 0.65, height); context.lineTo(width * 0.35, height)
-    context.lineTo(width * 0.35, height * 0.65); context.lineTo(0, height * 0.65)
-    context.lineTo(0, height * 0.35); context.lineTo(width * 0.35, height * 0.35); context.closePath()
-  } else if (geometry === 14) {
-    context.moveTo(0, 0); context.lineTo(width * 0.65, 0); context.lineTo(width, height / 2)
-    context.lineTo(width * 0.65, height); context.lineTo(0, height); context.lineTo(width * 0.35, height / 2); context.closePath()
-  } else if (geometry === 15 || geometry === 16) {
-    const direction = geometry === 15 ? 1 : -1
-    context.translate(direction === 1 ? 0 : width, 0); context.scale(direction, 1)
-    context.moveTo(0, height * 0.3); context.lineTo(width * 0.6, height * 0.3)
-    context.lineTo(width * 0.6, 0); context.lineTo(width, height / 2)
-    context.lineTo(width * 0.6, height); context.lineTo(width * 0.6, height * 0.7)
-    context.lineTo(0, height * 0.7); context.closePath()
-  } else if (geometry === 17 || geometry === 18) {
-    const direction = geometry === 18 ? -1 : 1
-    context.translate(0, direction === 1 ? 0 : height); context.scale(1, direction)
-    context.moveTo(width * 0.3, height); context.lineTo(width * 0.3, height * 0.4)
-    context.lineTo(0, height * 0.4); context.lineTo(width / 2, 0)
-    context.lineTo(width, height * 0.4); context.lineTo(width * 0.7, height * 0.4)
-    context.lineTo(width * 0.7, height); context.closePath()
-  } else if (geometry === 19) {
-    context.moveTo(width * 0.2, 0); context.lineTo(width * 0.8, 0)
-    context.lineTo(width, height); context.lineTo(0, height); context.closePath()
-  } else if (geometry === 2) {
-    context.roundRect(0, 0, width, height, Math.min(Math.abs(width), Math.abs(height)) / 8)
-  } else {
-    context.rect(0, 0, width, height)
-  }
+  projectPresetGeometryToCanvas(presetGeometryPath(geometry, width, height), context)
 }
 
 function dashPattern(dash: string | undefined, width: number): number[] {

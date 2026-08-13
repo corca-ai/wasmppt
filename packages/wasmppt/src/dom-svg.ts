@@ -8,15 +8,26 @@ import {
   type RichTextLayoutRun,
   type SceneCommand,
   type SceneDiagnostic,
-  type SceneGroupTransform,
   type SceneImage,
   type ScenePathCommand,
   type SceneSemanticElement,
   type SceneTransform,
 } from './canvas.js'
+import {
+  EMU_PER_CSS_PIXEL,
+  cssMatrix,
+  groupSvgTransform,
+  groupTransformMatrix,
+  identityMatrix,
+  multiplyMatrices,
+  presetGeometryPath,
+  presetGeometrySvgPath,
+  shapeSvgTransform,
+  toCssPixels,
+  translation,
+} from './scene/geometry.js'
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
-const EMU_PER_CSS_PIXEL = 9_525
 
 export type DomImageResolver = (image: SceneImage, signal: AbortSignal) => Promise<string>
 
@@ -683,13 +694,13 @@ async function updateAccessibleOverlay(
     )
     .map((command) => required(scene.groups, command.transform))
   const matrix = groupTransforms.reduce(
-    (current, group) => multiply(current, groupMatrix(group)),
+    (current, group) => multiplyMatrices(current, groupTransformMatrix(group)),
     identityMatrix(),
   )
   const bounds = textCommand?.bounds ?? richTextLayout?.effectiveBounds ?? richTextCommand?.bounds ?? semantic.bounds
   const richFirstStyle = richTextCommand?.frame.paragraphs[0]?.runs[0]?.style
   const textStyle = textCommand?.style ?? richFirstStyle
-  const positioned = multiply(matrix, translation(bounds.x, bounds.y))
+  const positioned = multiplyMatrices(matrix, translation(bounds.x, bounds.y))
   Object.assign(element.style, {
     position: 'absolute',
     left: '0',
@@ -887,44 +898,7 @@ function semanticKey(semantic: SceneSemanticElement): string {
 }
 
 function presetPath(geometry: number, width: number, height: number): string {
-  if (geometry === 3) {
-    const radiusX = Math.abs(width / 2)
-    const radiusY = Math.abs(height / 2)
-    return `M 0 ${height / 2} A ${radiusX} ${radiusY} 0 1 0 ${width} ${height / 2} A ${radiusX} ${radiusY} 0 1 0 0 ${height / 2} Z`
-  }
-  if (geometry === 4) return `M 0 0 L ${width} ${height}`
-  if (geometry === 5) return `M ${width / 2} 0 L ${width} ${height} L 0 ${height} Z`
-  if (geometry === 6) return `M 0 0 L ${width} ${height} L 0 ${height} Z`
-  if (geometry === 7) {
-    return `M ${width / 2} 0 L ${width} ${height / 2} L ${width / 2} ${height} L 0 ${height / 2} Z`
-  }
-  if (geometry === 8) {
-    return `M ${width / 4} 0 L ${width} 0 L ${(width * 3) / 4} ${height} L 0 ${height} Z`
-  }
-  if (geometry === 9) {
-    return `M ${width / 4} 0 L ${(width * 3) / 4} 0 L ${width} ${height / 2} L ${(width * 3) / 4} ${height} L ${width / 4} ${height} L 0 ${height / 2} Z`
-  }
-  if (geometry === 10 || geometry === 11 || geometry === 12) {
-    const count = geometry === 10 ? 5 : geometry === 11 ? 8 : 10
-    const points = Array.from({ length: count }, (_, index) => {
-      const angle = -Math.PI / 2 + index * Math.PI * 2 / count
-      const radius = geometry === 12 && index % 2 === 1 ? 0.22 : 0.5
-      return `${width / 2 + Math.cos(angle) * width * radius} ${height / 2 + Math.sin(angle) * height * radius}`
-    })
-    return `M ${points.join(' L ')} Z`
-  }
-  if (geometry === 13) return `M ${width * 0.35} 0 L ${width * 0.65} 0 L ${width * 0.65} ${height * 0.35} L ${width} ${height * 0.35} L ${width} ${height * 0.65} L ${width * 0.65} ${height * 0.65} L ${width * 0.65} ${height} L ${width * 0.35} ${height} L ${width * 0.35} ${height * 0.65} L 0 ${height * 0.65} L 0 ${height * 0.35} L ${width * 0.35} ${height * 0.35} Z`
-  if (geometry === 14) return `M 0 0 L ${width * 0.65} 0 L ${width} ${height / 2} L ${width * 0.65} ${height} L 0 ${height} L ${width * 0.35} ${height / 2} Z`
-  if (geometry === 15) return `M 0 ${height * 0.3} L ${width * 0.6} ${height * 0.3} L ${width * 0.6} 0 L ${width} ${height / 2} L ${width * 0.6} ${height} L ${width * 0.6} ${height * 0.7} L 0 ${height * 0.7} Z`
-  if (geometry === 16) return `M ${width} ${height * 0.3} L ${width * 0.4} ${height * 0.3} L ${width * 0.4} 0 L 0 ${height / 2} L ${width * 0.4} ${height} L ${width * 0.4} ${height * 0.7} L ${width} ${height * 0.7} Z`
-  if (geometry === 17) return `M ${width * 0.3} ${height} L ${width * 0.3} ${height * 0.4} L 0 ${height * 0.4} L ${width / 2} 0 L ${width} ${height * 0.4} L ${width * 0.7} ${height * 0.4} L ${width * 0.7} ${height} Z`
-  if (geometry === 18) return `M ${width * 0.3} 0 L ${width * 0.3} ${height * 0.6} L 0 ${height * 0.6} L ${width / 2} ${height} L ${width} ${height * 0.6} L ${width * 0.7} ${height * 0.6} L ${width * 0.7} 0 Z`
-  if (geometry === 19) return `M ${width * 0.2} 0 L ${width * 0.8} 0 L ${width} ${height} L 0 ${height} Z`
-  if (geometry === 2) {
-    const radius = Math.min(Math.abs(width), Math.abs(height)) / 8
-    return `M ${radius} 0 H ${width - radius} Q ${width} 0 ${width} ${radius} V ${height - radius} Q ${width} ${height} ${width - radius} ${height} H ${radius} Q 0 ${height} 0 ${height - radius} V ${radius} Q 0 0 ${radius} 0 Z`
-  }
-  return `M 0 0 H ${width} V ${height} H 0 Z`
+  return presetGeometrySvgPath(presetGeometryPath(geometry, width, height))
 }
 
 function customPathData(path: readonly ScenePathCommand[]): string {
@@ -959,95 +933,8 @@ function customPathData(path: readonly ScenePathCommand[]): string {
   return output.join(' ')
 }
 
-function shapeSvgTransform(transform: SceneTransform): string {
-  const bounds = transform.bounds
-  const centerX = bounds.x + bounds.width / 2
-  const centerY = bounds.y + bounds.height / 2
-  return [
-    `translate(${centerX} ${centerY})`,
-    `rotate(${transform.rotation / 60_000})`,
-    `scale(${transform.flipHorizontal ? -1 : 1} ${transform.flipVertical ? -1 : 1})`,
-    `translate(${-bounds.width / 2} ${-bounds.height / 2})`,
-  ].join(' ')
-}
-
 function resizedTransform(transform: SceneTransform, bounds: EmuRect | undefined): SceneTransform {
   return bounds === undefined ? transform : { ...transform, bounds }
-}
-
-function groupSvgTransform(group: SceneGroupTransform): string {
-  const bounds = group.outer.bounds
-  const centerX = bounds.x + bounds.width / 2
-  const centerY = bounds.y + bounds.height / 2
-  return [
-    `translate(${centerX} ${centerY})`,
-    `rotate(${group.outer.rotation / 60_000})`,
-    `scale(${group.outer.flipHorizontal ? -1 : 1} ${group.outer.flipVertical ? -1 : 1})`,
-    `translate(${-bounds.width / 2} ${-bounds.height / 2})`,
-    `scale(${group.childWidth === 0 ? 1 : bounds.width / group.childWidth} ${group.childHeight === 0 ? 1 : bounds.height / group.childHeight})`,
-    `translate(${-group.childX} ${-group.childY})`,
-  ].join(' ')
-}
-
-interface Matrix {
-  readonly a: number
-  readonly b: number
-  readonly c: number
-  readonly d: number
-  readonly e: number
-  readonly f: number
-}
-
-function identityMatrix(): Matrix {
-  return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
-}
-
-function translation(x: number, y: number): Matrix {
-  return { a: 1, b: 0, c: 0, d: 1, e: x, f: y }
-}
-
-function scale(x: number, y: number): Matrix {
-  return { a: x, b: 0, c: 0, d: y, e: 0, f: 0 }
-}
-
-function rotation(radians: number): Matrix {
-  const cosine = Math.cos(radians)
-  const sine = Math.sin(radians)
-  return { a: cosine, b: sine, c: -sine, d: cosine, e: 0, f: 0 }
-}
-
-function multiply(left: Matrix, right: Matrix): Matrix {
-  return {
-    a: left.a * right.a + left.c * right.b,
-    b: left.b * right.a + left.d * right.b,
-    c: left.a * right.c + left.c * right.d,
-    d: left.b * right.c + left.d * right.d,
-    e: left.a * right.e + left.c * right.f + left.e,
-    f: left.b * right.e + left.d * right.f + left.f,
-  }
-}
-
-function groupMatrix(group: SceneGroupTransform): Matrix {
-  const bounds = group.outer.bounds
-  return [
-    translation(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2),
-    rotation((group.outer.rotation / 60_000) * (Math.PI / 180)),
-    scale(group.outer.flipHorizontal ? -1 : 1, group.outer.flipVertical ? -1 : 1),
-    translation(-bounds.width / 2, -bounds.height / 2),
-    scale(
-      group.childWidth === 0 ? 1 : bounds.width / group.childWidth,
-      group.childHeight === 0 ? 1 : bounds.height / group.childHeight,
-    ),
-    translation(-group.childX, -group.childY),
-  ].reduce(multiply)
-}
-
-function toCssPixels(matrix: Matrix): Matrix {
-  return { ...matrix, e: matrix.e / EMU_PER_CSS_PIXEL, f: matrix.f / EMU_PER_CSS_PIXEL }
-}
-
-function cssMatrix(matrix: Matrix): string {
-  return `matrix(${matrix.a}, ${matrix.b}, ${matrix.c}, ${matrix.d}, ${matrix.e}, ${matrix.f})`
 }
 
 function cssColor(color: { red: number; green: number; blue: number; alpha: number }): string {

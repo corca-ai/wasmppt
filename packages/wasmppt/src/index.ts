@@ -9,6 +9,7 @@ export * from './worker-runtime.js'
 export * from './canvas.js'
 export * from './dom-svg.js'
 export * from './shaper.js'
+export * from './scene/geometry.js'
 
 /** Browser-owned locations for separately emitted engine and worker assets. */
 export interface BrowserEngineAssets {

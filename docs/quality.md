@@ -24,7 +24,7 @@ merge blockers.
 
 - cargo-nextest 0.9.143 runs native unit and integration tests in pull requests. Doctests remain a
   separate `cargo test --doc` step because nextest does not execute them.
-- cargo-llvm-cov 0.8.7 writes JSON and LCOV evidence for the eight host-agnostic core crates.
+- cargo-llvm-cov 0.8.7 writes JSON and LCOV evidence for the nine host-agnostic core crates.
 - cargo-machete 0.9.2 rejects unused dependencies. An ignore is allowed only with an adjacent
   manifest comment or issue explaining the false positive and its removal condition.
 - cargo-deny 0.19.8 exclusively owns Rust advisories, license allowlists, duplicate versions, and

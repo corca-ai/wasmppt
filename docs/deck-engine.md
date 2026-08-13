@@ -1,0 +1,128 @@
+# Semantic deck contracts
+
+Status: host-neutral contracts, validators, and version 1 binary codecs implemented;
+planning and composition are not implemented in this slice
+
+`wasmppt-deck` is the boundary between a host application's authoring model and the
+wasmppt semantic layout and composition pipeline. It keeps Markdown, project storage,
+browser APIs, and Cloudflare APIs outside the Rust core while retaining enough source
+identity to return precise authoring diagnostics.
+
+## Contract flow
+
+```text
+authoring adapter -> DeckSpec + resources
+template compiler -> DeckTemplatePlan
+                            |
+                            v
+                  semantic planner -> DeckPlan
+                                          |
+                                          v
+                              PresentationML composer
+```
+
+The implemented contract types are independent of each future implementation stage.
+An authoring adapter can create and validate `DeckSpec` before a planner exists, and a
+planner can be tested with synthetic `DeckTemplatePlan` values without opening an OPC
+package.
+
+## DeckSpec
+
+`DeckSpec` owns logical source intent:
+
+- logical title and content slides, including persisted hidden state;
+- stable UTF-8 byte `SourceRange` values and 128-bit `StableId` values;
+- title, subtitle, prose, section, nested list, figure, caption, gallery, table,
+  chart, code, diagram, display math, quote, credit, definition, and statement roles;
+- bold, italic, strikethrough, inline-code, and typed safe-hyperlink rich-text runs;
+- explicit `Never`, `Text`, `ListItems`, `TableRows`, and `Children` split policy;
+- raster and SVG resources as binary bytes with media type and optional dimensions.
+
+The model intentionally has no speaker-notes field. Markdown parsing, URL authorization,
+project-file access, SVG production, and GIF first-frame decoding belong to the host
+adapter. The core still validates that the adapter's typed hyperlink target matches its
+safe scheme and that every referenced resource is present.
+
+Call `StableId::from_source` with a stable document identity, exact source range, and
+semantic role. Inserting an unrelated logical slide therefore does not renumber existing
+content. Derived physical page IDs use the logical slide ID and its one-based continuation
+ordinal; fragment IDs use the complete source node ID and fragment slice.
+
+## Template and physical plans
+
+`DeckTemplatePlan` contains the compiled template identity and SHA-256, exact page size,
+and semantic regions. Each region has one EMU frame, a role, accepted semantic roles, and
+a required marker. Visible layout and shape names are not part of this contract.
+
+`DeckPlan` contains physical pages grouped by logical slide. A page carries its stable ID,
+hidden state, one-based continuation ordinal and total, and planned regions. Each
+`PlannedFragment` owns:
+
+- one source node;
+- a whole, UTF-8 text, list-item, or table-row slice;
+- an exact frame inside its planned and template regions;
+- explicit font size, column count, and content-fit choice.
+
+The plan names its `DeckSpec` and `DeckTemplatePlan` identities and repeats the exact page
+size. Composition MUST reject a mismatched input set rather than silently reflow it.
+
+## Validation
+
+`validate_deck_spec` checks unique non-nil identities, nested source containment,
+role/content/split consistency, safe hyperlinks, resource ownership, table and chart
+shape, finite chart values, and configured safety limits.
+
+`validate_deck_plan` additionally checks:
+
+- every renderable semantic source extent is covered exactly once;
+- text slices are contiguous UTF-8 boundaries and list/table slices are contiguous;
+- physical fragment order matches semantic source order;
+- every page and fragment stays on its logical slide and an accepting template region;
+- template, planned-region, and fragment geometry is positive and contained;
+- physical page groups preserve logical-slide order;
+- continuation ordinals, totals, hidden state, page IDs, and fragment IDs are stable.
+
+Failures use append-only numeric `DeckDiagnosticCode` values. The public code wrapper
+retains unknown future numeric values, and `known_name` returns `None` instead of mapping
+them to a misleading older meaning.
+
+## Binary boundary and limits
+
+The little-endian envelopes are:
+
+| Magic | Version | Value |
+| --- | ---: | --- |
+| `WDSF` | 1 | `DeckSpec` and binary resources |
+| `WDTP` | 1 | `DeckTemplatePlan` |
+| `WDPL` | 1 | `DeckPlan` |
+
+Vectors and strings are length-prefixed. Media remains raw bytes rather than JSON or
+base64. Encoding order follows source and plan vector order, so equal values produce
+equal bytes. Decoders reject unknown schema versions, invalid tags and UTF-8, truncation,
+trailing bytes, and configured payload, string, collection, depth, node, resource, page,
+and fragment limits before allocating the declared content.
+
+`DeckLimitCode` values are append-only and identify each bounded dimension. Callers may
+tighten `DeckLimits` for a host but MUST NOT turn a limit failure into partial content.
+The checked-in v1 hexadecimal fixtures pin all three binary envelopes.
+
+## Verification
+
+```sh
+cargo test -p wasmppt-deck --all-features
+cargo clippy -p wasmppt-deck --all-targets --all-features -- -D warnings
+npm run check:core-boundary
+```
+
+The contract tests cover stable source identities, deterministic round trips, unknown
+diagnostic codes, configured limits, and independent failures for loss, duplication,
+reordering, target drift, geometry, continuation metadata, and derived IDs.
+
+## Related documents
+
+- [System architecture](architecture.md) defines how this contract fits package
+  generation and rendering.
+- [Runtime host adapters](hosts.md) defines the existing native, browser, and workerd
+  transport boundaries.
+- [Template bindings](bindings.md) describes the separate compiled-template injection
+  workload.

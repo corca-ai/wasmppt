@@ -18,6 +18,8 @@ This is the canonical index for living `wasmppt` documentation.
   split-run tokens, manifests, diagnostics, serialization, and cache identity.
 - [Semantic deck contracts](deck-engine.md) — source-backed `DeckSpec`, template and
   physical plans, stable identities, exact-ownership validation, and binary boundaries.
+- [Cortex Theme Starter compiler](deck-template.md) — explicit POTX layout contract,
+  resolved template profiles, active-content policy, and deterministic cache identity.
 - [High-speed template injection](injection.md) — prepared warm generation,
   text, images, tables, slides, macro stripping, streaming, and validation.
 - [Live editing and incremental preview](live-editing.md) — revisioned deltas,

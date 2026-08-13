@@ -17,6 +17,10 @@ verification commands. For the durable subsystem design, see [System architectur
 `rust-toolchain.toml` installs the development toolchain, `rustfmt`, Clippy, and the Wasm
 target. CI separately checks the workspace with the MSRV so using a newer local compiler
 does not silently raise the compatibility floor.
+The root `[workspace.package].rust-version` is the primary MSRV source of truth. The two
+metafile crate manifests independently declare their higher MSRV, while `rust-toolchain.toml`
+is the development-toolchain source. Contract-sync tests compare every workflow and document
+consumer against those declarations.
 
 `npm ci` installs the pinned JavaScript and Markdown linters. Install `awiki` and ShellCheck
 separately before using the local pre-commit gate. CI also pins Actionlint and Typos to validate
@@ -115,6 +119,8 @@ node scripts/report-wasm-size.mjs \
   target/wasm32-unknown-unknown/wasm-release/wasmppt_wasm.wasm
 node scripts/report-wasm-size.mjs \
   target/wasm32-unknown-unknown/wasm-release/wasmppt_metafile_wasm.wasm
+node scripts/report-wasm-size.mjs \
+  target/wasm32-unknown-unknown/wasm-release/wasmppt_shaper_wasm.wasm
 ```
 
 CI runs the same gates, including Actionlint workflow validation, Typos spell checking, runtime

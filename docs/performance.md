@@ -8,7 +8,7 @@ retains the raw-copy invariant. Cold template compilation and warm injection are
 
 ## Reproduce
 
-From a clean checkout with Rust 1.88, Node 24, `wasm-bindgen-cli` 0.2.127, and Chromium installed:
+From a clean checkout with Rust 1.88.0, Node 24, `wasm-bindgen-cli` 0.2.127, and Chromium installed:
 
 ```sh
 npm ci

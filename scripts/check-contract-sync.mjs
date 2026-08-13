@@ -18,8 +18,111 @@ function sameValues(left, right) {
   return left.length === right.length && left.every((value, index) => value === right[index])
 }
 
-export function contractErrors(inputs) {
+function artifactNames(source) {
+  return sorted(new Set(source.match(/wasmppt(?:_metafile|_shaper)?_wasm\.wasm/g) ?? []))
+}
+
+export function toolchainErrors(inputs) {
   const errors = []
+  const primary = matchOne(
+    inputs.cargo,
+    /\[workspace\.package\][\s\S]*?rust-version = "([^"]+)"/,
+    'workspace MSRV',
+  )
+  const development = matchOne(
+    inputs.rustToolchain,
+    /channel = "([^"]+)"/,
+    'development Rust toolchain',
+  )
+  const metafile = matchOne(
+    inputs.metafileCargo,
+    /rust-version = "([^"]+)"/,
+    'metafile MSRV',
+  )
+  const metafileWasm = matchOne(
+    inputs.metafileWasmCargo,
+    /rust-version = "([^"]+)"/,
+    'metafile Wasm MSRV',
+  )
+  const documentedDevelopment = matchOne(
+    inputs.develop,
+    /Pinned development Rust: ([0-9.]+)/,
+    'documented development Rust',
+  )
+  const documentedPrimary = matchOne(
+    inputs.develop,
+    /Primary workspace minimum supported Rust version \(MSRV\): ([0-9.]+)/,
+    'documented primary MSRV',
+  )
+  const documentedMetafile = matchOne(
+    inputs.develop,
+    /Optional EMF\/WMF converter MSRV: ([0-9.]+)/,
+    'documented metafile MSRV',
+  )
+  if (documentedDevelopment !== development) {
+    errors.push(`docs/develop.md development Rust ${documentedDevelopment} does not match rust-toolchain.toml ${development}`)
+  }
+  if (documentedPrimary !== primary) {
+    errors.push(`docs/develop.md primary MSRV ${documentedPrimary} does not match Cargo.toml ${primary}`)
+  }
+  if (metafileWasm !== metafile) {
+    errors.push(`metafile Wasm MSRV ${metafileWasm} does not match metafile MSRV ${metafile}`)
+  }
+  if (documentedMetafile !== metafile) {
+    errors.push(`docs/develop.md metafile MSRV ${documentedMetafile} does not match crate MSRV ${metafile}`)
+  }
+  if (!inputs.ci.includes(`rustup toolchain install ${primary}`) ||
+      !inputs.ci.includes(`cargo +${primary} check`)) {
+    errors.push(`CI does not install and check primary MSRV ${primary}`)
+  }
+  if (!inputs.ci.includes(`dtolnay/rust-toolchain@${primary}`)) {
+    errors.push(`CI performance job does not use primary MSRV ${primary}`)
+  }
+  if (!inputs.corpusWorkflow.includes(`dtolnay/rust-toolchain@${primary}`)) {
+    errors.push(`scheduled corpus workflow does not use primary MSRV ${primary}`)
+  }
+  if (!inputs.ci.includes(`rustup toolchain install ${metafile}`) ||
+      !inputs.ci.includes(`cargo +${metafile} check -p wasmppt-metafile`)) {
+    errors.push(`CI does not install and check optional metafile MSRV ${metafile}`)
+  }
+  if (!inputs.ci.includes(`dtolnay/rust-toolchain@${metafile}`)) {
+    errors.push(`CI Wasm build does not use optional metafile MSRV ${metafile}`)
+  }
+  if (!inputs.performance.includes(`Rust ${metafile}`)) {
+    errors.push(`docs/performance.md does not use Wasm build Rust ${metafile}`)
+  }
+
+  const embeddedFonts = inputs.capabilities.features.find((feature) => feature.id === 'embedded-fonts')
+  const render = embeddedFonts?.render ?? ''
+  if (!render.includes('harfrust') || render.includes('rustybuzz')) {
+    errors.push('embedded-font capability does not name HarfRust consistently')
+  }
+
+  const expectedArtifacts = [
+    'wasmppt_metafile_wasm.wasm',
+    'wasmppt_shaper_wasm.wasm',
+    'wasmppt_wasm.wasm',
+  ]
+  for (const [consumer, source] of [
+    ['scripts/build-wasm-hosts.sh', inputs.wasmBuild],
+    ['docs/develop.md', inputs.develop],
+    ['CI', inputs.ci],
+  ]) {
+    const actual = artifactNames(source)
+    if (!sameValues(actual, expectedArtifacts)) {
+      errors.push(`${consumer} Wasm artifacts (${actual.join(', ')}) do not match scalar, metafile, and shaper artifacts`)
+    }
+  }
+  for (const field of ['scalarWasmBytes', 'metafileWasmBytes', 'shaperWasmBytes']) {
+    if (!inputs.nativeBenchmark.includes(field)) {
+      errors.push(`native benchmark does not report ${field}`)
+    }
+  }
+  return errors
+}
+
+export function contractErrors(inputs) {
+  const errors = toolchainErrors(inputs)
   const browserErrorVersion = Number(matchOne(
     inputs.browserError,
     /ERROR_ENVELOPE_VERSION = (\d+)/,
@@ -163,6 +266,14 @@ export async function readRepositoryContracts() {
     workerError: 'packages/wasmppt-worker/src/error.ts',
     wasm: 'crates/wasmppt-wasm/src/lib.rs',
     hosts: 'docs/hosts.md',
+    cargo: 'Cargo.toml',
+    rustToolchain: 'rust-toolchain.toml',
+    metafileCargo: 'crates/wasmppt-metafile/Cargo.toml',
+    metafileWasmCargo: 'crates/wasmppt-metafile-wasm/Cargo.toml',
+    develop: 'docs/develop.md',
+    performance: 'docs/performance.md',
+    corpusWorkflow: '.github/workflows/corpus-scorecard.yml',
+    wasmBuild: 'scripts/build-wasm-hosts.sh',
   }
   const jsonPaths = {
     capabilities: 'capabilities/presentationml.json',

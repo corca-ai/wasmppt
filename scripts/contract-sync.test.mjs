@@ -1,6 +1,39 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { checkRepositoryContracts, contractErrors } from './check-contract-sync.mjs'
+import {
+  checkRepositoryContracts,
+  contractErrors,
+  toolchainErrors,
+} from './check-contract-sync.mjs'
+
+const validToolchains = {
+  cargo: '[workspace.package]\nrust-version = "1.85.1"',
+  rustToolchain: 'channel = "1.96.0"',
+  metafileCargo: 'rust-version = "1.88.0"',
+  metafileWasmCargo: 'rust-version = "1.88.0"',
+  develop: [
+    'Pinned development Rust: 1.96.0',
+    'Primary workspace minimum supported Rust version (MSRV): 1.85.1',
+    'Optional EMF/WMF converter MSRV: 1.88.0',
+    'wasmppt_wasm.wasm wasmppt_metafile_wasm.wasm wasmppt_shaper_wasm.wasm',
+  ].join('\n'),
+  performance: 'From a clean checkout with Rust 1.88.0',
+  corpusWorkflow: 'dtolnay/rust-toolchain@1.85.1',
+  wasmBuild: 'wasmppt_wasm.wasm wasmppt_metafile_wasm.wasm wasmppt_shaper_wasm.wasm',
+  ci: [
+    'rustup toolchain install 1.85.1',
+    'cargo +1.85.1 check',
+    'dtolnay/rust-toolchain@1.85.1',
+    'rustup toolchain install 1.88.0',
+    'cargo +1.88.0 check -p wasmppt-metafile',
+    'dtolnay/rust-toolchain@1.88.0',
+    'wasmppt_wasm.wasm wasmppt_metafile_wasm.wasm wasmppt_shaper_wasm.wasm',
+  ].join('\n'),
+  capabilities: {
+    features: [{ id: 'embedded-fonts', render: 'optional-harfrust-shaping' }],
+  },
+  nativeBenchmark: 'scalarWasmBytes metafileWasmBytes shaperWasmBytes',
+}
 
 test('repository contracts stay synchronized across code, docs, fixtures, and CI', async () => {
   await checkRepositoryContracts()
@@ -8,19 +41,20 @@ test('repository contracts stay synchronized across code, docs, fixtures, and CI
 
 test('contract checker reports every independently stale consumer', () => {
   const errors = contractErrors({
+    ...validToolchains,
     browserError: 'ERROR_ENVELOPE_VERSION = 1',
     workerError: 'ERROR_ENVELOPE_VERSION = 1',
     wasm: 'set_property(&envelope, "version", &JsValue::from(1))',
     hosts: 'Error envelope version 1',
     rustDisplay: 'pub const DISPLAY_LIST_VERSION: u16 = 2;',
     canvas: 'if (version !== 1) {',
-    capabilities: { displayListVersion: 1 },
+    capabilities: { ...validToolchains.capabilities, displayListVersion: 1 },
     docs: { 'docs/rendering.md': 'WPDL v1' },
     displayTest: 'structural_signature(), 0xaaaa_bbbb',
-    ci: "grep 'signature cccccccc'",
+    ci: `${validToolchains.ci}\ngrep 'signature cccccccc'`,
     workerTest: "signature: 'dddddddd'",
     browserIntegration: "const report = [{ id: 'text', slideIndex: 0 }]",
-    nativeBenchmark: '',
+    nativeBenchmark: validToolchains.nativeBenchmark,
     nativeBudgetEvaluator: '',
     renderCorpus: {
       presentations: [{ path: 'basic.pptx', features: [{ id: 'image' }] }],
@@ -46,3 +80,97 @@ test('contract checker reports every independently stale consumer', () => {
     'native benchmark does not publish per-metric budget margins',
   ])
 })
+
+for (const [name, mutate, expected] of [
+  [
+    'development toolchain docs',
+    (inputs) => ({ ...inputs, develop: inputs.develop.replace('1.96.0', '1.95.0') }),
+    'docs/develop.md development Rust 1.95.0 does not match rust-toolchain.toml 1.96.0',
+  ],
+  [
+    'primary MSRV docs',
+    (inputs) => ({ ...inputs, develop: inputs.develop.replace('1.85.1', '1.85.0') }),
+    'docs/develop.md primary MSRV 1.85.0 does not match Cargo.toml 1.85.1',
+  ],
+  [
+    'CI primary MSRV check',
+    (inputs) => ({ ...inputs, ci: inputs.ci.replace('rustup toolchain install 1.85.1', '') }),
+    'CI does not install and check primary MSRV 1.85.1',
+  ],
+  [
+    'CI performance MSRV',
+    (inputs) => ({
+      ...inputs,
+      ci: inputs.ci.replace('dtolnay/rust-toolchain@1.85.1', 'dtolnay/rust-toolchain@1.85.0'),
+    }),
+    'CI performance job does not use primary MSRV 1.85.1',
+  ],
+  [
+    'metafile Wasm crate MSRV',
+    (inputs) => ({ ...inputs, metafileWasmCargo: 'rust-version = "1.88.1"' }),
+    'metafile Wasm MSRV 1.88.1 does not match metafile MSRV 1.88.0',
+  ],
+  [
+    'metafile MSRV docs',
+    (inputs) => ({
+      ...inputs,
+      develop: inputs.develop.replace('converter MSRV: 1.88.0', 'converter MSRV: 1.88.1'),
+    }),
+    'docs/develop.md metafile MSRV 1.88.1 does not match crate MSRV 1.88.0',
+  ],
+  [
+    'CI metafile MSRV check',
+    (inputs) => ({ ...inputs, ci: inputs.ci.replace('rustup toolchain install 1.88.0', '') }),
+    'CI does not install and check optional metafile MSRV 1.88.0',
+  ],
+  [
+    'CI Wasm build Rust',
+    (inputs) => ({
+      ...inputs,
+      ci: inputs.ci.replace('dtolnay/rust-toolchain@1.88.0', 'dtolnay/rust-toolchain@1.88.1'),
+    }),
+    'CI Wasm build does not use optional metafile MSRV 1.88.0',
+  ],
+  [
+    'scheduled corpus MSRV',
+    (inputs) => ({ ...inputs, corpusWorkflow: 'dtolnay/rust-toolchain@1.85.0' }),
+    'scheduled corpus workflow does not use primary MSRV 1.85.1',
+  ],
+  [
+    'performance reproduction Rust',
+    (inputs) => ({ ...inputs, performance: 'From a clean checkout with Rust 1.88' }),
+    'docs/performance.md does not use Wasm build Rust 1.88.0',
+  ],
+  [
+    'capability shaping engine',
+    (inputs) => ({
+      ...inputs,
+      capabilities: { features: [{ id: 'embedded-fonts', render: 'optional-rustybuzz-shaping' }] },
+    }),
+    'embedded-font capability does not name HarfRust consistently',
+  ],
+  [
+    'developer artifact list',
+    (inputs) => ({ ...inputs, develop: inputs.develop.replace(' wasmppt_shaper_wasm.wasm', '') }),
+    'docs/develop.md Wasm artifacts (wasmppt_metafile_wasm.wasm, wasmppt_wasm.wasm) do not match scalar, metafile, and shaper artifacts',
+  ],
+  [
+    'CI artifact list',
+    (inputs) => ({ ...inputs, ci: inputs.ci.replace(' wasmppt_shaper_wasm.wasm', '') }),
+    'CI Wasm artifacts (wasmppt_metafile_wasm.wasm, wasmppt_wasm.wasm) do not match scalar, metafile, and shaper artifacts',
+  ],
+  [
+    'build artifact list',
+    (inputs) => ({ ...inputs, wasmBuild: inputs.wasmBuild.replace(' wasmppt_shaper_wasm.wasm', '') }),
+    'scripts/build-wasm-hosts.sh Wasm artifacts (wasmppt_metafile_wasm.wasm, wasmppt_wasm.wasm) do not match scalar, metafile, and shaper artifacts',
+  ],
+  [
+    'benchmark artifact field',
+    (inputs) => ({ ...inputs, nativeBenchmark: inputs.nativeBenchmark.replace(' shaperWasmBytes', '') }),
+    'native benchmark does not report shaperWasmBytes',
+  ],
+]) {
+  test(`toolchain contract rejects stale ${name}`, () => {
+    assert.deepEqual(toolchainErrors(mutate(structuredClone(validToolchains))), [expected])
+  })
+}

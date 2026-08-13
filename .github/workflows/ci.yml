@@ -360,7 +360,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: dtolnay/rust-toolchain@1.85.1
         with:
           targets: wasm32-unknown-unknown
       - name: Install JavaScript and browser tooling

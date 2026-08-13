@@ -26,8 +26,11 @@ export interface WorkerLike {
 }
 
 export interface PreparedBrowserTemplate {
+  /** Worker-owned opaque handle. Release it with `WasmpptWorkerClient.release`. */
   readonly handle: number
+  /** Conservative resident-byte weight used for host cache budgets. */
   readonly residentBytes: number
+  /** Caller-owned serialized plan bytes suitable for a later `prepare` call. */
   readonly plan: ArrayBuffer
   readonly bindings: readonly TemplateBinding[]
   readonly diagnostics: readonly TemplateDiagnostic[]
@@ -38,7 +41,9 @@ export interface PrepareOptions extends TemplateCompilerOptions {
 }
 
 export interface GenerateOptions {
+  /** Cooperatively abort work; cancellation releases the generation cursor only. */
   readonly signal?: AbortSignal
+  /** Positive maximum bytes requested from the Worker per output chunk. */
   readonly chunkBytes?: number
   readonly onProgress?: (phase: 'generate' | 'stream', completed: number, total: number) => void
 }
@@ -116,7 +121,12 @@ type Pending =
       readonly abortCleanup: () => void
     }
 
-/** Main-thread client that settles every request on completion, abort, or Worker crash. */
+/**
+ * Main-thread client that settles every request on completion, abort, or Worker crash.
+ *
+ * Template and presentation handles belong to this client's Worker. Release each handle explicitly
+ * in long-lived clients, then call `terminate()` during final teardown.
+ */
 export class WasmpptWorkerClient {
   readonly #worker: WorkerLike
   readonly #pending = new Map<number, Pending>()
@@ -148,6 +158,7 @@ export class WasmpptWorkerClient {
     return this.#resourceCacheBytes
   }
 
+  /** Transfer and compile a template. `template` and an optional `plan` are detached immediately. */
   async prepare(template: ArrayBuffer, options: PrepareOptions = {}): Promise<PreparedBrowserTemplate> {
     this.#assertOpen()
     const id = this.#allocateId()
@@ -376,6 +387,7 @@ export class WasmpptWorkerClient {
     }
   }
 
+  /** Transfer a PPTX into the Worker and return a handle for lazy slide resolution. */
   async openPresentation(
     presentation: ArrayBuffer,
     options: ResolveSlideOptions = {},
@@ -393,6 +405,7 @@ export class WasmpptWorkerClient {
     return { handle: response.presentationHandle, slideCount: response.slideCount }
   }
 
+  /** Resolve one zero-based slide to a caller-owned WPDL `ArrayBuffer`. */
   async resolveSlide(
     presentationHandle: number,
     slideIndex: number,
@@ -466,6 +479,7 @@ export class WasmpptWorkerClient {
     })
   }
 
+  /** Release a presentation and purge its cached resource bytes from this client. */
   async releasePresentation(presentationHandle: number): Promise<void> {
     this.#assertOpen()
     this.#releasedPresentations.add(presentationHandle)
@@ -594,6 +608,10 @@ export class WasmpptWorkerClient {
     }
   }
 
+  /**
+   * Stream caller-owned PPTX chunks. Reading to completion or cancelling releases the cursor;
+   * the prepared template handle remains live until `release`.
+   */
   generateStream(
     templateHandle: number,
     data: GenerationData | TextBindings = {},
@@ -722,6 +740,7 @@ export class WasmpptWorkerClient {
     return output.buffer
   }
 
+  /** Generate a complete caller-owned PPTX buffer by draining `generateStream`. */
   async generate(
     templateHandle: number,
     data: GenerationData | TextBindings = {},
@@ -742,6 +761,7 @@ export class WasmpptWorkerClient {
     return output.buffer
   }
 
+  /** Release one prepared template handle. The handle is invalid after this resolves. */
   async release(templateHandle: number): Promise<void> {
     this.#assertOpen()
     const id = this.#allocateId()
@@ -758,6 +778,7 @@ export class WasmpptWorkerClient {
     if (response.type !== 'released') throw new Error('invalid release response')
   }
 
+  /** Hard-stop the Worker and reject every pending operation. Idempotent. */
   terminate(): void {
     if (this.#closed) return
     this.#closed = true

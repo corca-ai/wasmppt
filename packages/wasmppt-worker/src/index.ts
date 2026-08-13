@@ -9,14 +9,21 @@ export const packageName = '@corca-ai/wasmppt-worker' as const
 export type { WasmpptErrorDomain, WasmpptErrorEnvelope } from './error.js'
 
 export interface WorkerMemoryBudget {
+  /** Maximum direct-request or R2 template bytes. */
   readonly maxInputBytes: number
+  /** Maximum WPPD/WPLC request payload bytes. */
   readonly maxPayloadBytes: number
+  /** Conservative dirty-entry and generated-output ceiling. */
   readonly maxOutputBytes: number
+  /** Maximum chunk enqueued into the response stream. */
   readonly maxOutputChunkBytes: number
+  /** Maximum resident immutable prepared-plan bytes per isolate. */
   readonly maxCachedPlanBytes: number
+  /** Size of each R2 range read. */
   readonly r2RangeBytes: number
 }
 
+/** Default 96.25 MiB explicitly accounted isolate budget. */
 export const DEFAULT_WORKER_MEMORY_BUDGET: WorkerMemoryBudget = Object.freeze({
   maxInputBytes: 16 * 1024 * 1024,
   maxPayloadBytes: 16 * 1024 * 1024,
@@ -57,6 +64,7 @@ interface CachedPlanState extends CachedPlan {
 }
 
 export interface PreparedPlanLease extends CachedPlan {
+  /** Idempotently release this request's reference to the prepared handle. */
   release(): void
 }
 
@@ -197,12 +205,14 @@ export class R2TemplateSource {
     this.etag = etag
   }
 
+  /** Read object metadata without downloading its body. */
   static async open(bucket: R2Bucket, key: string): Promise<R2TemplateSource> {
     const metadata = await bucket.head(key)
     if (metadata === null) throw new HttpError(404, `R2 template not found: ${key}`)
     return new R2TemplateSource(bucket, key, metadata.size, metadata.etag)
   }
 
+  /** Read exactly `length` bytes at `offset`, rejecting out-of-bounds ranges. */
   async readAt(offset: number, length: number): Promise<Uint8Array> {
     if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0) {
       throw new RangeError('R2 byte range must contain non-negative safe integers')

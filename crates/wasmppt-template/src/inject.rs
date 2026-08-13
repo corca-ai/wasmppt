@@ -99,6 +99,7 @@ pub struct TablePolicyData {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+/// Complete logical values for one generation, or a partial delta for a live session.
 pub struct InjectionData {
     text: BTreeMap<String, String>,
     images: BTreeMap<String, ImageData>,
@@ -200,6 +201,7 @@ impl InjectionData {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
+/// Stable machine category for generation and live-session failures.
 pub enum GenerateErrorCode {
     InvalidTemplate,
     IncompletePlan,
@@ -216,6 +218,7 @@ pub enum GenerateErrorCode {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// Generation failure with an optional stable lower-level cause code.
 pub struct GenerateError {
     code: GenerateErrorCode,
     message: String,
@@ -367,6 +370,7 @@ enum CropPlan {
     None,
 }
 
+/// Immutable compiled template and cached dirty-part planning state.
 #[derive(Debug)]
 pub struct PreparedTemplate {
     archive: ZipArchive<wasmppt_opc::MemorySource>,
@@ -993,6 +997,7 @@ fn graph_identity_part(name: &str) -> bool {
 }
 
 impl PreparedTemplate {
+    /// Validate that `plan` belongs to the exact template bytes and prepare warm generation state.
     pub fn new(bytes: impl Into<Arc<[u8]>>, plan: TemplatePlan) -> Result<Self, GenerateError> {
         if !plan.completeness.graph_valid
             || !plan.completeness.bindings_unambiguous
@@ -1118,10 +1123,12 @@ impl PreparedTemplate {
         })
     }
 
+    /// Return the validated immutable plan owned by this prepared template.
     pub fn plan(&self) -> &TemplatePlan {
         &self.plan
     }
 
+    /// Start a revision-zero live session. The session retains this prepared template by `Arc`.
     pub fn start_live_session(
         self: &Arc<Self>,
         data: InjectionData,
@@ -1336,6 +1343,7 @@ impl PreparedTemplate {
         Ok(())
     }
 
+    /// Generate a complete caller-owned PPTX buffer.
     pub fn generate(&self, data: &InjectionData) -> Result<GenerateOutput, GenerateError> {
         let (sink, stats) = self.generate_to(data, VecSink::new())?;
         Ok(GenerateOutput {
@@ -1346,6 +1354,7 @@ impl PreparedTemplate {
         })
     }
 
+    /// Generate into a caller-provided forward-only sink and return the sink plus exact statistics.
     pub fn generate_to<S: OutputSink>(
         &self,
         data: &InjectionData,

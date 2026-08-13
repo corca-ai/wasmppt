@@ -1,3 +1,5 @@
+#![warn(missing_docs)]
+
 //! Native filesystem capabilities for the host-neutral package core.
 
 use std::{
@@ -17,6 +19,7 @@ pub struct FileSource {
 }
 
 impl FileSource {
+    /// Open `path` once and retain its length for bounded random-access reads.
     pub fn open(path: impl AsRef<Path>) -> std::io::Result<Self> {
         let file = File::open(path)?;
         let length = file.metadata()?.len();
@@ -67,6 +70,7 @@ pub struct FileSink {
 }
 
 impl FileSink {
+    /// Create or truncate `path` and buffer forward-only package writes.
     pub fn create(path: impl AsRef<Path>) -> std::io::Result<Self> {
         Ok(Self {
             sink: WriteSink::new(BufWriter::new(File::create(path)?)),

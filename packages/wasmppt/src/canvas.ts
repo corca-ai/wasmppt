@@ -19,14 +19,19 @@ export interface RgbaColor {
 }
 
 export interface EmuRect {
+  /** Left edge in English Metric Units (914,400 EMU per inch). */
   readonly x: number
+  /** Top edge in English Metric Units (914,400 EMU per inch). */
   readonly y: number
+  /** Width in English Metric Units. */
   readonly width: number
+  /** Height in English Metric Units. */
   readonly height: number
 }
 
 export interface SceneTransform {
   readonly bounds: EmuRect
+  /** Clockwise rotation in OOXML 1/60000-degree units. */
   readonly rotation: number
   readonly flipHorizontal: boolean
   readonly flipVertical: boolean
@@ -291,7 +296,11 @@ export interface DisplayScene {
   readonly byteLength: number
 }
 
-/** Decode the stable WPDL boundary defensively before touching a canvas. */
+/**
+ * Decode WPDL v1-v9 defensively before touching Canvas or DOM APIs.
+ * Counts, references, safe-integer coordinates, group balance, truncation, and trailing bytes are
+ * validated before a scene is returned.
+ */
 export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
   const reader = new BinaryReader(bytes)
@@ -1833,7 +1842,7 @@ export interface CanvasRenderOptions {
   readonly scale?: number
 }
 
-/** Executes one compact scene and owns a bounded decoded-image cache. */
+/** Executes one compact scene and owns bounded image, measurement, and layout caches. */
 export class CanvasDisplayListRenderer {
   readonly #images: ByteBudgetLru<string, DecodedImage>
   readonly #textMeasurements: ByteBudgetLru<string, number>

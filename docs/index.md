@@ -38,6 +38,8 @@ This is the canonical index for living `wasmppt` documentation.
   raw samples, cross-host release budgets, comparison rules, and claim policy.
 - [Documentation guide](metadoc.md) — how documentation is organized, written,
   linked, and linted.
+- [Release readiness](release.md) — semver, artifact provenance, compatibility evidence,
+  support policy, and publication checklist.
 
 ## Project planning
 

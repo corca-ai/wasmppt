@@ -6,6 +6,21 @@
 //!
 //! This crate is host-agnostic. Runtime I/O belongs behind capability traits and
 //! must not introduce browser, JavaScript, or Cloudflare dependencies here.
+//!
+//! # Open and rewrite a package
+//!
+//! ```no_run
+//! use wasmppt_opc::{RewriteMode, ZipArchive, rewrite_archive_to_vec};
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let source = std::fs::read("input.pptx")?;
+//! let archive = ZipArchive::from_bytes(source)?;
+//! let (rewritten, stats) = rewrite_archive_to_vec(&archive, RewriteMode::Preserve)?;
+//! assert_eq!(stats.entries, archive.entries().len() as u64);
+//! std::fs::write("output.pptx", rewritten)?;
+//! # Ok(())
+//! # }
+//! ```
 
 mod error;
 mod graph;

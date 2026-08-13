@@ -1,4 +1,17 @@
 //! Lazy PresentationML theme, master, layout, and slide resolution.
+//!
+//! # Resolve one slide
+//!
+//! ```no_run
+//! use wasmppt_layout::PresentationDocument;
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let document = PresentationDocument::open(std::fs::read("report.pptx")?)?;
+//! let resolved = document.resolve_slide(0)?;
+//! println!("{} resolved elements", resolved.slide.elements.len());
+//! # Ok(())
+//! # }
+//! ```
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -10,6 +23,7 @@ mod resolve;
 
 pub use resolve::resolve_slide_parts;
 
+/// English Metric Units; 914,400 EMU equal one inch.
 pub type Emu = i64;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -727,6 +741,7 @@ pub struct PresentationDocument {
 }
 
 impl PresentationDocument {
+    /// Open in-memory PPTX bytes and index only package topology plus the presentation part.
     pub fn open(bytes: impl Into<Arc<[u8]>>) -> Result<Self, LayoutError> {
         let archive = Arc::new(ZipArchive::from_bytes(bytes).map_err(package_error)?);
         Self::open_source(archive)
@@ -799,6 +814,7 @@ impl PresentationDocument {
         })
     }
 
+    /// Number of logical slides in presentation order.
     pub fn slide_count(&self) -> usize {
         self.slides.len()
     }
@@ -811,10 +827,12 @@ impl PresentationDocument {
             .collect()
     }
 
+    /// Trace produced by opening the package before any slide is resolved.
     pub fn open_trace(&self) -> &ResolutionTrace {
         &self.open_trace
     }
 
+    /// Resolve one zero-based slide and only its reachable dependency branch.
     pub fn resolve_slide(&self, index: usize) -> Result<ResolveOutput, LayoutError> {
         let slide = *self
             .slides
@@ -886,6 +904,7 @@ impl PresentationDocument {
             .collect()
     }
 
+    /// Union the invalidation result for multiple changed package part names.
     pub fn invalidated_slides_for_parts<'a>(
         &self,
         changed_part_names: impl IntoIterator<Item = &'a str>,
@@ -944,11 +963,13 @@ impl PresentationDocument {
         Ok(hasher.finalize().into())
     }
 
+    /// Hash one exact package part for content-addressed host caches.
     pub fn part_fingerprint(&self, part_name: &str) -> Result<[u8; 32], LayoutError> {
         let bytes = self.source.read_part(part_name).map_err(package_error)?;
         Ok(Sha256::digest(bytes).into())
     }
 
+    /// Name of the package's main PresentationML part.
     pub fn presentation_part_name(&self) -> &str {
         self.graph
             .part_name(self.graph.part(self.presentation_part))

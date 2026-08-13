@@ -1,4 +1,24 @@
 //! Immutable, versioned template plans compiled from loss-aware PowerPoint packages.
+//!
+//! # Compile once and generate
+//!
+//! ```no_run
+//! use std::sync::Arc;
+//! use wasmppt_opc::ZipArchive;
+//! use wasmppt_template::{
+//!     CompilerOptions, InjectionData, PreparedTemplate, TemplateCompiler,
+//! };
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let bytes: Arc<[u8]> = std::fs::read("template.potx")?.into();
+//! let archive = ZipArchive::from_bytes(bytes.clone())?;
+//! let compiled = TemplateCompiler::new(CompilerOptions::default()).compile(&archive)?;
+//! let prepared = PreparedTemplate::new(bytes, compiled.plan)?;
+//! let output = prepared.generate(&InjectionData::new().with_text("title", "Quarterly report"))?;
+//! std::fs::write("report.pptx", output.bytes)?;
+//! # Ok(())
+//! # }
+//! ```
 
 use std::{collections::HashMap, ops::Range};
 
@@ -25,14 +45,20 @@ pub const MANIFEST_PART: &str = "wasmppt/bindings.xml";
 const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Policy for macro-enabled template content during compilation and generation.
 pub enum MacroPolicy {
+    /// Remove VBA parts, macro relationships, and macro actions from generated PPTX output.
     Strip,
+    /// Reject a template as soon as macro content is detected.
     Reject,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// Security and binding-discovery policy used to compile a [`TemplatePlan`].
 pub struct CompilerOptions {
+    /// Macro handling policy; stripping is the safe default for PPTX output.
     pub macro_policy: MacroPolicy,
+    /// Whether visible `{{binding}}` tokens may define bindings in addition to metadata.
     pub allow_visible_tokens: bool,
 }
 
@@ -142,12 +168,14 @@ pub struct CompileOutput {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
+/// Stable machine category for a template compilation failure.
 pub enum CompileErrorCode {
     InvalidTemplate,
     MacroPresent,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// Template compilation failure with an optional lower-level OPC cause code.
 pub struct CompileError {
     code: CompileErrorCode,
     message: String,
@@ -196,15 +224,18 @@ impl std::fmt::Display for CompileError {
 
 impl std::error::Error for CompileError {}
 
+/// Compiles immutable binding and preservation plans from indexed template packages.
 pub struct TemplateCompiler {
     options: CompilerOptions,
 }
 
 impl TemplateCompiler {
+    /// Create a compiler with explicit macro and visible-token policy.
     pub fn new(options: CompilerOptions) -> Self {
         Self { options }
     }
 
+    /// Compile one indexed POTX/POTM package without retaining mutable host state.
     pub fn compile<S: ReadAt>(
         &self,
         archive: &ZipArchive<S>,

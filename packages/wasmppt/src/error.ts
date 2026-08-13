@@ -22,6 +22,7 @@ export interface WasmpptErrorEnvelope {
   readonly causeCode?: string
 }
 
+/** Browser error carrying the stable cross-host envelope; do not parse its message. */
 export class WasmpptError extends Error {
   readonly envelope: WasmpptErrorEnvelope
 
@@ -40,6 +41,7 @@ export class WasmpptError extends Error {
   }
 }
 
+/** Normalize an arbitrary thrown value without discarding an existing stable envelope. */
 export function normalizeWasmpptError(
   error: unknown,
   fallback: Pick<WasmpptErrorEnvelope, 'domain' | 'code'> = {
@@ -66,6 +68,7 @@ export function normalizeWasmpptError(
   }
 }
 
+/** Return whether `value` is a structurally valid version-1 error envelope. */
 export function isWasmpptErrorEnvelope(value: unknown): value is WasmpptErrorEnvelope {
   if (typeof value !== 'object' || value === null) return false
   const candidate = value as Partial<WasmpptErrorEnvelope>

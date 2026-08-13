@@ -58,6 +58,19 @@ version must equal the Rust `wasm-bindgen` dependency.
 
 ## Browser Worker protocol
 
+The repository root is a source-distributable package boundary for pre-alpha browser hosts. An
+exact Git commit exports the browser TypeScript API at `@corca-ai/wasmppt` and the self-initializing
+module Worker at `@corca-ai/wasmppt/browser-worker`. The Worker imports the checked-in scalar
+Wasm-bindgen artifact, loads the optional metafile converter only when requested, installs the
+versioned runtime, and then posts one typed startup-ready message. Startup failure posts one typed
+error and rethrows so both the handshake and Worker error channel observe it.
+
+`connectWasmpptBrowserWorker` waits for that handshake before constructing
+`WasmpptWorkerClient`. A startup error, message-decoding failure, invalid timeout, or timeout
+terminates the Worker and rejects; callers therefore cannot enqueue requests against an engine
+that will never become ready. Consuming bundlers own Worker and Wasm URL emission. Installation
+does not compile Rust, publish an npm artifact, or move browser APIs into the Rust core.
+
 Protocol version 6 uses monotonically allocated request IDs and discriminated messages
 for prepare, generate, release, cancel, progress, chunk, success, and error events. The
 main thread transfers the input `ArrayBuffer`, so ownership moves to the module Worker

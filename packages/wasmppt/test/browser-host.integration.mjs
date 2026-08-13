@@ -86,6 +86,25 @@ const routes = new Map([
     [join(generatedDirectory, 'wasmppt_wasm_bg.wasm'), 'application/wasm'],
   ],
   [
+    '/wasmppt-worker/src/generated/wasmppt_wasm.js',
+    [join(generatedDirectory, 'wasmppt_wasm.js'), 'text/javascript'],
+  ],
+  [
+    '/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm',
+    [join(generatedDirectory, 'wasmppt_wasm_bg.wasm'), 'application/wasm'],
+  ],
+  [
+    '/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm.js',
+    [join(generatedDirectory, 'metafile/wasmppt_metafile_wasm.js'), 'text/javascript'],
+  ],
+  [
+    '/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm_bg.wasm',
+    [
+      join(generatedDirectory, 'metafile/wasmppt_metafile_wasm_bg.wasm'),
+      'application/wasm',
+    ],
+  ],
+  [
     '/wasm/metafile/wasmppt_metafile_wasm.js',
     [join(generatedDirectory, 'metafile/wasmppt_metafile_wasm.js'), 'text/javascript'],
   ],
@@ -141,27 +160,6 @@ for (const slides of [10, 50, 200]) {
   ])
 }
 
-const workerSource = `
-import init, { WasmpptEngine } from '/wasm/wasmppt_wasm.js';
-import { installWorkerRuntime } from '/dist/worker-runtime.js';
-let metafileModule;
-async function metafileToSvg(input) {
-  metafileModule ??= import('/wasm/metafile/wasmppt_metafile_wasm.js').then(async (module) => {
-    await module.default({ module_or_path: new URL('/wasm/metafile/wasmppt_metafile_wasm_bg.wasm', self.location.href) });
-    return module;
-  });
-  return (await metafileModule).convert_metafile_to_svg(input);
-}
-try {
-  await init({ module_or_path: new URL('/wasm/wasmppt_wasm_bg.wasm', self.location.href) });
-  installWorkerRuntime(self, new WasmpptEngine(), { metafileToSvg });
-  self.postMessage({ type: 'host-ready' });
-} catch (error) {
-  self.postMessage({ type: 'host-init-error', message: error instanceof Error ? error.stack : String(error) });
-  throw error;
-}
-`
-
 const server = createServer(async (request, response) => {
   if (request.url === '/') {
     response.writeHead(200, { 'content-type': 'text/html' })
@@ -171,11 +169,6 @@ const server = createServer(async (request, response) => {
   if (request.url === '/favicon.ico') {
     response.writeHead(204)
     response.end()
-    return
-  }
-  if (request.url === '/worker.js') {
-    response.writeHead(200, { 'content-type': 'text/javascript' })
-    response.end(workerSource)
     return
   }
   if (request.url?.startsWith('/competitors/pptx-browser/')) {
@@ -253,7 +246,7 @@ try {
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto(`http://127.0.0.1:${address.port}/`)
   const result = await page.evaluate(async (smartartRegion) => {
-    const { WasmpptWorkerClient } = await import('/dist/worker-client.js')
+    const { connectWasmpptBrowserWorker } = await import('/dist/browser-worker-client.js')
     const { encodeInjectionData } = await import('/dist/injection.js')
     const {
       CanvasDisplayListRenderer,
@@ -299,24 +292,8 @@ try {
       features: ['-liga'],
     })
     const exactBreakTokens = await exactShaper.breakText('alpha beta\n日本語')
-    const worker = new Worker('/worker.js', { type: 'module' })
-    await new Promise((resolvePromise, reject) => {
-      const timer = setTimeout(() => reject(new Error('browser Worker initialization timed out')), 10_000)
-      worker.addEventListener('error', (event) => {
-        clearTimeout(timer)
-        reject(new Error(event.message))
-      }, { once: true })
-      worker.addEventListener('message', (event) => {
-        if (event.data?.type === 'host-init-error') {
-          clearTimeout(timer)
-          reject(new Error(event.data.message))
-        } else if (event.data?.type === 'host-ready') {
-          clearTimeout(timer)
-          resolvePromise()
-        }
-      })
-    })
-    const client = new WasmpptWorkerClient(worker)
+    const worker = new Worker('/dist/browser-worker.js', { type: 'module' })
+    const client = await connectWasmpptBrowserWorker(worker, 10_000)
     const template = await fetch('/fixture.potx').then((response) => response.arrayBuffer())
     const expectedPayloadHex = (await fetch('/parity.wppd.hex').then((response) => response.text()))
       .trim()

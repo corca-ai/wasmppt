@@ -1,7 +1,7 @@
 import type { WasmpptErrorEnvelope } from './error.js'
 
-export const WORKER_PROTOCOL_VERSION = 6 as const
-export const LEGACY_WORKER_PROTOCOL_VERSION = 5 as const
+export const WORKER_PROTOCOL_VERSION = 7 as const
+export const LEGACY_WORKER_PROTOCOL_VERSION = 6 as const
 
 export type TextBindings = Readonly<Record<string, string>>
 
@@ -37,6 +37,7 @@ export interface DeckSessionUpdate {
   readonly revision: number
   readonly slideCount: number
   readonly presentableSlides: readonly number[]
+  readonly pages: readonly DeckPageMetadata[]
   readonly invalidatedSlides: readonly number[]
   readonly invalidatedLogicalSlideIds: readonly string[]
   readonly removedPageIds: readonly string[]
@@ -269,6 +270,7 @@ export type WorkerResponse =
       readonly revision: number
       readonly slideCount: number
       readonly presentableSlides: readonly number[]
+      readonly pages: readonly DeckPageMetadata[]
       readonly plan: ArrayBuffer
     }
   | ({

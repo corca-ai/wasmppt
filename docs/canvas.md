@@ -74,6 +74,9 @@ hit/miss telemetry.
 `setContentRevision` advances an immutable deck revision, removes only the slide scenes named by
 the engine's invalidation result, and aborts older resolution work. Presentation canvases and
 storyboard thumbnails can therefore request the same revisioned WPDL while preserving reusable
+offscreen scenes. Deck-session creation and updates return the complete ordered page inventory for
+that same revision before any WPDL is resolved. Hosts can therefore group continuation pages,
+subdue hidden authoring pages, and mount the first visible canvas without eagerly materializing
 offscreen scenes. `hitTestDisplayScene` and `hitTestDisplaySceneAtCanvasPoint` return only
 source-backed semantic targets, ordered by z-order and stable reading order.
 `WasmpptWorkerClient` also deduplicates in-flight raw and converted resources per presentation

@@ -90,14 +90,23 @@ export function installWorkerRuntime(
               engine.deck_session_presentable_slides(handle),
               'presentable slide',
             )
+            const slideCount = engine.deck_session_slide_count(handle)
+            const pages = decodeDeckPageInventory(
+              engine,
+              handle,
+              revision,
+              slideCount,
+              presentableSlides,
+            )
             progress(scope, message.id, 'session', 1, 1)
             scope.postMessage(response({
               id: message.id,
               type: 'deck-session-created',
               sessionHandle: handle,
               revision,
-              slideCount: engine.deck_session_slide_count(handle),
+              slideCount,
               presentableSlides,
+              pages,
               plan,
             }), [plan])
           } catch (error) {
@@ -114,12 +123,20 @@ export function installWorkerRuntime(
             message.nextRevision,
             new Uint8Array(message.spec),
           ))
+          const pages = decodeDeckPageInventory(
+            engine,
+            message.sessionHandle,
+            update.revision,
+            update.slideCount,
+            update.presentableSlides,
+          )
           progress(scope, message.id, 'delta', 1, 1)
           post(scope, {
             id: message.id,
             type: 'deck-session-updated',
             sessionHandle: message.sessionHandle,
             ...update,
+            pages,
           })
           return
         }
@@ -673,7 +690,31 @@ function decodeDeckPageMetadata(rows: unknown[]): import('./protocol.js').DeckPa
   }
 }
 
-function decodeDeckUpdate(rows: unknown[]): import('./protocol.js').DeckSessionUpdate {
+function decodeDeckPageInventory(
+  engine: WorkerEngine,
+  sessionHandle: number,
+  revision: number,
+  slideCount: number,
+  presentableSlides: readonly number[],
+): import('./protocol.js').DeckPageMetadata[] {
+  const pages = Array.from({ length: slideCount }, (_, slideIndex) =>
+    decodeDeckPageMetadata(engine.deck_session_slide_metadata(
+      sessionHandle,
+      revision,
+      slideIndex,
+    )))
+  const expectedPresentableSlides = pages.flatMap((page, slideIndex) =>
+    page.hidden ? [] : [slideIndex])
+  if (presentableSlides.length !== expectedPresentableSlides.length ||
+    presentableSlides.some((slideIndex, index) => slideIndex !== expectedPresentableSlides[index])) {
+    throw new TypeError('deck page inventory does not match presentable slides')
+  }
+  return pages
+}
+
+function decodeDeckUpdate(
+  rows: unknown[],
+): Omit<import('./protocol.js').DeckSessionUpdate, 'pages'> {
   if (rows.length !== 14) throw new TypeError('invalid deck update metadata')
   const [revision, slideCount, presentableSlides, invalidatedSlides,
     invalidatedLogicalSlideIds, removedPageIds, changedParts, reusedPages, fullFallback,

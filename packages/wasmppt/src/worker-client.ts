@@ -49,6 +49,7 @@ export interface OpenedDeckSession {
   readonly revision: number
   readonly slideCount: number
   readonly presentableSlides: readonly number[]
+  readonly pages: readonly DeckPageMetadata[]
   readonly plan: ArrayBuffer
 }
 
@@ -268,6 +269,7 @@ export class WasmpptWorkerClient {
       revision: response.revision,
       slideCount: response.slideCount,
       presentableSlides: response.presentableSlides,
+      pages: response.pages,
       plan: response.plan,
     }
   }

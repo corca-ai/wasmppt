@@ -77,6 +77,30 @@ test('deck sessions transfer contracts, expose presentable pages, and discard st
   const creating = client.createDeckSession(31, spec)
   const createRequest = worker.messages.at(-1)
   assert.deepEqual(worker.transfers.at(-1), [spec])
+  const sessionPlan = new ArrayBuffer(12)
+  const pages = [
+    {
+      pageId: '01'.repeat(16),
+      logicalSlideId: '11'.repeat(16),
+      hidden: false,
+      continuationOrdinal: 1,
+      continuationTotal: 1,
+    },
+    {
+      pageId: '02'.repeat(16),
+      logicalSlideId: '12'.repeat(16),
+      hidden: true,
+      continuationOrdinal: 1,
+      continuationTotal: 1,
+    },
+    {
+      pageId: '03'.repeat(16),
+      logicalSlideId: '13'.repeat(16),
+      hidden: false,
+      continuationOrdinal: 1,
+      continuationTotal: 1,
+    },
+  ]
   worker.respond({
     version: WORKER_PROTOCOL_VERSION,
     id: createRequest.id,
@@ -85,9 +109,17 @@ test('deck sessions transfer contracts, expose presentable pages, and discard st
     revision: 0,
     slideCount: 3,
     presentableSlides: [0, 2],
-    plan: new ArrayBuffer(12),
+    pages,
+    plan: sessionPlan,
   })
-  assert.deepEqual((await creating).presentableSlides, [0, 2])
+  assert.deepEqual(await creating, {
+    handle: 32,
+    revision: 0,
+    slideCount: 3,
+    presentableSlides: [0, 2],
+    pages,
+    plan: sessionPlan,
+  })
 
   const currentResolve = client.resolveDeckSlide(32, 0, 2)
   const currentResolveRequest = worker.messages.at(-1)
@@ -124,6 +156,7 @@ test('deck sessions transfer contracts, expose presentable pages, and discard st
     revision: 1,
     slideCount: 3,
     presentableSlides: [0, 2],
+    pages,
     invalidatedSlides: [0],
     invalidatedLogicalSlideIds: ['01'.repeat(16)],
     removedPageIds: ['02'.repeat(16)],
@@ -173,7 +206,7 @@ test('an unknown Worker response cannot consume a live request ID', async () => 
   client.terminate()
 })
 
-test('machine-readable errors survive Wasm, protocol v6, and the browser client', async () => {
+test('machine-readable errors survive Wasm, protocol v7, and the browser client', async () => {
   const worker = new FakeWorker()
   const client = new WasmpptWorkerClient(worker)
   const pending = client.prepare(new ArrayBuffer(4))
@@ -204,13 +237,13 @@ test('machine-readable errors survive Wasm, protocol v6, and the browser client'
   client.terminate()
 })
 
-test('protocol v6 client decodes legacy v5 errors without treating messages as codes', async () => {
+test('protocol v7 client decodes legacy v6 errors without treating messages as codes', async () => {
   const worker = new FakeWorker()
   const client = new WasmpptWorkerClient(worker)
   const pending = client.prepare(new ArrayBuffer(4))
   const request = worker.messages[0]
   worker.respond({
-    version: 5,
+    version: 6,
     id: request.id,
     type: 'error',
     name: 'WasmpptCompileError',
@@ -436,23 +469,32 @@ test('runtime preserves chart binding metadata returned by Wasm', async () => {
   }])
 })
 
-test('runtime exposes revisioned deck planning metadata without copying display lists', async () => {
+test('runtime exposes revisioned deck topology without resolving display lists', async () => {
   class Scope extends EventTarget {
     responses = []
     transfers = []
     postMessage(message, transfer = []) { this.responses.push(message); this.transfers.push(transfer) }
   }
   const scope = new Scope()
+  let displayListResolutions = 0
   installWorkerRuntime(scope, {
     apply_deck_session_spec: () => [
       4, 3, [0, 2], [1], ['11'.repeat(16)], ['22'.repeat(16)],
       ['ppt/slides/slide2.xml'], 2, false, 20, 4, 512, 2048, 0,
     ],
-    deck_session_slide_metadata: () => [
-      '33'.repeat(16), '44'.repeat(16), false, 2, 3, '2/3',
+    deck_session_slide_metadata: (_handle, _revision, slideIndex) => [
+      `${slideIndex + 30}`.repeat(16),
+      `${slideIndex + 40}`.repeat(16),
+      slideIndex === 1,
+      slideIndex + 1,
+      3,
+      `${slideIndex + 1}/3`,
     ],
     deck_session_slide_fingerprint: () => 'fingerprint-4-1',
-    resolve_deck_session_slide: () => new Uint8Array(64),
+    resolve_deck_session_slide: () => {
+      displayListResolutions += 1
+      return new Uint8Array(64)
+    },
   })
   scope.dispatchEvent(new MessageEvent('message', { data: {
     version: WORKER_PROTOCOL_VERSION,
@@ -467,6 +509,8 @@ test('runtime exposes revisioned deck planning metadata without copying display 
   assert.equal(scope.responses.at(-1).type, 'deck-session-updated')
   assert.deepEqual(scope.responses.at(-1).invalidatedSlides, [1])
   assert.equal(scope.responses.at(-1).reusedPages, 2)
+  assert.deepEqual(scope.responses.at(-1).pages.map((page) => page.hidden), [false, true, false])
+  assert.equal(displayListResolutions, 0)
 
   scope.dispatchEvent(new MessageEvent('message', { data: {
     version: WORKER_PROTOCOL_VERSION,
@@ -480,13 +524,14 @@ test('runtime exposes revisioned deck planning metadata without copying display 
   assert.equal(scope.responses.at(-1).type, 'deck-slide-resolved')
   assert.equal(scope.responses.at(-1).revision, 4)
   assert.deepEqual(scope.responses.at(-1).page, {
-    pageId: '33'.repeat(16),
-    logicalSlideId: '44'.repeat(16),
-    hidden: false,
+    pageId: '31'.repeat(16),
+    logicalSlideId: '41'.repeat(16),
+    hidden: true,
     continuationOrdinal: 2,
     continuationTotal: 3,
     continuationLabel: '2/3',
   })
+  assert.equal(displayListResolutions, 1)
   assert.deepEqual(scope.transfers.at(-1), [scope.responses.at(-1).displayList])
 })
 

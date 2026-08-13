@@ -71,7 +71,7 @@ terminates the Worker and rejects; callers therefore cannot enqueue requests aga
 that will never become ready. Consuming bundlers own Worker and Wasm URL emission. Installation
 does not compile Rust, publish an npm artifact, or move browser APIs into the Rust core.
 
-Protocol version 6 uses monotonically allocated request IDs and discriminated messages
+Protocol version 7 uses monotonically allocated request IDs and discriminated messages
 for prepare, generate, release, cancel, progress, chunk, success, and error events. The
 main thread transfers the input `ArrayBuffer`, so ownership moves to the module Worker
 instead of paying a structured-clone copy. Generation data uses the versioned `WPPD` binary
@@ -80,9 +80,10 @@ The protocol also carries revisioned delta, live-slide resolution, cache telemet
 content-fingerprinted resource reads, and EMF/WMF-to-SVG requests; the latter fails explicitly
 when a host chooses not to install the optional converter.
 
-The v6 `deck-*` operations compile or restore a POTX plan, create and update complete WDSF
-revisions, return the current WDPL and hidden-filtered presentable page indices, resolve one
-physical page with stable page, logical-slide, hidden, and continuation metadata, stream resources,
+The v7 `deck-*` operations compile or restore a POTX plan, create and update complete WDSF
+revisions, and return the current WDPL, hidden-filtered presentable page indices, and an ordered
+page inventory with stable page, logical-slide, hidden, and continuation metadata. Reading that
+inventory does not resolve or copy any WPDL. A separate request resolves one physical page, streams resources,
 and export the exact preview overlay. Changed logical slides,
 physical pages, and package parts are explicit. WDSF, WDPL, WPDL, and resource buffers transfer
 ownership across the Worker boundary; bounded content-addressed caches retain only reusable data.
@@ -111,12 +112,12 @@ informational, may change, and MUST NOT be parsed. Rust compile, generation, and
 are non-exhaustive. Their adapters preserve lower-level OPC and XML codes in `causeCode` instead of
 embedding the only copy in prose.
 
-Browser protocol v6 `error` and `cancelled` responses carry this envelope. `WasmpptWorkerClient`
+Browser protocol v7 `error` and `cancelled` responses carry this envelope. `WasmpptWorkerClient`
 rejects with `WasmpptError`, whose `domain`, `code`, and `envelope` are public. Cancellation keeps
 the familiar JavaScript name `AbortError` while its stable code is `runtime/cancelled`. Unknown
 opaque handles use `runtime/unknown-handle`; a revision mismatch uses `runtime/stale-revision`.
-The client continues to decode v5 `name`/`message` error and cancellation responses during the
-protocol migration, assigning legacy errors `runtime/legacy-error`; new requests always use v6.
+The client continues to decode v6 `name`/`message` error and cancellation responses during the
+protocol migration, assigning legacy errors `runtime/legacy-error`; new requests always use v7.
 
 `createLiveSession`, `applyLiveDelta`, `resolveLiveSlide`, and `generateLiveStream` operate on one
 Worker-owned session. Exact revision checks make stale work observable. Changed binding IDs, parts,

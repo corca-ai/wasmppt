@@ -1455,6 +1455,37 @@ mod tests {
     }
 
     #[test]
+    fn nested_section_headings_flow_through_the_content_body() {
+        let spec = spec(vec![
+            text_node(3, SemanticRole::Title, SplitPolicy::Never, "Comparison"),
+            text_node(4, SemanticRole::Section, SplitPolicy::Never, "Control"),
+            text_node(
+                5,
+                SemanticRole::Prose,
+                SplitPolicy::Text,
+                "Stable baseline.",
+            ),
+            text_node(6, SemanticRole::Section, SplitPolicy::Never, "Treatment"),
+            text_node(
+                7,
+                SemanticRole::Prose,
+                SplitPolicy::Text,
+                "Measured improvement.",
+            ),
+        ]);
+        let template = template(5_500_000);
+
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+
+        assert_eq!(plan.pages[0].regions[0].fragments[0].source_node_id, id(3));
+        assert!(fragments(&plan.pages[0]).any(|fragment| fragment.source_node_id == id(4)));
+        assert!(fragments(&plan.pages[0]).any(|fragment| fragment.source_node_id == id(6)));
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
     fn authored_figure_caption_relation_stays_on_one_page() {
         let spec = spec_with_resources(
             vec![
@@ -1884,6 +1915,7 @@ mod tests {
                     margins: TextMargins::default(),
                     text_levels: vec![text_level(2_000)],
                     accepts: vec![
+                        SemanticRole::Section,
                         SemanticRole::Prose,
                         SemanticRole::List,
                         SemanticRole::Table,

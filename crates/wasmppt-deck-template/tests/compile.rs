@@ -248,6 +248,11 @@ fn compiles_exact_geometry_inherited_regions_theme_and_preserved_assets() {
     assert!(
         content_body
             .accepts
+            .contains(&wasmppt_deck::SemanticRole::Section)
+    );
+    assert!(
+        content_body
+            .accepts
             .contains(&wasmppt_deck::SemanticRole::DefinitionTerm)
     );
     assert!(

@@ -24,6 +24,11 @@
     "lint:markdown": "markdownlint-cli2",
     "lint:shell": "shellcheck scripts/*.sh .githooks/*",
     "precommit": "git diff --cached --check && npm run check:fast && npm run test:fast",
+    "prepush": "npm run prepush:rust && npm run prepush:packages && npm run prepush:policy",
+    "prepush:full": "npm run prepush && npm run build:wasm-hosts && npm run test:browser --workspace @corca-ai/wasmppt && npm run build:pages && npm run test:pages && node benchmarks/run.mjs --ci",
+    "prepush:packages": "npm run test --workspaces --if-present && npm run check:core-boundary && npm run check:contracts",
+    "prepush:policy": "cargo deny check bans licenses sources && cargo machete --skip-target-dir",
+    "prepush:rust": "cargo check --workspace --all-targets --all-features --locked --offline && cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings && cargo test --workspace --all-features --locked --offline --lib --tests && cargo test --workspace --all-features --locked --offline --doc && cargo check --workspace --all-features --locked --offline --target wasm32-unknown-unknown",
     "test:pages": "node packages/wasmppt/test/pages-smoke.mjs",
     "test": "node --test scripts/*.test.mjs && npm run test --workspaces --if-present",
     "test:fast": "cargo test --workspace --lib --all-features --locked --offline && node --test scripts/*.test.mjs && npm run test:unit --workspaces --if-present"

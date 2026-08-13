@@ -141,6 +141,21 @@ sets the clone-local `core.hooksPath`, so no implementation is copied into `.git
 exercise installation in a temporary Git repository and lock the hook-to-command mapping. A failed
 hook prints the exact manual reproduction command.
 
+The pre-push hook stores Git's ref update stream in the temporary file named by
+`WASMPPT_PRE_PUSH_REFS`, then runs `npm run prepush`. The default medium-cost, offline gate runs
+workspace Cargo check and Clippy, native library/integration tests, separate doctests, a Wasm target
+check, package tests (including workerd), core boundary and contract checks, cargo-deny's
+license/source/duplicate policy, and cargo-machete. It requires pinned quality tools to be installed
+during bootstrap but never installs them itself. Warm runs should take under two minutes and clean
+builds roughly ten minutes, depending on the machine.
+
+Use `npm run prepush:full` only when the local checkout already has `wasm-bindgen`, Chromium, and the
+benchmark inputs. It additionally builds release Wasm hosts, runs browser and Pages integration,
+and enforces the native benchmark matrix; it still performs no dependency installation. PowerPoint
+consumers, corpus downloads, and full cross-host CI matrices remain remote gates. An exceptional
+push can bypass local hooks with `git push --no-verify`; disclose it and rely on required CI before
+merge.
+
 Build and report the raw Wasm artifact size with:
 
 ```sh

@@ -20,7 +20,6 @@ default = []
 wasmppt-display.workspace = true
 wasmppt-layout.workspace = true
 wasmppt-opc.workspace = true
-wasmppt-pml.workspace = true
 wasmppt-template.workspace = true
 wasmppt-xml.workspace = true
 

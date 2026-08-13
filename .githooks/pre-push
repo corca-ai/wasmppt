@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+repository_root=$(git rev-parse --show-toplevel)
+cd "$repository_root"
+
+push_refs_file=$(mktemp "${TMPDIR:-/tmp}/wasmppt-pre-push.XXXXXX")
+trap 'rm -f "$push_refs_file"' EXIT HUP INT TERM
+cat > "$push_refs_file"
+export WASMPPT_PRE_PUSH_REFS="$push_refs_file"
+
+if ! npm run prepush; then
+  echo "pre-push checks failed; reproduce with: npm run prepush" >&2
+  exit 1
+fi

@@ -13,7 +13,6 @@ publish = false
 default = []
 
 [dependencies]
-wasmppt-opc.workspace = true
 wasmppt-xml.workspace = true
 
 [lints]

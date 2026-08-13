@@ -17,11 +17,12 @@ permissions:
 
 jobs:
   powerpoint:
+    name: Release / PowerPoint ground truth
     runs-on: [self-hosted, Windows, X64, PowerPoint, ImageMagick]
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
@@ -46,40 +47,48 @@ jobs:
           ./tools/office-consumers/compare-visuals.ps1
           target/powerpoint-ground-truth/slides target/visual-report
           target/powerpoint-ground-truth/visual-report.json
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: powerpoint-ground-truth-${{ github.sha }}
           path: |
             target/powerpoint-ground-truth
             target/visual-report
           if-no-files-found: error
+      - name: Summarize PowerPoint evidence
+        run: echo "[PowerPoint artifacts]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> "$GITHUB_STEP_SUMMARY"
 
   libreoffice:
+    name: Release / LibreOffice ground truth
     runs-on: [self-hosted, Linux, X64, LibreOffice]
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Export with LibreOffice Impress
         run: ./tools/office-consumers/libreoffice.sh fixtures/render/basic.pptx target/libreoffice
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: libreoffice-${{ github.sha }}
           path: target/libreoffice
           if-no-files-found: error
+      - name: Summarize LibreOffice evidence
+        run: echo "[LibreOffice artifact]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> "$GITHUB_STEP_SUMMARY"
 
   keynote:
+    name: Release / Keynote ground truth
     runs-on: [self-hosted, macOS, ARM64, Keynote]
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Export with Keynote
         run: |
           mkdir -p target/keynote
           osascript tools/office-consumers/keynote.applescript \
             fixtures/render/basic.pptx target/keynote/ground-truth.pdf
           test -s target/keynote/ground-truth.pdf
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: keynote-${{ github.sha }}
           path: target/keynote
           if-no-files-found: error
+      - name: Summarize Keynote evidence
+        run: echo "[Keynote artifact]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> "$GITHUB_STEP_SUMMARY"

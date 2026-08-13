@@ -252,6 +252,71 @@ export function contractErrors(inputs) {
   return errors
 }
 
+export function workflowPolicyErrors(workflows) {
+  const errors = []
+  for (const [path, source] of Object.entries(workflows)) {
+    for (const match of source.matchAll(/^\s*(?:-\s+)?uses:\s+([^\s#]+)/gm)) {
+      const reference = match[1]
+      if (!reference.startsWith('./') && !/@[0-9a-f]{40}$/.test(reference)) {
+        errors.push(`${path} action is not pinned to a full commit: ${reference}`)
+      }
+    }
+    if (!source.includes('timeout-minutes:')) {
+      errors.push(`${path} has no explicit job timeout`)
+    }
+  }
+  return errors
+}
+
+export function qualityGateErrors(inputs) {
+  const errors = []
+  const scripts = JSON.parse(inputs.rootPackage).scripts
+  for (const [script, fragments] of Object.entries({
+    precommit: ['npm run check:fast', 'npm run test:fast'],
+    prepush: ['npm run prepush:rust', 'npm run prepush:packages', 'npm run prepush:policy'],
+    'prepush:rust': ['cargo check', 'cargo clippy', 'cargo test', '--doc', 'wasm32-unknown-unknown'],
+    'prepush:policy': ['cargo deny', 'cargo machete'],
+  })) {
+    for (const fragment of fragments) {
+      if (!scripts[script]?.includes(fragment)) {
+        errors.push(`package.json ${script} does not include ${fragment}`)
+      }
+    }
+  }
+  for (const fragment of [
+    'cargo nextest run --workspace',
+    'cargo test --workspace --all-features --locked --doc',
+    'cargo-machete@0.9.2',
+    'cargo-llvm-cov@0.8.7',
+  ]) {
+    if (!inputs.ci.includes(fragment)) errors.push(`CI quality policy does not include ${fragment}`)
+  }
+  for (const fragment of [
+    'Quality / repository',
+    'Rust / native correctness',
+    'Packages / TypeScript and tests',
+    'Security / dependency policy',
+    'npm run precommit',
+    'npm run prepush',
+  ]) {
+    if (!inputs.quality.includes(fragment)) {
+      errors.push(`docs/quality.md does not include ${fragment}`)
+    }
+  }
+  for (const target of [
+    'open_package',
+    'package_graph',
+    'slide_geometry',
+    'template_bindings',
+    'xml_tokens',
+  ]) {
+    if (!inputs.fuzzRunner.includes(target)) {
+      errors.push(`scheduled fuzz runner does not include ${target}`)
+    }
+  }
+  return errors
+}
+
 export async function readRepositoryContracts() {
   const textPaths = {
     rustDisplay: 'crates/wasmppt-display/src/lib.rs',
@@ -274,6 +339,9 @@ export async function readRepositoryContracts() {
     performance: 'docs/performance.md',
     corpusWorkflow: '.github/workflows/corpus-scorecard.yml',
     wasmBuild: 'scripts/build-wasm-hosts.sh',
+    rootPackage: 'package.json',
+    quality: 'docs/quality.md',
+    fuzzRunner: 'scripts/run-fuzz-ci.sh',
   }
   const jsonPaths = {
     capabilities: 'capabilities/presentationml.json',
@@ -300,11 +368,26 @@ export async function readRepositoryContracts() {
     path,
     await readFile(new URL(path, root), 'utf8'),
   ])))
-  return { ...Object.fromEntries(textEntries), ...Object.fromEntries(jsonEntries), docs }
+  const workflowPaths = [
+    '.github/workflows/ci.yml',
+    '.github/workflows/corpus-scorecard.yml',
+    '.github/workflows/office-ground-truth.yml',
+    '.github/workflows/rust-deep-quality.yml',
+  ]
+  const workflows = Object.fromEntries(await Promise.all(workflowPaths.map(async (path) => [
+    path,
+    await readFile(new URL(path, root), 'utf8'),
+  ])))
+  return { ...Object.fromEntries(textEntries), ...Object.fromEntries(jsonEntries), docs, workflows }
 }
 
 export async function checkRepositoryContracts() {
-  const errors = contractErrors(await readRepositoryContracts())
+  const inputs = await readRepositoryContracts()
+  const errors = [
+    ...contractErrors(inputs),
+    ...qualityGateErrors(inputs),
+    ...workflowPolicyErrors(inputs.workflows),
+  ]
   if (errors.length > 0) throw new Error(`repository contracts are out of sync:\n- ${errors.join('\n- ')}`)
 }
 

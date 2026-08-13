@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "measuredAt": "2026-08-13",
+  "cargoLlvmCovVersion": "0.8.7",
+  "scope": [
+    "wasmppt-opc",
+    "wasmppt-xml",
+    "wasmppt-pml",
+    "wasmppt-template",
+    "wasmppt-layout",
+    "wasmppt-metafile",
+    "wasmppt-display",
+    "wasmppt-shaper"
+  ],
+  "minimum": {
+    "linePercent": 76.54,
+    "functionPercent": 75.71,
+    "regionPercent": 77.79
+  },
+  "tolerancePercentagePoints": 0.01
+}

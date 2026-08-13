@@ -13,6 +13,8 @@ verification commands. For the durable subsystem design, see [System architectur
 - Node.js: 24 or newer
 - Documentation linters: `awiki` and `markdownlint-cli2`
 - Source linters: Clippy, `oxlint`, and ShellCheck
+- Rust quality tools: cargo-nextest 0.9.143, cargo-llvm-cov 0.8.7, cargo-machete 0.9.2,
+  cargo-deny 0.19.8, and cargo-fuzz 0.13.2
 
 `rust-toolchain.toml` installs the development toolchain, `rustfmt`, Clippy, and the Wasm
 target. CI separately checks the workspace with the MSRV so using a newer local compiler
@@ -23,8 +25,10 @@ is the development-toolchain source. Contract-sync tests compare every workflow 
 consumer against those declarations.
 
 `npm ci` installs the pinned JavaScript and Markdown linters. Install `awiki` and ShellCheck
-separately before using the local pre-commit gate. CI also pins Actionlint and Typos to validate
-workflow semantics and spelling without adding those slower tools to every local commit.
+separately before using the local pre-commit gate. Install the Rust quality tools at the exact
+versions above; the hooks deliberately perform no installation. CI also pins Actionlint and Typos
+to validate workflow semantics and spelling without adding those slower tools to every local
+commit. See [quality gates](quality.md) for tier ownership and quarantine policy.
 
 ## Rust entry points
 
@@ -94,13 +98,15 @@ Run the complete local bootstrap suite from the repository root:
 ```sh
 cargo fmt --all --check
 cargo check --workspace --all-targets --all-features --locked
-cargo test --workspace --all-features --locked
+cargo nextest run --workspace --all-features --locked
+cargo test --workspace --all-features --locked --doc
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo check --workspace --all-features --locked --target wasm32-unknown-unknown
 cargo +1.85.1 check --workspace --all-targets --all-features --locked \
   --exclude wasmppt-metafile --exclude wasmppt-metafile-wasm
 cargo +1.88.0 check -p wasmppt-metafile -p wasmppt-metafile-wasm --all-targets --locked
 cargo deny check
+cargo machete --skip-target-dir
 npm ci
 npm run lint
 npm run check
@@ -113,6 +119,13 @@ npm run build:pages
 npm run test:pages
 node benchmarks/run.mjs --ci
 awiki lint -root docs
+```
+
+Generate and enforce the current core coverage baseline separately:
+
+```sh
+rustup component add llvm-tools-preview
+npm run coverage:core
 ```
 
 Enable the repository-owned hooks once per clone:

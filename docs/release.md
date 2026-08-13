@@ -21,6 +21,9 @@ package, or host artifact. Pre-alpha workspace builds are not releases and make 
   those exact bytes in host, performance, and publication jobs.
 - [ ] Record checksums, compiler versions, `wasm-bindgen` version, licenses, source revision, and
   software-bill-of-materials metadata.
+- [ ] Generate a CycloneDX or SPDX SBOM and GitHub artifact attestation/provenance.
+- [ ] Run pinned cargo-semver-checks against the explicit signed previous-release tag once crates
+  are publishable; do not use the current `0.0.0`, `publish = false` state as a fake baseline.
 - [ ] Verify npm package contents and Rust crate contents from clean archives rather than the
   working tree.
 - [ ] Sign the release and retain immutable CI evidence for every published artifact.

@@ -3,7 +3,9 @@ import test from 'node:test'
 import {
   checkRepositoryContracts,
   contractErrors,
+  qualityGateErrors,
   toolchainErrors,
+  workflowPolicyErrors,
 } from './check-contract-sync.mjs'
 
 const validToolchains = {
@@ -37,6 +39,33 @@ const validToolchains = {
 
 test('repository contracts stay synchronized across code, docs, fixtures, and CI', async () => {
   await checkRepositoryContracts()
+})
+
+test('workflow policy rejects floating actions and missing timeouts', () => {
+  assert.deepEqual(workflowPolicyErrors({
+    good: 'jobs:\n  check:\n    timeout-minutes: 10\n    steps:\n      - uses: owner/action@0123456789abcdef0123456789abcdef01234567',
+  }), [])
+  assert.deepEqual(workflowPolicyErrors({ bad: 'steps:\n  - uses: owner/action@v2' }), [
+    'bad action is not pinned to a full commit: owner/action@v2',
+    'bad has no explicit job timeout',
+  ])
+})
+
+test('local and CI quality layers stay mapped to their documented commands', () => {
+  const rootPackage = JSON.stringify({ scripts: {
+    precommit: 'npm run check:fast && npm run test:fast',
+    prepush: 'npm run prepush:rust && npm run prepush:packages && npm run prepush:policy',
+    'prepush:rust': 'cargo check && cargo clippy && cargo test --doc wasm32-unknown-unknown',
+    'prepush:policy': 'cargo deny && cargo machete',
+  } })
+  const ci = 'cargo nextest run --workspace cargo test --workspace --all-features --locked --doc cargo-machete@0.9.2 cargo-llvm-cov@0.8.7'
+  const quality = 'Quality / repository Rust / native correctness Packages / TypeScript and tests Security / dependency policy npm run precommit npm run prepush'
+  const fuzzRunner = 'open_package package_graph slide_geometry template_bindings xml_tokens'
+  assert.deepEqual(qualityGateErrors({ rootPackage, ci, quality, fuzzRunner }), [])
+  assert.deepEqual(
+    qualityGateErrors({ rootPackage, ci: ci.replace('cargo nextest run --workspace', ''), quality, fuzzRunner }),
+    ['CI quality policy does not include cargo nextest run --workspace'],
+  )
 })
 
 test('contract checker reports every independently stale consumer', () => {

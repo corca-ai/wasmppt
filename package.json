@@ -17,6 +17,7 @@
     "check:fast": "cargo fmt --all --check && npm run lint && npm run check && npm run lint:docs",
     "check:contracts": "node scripts/check-contract-sync.mjs",
     "check:core-boundary": "node scripts/check-core-boundary.mjs",
+    "coverage:core": "sh scripts/coverage-core.sh",
     "hooks:install": "sh scripts/install-git-hooks.sh",
     "lint": "npm run lint:js && npm run lint:markdown && npm run lint:shell",
     "lint:docs": "awiki lint -root docs",

@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use wasmppt_opc::{PackageGraph, PackagePartSource, PartId, RelationshipTarget};
+use wasmppt_pml::PresentationView;
 use wasmppt_xml::{Attribute, TokenKind, XmlDocument, decode_entities};
 
 use crate::{
@@ -54,6 +55,7 @@ struct RawShape {
 #[derive(Clone, Debug, Default)]
 struct RawTextRun {
     text: String,
+    field_type: Option<String>,
     style: PartialTextStyle,
     east_asian_font_family: Option<String>,
     complex_script_font_family: Option<String>,
@@ -312,7 +314,53 @@ pub fn resolve_slide_parts(
     slide_size: EmuSize,
 ) -> Result<ResolveOutput, LayoutError> {
     let embedded_fonts = discover_embedded_fonts(source, graph)?;
-    resolve_slide_parts_cached(source, graph, slide_id, slide_size, &embedded_fonts)
+    let slide_number = presentation_slide_number(source, graph, slide_id);
+    resolve_slide_parts_cached(
+        source,
+        graph,
+        slide_id,
+        slide_size,
+        &embedded_fonts,
+        slide_number,
+    )
+}
+
+fn presentation_slide_number(
+    source: &dyn PackagePartSource,
+    graph: &PackageGraph,
+    slide_id: PartId,
+) -> Option<u32> {
+    let presentation_id = graph
+        .package_relationships()
+        .iter()
+        .find(|relationship| {
+            graph
+                .relationship_type(relationship)
+                .ends_with("/officeDocument")
+        })
+        .and_then(|relationship| match relationship.target {
+            RelationshipTarget::Internal(part) => Some(part),
+            _ => None,
+        })?;
+    let presentation_name = graph.part_name(graph.part(presentation_id));
+    let presentation = PresentationView::parse(source.read_part(presentation_name).ok()?).ok()?;
+    presentation
+        .slide_relationship_ids()
+        .iter()
+        .filter_map(|id| {
+            graph
+                .part(presentation_id)
+                .relationships
+                .iter()
+                .find(|relationship| graph.relationship_id(relationship) == id)
+                .and_then(|relationship| match relationship.target {
+                    RelationshipTarget::Internal(part) => Some(part),
+                    _ => None,
+                })
+        })
+        .position(|part| part == slide_id)
+        .and_then(|index| u32::try_from(index).ok())
+        .and_then(|index| index.checked_add(1))
 }
 
 pub(crate) fn resolve_slide_parts_cached(
@@ -321,6 +369,7 @@ pub(crate) fn resolve_slide_parts_cached(
     slide_id: PartId,
     slide_size: EmuSize,
     embedded_fonts: &[EmbeddedFontResource],
+    slide_number: Option<u32>,
 ) -> Result<ResolveOutput, LayoutError> {
     let layout_id = related(graph, slide_id, "/slideLayout");
     let master_id = layout_id.and_then(|part| related(graph, part, "/slideMaster"));
@@ -379,6 +428,7 @@ pub(crate) fn resolve_slide_parts_cached(
             graph,
             diagnostics: &mut diagnostics,
             trace: &mut trace,
+            slide_number,
         };
         let show_master_shapes = slide.show_master_shapes.unwrap_or(true)
             && layout
@@ -684,6 +734,7 @@ struct ElementResolver<'a> {
     graph: &'a PackageGraph,
     diagnostics: &'a mut Vec<ResolveDiagnostic>,
     trace: &'a mut ResolutionTrace,
+    slide_number: Option<u32>,
 }
 
 fn resolve_element(
@@ -779,24 +830,32 @@ fn resolve_element(
         shape,
         source,
         kind,
-        graph,
-        source_part,
-        text_relationship_part,
-        source_modified,
+        &ResolvedElementContext {
+            graph,
+            source_part,
+            text_relationship_part,
+            source_modified,
+            slide_number: resolver.slide_number,
+        },
     )
+}
+
+struct ResolvedElementContext<'a> {
+    graph: &'a PackageGraph,
+    source_part: PartId,
+    text_relationship_part: PartId,
+    source_modified: bool,
+    slide_number: Option<u32>,
 }
 
 fn resolved_element(
     shape: &RawShape,
     source: SourceLevel,
     kind: ElementKind,
-    graph: &PackageGraph,
-    source_part: PartId,
-    text_relationship_part: PartId,
-    source_modified: bool,
+    context: &ResolvedElementContext<'_>,
 ) -> ResolvedElement {
     let text_style = shape.text_style.resolve();
-    let text = apply_paragraph_markers(
+    let mut text = apply_paragraph_markers(
         shape.text.as_deref().unwrap_or_default(),
         shape
             .text_style
@@ -804,6 +863,44 @@ fn resolved_element(
             .as_ref()
             .and_then(|value| value.as_deref()),
     );
+    let materializes_slide_number = context.slide_number.is_some()
+        && shape.text_frame.as_ref().is_some_and(|frame| {
+            frame.paragraphs.iter().any(|paragraph| {
+                paragraph.runs.iter().any(|run| {
+                    run.field_type
+                        .as_deref()
+                        .is_some_and(|field_type| field_type.eq_ignore_ascii_case("slidenum"))
+                })
+            })
+        });
+    let text_frame = shape.text_frame.as_ref().map(|frame| {
+        let mut resolved = resolve_text_frame(
+            frame,
+            &shape.text_style,
+            context.source_modified,
+            context.slide_number,
+        );
+        for (raw, paragraph) in frame.paragraphs.iter().zip(&mut resolved.paragraphs) {
+            if let Some(id) = &raw.bullet_image_relationship_id {
+                paragraph.bullet_image = Some(ResolvedBulletImage {
+                    relationship_id: id.clone(),
+                    part_name: relationship_target(
+                        context.graph,
+                        context.text_relationship_part,
+                        id,
+                    )
+                    .map(|part| context.graph.part_name(context.graph.part(part)).to_owned()),
+                });
+            }
+        }
+        resolved
+    });
+    if materializes_slide_number {
+        text = text_frame
+            .as_ref()
+            .map(resolved_text_frame_plain_text)
+            .unwrap_or_default();
+    }
     ResolvedElement {
         id: shape.id,
         name: shape.name.clone(),
@@ -833,31 +930,23 @@ fn resolved_element(
         outer_shadow: shape.outer_shadow,
         text,
         text_style,
-        text_frame: shape.text_frame.as_ref().map(|frame| {
-            let mut resolved = resolve_text_frame(frame, &shape.text_style, source_modified);
-            for (raw, paragraph) in frame.paragraphs.iter().zip(&mut resolved.paragraphs) {
-                if let Some(id) = &raw.bullet_image_relationship_id {
-                    paragraph.bullet_image = Some(ResolvedBulletImage {
-                        relationship_id: id.clone(),
-                        part_name: relationship_target(graph, text_relationship_part, id)
-                            .map(|part| graph.part_name(graph.part(part)).to_owned()),
-                    });
-                }
-            }
-            resolved
-        }),
+        text_frame,
         alternative_text: shape.alternative_text.clone(),
         hyperlink: shape.hyperlink_relationship_id.as_ref().and_then(|id| {
-            graph
-                .part(source_part)
+            context
+                .graph
+                .part(context.source_part)
                 .relationships
                 .iter()
-                .find(|relationship| graph.relationship_id(relationship) == id)
+                .find(|relationship| context.graph.relationship_id(relationship) == id)
                 .and_then(|relationship| match &relationship.target {
                     RelationshipTarget::External(target) => Some(target.clone()),
-                    RelationshipTarget::Internal(part) => {
-                        Some(graph.part_name(graph.part(*part)).to_owned())
-                    }
+                    RelationshipTarget::Internal(part) => Some(
+                        context
+                            .graph
+                            .part_name(context.graph.part(*part))
+                            .to_owned(),
+                    ),
                     RelationshipTarget::Missing(_) => None,
                 })
         }),
@@ -869,6 +958,7 @@ fn resolve_text_frame(
     frame: &RawTextFrame,
     inherited: &PartialTextStyle,
     autofit_recompute: bool,
+    slide_number: Option<u32>,
 ) -> ResolvedTextFrame {
     let base = inherited.resolve();
     let mut numbering = [0_u32; 9];
@@ -918,7 +1008,14 @@ fn resolve_text_frame(
                         let mut style = paragraph_style.clone();
                         style.overlay(&run.style);
                         ResolvedTextRun {
-                            text: run.text.clone(),
+                            text: if run.field_type.as_deref().is_some_and(|field_type| {
+                                field_type.eq_ignore_ascii_case("slidenum")
+                            }) {
+                                slide_number
+                                    .map_or_else(|| run.text.clone(), |number| number.to_string())
+                            } else {
+                                run.text.clone()
+                            },
                             style: style.resolve(),
                             east_asian_font_family: run.east_asian_font_family.clone(),
                             complex_script_font_family: run.complex_script_font_family.clone(),
@@ -1004,6 +1101,21 @@ fn resolve_text_frame(
         default_tab_size: frame.default_tab_size,
         warp: frame.warp.clone(),
     }
+}
+
+fn resolved_text_frame_plain_text(frame: &ResolvedTextFrame) -> String {
+    frame
+        .paragraphs
+        .iter()
+        .map(|paragraph| {
+            paragraph
+                .runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn merge_shape(local: &RawShape, layout: Option<&RawShape>, master: Option<&RawShape>) -> RawShape {
@@ -1551,7 +1663,9 @@ fn parse_table(document: &XmlDocument, start: usize, end: usize, theme: &Theme) 
                 cells.push(ResolvedTableCell {
                     text,
                     text_frame: parse_text_frame(document, cell_index, cell_end, theme).map(
-                        |frame| resolve_text_frame(&frame, &PartialTextStyle::default(), false),
+                        |frame| {
+                            resolve_text_frame(&frame, &PartialTextStyle::default(), false, None)
+                        },
                     ),
                     row_span: plain_u32(cell_attributes, "rowSpan").unwrap_or(1),
                     column_span: plain_u32(cell_attributes, "gridSpan").unwrap_or(1),
@@ -2719,6 +2833,12 @@ fn parse_rich_paragraph(
             }
             paragraph.runs.push(RawTextRun {
                 text,
+                field_type: match &document.tokens()[index].kind {
+                    TokenKind::Start {
+                        name, attributes, ..
+                    } if name.local == "fld" => plain(attributes, "type").map(str::to_owned),
+                    _ => None,
+                },
                 style,
                 east_asian_font_family,
                 complex_script_font_family,
@@ -3798,6 +3918,7 @@ mod tests {
             shape.text_frame.as_ref().unwrap(),
             &PartialTextStyle::default(),
             false,
+            None,
         );
         let inherited = resolved.paragraphs[0].bullet_style.as_ref().unwrap();
         assert_eq!(resolved.paragraphs[0].bullet.as_deref(), Some("*"));
@@ -3827,6 +3948,7 @@ mod tests {
             shape.text_frame.as_ref().unwrap(),
             &PartialTextStyle::default(),
             false,
+            None,
         );
         assert_eq!(resolved.paragraphs[0].bullet.as_deref(), Some("IV."));
         assert_eq!(resolved.paragraphs[1].bullet.as_deref(), Some("V."));
@@ -3883,6 +4005,8 @@ mod tests {
         let frame = shape.text_frame.as_ref().unwrap();
         assert_eq!(frame.autofit_font_scale, Some(1_000));
         assert_eq!(frame.autofit_line_spacing_reduction, None);
-        assert!(resolve_text_frame(frame, &PartialTextStyle::default(), true).autofit_recompute);
+        assert!(
+            resolve_text_frame(frame, &PartialTextStyle::default(), true, None).autofit_recompute
+        );
     }
 }

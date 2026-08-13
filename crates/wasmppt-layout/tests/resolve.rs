@@ -30,6 +30,26 @@ fn with_external_smartart_preview() -> Vec<u8> {
     writer.finish().unwrap().0.into_inner()
 }
 
+fn with_cached_slide_number_fields() -> Vec<u8> {
+    let archive = ZipArchive::from_bytes(DOGFOOD_TEMPLATE.to_vec()).unwrap();
+    let options = EntryOptions::deterministic(CompressionMethod::Deflate);
+    let mut writer = ZipWriter::new(VecSink::new());
+    for entry in archive.entries() {
+        let mut bytes = archive.read_entry(entry).unwrap();
+        if entry.name.starts_with("ppt/slideLayouts/") && entry.name.ends_with(".xml") {
+            bytes = String::from_utf8(bytes)
+                .unwrap()
+                .replace(
+                    "</p:spTree>",
+                    r#"<p:sp><p:nvSpPr><p:cNvPr id="25" name="Slide Number"/><p:cNvSpPr/><p:nvPr><p:ph type="sldNum" idx="4294967295"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="11000000" y="6300000"/><a:ext cx="500000" cy="200000"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:fld id="{F7021451-1387-4CA6-816F-3879F97B5CBC}" type="slidenum"><a:t>1003</a:t></a:fld></a:p></p:txBody></p:sp></p:spTree>"#,
+                )
+                .into_bytes();
+        }
+        writer.write_entry(&entry.name, &bytes, &options).unwrap();
+    }
+    writer.finish().unwrap().0.into_inner()
+}
+
 #[test]
 fn layout_errors_preserve_stable_package_and_slide_context() {
     let package = PresentationDocument::open(b"not a zip".to_vec()).unwrap_err();
@@ -82,6 +102,32 @@ fn opening_is_lazy_and_one_slide_touches_only_its_dependency_branch() {
         b"fixture image bytes"
     );
     assert!(deck.read_part("ppt/media/missing.png").is_err());
+}
+
+#[test]
+fn materializes_cached_slide_number_fields_from_presentation_order() {
+    let deck = PresentationDocument::open(with_cached_slide_number_fields()).unwrap();
+
+    for (index, expected) in ["1", "2"].into_iter().enumerate() {
+        let output = deck.resolve_slide(index).unwrap();
+        let number = output
+            .slide
+            .elements
+            .iter()
+            .find(|element| {
+                element
+                    .placeholder
+                    .as_ref()
+                    .is_some_and(|value| value.kind == "sldNum")
+            })
+            .expect("slide-number placeholder");
+
+        assert_eq!(number.text, expected);
+        assert_eq!(
+            number.text_frame.as_ref().unwrap().paragraphs[0].runs[0].text,
+            expected
+        );
+    }
 }
 
 #[test]

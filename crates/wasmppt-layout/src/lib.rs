@@ -844,6 +844,9 @@ impl PresentationDocument {
             slide,
             self.slide_size,
             &self.embedded_fonts,
+            u32::try_from(index)
+                .ok()
+                .and_then(|index| index.checked_add(1)),
         )
     }
 

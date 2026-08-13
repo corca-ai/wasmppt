@@ -4,6 +4,10 @@ The native, browser, and Cloudflare Workers adapters expose the same Rust engine
 allowing host APIs into the host-agnostic core crates. The executable contract is the shared
 `fixtures/host-adapters/minimal.potx` fixture: CI opens and generates it through native
 file capabilities, a real Chrome module Worker, and the `workerd` runtime.
+`fixtures/host-adapters/parity.wppd.hex` supplies the exact structured payload for a second gate.
+That gate retains the complete output from all three hosts and requires identical length,
+SHA-256, and bytes. A mismatch report identifies the first differing ZIP entry and classifies
+headers, metadata, compressed payload, or central-directory drift.
 
 ## Native
 
@@ -147,3 +151,6 @@ The browser integration uses a real module Worker and asserts that the caller's
 `ArrayBuffer.byteLength` becomes zero immediately after transfer. The browser and Pages tests
 also compile the bundled POTX and consume a real pull stream. The workerd integration tests
 request bodies, R2, streaming PPTX output, cache accounting, and oversized input.
+`target/host-parity/report.json` is the separate generation-byte contract. The existing WPDL
+signature comparison remains the rendering-structure contract; success in either does not imply
+success in the other.

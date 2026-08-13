@@ -22,6 +22,9 @@ const performanceBudgets = JSON.parse(
 const renderCorpus = JSON.parse(
   await readFile(join(workspaceDirectory, 'fixtures/render/corpus.json'), 'utf8'),
 )
+const parityPayloadHex = (
+  await readFile(join(workspaceDirectory, 'fixtures/host-adapters/parity.wppd.hex'), 'utf8')
+).trim()
 const featureRegions = Object.fromEntries(
   renderCorpus.presentations[0].features.map((feature) => [feature.id, feature.region]),
 )
@@ -104,6 +107,10 @@ const routes = new Map([
   [
     '/fixture.potx',
     [join(workspaceDirectory, 'fixtures/host-adapters/minimal.potx'), 'application/octet-stream'],
+  ],
+  [
+    '/parity.wppd.hex',
+    [join(workspaceDirectory, 'fixtures/host-adapters/parity.wppd.hex'), 'text/plain'],
   ],
   [
     '/render-fixture.pptx',
@@ -217,6 +224,7 @@ try {
   await page.goto(`http://127.0.0.1:${address.port}/`)
   const result = await page.evaluate(async () => {
     const { WasmpptWorkerClient } = await import('/dist/worker-client.js')
+    const { encodeInjectionData } = await import('/dist/injection.js')
     const {
       CanvasDisplayListRenderer,
       FontResolver,
@@ -279,6 +287,12 @@ try {
     })
     const client = new WasmpptWorkerClient(worker)
     const template = await fetch('/fixture.potx').then((response) => response.arrayBuffer())
+    const expectedPayloadHex = (await fetch('/parity.wppd.hex').then((response) => response.text()))
+      .trim()
+    const encodedPayloadHex = [...new Uint8Array(encodeInjectionData({}))]
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('')
+    if (encodedPayloadHex !== expectedPayloadHex) throw new Error('browser WPPD parity payload drift')
     const coldPrepareStart = performance.now()
     const prepare = client.prepare(template)
     const transferredByteLength = template.byteLength
@@ -788,6 +802,10 @@ try {
     await client.releasePresentation(opened.handle)
     renderer.clear()
     client.terminate()
+    let outputBinary = ''
+    for (let offset = 0; offset < output.byteLength; offset += 0x8000) {
+      outputBinary += String.fromCharCode(...output.subarray(offset, offset + 0x8000))
+    }
     return {
       transferredByteLength,
       coldPrepareMs,
@@ -797,6 +815,8 @@ try {
       residentBytes: prepared.residentBytes,
       zipSignature: [...output.subarray(0, 2)],
       outputBytes: output.byteLength,
+      outputBase64: btoa(outputBinary),
+      parityPayloadHex: encodedPayloadHex,
       slideCount: opened.slideCount,
       commandCount: scene.commands.length,
       pixelHash: pixelHash.toString(16).padStart(8, '0'),
@@ -890,7 +910,11 @@ try {
     }
   }
   assert.deepEqual(result.zipSignature, [0x50, 0x4b])
+  assert.equal(result.parityPayloadHex, parityPayloadHex)
   assert(result.outputBytes > 0)
+  const parityDirectory = join(workspaceDirectory, 'target/host-parity')
+  await mkdir(parityDirectory, { recursive: true })
+  await writeFile(join(parityDirectory, 'browser.pptx'), Buffer.from(result.outputBase64, 'base64'))
   assert.equal(result.slideCount, 3)
   assert.equal(result.commandCount, 12)
   assert.equal(result.decodedImageBytesAfterClear, 0)

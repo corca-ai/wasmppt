@@ -16,6 +16,7 @@ declare global {
       WORKER_P95_BUDGET_MS: number
       WORKER_LIVE_P95_BUDGET_MS: number
       WORKER_MEMORY_BUDGET_BYTES: number
+      PARITY_PAYLOAD: number[]
     }
   }
 }
@@ -200,6 +201,21 @@ describe('wasmppt workerd adapter', () => {
     const output = new Uint8Array(await response.arrayBuffer())
     expect([...output.subarray(0, 2)]).toEqual([0x50, 0x4b])
     expect(response.headers.get('x-wasmppt-output-mode')).toBe('pull-stream')
+  })
+
+  it('generates parity evidence from the exact shared WPPD payload', async () => {
+    await env.TEMPLATES.put('parity-minimal.potx', fixture())
+    const response = await exports.default.fetch(
+      new Request('https://wasmppt.test/v1/generate?r2=parity-minimal.potx', {
+        method: 'POST',
+        headers: { 'content-type': 'application/vnd.corca.wasmppt.injection-v2' },
+        body: new Uint8Array(env.PARITY_PAYLOAD),
+      }),
+    )
+    expect(response.status).toBe(200)
+    const output = new Uint8Array(await response.arrayBuffer())
+    expect([...output.subarray(0, 2)]).toEqual([0x50, 0x4b])
+    console.log(`PPTX_PARITY_WORKERD:${btoa(String.fromCharCode(...output))}`)
   })
 
   it('reads the same fixture through ranged R2 binding calls', async () => {

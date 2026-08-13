@@ -50,6 +50,21 @@ fn run() -> Result<(), String> {
             }
             inject_text(Path::new(&input), Path::new(&output), &binding, &value)
         }
+        Some("generate-payload") => {
+            let input = arguments
+                .next()
+                .ok_or("generate-payload requires INPUT OUTPUT PAYLOAD")?;
+            let output = arguments
+                .next()
+                .ok_or("generate-payload requires INPUT OUTPUT PAYLOAD")?;
+            let payload = arguments
+                .next()
+                .ok_or("generate-payload requires INPUT OUTPUT PAYLOAD")?;
+            if arguments.next().is_some() {
+                return Err("generate-payload accepts exactly INPUT OUTPUT PAYLOAD".to_owned());
+            }
+            generate_payload(Path::new(&input), Path::new(&output), Path::new(&payload))
+        }
         Some("validate") => {
             let input = arguments.next().ok_or("validate requires INPUT")?;
             if arguments.next().is_some() {
@@ -79,7 +94,7 @@ fn run() -> Result<(), String> {
             resolve(Path::new(&input), slide_index)
         }
         Some(command) => Err(format!(
-            "unknown command {command:?}; use convert, inject-text, validate, audit-macro-free, or resolve"
+            "unknown command {command:?}; use convert, inject-text, generate-payload, validate, audit-macro-free, or resolve"
         )),
     }
 }
@@ -193,6 +208,13 @@ fn convert(input: &Path, output: &Path) -> Result<(), String> {
 
 fn inject_text(input: &Path, output: &Path, binding: &str, value: &str) -> Result<(), String> {
     let data = InjectionData::new().with_text(binding, value);
+    generate(input, output, &data)
+}
+
+fn generate_payload(input: &Path, output: &Path, payload: &Path) -> Result<(), String> {
+    let bytes =
+        fs::read(payload).map_err(|error| format!("cannot read {}: {error}", payload.display()))?;
+    let data = InjectionData::decode(&bytes).map_err(|error| error.to_string())?;
     generate(input, output, &data)
 }
 

@@ -166,8 +166,20 @@ jobs:
         env:
           WASMPPT_HOST_FIXTURE: fixtures/host-adapters/minimal.potx
         run: cargo test --locked -p wasmppt-native --test file_adapters
+      - name: Generate native PPTX byte-parity evidence
+        run: |
+          mkdir -p target/host-parity
+          xxd -r -p fixtures/host-adapters/parity.wppd.hex \
+            > target/host-parity/parity.wppd
+          cargo run --locked -p wasmppt-cli -- generate-payload \
+            fixtures/host-adapters/minimal.potx \
+            target/host-parity/native.pptx \
+            target/host-parity/parity.wppd
       - name: Execute the shared workerd fixture
-        run: npm test --workspace @corca-ai/wasmppt-worker
+        run: |
+          set -o pipefail
+          npm test --workspace @corca-ai/wasmppt-worker 2>&1 \
+            | tee target/host-parity/workerd.log
       - name: Install browser runtime
         run: npx playwright install --with-deps chromium
       - name: Generate the pinned browser-comparison fixture
@@ -181,6 +193,21 @@ jobs:
             > target/benchmarks/pptxgenjs.json
       - name: Execute the shared browser Worker fixture
         run: npm run test:browser --workspace @corca-ai/wasmppt
+      - name: Enforce native, browser, and workerd PPTX byte parity
+        run: |
+          node scripts/host-parity.mjs \
+            --native=target/host-parity/native.pptx \
+            --browser=target/host-parity/browser.pptx \
+            --workerd-log=target/host-parity/workerd.log \
+            --output=target/host-parity/report.json
+      - name: Publish cross-host PPTX byte-parity evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: host-byte-parity-${{ github.sha }}
+          path: target/host-parity
+          if-no-files-found: error
+          retention-days: 7
       - name: Verify native display-list parity
         run: |
           cargo run --locked -p wasmppt-cli -- resolve fixtures/render/basic.pptx 0 \

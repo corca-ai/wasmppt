@@ -381,7 +381,10 @@ Given identical engine bytes, template, data, and options, it aims to produce by
 PPTX output across native and supported Wasm hosts.
 
 Content-addressed artifacts include their producer identity and schema version. Browser
-and Cloudflare caches may share an artifact only after cross-host parity has been verified.
+and Cloudflare caches may share an artifact only after cross-host parity has been verified. CI
+feeds one checked-in WPPD payload to the native buffered sink and the browser/workerd bounded pull
+paths, then requires complete PPTX byte equality. Its raw report retains each length and SHA-256;
+the mismatch classifier reports the first divergent ZIP entry and byte category.
 An incomplete dependency manifest is never sufficient for reuse.
 
 ## Performance contract

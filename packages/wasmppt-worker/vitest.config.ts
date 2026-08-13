@@ -14,6 +14,13 @@ const dogfoodFixture = [
 const performanceBudgets = JSON.parse(
   readFileSync(new URL('../../benchmarks/budgets.json', import.meta.url), 'utf8'),
 )
+const parityPayload = [
+  ...Buffer.from(
+    readFileSync(new URL('../../fixtures/host-adapters/parity.wppd.hex', import.meta.url), 'utf8')
+      .trim(),
+    'hex',
+  ),
+]
 
 export default defineConfig({
   test: { disableConsoleIntercept: true },
@@ -30,6 +37,7 @@ export default defineConfig({
             performanceBudgets.cloudflareWorkerd.maximumLiveRequestP95Ms,
           WORKER_MEMORY_BUDGET_BYTES:
             performanceBudgets.cloudflareWorkerd.maximumAccountedMemoryBytes,
+          PARITY_PAYLOAD: parityPayload,
         },
       },
     }),

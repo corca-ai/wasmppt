@@ -40,7 +40,7 @@ fn package() -> Vec<u8> {
         (
             "[Content_Types].xml",
             format!(
-                "<Types xmlns=\"{CT}\"><Default Extension=\"xml\" ContentType=\"application/xml\"/><Default Extension=\"bin\" ContentType=\"application/octet-stream\"/><Override PartName=\"/ppt/presentation.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.template.main+xml\"/><Override PartName=\"/ppt/slideLayouts/content.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml\"/></Types>"
+                "<Types xmlns=\"{CT}\"><Default Extension=\"xml\" ContentType=\"application/xml\"/><Default Extension=\"bin\" ContentType=\"application/octet-stream\"/><Override PartName=\"/ppt/presentation.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.template.main+xml\"/><Override PartName=\"/ppt/slideLayouts/content.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml\"/><Override PartName=\"/ppt/slides/slide1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slide+xml\"/><Override PartName=\"/ppt/slides/slide2.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slide+xml\"/><Override PartName=\"/ppt/notesSlides/notesSlide1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml\"/><Override PartName=\"/ppt/notesSlides/notesSlide2.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml\"/></Types>"
             ),
         ),
         (
@@ -52,17 +52,67 @@ fn package() -> Vec<u8> {
         (
             "ppt/presentation.xml",
             format!(
-                "<p:presentation xmlns:p=\"{PML}\"><p:sldSz cx=\"10000000\" cy=\"5625000\"/></p:presentation>"
+                "<p:presentation xmlns:p=\"{PML}\" xmlns:r=\"{OFFICE_REL}\"><p:sldIdLst><p:sldId id=\"256\" r:id=\"rId1\"/><p:sldId id=\"257\" r:id=\"rId2\"/></p:sldIdLst><p:sldSz cx=\"10000000\" cy=\"5625000\"/></p:presentation>"
             ),
         ),
         (
             "ppt/_rels/presentation.xml.rels",
-            format!("<Relationships xmlns=\"{REL}\"></Relationships>"),
+            format!(
+                "<Relationships xmlns=\"{REL}\"><Relationship Id=\"rId1\" Type=\"{OFFICE_REL}/slide\" Target=\"slides/slide1.xml\"/><Relationship Id=\"rId2\" Type=\"{OFFICE_REL}/slide\" Target=\"slides/slide2.xml\"/></Relationships>"
+            ),
         ),
         (
             "ppt/slideLayouts/content.xml",
             format!(
                 "<p:sldLayout xmlns:p=\"{PML}\" xmlns:a=\"{DRAWING}\"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld></p:sldLayout>"
+            ),
+        ),
+        (
+            "ppt/slides/slide1.xml",
+            format!(
+                "<p:sld xmlns:p=\"{PML}\"><p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/></p:spTree></p:cSld></p:sld>"
+            ),
+        ),
+        (
+            "ppt/slides/_rels/slide1.xml.rels",
+            format!(
+                "<Relationships xmlns=\"{REL}\"><Relationship Id=\"rId1\" Type=\"{OFFICE_REL}/slideLayout\" Target=\"../slideLayouts/content.xml\"/><Relationship Id=\"rId2\" Type=\"{OFFICE_REL}/notesSlide\" Target=\"../notesSlides/notesSlide1.xml\"/></Relationships>"
+            ),
+        ),
+        (
+            "ppt/notesSlides/notesSlide1.xml",
+            format!(
+                "<p:notes xmlns:p=\"{PML}\"><p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/></p:spTree></p:cSld></p:notes>"
+            ),
+        ),
+        (
+            "ppt/notesSlides/_rels/notesSlide1.xml.rels",
+            format!(
+                "<Relationships xmlns=\"{REL}\"><Relationship Id=\"rId1\" Type=\"{OFFICE_REL}/slide\" Target=\"../slides/slide1.xml\"/></Relationships>"
+            ),
+        ),
+        (
+            "ppt/slides/slide2.xml",
+            format!(
+                "<p:sld xmlns:p=\"{PML}\"><p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/></p:spTree></p:cSld></p:sld>"
+            ),
+        ),
+        (
+            "ppt/slides/_rels/slide2.xml.rels",
+            format!(
+                "<Relationships xmlns=\"{REL}\"><Relationship Id=\"rId1\" Type=\"{OFFICE_REL}/slideLayout\" Target=\"../slideLayouts/content.xml\"/><Relationship Id=\"rId2\" Type=\"{OFFICE_REL}/notesSlide\" Target=\"../notesSlides/notesSlide2.xml\"/></Relationships>"
+            ),
+        ),
+        (
+            "ppt/notesSlides/notesSlide2.xml",
+            format!(
+                "<p:notes xmlns:p=\"{PML}\"><p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/></p:spTree></p:cSld></p:notes>"
+            ),
+        ),
+        (
+            "ppt/notesSlides/_rels/notesSlide2.xml.rels",
+            format!(
+                "<Relationships xmlns=\"{REL}\"><Relationship Id=\"rId1\" Type=\"{OFFICE_REL}/slide\" Target=\"../slides/slide2.xml\"/></Relationships>"
             ),
         ),
         ("custom/opaque.bin", "unknown-template-data".to_owned()),
@@ -398,6 +448,15 @@ fn composes_editable_vector_and_first_frame_media_into_a_live_overlay() {
         overlay.read_part("custom/opaque.bin").unwrap(),
         b"unknown-template-data"
     );
+    assert!(
+        overlay
+            .part_names()
+            .iter()
+            .all(|name| !name.starts_with("ppt/notesSlides/"))
+    );
+    let content_types =
+        String::from_utf8(overlay.read_part("[Content_Types].xml").unwrap()).unwrap();
+    assert!(!content_types.contains("notesSlide"));
     assert!(overlay.stats().reused_source_bytes > 0);
 
     let direct = PresentationDocument::open_source(Arc::new(overlay.clone())).unwrap();

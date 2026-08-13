@@ -247,6 +247,16 @@ impl DeckComposer {
             wasmppt_opc::ZipArchive::from_bytes(template_bytes.clone()).map_err(|error| {
                 ComposeError::new(ComposeErrorCode::InvalidPackage, error.to_string())
             })?;
+        let removed = source
+            .part_names()
+            .into_iter()
+            .filter(|name| {
+                ((name.starts_with("ppt/slides/") || name.starts_with("ppt/slides/_rels/"))
+                    && !overrides.contains_key(name))
+                    || name.starts_with("ppt/notesSlides/")
+                    || name.starts_with("ppt/notesSlides/_rels/")
+            })
+            .collect::<BTreeSet<_>>();
         let content_types = source
             .read_part("[Content_Types].xml")
             .map_err(package_error)?;
@@ -263,6 +273,7 @@ impl DeckComposer {
                 content_types,
                 &slide_parts,
                 &generated_parts,
+                &removed,
             )?),
         );
         let (presentation_rels, relationship_ids) =
@@ -276,14 +287,6 @@ impl DeckComposer {
             OverlayPart::deflated(patch_presentation(presentation, &relationship_ids)?),
         );
 
-        let removed = source
-            .part_names()
-            .into_iter()
-            .filter(|name| {
-                (name.starts_with("ppt/slides/") || name.starts_with("ppt/slides/_rels/"))
-                    && !overrides.contains_key(name)
-            })
-            .collect::<BTreeSet<_>>();
         let package = PackageOverlay::new(
             template_bytes,
             overrides,

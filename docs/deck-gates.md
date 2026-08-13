@@ -12,7 +12,9 @@ without executing the planner, do not pass.
 ## Fixtures and regeneration
 
 `fixtures/deck-gates/starter.potx` is a deterministic Cortex Theme Starter with title, content, and
-statement layouts. `deck-spec.wdsf` covers every renderable `SemanticRole` from title through
+statement layouts. Content body regions accept nested section headings as flow
+content while the leading title/section still maps to the title placeholder.
+`deck-spec.wdsf` covers every renderable `SemanticRole` from title through
 statement, plus the typed table row, cell, and column contracts. It includes rich text and safe
 links, Korean/CJK and RTL text, nested ordered/unordered lists, PNG, GIF first-frame conversion,
 SVG, tables, charts, code, diagrams, display math, definitions, hidden slides, missing-font

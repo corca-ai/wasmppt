@@ -18,11 +18,11 @@ struct Patch {
 pub(crate) fn patch_content_types(
     source: Vec<u8>,
     slide_parts: &[String],
-    media_parts: &[(String, &'static str)],
+    generated_parts: &[(String, &'static str)],
 ) -> Result<Vec<u8>, ComposeError> {
     let document = parse(source, "[Content_Types].xml")?;
     let mut patches = Vec::new();
-    let generated_media = media_parts
+    let generated = generated_parts
         .iter()
         .map(|(name, _)| format!("/{name}"))
         .collect::<BTreeSet<_>>();
@@ -50,7 +50,7 @@ pub(crate) fn patch_content_types(
                 replacement: PPTX_MAIN_TYPE.as_bytes().to_vec(),
             });
         } else if part_name
-            .is_some_and(|name| name.starts_with("/ppt/slides/") || generated_media.contains(name))
+            .is_some_and(|name| name.starts_with("/ppt/slides/") || generated.contains(name))
         {
             patches.push(Patch {
                 range: element_range(&document, index)?,
@@ -71,7 +71,7 @@ pub(crate) fn patch_content_types(
             xml_attr(part)
         ));
     }
-    for (part, content_type) in media_parts {
+    for (part, content_type) in generated_parts {
         addition.push_str(&format!(
             "<Override PartName=\"/{}\" ContentType=\"{}\"/>",
             xml_attr(part),

@@ -67,8 +67,9 @@ planning and parsing:
   exact font bytes. It owns semantic grouping, bounded candidate search, measurement caches,
   pagination, and deterministic `DeckPlan` production; host font and DOM APIs stay outside it.
 - `wasmppt-deck-compose` validates an exact spec/template/plan tuple, projects its pages into
-  editable PresentationML, and owns only the changed topology, slide, relationship, and media
-  bytes in an immutable overlay. It delegates ZIP reuse and streaming to `wasmppt-opc` and has
+  editable PresentationML, and owns only the changed topology, slide, relationship, media, chart,
+  and embedded-workbook bytes in an immutable overlay. It delegates ZIP reuse and streaming to `wasmppt-opc`,
+  delegates coordinated chart/cache/workbook projection to `wasmppt-template`, and has
   no DOM, JavaScript generator, filesystem, or browser dependency.
 - `wasmppt-template::inject` owns package reads, generation state, caching, and output
   orchestration. Its `patch` module owns bounded XML replacements, escaping, and relationship

@@ -1,7 +1,7 @@
 # Editable deck composition
 
-Status: editable text, lists, raster images, SVG, deterministic GIF stills, immutable live
-overlays, and pull-based PPTX export implemented; tables and charts are the next composition slice
+Status: editable text, lists, raster images, SVG, deterministic GIF stills, tables, supported 2D
+charts, immutable live overlays, and pull-based PPTX export implemented
 
 `wasmppt-deck-compose` projects an exact validated `DeckSpec`, `DeckTemplatePlan`, and `DeckPlan`
 tuple into PresentationML. It is a host-neutral Rust core: it neither scrapes a DOM nor invokes a
@@ -14,8 +14,9 @@ is exposed.
 Composition replaces the presentation's slide topology in one revision. It materializes only:
 
 - `[Content_Types].xml`, `ppt/presentation.xml`, and its relationship part;
-- generated slide and slide-relationship parts; and
-- media referenced by the generated slides.
+- generated slide and slide-relationship parts;
+- media referenced by the generated slides; and
+- chart parts, their relationships, and coordinated embedded XLSX workbooks.
 
 Old slide parts are removed. Layouts, masters, themes, decorations, unrelated media, extension
 markup, and unknown parts remain in the template package. `PackageOverlay` serves those untouched
@@ -34,6 +35,21 @@ non-active until an explicit internal-slide target contract exists.
 Each shape and relationship receives a deterministic source-order identifier. Hidden state is
 written on the physical slide. Derived continuation pages add only the planned repeated heading
 and minimal `n/total` marker; neither becomes another source-owned fragment.
+
+Tables remain native DrawingML tables. Planned row slices retain source order, continuation pages
+prepend exactly the planned source header rows, and every cell uses the same editable rich-run and
+hyperlink writer as ordinary text. The template plan's region text style and theme color slots
+drive cell text, header fill, banding, and borders. Because `DeckSpec` does not invent column or
+row measurements, the planned frame is divided deterministically across its declared columns and
+visible rows.
+
+Bar, column, line, area, pie, doughnut, and scatter nodes become native chart graphic frames.
+Each chart cache and its embedded `Sheet1` workbook are built by the same projection primitives
+used by compiled-template chart mutation, then exposed as one immutable overlay revision. Scatter
+categories are numeric X values and reject non-numeric strings. Empty inputs, series/category
+length mismatches, and non-finite values fail before an overlay is returned. The closed
+`DeckSpec::ChartKind` set is the editable contract; other OOXML chart families remain preserved or
+diagnosed by the resolver and are never mislabeled as editable.
 
 ## Media policy
 
@@ -63,9 +79,12 @@ cargo clippy -p wasmppt-deck-compose --all-targets --all-features -- -D warnings
 cargo check -p wasmppt-deck-compose --all-features --target wasm32-unknown-unknown
 ```
 
-Tests verify editable run properties and hyperlinks, nested numbering, SVG retention, deterministic
-GIF stills, unknown-part preservation, raw compressed reuse, one-byte overlay pulls, configured
-bounds, and structural equality between direct live-overlay resolution and a streamed/reopened PPTX.
+Tests verify editable run properties and hyperlinks, nested numbering, split-table header
+repetition, theme-derived table styling, coordinated chart caches/workbooks, SVG retention,
+deterministic GIF stills, unknown-part preservation, raw compressed reuse, one-byte overlay pulls,
+configured bounds, and structural equality between direct live-overlay resolution and a
+streamed/reopened PPTX. The Open XML SDK fixture includes editable text, a table, and a chart with
+its nested workbook.
 
 ## Related documents
 

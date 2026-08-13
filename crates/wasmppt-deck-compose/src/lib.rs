@@ -194,6 +194,7 @@ impl DeckComposer {
             .map(|index| format!("ppt/slides/slide{index}.xml"))
             .collect::<Vec<_>>();
         let mut overrides = BTreeMap::new();
+        let mut generated_content_types = BTreeMap::new();
         for (index, page) in plan.pages.iter().enumerate() {
             let layout = layouts.get(&page.template_layout_id).ok_or_else(|| {
                 ComposeError::new(
@@ -208,6 +209,7 @@ impl DeckComposer {
                 page,
                 layout,
                 template.page_size,
+                &template.theme,
                 &regions,
                 &nodes,
                 &prepared,
@@ -218,12 +220,27 @@ impl DeckComposer {
                 format!("ppt/slides/_rels/slide{}.xml.rels", index + 1),
                 OverlayPart::deflated(composed.relationships),
             );
+            for part in composed.parts {
+                if overrides
+                    .insert(part.name.clone(), OverlayPart::deflated(part.bytes))
+                    .is_some()
+                {
+                    return Err(ComposeError::new(
+                        ComposeErrorCode::InvalidContract,
+                        format!("multiple fragments generated part {}", part.name),
+                    ));
+                }
+                if let Some(content_type) = part.content_type {
+                    generated_content_types.insert(part.name, content_type);
+                }
+            }
         }
         for media in prepared.values() {
             overrides.insert(
                 media.part_name.clone(),
                 OverlayPart::deflated(media.bytes.clone()),
             );
+            generated_content_types.insert(media.part_name.clone(), media.content_type);
         }
 
         let source =
@@ -239,16 +256,13 @@ impl DeckComposer {
         let presentation_rels = source
             .read_part("ppt/_rels/presentation.xml.rels")
             .map_err(package_error)?;
-        let media_parts = prepared
-            .values()
-            .map(|media| (media.part_name.clone(), media.content_type))
-            .collect::<Vec<_>>();
+        let generated_parts = generated_content_types.into_iter().collect::<Vec<_>>();
         overrides.insert(
             "[Content_Types].xml".to_owned(),
             OverlayPart::deflated(patch_content_types(
                 content_types,
                 &slide_parts,
-                &media_parts,
+                &generated_parts,
             )?),
         );
         let (presentation_rels, relationship_ids) =
@@ -345,15 +359,6 @@ fn validate_contracts(
         ));
     }
     for node in index_nodes(spec).values() {
-        if matches!(
-            node.content,
-            SemanticContent::Table(_) | SemanticContent::Chart(_)
-        ) {
-            return Err(ComposeError::new(
-                ComposeErrorCode::UnsupportedContent,
-                "table and chart composition is delivered by the next deck-engine slice",
-            ));
-        }
         if let SemanticContent::List(list) = &node.content {
             ensure_editable_list(list)?;
         }

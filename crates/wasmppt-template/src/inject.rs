@@ -227,7 +227,7 @@ pub struct GenerateError {
 }
 
 impl GenerateError {
-    fn new(code: GenerateErrorCode, message: impl Into<String>) -> Self {
+    pub(crate) fn new(code: GenerateErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
@@ -1686,6 +1686,7 @@ impl PreparedTemplate {
                 ));
             }
             let chart_source = self.cached_part(&chart_plan.chart_part)?;
+            let numeric_categories = chart_uses_numeric_categories(chart_source)?;
             let rewritten_chart = rewrite_chart_cache(chart_source, chart)?;
             dynamic
                 .entry(chart_plan.chart_part.clone())
@@ -1696,7 +1697,8 @@ impl PreparedTemplate {
                 });
             if let Some(workbook_part) = &chart_plan.workbook_part {
                 let workbook_source = self.cached_part(workbook_part)?;
-                let rewritten_workbook = rewrite_embedded_workbook(workbook_source, chart)?;
+                let rewritten_workbook =
+                    rewrite_embedded_workbook(workbook_source, chart, numeric_categories)?;
                 dynamic
                     .entry(workbook_part.clone())
                     .or_default()
@@ -1987,6 +1989,7 @@ impl PreparedTemplate {
                 ));
             }
             let chart_source = self.cached_part(&chart_plan.chart_part)?;
+            let numeric_categories = chart_uses_numeric_categories(chart_source)?;
             dynamic
                 .entry(chart_plan.chart_part.clone())
                 .or_default()
@@ -2001,7 +2004,11 @@ impl PreparedTemplate {
                     .or_default()
                     .push(Patch {
                         range: 0..workbook_source.len(),
-                        replacement: rewrite_embedded_workbook(workbook_source, chart)?,
+                        replacement: rewrite_embedded_workbook(
+                            workbook_source,
+                            chart,
+                            numeric_categories,
+                        )?,
                     });
             }
         }
@@ -2879,7 +2886,7 @@ fn find_relationship_target(
     }))
 }
 
-fn validate_chart_data(chart: &ChartData) -> Result<(), GenerateError> {
+pub(crate) fn validate_chart_data(chart: &ChartData) -> Result<(), GenerateError> {
     if chart.categories.is_empty() || chart.series.is_empty() {
         return Err(GenerateError::new(
             GenerateErrorCode::InvalidChart,
@@ -2911,7 +2918,10 @@ fn validate_chart_data(chart: &ChartData) -> Result<(), GenerateError> {
     Ok(())
 }
 
-fn rewrite_chart_cache(source: &[u8], chart: &ChartData) -> Result<Vec<u8>, GenerateError> {
+pub(crate) fn rewrite_chart_cache(
+    source: &[u8],
+    chart: &ChartData,
+) -> Result<Vec<u8>, GenerateError> {
     let document = XmlDocument::parse(source).map_err(GenerateError::xml)?;
     let series_ranges = document
         .tokens()
@@ -2950,15 +2960,35 @@ fn rewrite_chart_cache(source: &[u8], chart: &ChartData) -> Result<Vec<u8>, Gene
             &format!("Sheet1!${column}$1"),
             &mut patches,
         )?;
+        let numeric_categories = find_element(&document, start, end, &["xVal"]).is_some();
+        let category_values = if numeric_categories {
+            chart
+                .categories
+                .iter()
+                .map(|category| {
+                    category
+                        .parse::<f64>()
+                        .map(|value| value.to_string())
+                        .map_err(|_| {
+                            GenerateError::new(
+                                GenerateErrorCode::InvalidChart,
+                                format!("scatter chart category {category:?} is not numeric"),
+                            )
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            chart.categories.clone()
+        };
         replace_chart_container(
             source,
             &document,
             start,
             end,
-            "cat",
+            if numeric_categories { "xVal" } else { "cat" },
             &["strCache", "numCache"],
-            &chart.categories,
-            false,
+            &category_values,
+            numeric_categories,
             &format!("Sheet1!$A$2:$A${}", chart.categories.len() + 1),
             &mut patches,
         )?;
@@ -2972,7 +3002,7 @@ fn rewrite_chart_cache(source: &[u8], chart: &ChartData) -> Result<Vec<u8>, Gene
             &document,
             start,
             end,
-            "val",
+            if numeric_categories { "yVal" } else { "val" },
             &["numCache"],
             &values,
             true,
@@ -2984,6 +3014,14 @@ fn rewrite_chart_cache(source: &[u8], chart: &ChartData) -> Result<Vec<u8>, Gene
         )?;
     }
     apply_patches(source, patches)
+}
+
+fn chart_uses_numeric_categories(source: &[u8]) -> Result<bool, GenerateError> {
+    let document = XmlDocument::parse(source).map_err(GenerateError::xml)?;
+    Ok(document
+        .tokens()
+        .iter()
+        .any(|token| matches!(&token.kind, TokenKind::Start { name, .. } if name.local == "xVal")))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3046,7 +3084,11 @@ fn replace_chart_container(
     Ok(())
 }
 
-fn rewrite_embedded_workbook(source: &[u8], chart: &ChartData) -> Result<Vec<u8>, GenerateError> {
+pub(crate) fn rewrite_embedded_workbook(
+    source: &[u8],
+    chart: &ChartData,
+    numeric_categories: bool,
+) -> Result<Vec<u8>, GenerateError> {
     let archive = ZipArchive::from_bytes(source.to_vec()).map_err(package_error)?;
     let sheet = archive.entry("xl/worksheets/sheet1.xml").ok_or_else(|| {
         GenerateError::new(
@@ -3080,10 +3122,22 @@ fn rewrite_embedded_workbook(source: &[u8], chart: &ChartData) -> Result<Vec<u8>
     rows.push_str("</row>");
     for (category_index, category) in chart.categories.iter().enumerate() {
         let row = category_index + 2;
-        rows.push_str(&format!(
-            "<row r=\"{row}\"><c r=\"A{row}\" t=\"inlineStr\"><is><t>{}</t></is></c>",
-            escape_xml_text(category)
-        ));
+        if numeric_categories {
+            let category = category.parse::<f64>().map_err(|_| {
+                GenerateError::new(
+                    GenerateErrorCode::InvalidChart,
+                    format!("scatter chart category {category:?} is not numeric"),
+                )
+            })?;
+            rows.push_str(&format!(
+                "<row r=\"{row}\"><c r=\"A{row}\"><v>{category}</v></c>"
+            ));
+        } else {
+            rows.push_str(&format!(
+                "<row r=\"{row}\"><c r=\"A{row}\" t=\"inlineStr\"><is><t>{}</t></is></c>",
+                escape_xml_text(category)
+            ));
+        }
         for (series_index, series) in chart.series.iter().enumerate() {
             let column = spreadsheet_column(series_index + 2);
             rows.push_str(&format!(

@@ -403,6 +403,8 @@ try {
     const reusedTitle = titleIdentity === domHost.querySelector('a[data-shape-id="2"]')
     const photoGraphic = domHost.querySelector('.wasmppt-dom-text-layer [data-shape-id="3"]')
     const titleGraphicPaths = [...domHost.querySelectorAll('g[data-shape-id="2"] path')]
+    const titleRuns = [...(titleLink?.querySelector('span')?.children ?? [])]
+    const titleBounds = titleLink?.getBoundingClientRect()
     const domFacts = {
       text: titleLink?.textContent,
       selectable: titleLink?.style.userSelect,
@@ -422,6 +424,11 @@ try {
       staleIgnored: staleDomResult.stale,
       reusedTitle,
       diagnosticCodes: domResult.diagnostics.map((diagnostic) => diagnostic.code),
+      titleLineCount: new Set(titleRuns.map((run) => Math.round(Number.parseFloat(run.style.top)))).size,
+      titleBounds: titleBounds === undefined ? undefined : {
+        width: titleBounds.width,
+        height: titleBounds.height,
+      },
     }
     const canvas = document.createElement('canvas')
     canvas.id = 'wasmppt-visual-slide-1'
@@ -813,6 +820,9 @@ try {
   assert.deepEqual(result.domFacts.diagnosticCodes, [
     'unsupported-graphic-frame',
   ])
+  assert.equal(result.domFacts.titleLineCount, 1)
+  assert(result.domFacts.titleBounds.width > 0)
+  assert(result.domFacts.titleBounds.height > 0)
   assert.equal(result.domMountedAtPeak, 2)
   assert.equal(result.domMountedAfterScroll, 1)
   assert.equal(result.domMountedAfterDispose, 0)
@@ -890,7 +900,7 @@ try {
       },
     ],
     features: [
-      { id: 'text', slideIndex: 0, region: featureRegions.text, metric: 'minimum-dark-pixels', actual: result.darkGroupPixels, tolerance: 100, passed: result.darkGroupPixels > 100 },
+      { id: 'text', slideIndex: 0, region: featureRegions.text, metric: 'minimum-dark-pixels', actual: result.darkGroupPixels, tolerance: 100, passed: result.darkGroupPixels > 100 && result.domFacts.titleLineCount === 1, structural: { lineCount: result.domFacts.titleLineCount, expectedLineCount: 1, bounds: result.domFacts.titleBounds } },
       { id: 'shapes', slideIndex: 1, region: featureRegions.shapes, metric: 'minimum-colored-pixels', actual: result.advancedFacts.coloredPixels, tolerance: 10_000, passed: result.advancedFacts.coloredPixels > 10_000 },
       { id: 'raster-images', slideIndex: 0, region: featureRegions['raster-images'], metric: 'sampled-pixel-differences', actual: sampledPixelDifferences, tolerance: 0, passed: sampledPixelDifferences === 0 },
       { id: 'charts', slideIndex: 1, region: featureRegions.charts, metric: 'minimum-svg-paths', actual: result.advancedFacts.svgPathCount, tolerance: 10, passed: result.advancedFacts.svgPathCount > 10 },

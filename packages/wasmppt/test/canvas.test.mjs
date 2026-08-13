@@ -9,11 +9,36 @@ import {
   buildRichTextLayout,
   decodeDisplayList,
   decodeRasterImage,
+  decodeOoxmlObfuscatedFont,
+  inspectOpenTypeEmbedding,
   inspectRasterImageMetadata,
   measureTextBatch,
   renderOffscreenThumbnail,
   wrapText,
 } from '../dist/index.js'
+
+test('embedded font decoding and permission inspection are bounded and deterministic', () => {
+  const source = Uint8Array.from({ length: 40 }, (_, index) => index)
+  const guid = '00112233-4455-6677-8899-aabbccddeeff'
+  const encoded = decodeOoxmlObfuscatedFont(source, guid)
+  assert.deepEqual(decodeOoxmlObfuscatedFont(encoded, guid), source)
+  assert.throws(() => decodeOoxmlObfuscatedFont(source, 'bad'), /GUID/)
+
+  const font = new Uint8Array(38)
+  const view = new DataView(font.buffer)
+  view.setUint16(4, 1)
+  font.set(new TextEncoder().encode('OS/2'), 12)
+  view.setUint32(20, 28)
+  view.setUint32(24, 10)
+  view.setUint16(36, 0x0004)
+  assert.deepEqual(inspectOpenTypeEmbedding(font), {
+    fsType: 0x0004,
+    permitted: true,
+    reason: 'preview-print',
+  })
+  view.setUint16(36, 0x0002)
+  assert.equal(inspectOpenTypeEmbedding(font).permitted, false)
+})
 
 const textCorpus = JSON.parse(
   await readFile(new URL('../../../fixtures/text-edge-cases.json', import.meta.url), 'utf8'),
@@ -31,7 +56,7 @@ test('display-list decoder rejects corruption and decodes a bounded scene', () =
   assert.deepEqual(scene.commands, [
     { kind: 'clear', color: { red: 255, green: 255, blue: 255, alpha: 255 } },
   ])
-  for (const version of [2, 3, 4, 5]) {
+  for (const version of [2, 3, 4, 5, 6, 7]) {
     assert.equal(decodeDisplayList(minimalDisplayList(version)).version, version)
   }
   assert.throws(() => decodeDisplayList(bytes.slice(0, -1)), /truncated/)
@@ -52,6 +77,13 @@ test('Korean and CJK wrapping permits deterministic character boundaries', () =>
 test('Latin wrapping uses whitespace and falls back for an oversized word', () => {
   assert.deepEqual(wrapText('alpha beta gamma', 10, codePointLength), ['alpha beta', 'gamma'])
   assert.deepEqual(wrapText('extraordinary', 5, codePointLength), ['extra', 'ordin', 'ary'])
+})
+
+test('Unicode wrapping preserves grapheme clusters, nonbreaking spaces, and kinsoku punctuation', () => {
+  assert.deepEqual(wrapText('👨🏽‍💻👩‍👧‍👦', 4, codePointLength), ['👨🏽‍💻', '👩‍👧‍👦'])
+  assert.deepEqual(wrapText('A\u00A0B C', 3, codePointLength), ['A\u00A0B', 'C'])
+  assert.deepEqual(wrapText('「日本語」、テスト', 4, codePointLength), ['「日本', '語」、テ', 'スト'])
+  assert.deepEqual(wrapText('ภาษาไทย', 3, codePointLength), ['ภาษ', 'าไท', 'ย'])
 })
 
 test('rich-text layout wraps Latin titles inside the text frame', async () => {
@@ -289,14 +321,171 @@ test('paragraph space-before shifts every line from the start of the paragraph',
     },
   })
   const baseline = await buildRichTextLayout(context, command(undefined))
-  const spaced = await buildRichTextLayout(context, command(1_200))
+  const spaced = await buildRichTextLayout(context, command({ kind: 'points', value: 1_200 }))
   assert.equal(spaced.runs.length, 2)
   assert(Math.abs(spaced.runs[0].baseline - baseline.runs[0].baseline - 16) < 1e-9)
   assert(Math.abs(spaced.runs[1].baseline - baseline.runs[1].baseline - 16) < 1e-9)
   const lineSpacedCommand = command(undefined)
-  lineSpacedCommand.frame.paragraphs[0].lineSpacing = 2_400
+  lineSpacedCommand.frame.paragraphs[0].lineSpacing = { kind: 'points', value: 2_400 }
   const lineSpaced = await buildRichTextLayout(context, lineSpacedCommand)
   assert(Math.abs(lineSpaced.runs[1].baseline - lineSpaced.runs[0].baseline - 32) < 1e-9)
+})
+
+test('normAutofit honors authored scale and percentage line-spacing reduction', async () => {
+  const style = {
+    fontSize: 1_200,
+    color: { red: 0, green: 0, blue: 0, alpha: 255 },
+    bold: false,
+    italic: false,
+    underline: false,
+    strike: false,
+    characterSpacing: 0,
+    baseline: 0,
+    alignment: 'left',
+    verticalAlignment: 'top',
+    marginLeft: 0,
+    marginTop: 0,
+    marginRight: 0,
+    marginBottom: 0,
+  }
+  const command = {
+    kind: 'draw-rich-text',
+    bounds: { x: 0, y: 0, width: 952_500, height: 952_500 },
+    frame: {
+      paragraphs: [{
+        runs: [{ text: 'first\nsecond', style }],
+        alignment: 'left',
+        level: 0,
+        marginLeft: 0,
+        indent: 0,
+        lineSpacing: { kind: 'percent', value: 120_000 },
+        direction: 'ltr',
+        tabs: [],
+      }],
+      verticalAlignment: 'top',
+      marginLeft: 0,
+      marginTop: 0,
+      marginRight: 0,
+      marginBottom: 0,
+      wrap: true,
+      autofit: 'shrink-text',
+      autofitFontScale: 80_000,
+      autofitLineSpacingReduction: 20_000,
+      flow: 'horizontal',
+    },
+  }
+  const context = { font: '', measureText: (value) => ({ width: value.length * 8 }) }
+  const plan = await buildRichTextLayout(context, command)
+  assert(Math.abs(plan.runs[0].fontSize - 12.8) < 1e-9)
+  assert(Math.abs(plan.runs[1].baseline - plan.runs[0].baseline - 15.36) < 1e-9)
+})
+
+test('shape-resize autofit keeps font size and expands the effective bounds', async () => {
+  const style = {
+    fontSize: 1_200,
+    color: { red: 0, green: 0, blue: 0, alpha: 255 },
+    bold: false,
+    italic: false,
+    underline: false,
+    strike: false,
+    characterSpacing: 0,
+    baseline: 0,
+    alignment: 'left',
+    verticalAlignment: 'top',
+    marginLeft: 0,
+    marginTop: 0,
+    marginRight: 0,
+    marginBottom: 0,
+  }
+  const command = {
+    kind: 'draw-rich-text',
+    bounds: { x: 100, y: 200, width: 952_500, height: 190_500 },
+    frame: {
+      paragraphs: [{
+        runs: [{ text: 'first\nsecond', style }],
+        alignment: 'left',
+        level: 0,
+        marginLeft: 0,
+        indent: 0,
+        direction: 'ltr',
+        tabs: [],
+      }],
+      verticalAlignment: 'top',
+      marginLeft: 0,
+      marginTop: 0,
+      marginRight: 0,
+      marginBottom: 0,
+      wrap: true,
+      autofit: 'resize-shape',
+      flow: 'horizontal',
+    },
+  }
+  const context = { font: '', measureText: (value) => ({ width: value.length * 8 }) }
+  const plan = await buildRichTextLayout(context, command)
+  assert.equal(plan.runs[0].fontSize, 16)
+  assert.equal(plan.effectiveBounds.x, command.bounds.x)
+  assert.equal(plan.effectiveBounds.y, command.bounds.y)
+  assert.equal(plan.effectiveBounds.width, command.bounds.width)
+  assert(Math.abs(plan.effectiveBounds.height / 9_525 - 38.4) < 1e-9)
+})
+
+test('multi-column text flows lines into bounded column rectangles', async () => {
+  const style = {
+    fontSize: 750,
+    color: { red: 0, green: 0, blue: 0, alpha: 255 },
+    bold: false,
+    italic: false,
+    underline: false,
+    strike: false,
+    characterSpacing: 0,
+    baseline: 0,
+    alignment: 'left',
+    verticalAlignment: 'top',
+    marginLeft: 0,
+    marginTop: 0,
+    marginRight: 0,
+    marginBottom: 0,
+  }
+  const command = {
+    kind: 'draw-rich-text',
+    bounds: { x: 0, y: 0, width: 1_905_000, height: 228_600 },
+    frame: {
+      paragraphs: [{
+        runs: [{ text: 'one\ntwo\nthree', style }],
+        alignment: 'left',
+        level: 0,
+        marginLeft: 0,
+        indent: 0,
+        direction: 'ltr',
+        tabs: [],
+      }],
+      verticalAlignment: 'top',
+      marginLeft: 0,
+      marginTop: 0,
+      marginRight: 0,
+      marginBottom: 0,
+      wrap: true,
+      autofit: 'none',
+      flow: 'horizontal',
+      columnCount: 2,
+      columnSpacing: 95_250,
+    },
+  }
+  const context = { font: '', measureText: (value) => ({ width: value.length * 5 }) }
+  const plan = await buildRichTextLayout(context, command)
+  assert.equal(plan.runs.length, 3)
+  assert.equal(plan.runs[0].x, plan.runs[1].x)
+  assert(plan.runs[2].x > plan.runs[1].x + 90)
+  assert.equal(plan.runs[2].baseline, plan.runs[0].baseline)
+  assert(plan.contentHeight <= 24)
+  command.frame.warp = { preset: 'wave1', adjustment: 50_000 }
+  const warped = await buildRichTextLayout(context, command)
+  assert(warped.runs.some((run) => Math.abs(run.warpRotation) > 0.1))
+  assert(warped.runs.some((run, index) => run.baseline !== plan.runs[index].baseline))
+  delete command.frame.warp
+  command.frame.paragraphs[0].bulletImageResource = 0
+  const pictureBullet = await buildRichTextLayout(context, command)
+  assert.equal(pictureBullet.runs[0].bulletImageResource, 0)
 })
 
 test('image metadata enforces deterministic PNG, JPEG, GIF, and safe SVG boundaries', () => {
@@ -502,7 +691,7 @@ test('byte-budget LRU remains bounded across a 1000-slide scroll trace', () => {
 })
 
 function minimalDisplayList(version = 1) {
-  const commandOffset = version >= 2 ? 48 : 40
+  const commandOffset = version >= 7 ? 52 : version >= 2 ? 48 : 40
   const bytes = new Uint8Array(commandOffset + 5)
   const view = new DataView(bytes.buffer)
   bytes.set(new TextEncoder().encode('WPDL'), 0)

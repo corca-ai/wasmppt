@@ -64,13 +64,17 @@ the report or screenshots are absent.
 
 On the controlled PowerPoint runner, both Canvas PNGs and 640-by-360 PowerPoint exports are compared
 with ImageMagick. The JSON report publishes different-pixel count, total pixels, ratio, the 5%
-per-channel fuzz rule, and the current 35% whole-slide tolerance. This deliberately generous
+per-channel fuzz rule, and the current 35% whole-slide tolerance. A checked-in manifest pins the
+fixture hash, export size, metric, redistribution statement, and baseline owner. PowerPoint emits
+its version, platform, fixture hash, and font inventory; missing or stale provenance fails closed.
+This deliberately generous
 baseline reflects the project's explicit advanced-feature gaps; tightening it is a versioned
 compatibility change, and exceeding it blocks a release.
 
 ## Desktop consumers
 
-`.github/workflows/office-ground-truth.yml` runs on release publication or manual dispatch:
+`.github/workflows/office-ground-truth.yml` runs for rendering-affecting pull requests, release
+publication, or manual dispatch:
 
 - PowerPoint opens the deck read-only with automation security forced to disable active content,
   exports slides and PDF, and must complete inside a 15-minute timeout without a repair/error modal;
@@ -81,9 +85,15 @@ The runner labels are part of the contract: `PowerPoint` and `ImageMagick` on Wi
 `LibreOffice` on Linux, and `Keynote` on macOS. A release stays queued or fails when an explicitly
 required licensed runner is unavailable; the workflow does not silently skip that consumer.
 
+Baseline updates are reviewed changes: regenerate the fixture deterministically, update
+`fixtures/render/powerpoint-baseline.json` with its SHA-256 and policy metadata, dispatch the Office
+workflow, and attach the resulting actual/reference/difference images plus `provenance.json` to the
+pull request. A maintainer other than the author reviews any tolerance increase. Ordinary developer
+machines inspect the uploaded report but never synthesize a PowerPoint reference.
+
 ## Diagnostics and policy evolution
 
-WPDL v2 through v5 transport resolver diagnostics unchanged to Canvas and DOM/SVG. New diagnostic variants
+WPDL v2 through v7 transport resolver diagnostics unchanged to Canvas and DOM/SVG. New diagnostic variants
 append stable numeric wire codes. Unknown future codes decode as `unknown`, so older frontends fail
 honestly without corrupting the scene. Security-limit regressions and unknown-markup loss are test
 failures, never benchmark tradeoffs.

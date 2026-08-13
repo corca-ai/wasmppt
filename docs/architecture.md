@@ -426,6 +426,35 @@ Parsing, validation, and conversion return stable machine-readable diagnostic co
 Unsupported rendering features are reported explicitly and may use a recorded fallback;
 they are not silently approximated as fully supported.
 
+## Text-fidelity architecture
+
+WPDL v7 keeps text layout backend-neutral. Rust resolves paragraph/run inheritance, typed point or
+percentage spacing, authored normal-AutoFit hints, shape-resize mode, columns, numbering markers,
+and common 2D text paint: outlines, inner/outer shadows, glow, blur, soft edges, and reflection.
+Canvas and DOM/SVG consume one positioned run plan, so line
+membership, effective shape bounds, source ordering, and column transitions cannot diverge by
+backend. Layout is bounded to 16 columns, 12 AutoFit iterations, finite geometry, and byte-budgeted
+host caches.
+
+The same contract carries solid/gradient/pattern text paint plus eight bounded 2D arch, wave,
+inflate, and deflate warp presets. These remain semantic text in DOM mode; effects use bounded
+browser-native approximations while unsupported 2D effect-DAG nodes fall back to readable unwarped
+text. All 3D camera, material, lighting, bevel, and extrusion
+data remains preserved but outside the renderer.
+
+Presentation-level embedded-font entries are carried as lazy package-part names rather than font
+bytes in the display list. The browser host reads a part only on first use, enforces a 32 MiB default
+limit, inspects OpenType `OS/2.fsType`, and refuses restricted or structurally unknown faces before
+`FontFace` registration. Generation-only Wasm therefore does not instantiate font machinery.
+Browser font shaping is exact when that accepted face loads; a separately loadable deterministic
+shaper remains the documented route for non-browser hosts.
+
+The built-in line breaker never splits the covered extended grapheme forms (combining sequences,
+variation selectors, emoji modifiers, ZWJ sequences, and regional-indicator pairs), honors NBSP,
+WJ, ZWSP, soft hyphen, preserved newlines, and common Japanese prohibited-start/end punctuation,
+and uses a documented dictionary-less fallback for Thai, Lao, and Khmer. Advanced bidi and vertical
+writing remain outside this slice.
+
 ## Verification strategy
 
 The verification environment is part of the architecture:

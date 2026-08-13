@@ -1,14 +1,15 @@
 //! Compact backend-neutral display lists lowered from resolved slides.
 
 use wasmppt_layout::{
-    ChartGrouping, ChartKind, CustomPath, ElementKind, EmuPoint, EmuRect, EmuSize, Fill,
-    GradientStop, GroupTransform, LineEnd, OuterShadow, PathCommand, PreservedFeature,
-    PresetGeometry, ResolveDiagnosticCode, ResolveOutput, ResolvedChart, ResolvedSlide,
-    ResolvedTable, ResolvedTextFrame, ResolvedTextStyle, RgbaColor, Stroke, TextAlignment,
-    TextAutofit, TextDirection, TextFlow, TextTabAlignment, TextVerticalAlignment, Transform,
+    ChartGrouping, ChartKind, CustomPath, ElementKind, EmbeddedFontResource, EmuPoint, EmuRect,
+    EmuSize, Fill, GradientStop, GroupTransform, LineEnd, OuterShadow, PathCommand,
+    PreservedFeature, PresetGeometry, ResolveDiagnosticCode, ResolveOutput, ResolvedChart,
+    ResolvedSlide, ResolvedTable, ResolvedTextFrame, ResolvedTextStyle, RgbaColor, Stroke,
+    TextAlignment, TextAutofit, TextDirection, TextFlow, TextSpacing, TextTabAlignment,
+    TextVerticalAlignment, Transform,
 };
 
-pub const DISPLAY_LIST_VERSION: u16 = 5;
+pub const DISPLAY_LIST_VERSION: u16 = 7;
 const MAGIC: &[u8; 4] = b"WPDL";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -122,6 +123,7 @@ pub struct DisplayList {
     pub group_transforms: Vec<GroupTransform>,
     pub strings: Vec<String>,
     pub images: Vec<ImageResource>,
+    pub embedded_fonts: Vec<EmbeddedFontResource>,
     pub semantics: Vec<SemanticElement>,
     pub diagnostics: Vec<DisplayDiagnostic>,
 }
@@ -132,7 +134,7 @@ impl DisplayList {
     }
 
     pub fn from_resolve(output: &ResolveOutput) -> Self {
-        Self::lower(
+        let mut list = Self::lower(
             &output.slide,
             output
                 .diagnostics
@@ -144,7 +146,9 @@ impl DisplayList {
                     message: diagnostic.message.clone(),
                 })
                 .collect(),
-        )
+        );
+        list.embedded_fonts.clone_from(&output.embedded_fonts);
+        list
     }
 
     fn lower(slide: &ResolvedSlide, diagnostics: Vec<DisplayDiagnostic>) -> Self {
@@ -156,6 +160,7 @@ impl DisplayList {
             group_transforms: Vec::new(),
             strings: Vec::new(),
             images: Vec::new(),
+            embedded_fonts: Vec::new(),
             semantics: Vec::new(),
             diagnostics,
         };
@@ -308,6 +313,7 @@ impl DisplayList {
         push_u32(&mut bytes, self.group_transforms.len() as u32);
         push_u32(&mut bytes, self.strings.len() as u32);
         push_u32(&mut bytes, self.images.len() as u32);
+        push_u32(&mut bytes, self.embedded_fonts.len() as u32);
         push_u32(&mut bytes, self.semantics.len() as u32);
         push_u32(&mut bytes, self.diagnostics.len() as u32);
         for command in &self.commands {
@@ -325,6 +331,16 @@ impl DisplayList {
                 image.part_name.as_deref().unwrap_or_default().as_bytes(),
             );
             push_blob(&mut bytes, image.relationship_id.as_bytes());
+        }
+        for font in &self.embedded_fonts {
+            push_blob(&mut bytes, font.family.as_bytes());
+            bytes.push(match font.style {
+                wasmppt_layout::EmbeddedFontStyle::Regular => 0,
+                wasmppt_layout::EmbeddedFontStyle::Bold => 1,
+                wasmppt_layout::EmbeddedFontStyle::Italic => 2,
+                wasmppt_layout::EmbeddedFontStyle::BoldItalic => 3,
+            });
+            push_blob(&mut bytes, font.part_name.as_bytes());
         }
         for semantic in &self.semantics {
             push_u32(&mut bytes, semantic.first_command);
@@ -1503,11 +1519,36 @@ fn encode_command(output: &mut Vec<u8>, command: &DisplayCommand) {
                 TextAutofit::ShrinkText => 1,
                 TextAutofit::ResizeShape => 2,
             });
+            push_i32(output, frame.autofit_font_scale.unwrap_or(i32::MIN));
+            push_i32(
+                output,
+                frame.autofit_line_spacing_reduction.unwrap_or(i32::MIN),
+            );
             output.push(match frame.flow {
                 TextFlow::Horizontal => 0,
                 TextFlow::Vertical => 1,
                 TextFlow::Vertical270 => 2,
             });
+            output.push(frame.column_count);
+            push_i64(output, frame.column_spacing);
+            push_i64(output, frame.default_tab_size);
+            push_blob(
+                output,
+                frame
+                    .warp
+                    .as_ref()
+                    .map(|warp| warp.preset.as_str())
+                    .unwrap_or_default()
+                    .as_bytes(),
+            );
+            push_i32(
+                output,
+                frame
+                    .warp
+                    .as_ref()
+                    .map(|warp| warp.adjustment)
+                    .unwrap_or(i32::MIN),
+            );
             push_u32(output, frame.paragraphs.len() as u32);
             for paragraph in &frame.paragraphs {
                 output.push(text_alignment_code(paragraph.alignment));
@@ -1515,15 +1556,44 @@ fn encode_command(output: &mut Vec<u8>, command: &DisplayCommand) {
                     output,
                     paragraph.bullet.as_deref().unwrap_or_default().as_bytes(),
                 );
+                push_blob(
+                    output,
+                    paragraph
+                        .bullet_image
+                        .as_ref()
+                        .and_then(|image| image.part_name.as_deref())
+                        .unwrap_or_default()
+                        .as_bytes(),
+                );
+                push_blob(
+                    output,
+                    paragraph
+                        .bullet_image
+                        .as_ref()
+                        .map(|image| image.relationship_id.as_str())
+                        .unwrap_or_default()
+                        .as_bytes(),
+                );
+                output.push(u8::from(paragraph.bullet_style.is_some()));
+                if let Some(style) = &paragraph.bullet_style {
+                    encode_text_style(output, style);
+                }
                 output.push(paragraph.level);
                 push_i64(output, paragraph.margin_left);
                 push_i64(output, paragraph.indent);
-                push_i32(output, paragraph.line_spacing.unwrap_or(i32::MIN));
-                push_i32(output, paragraph.space_before.unwrap_or(i32::MIN));
-                push_i32(output, paragraph.space_after.unwrap_or(i32::MIN));
+                encode_text_spacing(output, paragraph.line_spacing);
+                encode_text_spacing(output, paragraph.space_before);
+                encode_text_spacing(output, paragraph.space_after);
                 output.push(match paragraph.direction {
                     TextDirection::LeftToRight => 0,
                     TextDirection::RightToLeft => 1,
+                });
+                output.push(match paragraph.font_alignment {
+                    wasmppt_layout::TextFontAlignment::Automatic => 0,
+                    wasmppt_layout::TextFontAlignment::Top => 1,
+                    wasmppt_layout::TextFontAlignment::Center => 2,
+                    wasmppt_layout::TextFontAlignment::Baseline => 3,
+                    wasmppt_layout::TextFontAlignment::Bottom => 4,
                 });
                 push_u32(output, paragraph.tabs.len() as u32);
                 for tab in &paragraph.tabs {
@@ -1748,6 +1818,29 @@ fn encode_text_style(output: &mut Vec<u8>, style: &ResolvedTextStyle) {
     output.push(u8::from(style.strike));
     push_i32(output, style.character_spacing);
     push_i32(output, style.baseline);
+    output.push(u8::from(style.outline.is_some()));
+    if let Some(outline) = &style.outline {
+        encode_stroke(output, outline);
+    }
+    output.push(u8::from(style.shadow.is_some()));
+    if let Some(shadow) = style.shadow {
+        encode_color(output, shadow.color);
+        push_i64(output, shadow.blur_radius);
+        push_i64(output, shadow.distance);
+        push_i32(output, shadow.direction);
+    }
+    output.push(u8::from(style.fill.is_some()));
+    if let Some(fill) = &style.fill {
+        encode_fill(output, fill);
+    }
+    output.push(u8::from(style.glow.is_some()));
+    if let Some(glow) = style.glow {
+        encode_color(output, glow.color);
+        push_i64(output, glow.radius);
+    }
+    push_i64(output, style.blur_radius);
+    push_i64(output, style.soft_edge_radius);
+    output.push(u8::from(style.reflection));
 }
 
 fn text_alignment_code(alignment: TextAlignment) -> u8 {
@@ -1756,6 +1849,21 @@ fn text_alignment_code(alignment: TextAlignment) -> u8 {
         TextAlignment::Center => 2,
         TextAlignment::Right => 3,
         TextAlignment::Justify => 4,
+        TextAlignment::Distributed => 5,
+    }
+}
+
+fn encode_text_spacing(output: &mut Vec<u8>, spacing: Option<TextSpacing>) {
+    match spacing {
+        None => output.push(0),
+        Some(TextSpacing::Percent(value)) => {
+            output.push(1);
+            push_i32(output, value);
+        }
+        Some(TextSpacing::Points(value)) => {
+            output.push(2);
+            push_i32(output, value);
+        }
     }
 }
 
@@ -1890,6 +1998,7 @@ mod tests {
             group_transforms: Vec::new(),
             strings: Vec::new(),
             images: Vec::new(),
+            embedded_fonts: Vec::new(),
             semantics: Vec::new(),
             diagnostics: Vec::new(),
         };

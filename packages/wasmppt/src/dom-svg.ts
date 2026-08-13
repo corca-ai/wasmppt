@@ -4,6 +4,8 @@ import {
   buildRichTextLayout,
   decodeDisplayList,
   type DisplayScene,
+  type EmuRect,
+  type RichTextLayoutRun,
   type SceneCommand,
   type SceneDiagnostic,
   type SceneGroupTransform,
@@ -94,6 +96,20 @@ export class DomSvgRenderer {
         semantic.firstCommand,
         semantic.firstCommand + semantic.commandCount,
       )
+      const richTextCommand = commands.find(
+        (command): command is Extract<SceneCommand, { readonly kind: 'draw-rich-text' }> =>
+          command.kind === 'draw-rich-text',
+      )
+      let richTextLayout: Awaited<ReturnType<typeof buildRichTextLayout>> | undefined
+      if (richTextCommand !== undefined) {
+        const measureCanvas = document.createElement('canvas')
+        const measureContext = measureCanvas.getContext('2d')
+        if (measureContext === null) throw new Error('Canvas 2D is unavailable for rich text layout')
+        richTextLayout = await buildRichTextLayout(measureContext, richTextCommand, options.fontResolver)
+      }
+      const resizedBounds = richTextCommand?.frame.autofit === 'resize-shape'
+        ? richTextLayout?.effectiveBounds
+        : undefined
       await renderGraphicCommands(
         state,
         group,
@@ -102,8 +118,18 @@ export class DomSvgRenderer {
         semantic,
         options.imageResolver,
         signal,
+        resizedBounds,
       )
-      await updateAccessibleOverlay(state, semantic, commands, scene, options.fontResolver)
+      await updateAccessibleOverlay(
+        state,
+        semantic,
+        commands,
+        scene,
+        options.fontResolver,
+        richTextLayout,
+        options.imageResolver,
+        signal,
+      )
       updatedElements += 1
     }
     removeMissing(state.graphicElements, retained)
@@ -212,6 +238,7 @@ async function renderGraphicCommands(
   semantic: SceneSemanticElement,
   imageResolver: DomImageResolver | undefined,
   signal: AbortSignal,
+  resizedBounds?: EmuRect,
 ): Promise<void> {
   const stack: SVGGElement[] = [root]
   for (const command of commands) {
@@ -225,9 +252,10 @@ async function renderGraphicCommands(
     } else if (command.kind === 'pop-group') {
       if (stack.length > 1) stack.pop()
     } else if (command.kind === 'fill-preset' || command.kind === 'stroke-preset') {
+      const transform = resizedTransform(command.transform, resizedBounds)
       const path = document.createElementNS(SVG_NAMESPACE, 'path')
-      path.setAttribute('d', presetPath(command.geometry, command.transform.bounds.width, command.transform.bounds.height))
-      path.setAttribute('transform', shapeSvgTransform(command.transform))
+      path.setAttribute('d', presetPath(command.geometry, transform.bounds.width, transform.bounds.height))
+      path.setAttribute('transform', shapeSvgTransform(transform))
       if (command.kind === 'fill-preset') {
         setAttributes(path, { fill: cssColor(command.color), stroke: 'none' })
       } else {
@@ -248,6 +276,7 @@ async function renderGraphicCommands(
       }
       parent.append(path)
     } else if (command.kind === 'fill-gradient-preset') {
+      const transform = resizedTransform(command.transform, resizedBounds)
       const path = document.createElementNS(SVG_NAMESPACE, 'path')
       const gradientId = appendLinearGradient(
         state.definitions,
@@ -255,22 +284,24 @@ async function renderGraphicCommands(
         command.angle,
         command.stops,
       )
-      path.setAttribute('d', presetPath(command.geometry, command.transform.bounds.width, command.transform.bounds.height))
-      path.setAttribute('transform', shapeSvgTransform(command.transform))
+      path.setAttribute('d', presetPath(command.geometry, transform.bounds.width, transform.bounds.height))
+      path.setAttribute('transform', shapeSvgTransform(transform))
       setAttributes(path, { fill: `url(#${gradientId})`, stroke: 'none' })
       parent.append(path)
     } else if (command.kind === 'fill-radial-gradient-preset') {
+      const transform = resizedTransform(command.transform, resizedBounds)
       const path = document.createElementNS(SVG_NAMESPACE, 'path')
       const gradientId = appendRadialGradient(
         state.definitions,
         `wasmppt-radial-${semantic.shapeId}-${state.definitions.childElementCount}`,
         command.stops,
       )
-      path.setAttribute('d', presetPath(command.geometry, command.transform.bounds.width, command.transform.bounds.height))
-      path.setAttribute('transform', shapeSvgTransform(command.transform))
+      path.setAttribute('d', presetPath(command.geometry, transform.bounds.width, transform.bounds.height))
+      path.setAttribute('transform', shapeSvgTransform(transform))
       setAttributes(path, { fill: `url(#${gradientId})`, stroke: 'none' })
       parent.append(path)
     } else if (command.kind === 'fill-pattern-preset') {
+      const transform = resizedTransform(command.transform, resizedBounds)
       const path = document.createElementNS(SVG_NAMESPACE, 'path')
       const patternId = appendPattern(
         state.definitions,
@@ -279,14 +310,14 @@ async function renderGraphicCommands(
         command.foreground,
         command.background,
       )
-      path.setAttribute('d', presetPath(command.geometry, command.transform.bounds.width, command.transform.bounds.height))
-      path.setAttribute('transform', shapeSvgTransform(command.transform))
+      path.setAttribute('d', presetPath(command.geometry, transform.bounds.width, transform.bounds.height))
+      path.setAttribute('transform', shapeSvgTransform(transform))
       setAttributes(path, { fill: `url(#${patternId})`, stroke: 'none' })
       parent.append(path)
     } else if (command.kind === 'draw-custom-path') {
       const path = document.createElementNS(SVG_NAMESPACE, 'path')
       path.setAttribute('d', customPathData(command.path))
-      const bounds = command.transform.bounds
+      const bounds = resizedBounds ?? command.transform.bounds
       path.setAttribute('transform', `translate(${bounds.x} ${bounds.y}) scale(${bounds.width / command.pathWidth} ${bounds.height / command.pathHeight})`)
       let customFill = 'none'
       if (command.fill.kind === 'solid') customFill = cssColor(command.fill.color)
@@ -323,6 +354,7 @@ async function renderGraphicCommands(
       })
       parent.append(path)
     } else if (command.kind === 'draw-outer-shadow') {
+      const transform = resizedTransform(command.transform, resizedBounds)
       const path = document.createElementNS(SVG_NAMESPACE, 'path')
       const filter = document.createElementNS(SVG_NAMESPACE, 'filter')
       filter.id = `wasmppt-shadow-${semantic.shapeId}-${state.definitions.childElementCount}`
@@ -332,9 +364,9 @@ async function renderGraphicCommands(
       filter.append(blur)
       state.definitions.append(filter)
       const radians = command.direction / 60_000 * Math.PI / 180
-      const bounds = command.transform.bounds
+      const bounds = transform.bounds
       path.setAttribute('d', presetPath(command.geometry, bounds.width, bounds.height))
-      path.setAttribute('transform', `${shapeSvgTransform(command.transform)} translate(${Math.cos(radians) * command.distance} ${Math.sin(radians) * command.distance})`)
+      path.setAttribute('transform', `${shapeSvgTransform(transform)} translate(${Math.cos(radians) * command.distance} ${Math.sin(radians) * command.distance})`)
       setAttributes(path, { fill: cssColor(command.color), filter: `url(#${filter.id})` })
       parent.append(path)
     } else if (command.kind === 'draw-image') {
@@ -371,7 +403,11 @@ async function renderGraphicCommands(
       })
       parent.append(image)
     } else if (command.kind === 'draw-unsupported') {
-      appendUnsupportedGraphic(parent, command.transform, unsupportedGraphicLabel(command.feature))
+      appendUnsupportedGraphic(
+        parent,
+        resizedTransform(command.transform, resizedBounds),
+        unsupportedGraphicLabel(command.feature),
+      )
     }
   }
 }
@@ -519,6 +555,9 @@ async function updateAccessibleOverlay(
   commands: readonly SceneCommand[],
   scene: DisplayScene,
   fontResolver: FontResolver | undefined,
+  richTextLayout?: Awaited<ReturnType<typeof buildRichTextLayout>>,
+  imageResolver?: DomImageResolver,
+  signal: AbortSignal = new AbortController().signal,
 ): Promise<void> {
   const textCommand = commands.find(
     (command): command is Extract<SceneCommand, { readonly kind: 'draw-text' }> =>
@@ -565,10 +604,13 @@ async function updateAccessibleOverlay(
   element.setAttribute('aria-label', semantic.alternativeText ?? semantic.name)
   if (textCommand !== undefined) element.textContent = required(scene.strings, textCommand.text)
   else if (richTextCommand !== undefined) {
-    const measureCanvas = document.createElement('canvas')
-    const measureContext = measureCanvas.getContext('2d')
-    if (measureContext === null) throw new Error('Canvas 2D is unavailable for rich text layout')
-    const plan = await buildRichTextLayout(measureContext, richTextCommand, fontResolver)
+    let plan = richTextLayout
+    if (plan === undefined) {
+      const measureCanvas = document.createElement('canvas')
+      const measureContext = measureCanvas.getContext('2d')
+      if (measureContext === null) throw new Error('Canvas 2D is unavailable for rich text layout')
+      plan = await buildRichTextLayout(measureContext, richTextCommand, fontResolver)
+    }
     const originX = richTextCommand.bounds.x / EMU_PER_CSS_PIXEL
     const originY = richTextCommand.bounds.y / EMU_PER_CSS_PIXEL
     const layoutX = plan.layoutBounds.x / EMU_PER_CSS_PIXEL
@@ -583,25 +625,54 @@ async function updateAccessibleOverlay(
       transformOrigin: '50% 50%',
       transform: plan.rotationDegrees === 0 ? 'none' : `rotate(${plan.rotationDegrees}deg)`,
     })
-    wrapper.replaceChildren(...plan.runs.map((run) => {
+    const runElements = await Promise.all(plan.runs.map(async (run) => {
       const span = document.createElement('span')
-      span.textContent = run.text
+      if (run.bulletImageResource !== undefined && imageResolver !== undefined) {
+        const image = document.createElement('img')
+        image.src = await imageResolver(required(scene.images, run.bulletImageResource), signal)
+        image.alt = ''
+        Object.assign(image.style, {
+          width: `${run.fontSize}px`,
+          height: `${run.fontSize}px`,
+          objectFit: 'contain',
+          verticalAlign: 'baseline',
+        })
+        span.replaceChildren(image)
+      } else span.textContent = run.text
       Object.assign(span.style, {
         position: 'absolute',
         left: `${run.x - layoutX}px`,
         top: `${run.baseline - layoutY}px`,
-        transform: 'translateY(-0.82em)',
+        transform: `translateY(-0.82em) rotate(${run.warpRotation}deg)`,
         font: run.font.css,
-        color: cssColor(run.color),
+        ...domTextFill(run),
         direction: run.direction,
         letterSpacing: `${run.characterSpacing}px`,
         textDecoration: [run.underline ? 'underline' : '', run.strike ? 'line-through' : '']
           .filter(Boolean)
           .join(' ') || 'none',
         whiteSpace: 'pre',
+        WebkitTextStroke: run.outline === undefined
+          ? 'initial'
+          : `${run.outline.width / EMU_PER_CSS_PIXEL}px ${cssColor(run.outline.color)}`,
+        textShadow: run.shadow === undefined ? 'none' : (() => {
+          const radians = run.shadow.direction / 60_000 * Math.PI / 180
+          return `${Math.cos(radians) * run.shadow.distance / EMU_PER_CSS_PIXEL}px ${Math.sin(radians) * run.shadow.distance / EMU_PER_CSS_PIXEL}px ${run.shadow.blurRadius / EMU_PER_CSS_PIXEL}px ${cssColor(run.shadow.color)}`
+        })(),
+        filter: [
+          run.glow === undefined ? '' : `drop-shadow(0 0 ${run.glow.radius / EMU_PER_CSS_PIXEL}px ${cssColor(run.glow.color)})`,
+          Math.max(run.blurRadius, run.softEdgeRadius) <= 0 ? '' : `blur(${Math.max(run.blurRadius, run.softEdgeRadius) / EMU_PER_CSS_PIXEL}px)`,
+        ].filter(Boolean).join(' ') || 'none',
+        WebkitBoxReflect: run.reflection
+          ? 'below 0 linear-gradient(transparent, rgba(0, 0, 0, 0.22))'
+          : 'initial',
       })
+      span.dataset.paragraphIndex = String(run.paragraphIndex)
+      if (run.sourceStart !== undefined) span.dataset.sourceStart = String(run.sourceStart)
+      if (run.sourceEnd !== undefined) span.dataset.sourceEnd = String(run.sourceEnd)
       return span
     }))
+    wrapper.replaceChildren(...runElements)
     element.replaceChildren(wrapper)
   } else element.textContent = ''
   const groupTransforms = commands
@@ -614,7 +685,7 @@ async function updateAccessibleOverlay(
     (current, group) => multiply(current, groupMatrix(group)),
     identityMatrix(),
   )
-  const bounds = textCommand?.bounds ?? richTextCommand?.bounds ?? semantic.bounds
+  const bounds = textCommand?.bounds ?? richTextLayout?.effectiveBounds ?? richTextCommand?.bounds ?? semantic.bounds
   const richFirstStyle = richTextCommand?.frame.paragraphs[0]?.runs[0]?.style
   const textStyle = textCommand?.style ?? richFirstStyle
   const positioned = multiply(matrix, translation(bounds.x, bounds.y))
@@ -649,13 +720,34 @@ async function updateAccessibleOverlay(
     fontWeight: textStyle?.bold === true ? '700' : '400',
     fontStyle: textStyle?.italic === true ? 'italic' : 'normal',
     lineHeight: '1.2',
-    textAlign: textStyle?.alignment === 'justify' ? 'justify' : (textStyle?.alignment ?? 'left'),
+    textAlign: textStyle?.alignment === 'justify' || textStyle?.alignment === 'distributed'
+      ? 'justify'
+      : (textStyle?.alignment ?? 'left'),
     whiteSpace: 'pre-wrap',
     overflow: 'hidden',
     userSelect: 'text',
     pointerEvents: safeHref === undefined ? 'none' : 'auto',
   })
   state.textLayer.append(element)
+}
+
+function domTextFill(run: RichTextLayoutRun): Record<string, string> {
+  const fill = run.fill
+  if (fill === undefined) return { color: cssColor(run.color) }
+  if (fill.kind === 'none') return { color: 'transparent' }
+  if (fill.kind === 'solid') return { color: cssColor(fill.color) }
+  if (fill.kind === 'pattern') return { color: cssColor(fill.foreground) }
+  const stops = fill.stops
+    .map((stop) => `${cssColor(stop.color)} ${stop.position / 1_000}%`)
+    .join(', ')
+  return {
+    color: 'transparent',
+    backgroundImage: fill.kind === 'linear-gradient'
+      ? `linear-gradient(${fill.angle / 60_000}deg, ${stops})`
+      : `radial-gradient(circle, ${stops})`,
+    backgroundClip: 'text',
+    WebkitBackgroundClip: 'text',
+  }
 }
 
 export interface VirtualizedDomViewerOptions {
@@ -876,6 +968,10 @@ function shapeSvgTransform(transform: SceneTransform): string {
     `scale(${transform.flipHorizontal ? -1 : 1} ${transform.flipVertical ? -1 : 1})`,
     `translate(${-bounds.width / 2} ${-bounds.height / 2})`,
   ].join(' ')
+}
+
+function resizedTransform(transform: SceneTransform, bounds: EmuRect | undefined): SceneTransform {
+  return bounds === undefined ? transform : { ...transform, bounds }
 }
 
 function groupSvgTransform(group: SceneGroupTransform): string {

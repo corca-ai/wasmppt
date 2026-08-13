@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "fixture": "fixtures/render/basic.pptx",
+  "fixtureSha256": "593ace28888ccfc9a988526018483f2c531b51cef682fc4d1fc3e548dd2eaf85",
+  "exportWidth": 640,
+  "exportHeight": 360,
+  "redistribution": "Repository fixture and derived reference images are distributed under the repository license.",
+  "owner": "wasmppt maintainers",
+  "metrics": {
+    "wholeSlide": "ImageMagick AE with 5% per-channel fuzz",
+    "maximumDifferentPixelRatio": 0.35
+  },
+  "regions": [
+    { "slideIndex": 0, "name": "grouped-title", "x": 0, "y": 0, "width": 430, "height": 230, "tolerance": 0.35 },
+    { "slideIndex": 0, "name": "cropped-image", "x": 260, "y": 40, "width": 130, "height": 130, "tolerance": 0.25 },
+    { "slideIndex": 1, "name": "table", "x": 25, "y": 25, "width": 265, "height": 135, "tolerance": 0.35 },
+    { "slideIndex": 1, "name": "chart", "x": 310, "y": 20, "width": 300, "height": 215, "tolerance": 0.40 },
+    { "slideIndex": 1, "name": "metafile", "x": 440, "y": 230, "width": 150, "height": 110, "tolerance": 0.40 }
+  ]
+}

@@ -213,6 +213,7 @@ pub enum GenerateErrorCode {
 pub struct GenerateError {
     code: GenerateErrorCode,
     message: String,
+    cause_code: Option<&'static str>,
 }
 
 impl GenerateError {
@@ -220,11 +221,38 @@ impl GenerateError {
         Self {
             code,
             message: message.into(),
+            cause_code: None,
+        }
+    }
+
+    fn xml(error: wasmppt_xml::XmlError) -> Self {
+        Self {
+            code: GenerateErrorCode::Xml,
+            message: error.to_string(),
+            cause_code: Some(super::xml_error_code(error.code())),
+        }
+    }
+
+    fn xml_in_part(error: wasmppt_xml::XmlError, name: &str) -> Self {
+        let mut output = Self::xml(error);
+        output.message = format!("{name}: {}", output.message);
+        output
+    }
+
+    fn pml(error: wasmppt_pml::PmlError) -> Self {
+        Self {
+            code: GenerateErrorCode::Xml,
+            message: error.to_string(),
+            cause_code: error.cause_code(),
         }
     }
 
     pub const fn code(&self) -> GenerateErrorCode {
         self.code
+    }
+
+    pub const fn cause_code(&self) -> Option<&'static str> {
+        self.cause_code
     }
 }
 
@@ -2245,8 +2273,7 @@ fn prepare_semantic_shape_plans(
             )
         })?;
         let bytes = archive.read_entry(entry).map_err(package_error)?;
-        let slide = SlideView::parse(bytes.clone())
-            .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+        let slide = SlideView::parse(bytes.clone()).map_err(GenerateError::pml)?;
         maximum_ids.insert(
             part_name.to_owned(),
             slide
@@ -2347,8 +2374,7 @@ fn prepare_notes_plans(
             continue;
         };
         let rels = archive.read_entry(rels_entry).map_err(package_error)?;
-        let document = XmlDocument::parse(rels)
-            .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+        let document = XmlDocument::parse(rels).map_err(GenerateError::xml)?;
         let target = document.tokens().iter().find_map(|token| {
             let TokenKind::Start {
                 name, attributes, ..
@@ -2373,8 +2399,7 @@ fn prepare_notes_plans(
             continue;
         };
         let bytes = archive.read_entry(entry).map_err(package_error)?;
-        let document = XmlDocument::parse(bytes)
-            .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+        let document = XmlDocument::parse(bytes).map_err(GenerateError::xml)?;
         let text_ranges = document
             .tokens()
             .iter()
@@ -2410,8 +2435,7 @@ fn find_relationship_target_range(
         return Ok(None);
     };
     let bytes = archive.read_entry(entry).map_err(package_error)?;
-    let document = XmlDocument::parse(bytes)
-        .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+    let document = XmlDocument::parse(bytes).map_err(GenerateError::xml)?;
     Ok(document.tokens().iter().find_map(|token| {
         let TokenKind::Start {
             name, attributes, ..
@@ -2463,8 +2487,7 @@ fn prepare_image_plans(
     {
         let source_part = relationship_source(&entry.name);
         let bytes = archive.read_entry(entry).map_err(package_error)?;
-        let document = XmlDocument::parse(bytes)
-            .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+        let document = XmlDocument::parse(bytes).map_err(GenerateError::xml)?;
         for token in document.tokens() {
             let TokenKind::Start {
                 name, attributes, ..
@@ -2515,8 +2538,7 @@ fn prepare_image_plans(
             )
         })?;
         let bytes = archive.read_entry(entry).map_err(package_error)?;
-        let document = XmlDocument::parse(bytes)
-            .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+        let document = XmlDocument::parse(bytes).map_err(GenerateError::xml)?;
         let mut target = None;
         for token in document.tokens() {
             let TokenKind::Start {
@@ -2613,8 +2635,7 @@ fn prepare_table_plans(
             )
         })?;
         let source = archive.read_entry(entry).map_err(package_error)?;
-        let document = XmlDocument::parse(source)
-            .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+        let document = XmlDocument::parse(source).map_err(GenerateError::xml)?;
         let first_offset = bindings
             .iter()
             .flat_map(|binding| binding.text_spans.iter())
@@ -2740,8 +2761,7 @@ fn find_relationship_target(
         return Ok(None);
     };
     let bytes = archive.read_entry(entry).map_err(package_error)?;
-    let document = XmlDocument::parse(bytes)
-        .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+    let document = XmlDocument::parse(bytes).map_err(GenerateError::xml)?;
     Ok(document.tokens().iter().find_map(|token| {
         let TokenKind::Start {
             name, attributes, ..
@@ -2795,8 +2815,7 @@ fn validate_chart_data(chart: &ChartData) -> Result<(), GenerateError> {
 }
 
 fn rewrite_chart_cache(source: &[u8], chart: &ChartData) -> Result<Vec<u8>, GenerateError> {
-    let document = XmlDocument::parse(source)
-        .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+    let document = XmlDocument::parse(source).map_err(GenerateError::xml)?;
     let series_ranges = document
         .tokens()
         .iter()
@@ -2939,8 +2958,7 @@ fn rewrite_embedded_workbook(source: &[u8], chart: &ChartData) -> Result<Vec<u8>
         )
     })?;
     let sheet_source = archive.read_entry(sheet).map_err(package_error)?;
-    let document = XmlDocument::parse(sheet_source.clone())
-        .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+    let document = XmlDocument::parse(sheet_source.clone()).map_err(GenerateError::xml)?;
     let (sheet_data_start, sheet_data_end) = find_element(
         &document,
         0,
@@ -3079,8 +3097,8 @@ fn prepare_slide_deck(
         )
     })?;
     let presentation_bytes = archive.read_entry(presentation).map_err(package_error)?;
-    let presentation_document = XmlDocument::parse(presentation_bytes)
-        .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+    let presentation_document =
+        XmlDocument::parse(presentation_bytes).map_err(GenerateError::xml)?;
     let relationships = archive.entry(&relationship_part).ok_or_else(|| {
         GenerateError::new(
             GenerateErrorCode::InvalidTemplate,
@@ -3088,8 +3106,8 @@ fn prepare_slide_deck(
         )
     })?;
     let relationship_bytes = archive.read_entry(relationships).map_err(package_error)?;
-    let relationship_document = XmlDocument::parse(relationship_bytes)
-        .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+    let relationship_document =
+        XmlDocument::parse(relationship_bytes).map_err(GenerateError::xml)?;
 
     let mut relationship_map = HashMap::<String, (String, Range<usize>, String)>::new();
     let mut used_relationship_ids = HashSet::new();
@@ -3193,8 +3211,8 @@ fn prepare_slide_deck(
     let content_types_bytes = archive
         .read_entry(content_types_entry)
         .map_err(package_error)?;
-    let content_types_document = XmlDocument::parse(content_types_bytes)
-        .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+    let content_types_document =
+        XmlDocument::parse(content_types_bytes).map_err(GenerateError::xml)?;
     let mut content_types = HashMap::new();
     let mut content_type_insert_offset = None;
     for token in content_types_document.tokens() {
@@ -3267,8 +3285,7 @@ fn enclosing_element_range(
 }
 
 fn find_crop_plan(source: &[u8], relationship_id: &str) -> Result<CropPlan, GenerateError> {
-    let document = XmlDocument::parse(source)
-        .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+    let document = XmlDocument::parse(source).map_err(GenerateError::xml)?;
     let mut found_blip = false;
     let mut insertion_offset = None;
     let mut prefix = "a".to_owned();
@@ -3362,8 +3379,7 @@ fn content_type_patches(
     source: &[u8],
     image_types: &BTreeMap<String, String>,
 ) -> Result<Vec<Patch>, GenerateError> {
-    let document = XmlDocument::parse(source)
-        .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+    let document = XmlDocument::parse(source).map_err(GenerateError::xml)?;
     let mut patches = Vec::new();
     let mut present = HashSet::new();
     let mut end_offset = None;
@@ -3421,8 +3437,7 @@ fn content_type_patches(
 }
 
 fn strip_notes_relationships(source: &[u8]) -> Result<Vec<u8>, GenerateError> {
-    let document = XmlDocument::parse(source)
-        .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+    let document = XmlDocument::parse(source).map_err(GenerateError::xml)?;
     let patches = document
         .tokens()
         .iter()
@@ -3739,8 +3754,7 @@ fn text_patches(
                 "binding text is not UTF-8",
             )
         })?;
-        let decoded = decode_entities(raw, range.start)
-            .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, error.to_string()))?;
+        let decoded = decode_entities(raw, range.start).map_err(GenerateError::xml)?;
         let start = span.decoded_start as usize;
         let end = span.decoded_end as usize;
         if start > end
@@ -3772,8 +3786,8 @@ fn cleanup_patches(
     source: &[u8],
     removed: &HashSet<String>,
 ) -> Result<Vec<Patch>, GenerateError> {
-    let document = XmlDocument::parse(source)
-        .map_err(|error| GenerateError::new(GenerateErrorCode::Xml, format!("{name}: {error}")))?;
+    let document =
+        XmlDocument::parse(source).map_err(|error| GenerateError::xml_in_part(error, name))?;
     let mut patches = Vec::new();
     for token in document.tokens() {
         let TokenKind::Start {
@@ -3894,5 +3908,9 @@ fn options_from_entry(entry: &Entry) -> EntryOptions {
 }
 
 fn package_error(error: wasmppt_opc::Error) -> GenerateError {
-    GenerateError::new(GenerateErrorCode::Package, error.to_string())
+    GenerateError {
+        code: GenerateErrorCode::Package,
+        message: error.to_string(),
+        cause_code: Some(super::opc_error_code(error.code())),
+    }
 }

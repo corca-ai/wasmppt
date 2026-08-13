@@ -378,6 +378,7 @@ pub(crate) fn resolve_slide_parts_cached(
         let (name, document) = parse_part(source, graph, part, &mut trace)?;
         parse_theme(&document).map_err(|message| {
             LayoutError::new(format!("cannot parse theme part {name}: {message}"))
+                .with_part_name(name)
         })?
     } else {
         Theme::default()
@@ -550,16 +551,10 @@ pub(crate) fn discover_embedded_fonts(
         return Ok(Vec::new());
     };
     let name = graph.part_name(graph.part(presentation));
-    let bytes = source.read_part(name).map_err(|error| {
-        LayoutError::new(format!(
-            "cannot read presentation font inventory {name}: {error}"
-        ))
-    })?;
-    let document = XmlDocument::parse(bytes).map_err(|error| {
-        LayoutError::new(format!(
-            "cannot parse presentation font inventory {name}: {error}"
-        ))
-    })?;
+    let bytes = source
+        .read_part(name)
+        .map_err(|error| super::package_error(error).with_part_name(name))?;
+    let document = XmlDocument::parse(bytes).map_err(|error| LayoutError::xml(error, name))?;
     let mut fonts = Vec::new();
     for (index, token) in document.tokens().iter().enumerate() {
         let TokenKind::Start { name, .. } = &token.kind else {
@@ -628,9 +623,8 @@ fn parse_part(
     trace.visited_parts.push(name.clone());
     let bytes = source
         .read_part(&name)
-        .map_err(|error| LayoutError::new(format!("cannot read part {name}: {error}")))?;
-    let document = XmlDocument::parse(bytes)
-        .map_err(|error| LayoutError::new(format!("cannot parse part {name}: {error}")))?;
+        .map_err(|error| super::package_error(error).with_part_name(&name))?;
+    let document = XmlDocument::parse(bytes).map_err(|error| LayoutError::xml(error, &name))?;
     trace.parsed_xml_parts.push(name.clone());
     Ok((name, document))
 }

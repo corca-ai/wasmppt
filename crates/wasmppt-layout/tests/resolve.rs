@@ -1,14 +1,26 @@
 use std::sync::Arc;
 
 use wasmppt_layout::{
-    ChartKind, ElementKind, Fill, PresentationDocument, PreservedFeature, ResolveDiagnosticCode,
-    RgbaColor, TextAutofit,
+    ChartKind, ElementKind, Fill, LayoutErrorCode, PresentationDocument, PreservedFeature,
+    ResolveDiagnosticCode, RgbaColor, TextAutofit,
 };
 use wasmppt_opc::ZipArchive;
 use wasmppt_template::{InjectionData, PreparedTemplate, TemplateCompiler};
 
 const FIXTURE: &[u8] = include_bytes!("../../../fixtures/render/basic.pptx");
 const DOGFOOD_TEMPLATE: &[u8] = include_bytes!("../../../fixtures/dogfood/report.potx");
+
+#[test]
+fn layout_errors_preserve_stable_package_and_slide_context() {
+    let package = PresentationDocument::open(b"not a zip".to_vec()).unwrap_err();
+    assert_eq!(package.code(), LayoutErrorCode::Package);
+    assert_eq!(package.cause_code(), Some("truncated"));
+
+    let deck = PresentationDocument::open(FIXTURE.to_vec()).unwrap();
+    let slide = deck.resolve_slide(deck.slide_count()).unwrap_err();
+    assert_eq!(slide.code(), LayoutErrorCode::InvalidSlide);
+    assert_eq!(slide.slide_index(), Some(deck.slide_count()));
+}
 
 #[test]
 fn opening_is_lazy_and_one_slide_touches_only_its_dependency_branch() {

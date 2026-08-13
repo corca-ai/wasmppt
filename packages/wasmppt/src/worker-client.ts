@@ -1,4 +1,5 @@
 import {
+  LEGACY_WORKER_PROTOCOL_VERSION,
   WORKER_PROTOCOL_VERSION,
   type TemplateBinding,
   type TemplateCompilerOptions,
@@ -7,6 +8,12 @@ import {
   type WorkerRequest,
   type WorkerResponse,
 } from './protocol.js'
+import {
+  ERROR_ENVELOPE_VERSION,
+  WasmpptError,
+  cancellationEnvelope,
+  isWasmpptErrorEnvelope,
+} from './error.js'
 import { encodeInjectionData, type GenerationData } from './injection.js'
 
 export interface WorkerLike {
@@ -765,35 +772,37 @@ export class WasmpptWorkerClient {
   }
 
   #receive(value: unknown): void {
-    if (!isWorkerResponse(value)) return
-    const pending = this.#pending.get(value.id)
+    const response = normalizeWorkerResponse(value)
+    if (response === undefined) return
+    const pending = this.#pending.get(response.id)
     if (pending === undefined) return
-    if (value.type === 'progress') {
-      if (pending.kind === 'generate' && (value.phase === 'generate' || value.phase === 'stream')) {
-        pending.onProgress?.(value.phase, value.completed, value.total)
+    if (response.type === 'progress') {
+      if (pending.kind === 'generate' &&
+        (response.phase === 'generate' || response.phase === 'stream')) {
+        pending.onProgress?.(response.phase, response.completed, response.total)
       } else if ((pending.kind === 'open' || pending.kind === 'resolve') &&
-        (value.phase === 'open' || value.phase === 'resolve')) {
-        pending.onProgress?.(value.phase, value.completed, value.total)
+        (response.phase === 'open' || response.phase === 'resolve')) {
+        pending.onProgress?.(response.phase, response.completed, response.total)
       }
       return
     }
-    if (value.type === 'chunk') {
-      if (pending.kind === 'generate') pending.controller.enqueue(new Uint8Array(value.bytes))
+    if (response.type === 'chunk') {
+      if (pending.kind === 'generate') pending.controller.enqueue(new Uint8Array(response.bytes))
       return
     }
-    this.#pending.delete(value.id)
+    this.#pending.delete(response.id)
     if (pending.kind === 'generate') {
       pending.abortCleanup()
-      if (value.type === 'generated') pending.controller.close()
-      else if (value.type === 'cancelled') pending.controller.error(abortError())
-      else if (value.type === 'error') pending.controller.error(remoteError(value))
+      if (response.type === 'generated') pending.controller.close()
+      else if (response.type === 'cancelled') pending.controller.error(abortError())
+      else if (response.type === 'error') pending.controller.error(remoteError(response))
       else pending.controller.error(new Error('invalid generate response'))
-    } else if (value.type === 'error') {
-      pending.reject(remoteError(value))
-    } else if (value.type === 'cancelled') {
+    } else if (response.type === 'error') {
+      pending.reject(remoteError(response))
+    } else if (response.type === 'cancelled') {
       pending.reject(abortError())
     } else {
-      pending.resolve(value)
+      pending.resolve(response)
     }
   }
 
@@ -888,14 +897,56 @@ function isWorkerResponse(value: unknown): value is WorkerResponse {
   )
 }
 
-function remoteError(response: Extract<WorkerResponse, { readonly type: 'error' }>): Error {
-  const error = new Error(response.message)
-  error.name = response.name
-  return error
+function normalizeWorkerResponse(value: unknown): WorkerResponse | undefined {
+  if (isWorkerResponse(value)) return value
+  if (typeof value !== 'object' || value === null) return undefined
+  const candidate = value as {
+    readonly version?: unknown
+    readonly id?: unknown
+    readonly type?: unknown
+    readonly name?: unknown
+    readonly message?: unknown
+    readonly error?: unknown
+  }
+  if (candidate.version !== LEGACY_WORKER_PROTOCOL_VERSION ||
+    !Number.isSafeInteger(candidate.id) || (candidate.id as number) < 0) return undefined
+  if (candidate.type === 'cancelled') {
+    return {
+      version: WORKER_PROTOCOL_VERSION,
+      id: candidate.id as number,
+      type: 'cancelled',
+      error: cancellationEnvelope(),
+    }
+  }
+  if (candidate.type !== 'error' || typeof candidate.name !== 'string' ||
+    typeof candidate.message !== 'string') return undefined
+  const error = isWasmpptErrorEnvelope(candidate.error)
+    ? candidate.error
+    : {
+        version: ERROR_ENVELOPE_VERSION,
+        domain: 'runtime' as const,
+        code: 'legacy-error',
+        message: candidate.message,
+      }
+  return {
+    version: WORKER_PROTOCOL_VERSION,
+    id: candidate.id as number,
+    type: 'error',
+    error,
+    name: candidate.name,
+    message: candidate.message,
+  }
 }
 
-function abortError(): DOMException {
-  return new DOMException('wasmppt generation was cancelled', 'AbortError')
+function remoteError(response: Extract<WorkerResponse, { readonly type: 'error' }>): WasmpptError {
+  return new WasmpptError(response.error, response.name)
+}
+
+function abortError(): WasmpptError {
+  return new WasmpptError(
+    cancellationEnvelope('wasmppt generation was cancelled'),
+    'AbortError',
+  )
 }
 
 function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {

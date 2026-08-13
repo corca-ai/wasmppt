@@ -2,6 +2,7 @@
 export const packageName = '@corca-ai/wasmppt' as const
 
 export * from './protocol.js'
+export * from './error.js'
 export * from './injection.js'
 export * from './worker-client.js'
 export * from './worker-runtime.js'

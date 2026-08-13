@@ -69,6 +69,7 @@ const routes = new Map([
   ['/dist/worker-client.js', [join(packageDirectory, 'dist/worker-client.js'), 'text/javascript']],
   ['/dist/injection.js', [join(packageDirectory, 'dist/injection.js'), 'text/javascript']],
   ['/dist/protocol.js', [join(packageDirectory, 'dist/protocol.js'), 'text/javascript']],
+  ['/dist/error.js', [join(packageDirectory, 'dist/error.js'), 'text/javascript']],
   ['/dist/canvas.js', [join(packageDirectory, 'dist/canvas.js'), 'text/javascript']],
   ['/dist/dom-svg.js', [join(packageDirectory, 'dist/dom-svg.js'), 'text/javascript']],
   ['/dist/shaper.js', [join(packageDirectory, 'dist/shaper.js'), 'text/javascript']],
@@ -801,6 +802,12 @@ try {
     const resourceCacheBytes = client.resourceCacheBytes
     await client.releasePresentation(opened.handle)
     renderer.clear()
+    let invalidPackageError
+    try {
+      await client.prepare(new TextEncoder().encode('not a zip').buffer)
+    } catch (error) {
+      invalidPackageError = error.envelope
+    }
     client.terminate()
     let outputBinary = ''
     for (let offset = 0; offset < output.byteLength; offset += 0x8000) {
@@ -832,6 +839,7 @@ try {
       mountedAfterDispose,
       cachedSceneBytes,
       resourceCacheBytes,
+      invalidPackageError,
       firstVisibleSlideSamplesMs,
       displayByteLength: displayBytes.byteLength,
       staleAbortCount,
@@ -1002,6 +1010,9 @@ try {
   assert.equal(result.mountedAfterDispose, 0)
   assert(result.cachedSceneBytes <= result.displayByteLength * 2)
   assert(result.resourceCacheBytes > 0)
+  assert.equal(result.invalidPackageError.version, 1)
+  assert.equal(result.invalidPackageError.domain, 'package')
+  assert.equal(result.invalidPackageError.code, 'truncated')
   assert.equal(result.staleAbortCount, 1)
   assert.equal(result.staleResult, 'AbortError')
   assert.deepEqual(result.staleMountedSlides, ['1'])

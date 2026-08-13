@@ -1,4 +1,7 @@
-export const WORKER_PROTOCOL_VERSION = 4 as const
+import type { WasmpptErrorEnvelope } from './error.js'
+
+export const WORKER_PROTOCOL_VERSION = 5 as const
+export const LEGACY_WORKER_PROTOCOL_VERSION = 4 as const
 
 export type TextBindings = Readonly<Record<string, string>>
 
@@ -232,6 +235,7 @@ export type WorkerResponse =
       readonly version: typeof WORKER_PROTOCOL_VERSION
       readonly id: number
       readonly type: 'cancelled'
+      readonly error: WasmpptErrorEnvelope
     }
   | {
       readonly version: typeof WORKER_PROTOCOL_VERSION
@@ -325,7 +329,10 @@ export type WorkerResponse =
       readonly version: typeof WORKER_PROTOCOL_VERSION
       readonly id: number
       readonly type: 'error'
+      readonly error: WasmpptErrorEnvelope
+      /** @deprecated Read `error` machine fields instead. */
       readonly name: string
+      /** @deprecated Read `error.message`; messages are informational. */
       readonly message: string
     }
 

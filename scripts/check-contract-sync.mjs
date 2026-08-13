@@ -20,6 +20,34 @@ function sameValues(left, right) {
 
 export function contractErrors(inputs) {
   const errors = []
+  const browserErrorVersion = Number(matchOne(
+    inputs.browserError,
+    /ERROR_ENVELOPE_VERSION = (\d+)/,
+    'browser error envelope version',
+  ))
+  const workerErrorVersion = Number(matchOne(
+    inputs.workerError,
+    /ERROR_ENVELOPE_VERSION = (\d+)/,
+    'workerd error envelope version',
+  ))
+  const wasmErrorVersion = Number(matchOne(
+    inputs.wasm,
+    /"version", &JsValue::from\((\d+)\)/,
+    'Wasm error envelope version',
+  ))
+  const documentedErrorVersion = Number(matchOne(
+    inputs.hosts,
+    /Error envelope version (\d+)/,
+    'documented error envelope version',
+  ))
+  if (!sameValues(
+    [browserErrorVersion, workerErrorVersion, wasmErrorVersion],
+    [documentedErrorVersion, documentedErrorVersion, documentedErrorVersion],
+  )) {
+    errors.push(
+      `error envelope versions browser=${browserErrorVersion}, workerd=${workerErrorVersion}, Wasm=${wasmErrorVersion}; docs=${documentedErrorVersion}`,
+    )
+  }
   const rustVersion = Number(matchOne(
     inputs.rustDisplay,
     /DISPLAY_LIST_VERSION:\s*u16\s*=\s*(\d+)/,
@@ -131,6 +159,10 @@ export async function readRepositoryContracts() {
     browserIntegration: 'packages/wasmppt/test/browser-host.integration.mjs',
     nativeBenchmark: 'benchmarks/run.mjs',
     nativeBudgetEvaluator: 'benchmarks/budget-evaluation.mjs',
+    browserError: 'packages/wasmppt/src/error.ts',
+    workerError: 'packages/wasmppt-worker/src/error.ts',
+    wasm: 'crates/wasmppt-wasm/src/lib.rs',
+    hosts: 'docs/hosts.md',
   }
   const jsonPaths = {
     capabilities: 'capabilities/presentationml.json',

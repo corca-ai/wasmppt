@@ -156,7 +156,11 @@ describe('wasmppt workerd adapter', () => {
     const cancelled = dispatch(worker, injectionRequest('lease-cancel.potx', paused.stream))
     await engine.waitForPrepared(1)
     paused.fail(new DOMException('request cancelled', 'AbortError'))
-    expect((await cancelled).status).toBe(500)
+    const cancelledResponse = await cancelled
+    expect(cancelledResponse.status).toBe(499)
+    expect(await cancelledResponse.json()).toMatchObject({
+      error: { version: 1, domain: 'runtime', code: 'cancelled' },
+    })
 
     const next = await dispatch(
       worker,
@@ -275,7 +279,14 @@ describe('wasmppt workerd adapter', () => {
       }),
     )
     expect(response.status).toBe(400)
-    expect(await response.json()).toEqual({ error: 'live edit bundle has an invalid magic' })
+    expect(await response.json()).toEqual({
+      error: {
+        version: 1,
+        domain: 'runtime',
+        code: 'invalid-request',
+        message: 'live edit bundle has an invalid magic',
+      },
+    })
   })
 
   it('rejects an advertised body larger than the bounded input budget', async () => {
@@ -287,6 +298,54 @@ describe('wasmppt workerd adapter', () => {
       }),
     )
     expect(response.status).toBe(413)
+  })
+
+  it('preserves the native package code for the same invalid template bytes', async () => {
+    const response = await exports.default.fetch(
+      new Request('https://wasmppt.test/v1/generate', {
+        method: 'POST',
+        body: new TextEncoder().encode('not a zip'),
+      }),
+    )
+    expect(response.status).toBe(400)
+    expect(response.headers.get('x-wasmppt-error-version')).toBe('1')
+    expect(await response.json()).toMatchObject({
+      error: { version: 1, domain: 'package', code: 'truncated' },
+    })
+  })
+
+  it('maps known Wasm codes to deliberate statuses and hides unknown internal details', async () => {
+    const wasmError = new Error('unknown generation handle') as Error & { wasmppt?: unknown }
+    wasmError.wasmppt = {
+      version: 1,
+      domain: 'runtime',
+      code: 'unknown-handle',
+      message: wasmError.message,
+    }
+    const conflictWorker = createWasmpptWorker(new ThrowingEngine(wasmError))
+    const conflict = await dispatch(
+      conflictWorker,
+      new Request('https://wasmppt.test/v1/generate', { method: 'POST', body: fixture() }),
+    )
+    expect(conflict.status).toBe(409)
+    expect(await conflict.json()).toMatchObject({
+      error: { domain: 'runtime', code: 'unknown-handle' },
+    })
+
+    const internalWorker = createWasmpptWorker(new ThrowingEngine(new Error('secret detail')))
+    const internal = await dispatch(
+      internalWorker,
+      new Request('https://wasmppt.test/v1/generate', { method: 'POST', body: fixture() }),
+    )
+    expect(internal.status).toBe(500)
+    expect(await internal.json()).toEqual({
+      error: {
+        version: 1,
+        domain: 'runtime',
+        code: 'internal',
+        message: 'internal wasmppt failure',
+      },
+    })
   })
 
   it('matches the native and browser display-list structure in workerd', async () => {
@@ -481,6 +540,26 @@ class LeaseTestEngine implements WorkerEngine {
   #assertTemplate(handle: number): void {
     if (!this.#validTemplates.has(handle)) throw new Error('released template handle reused')
   }
+}
+
+class ThrowingEngine implements WorkerEngine {
+  readonly #error: Error
+
+  constructor(error: Error) {
+    this.#error = error
+  }
+
+  prepare(): number { throw this.#error }
+  prepared_weight(): bigint { return 0n }
+  start_generation_payload(): number { throw this.#error }
+  create_live_session_payload(): number { throw this.#error }
+  apply_live_session_payload(): unknown[] { throw this.#error }
+  start_live_session_generation(): number { throw this.#error }
+  generation_pull(): Uint8Array { throw this.#error }
+  generation_done(): boolean { return true }
+  release_template(): boolean { return false }
+  release_generation(): boolean { return false }
+  release_live_session(): boolean { return false }
 }
 
 function dogfoodPayload(): Uint8Array {

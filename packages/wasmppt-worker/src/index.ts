@@ -1,5 +1,12 @@
 /** Cloudflare Workers host adapter for the wasmppt Wasm core. */
+import {
+  errorEnvelope,
+  normalizeWasmpptError,
+  type WasmpptErrorEnvelope,
+} from './error.js'
+
 export const packageName = '@corca-ai/wasmppt-worker' as const
+export type { WasmpptErrorDomain, WasmpptErrorEnvelope } from './error.js'
 
 export interface WorkerMemoryBudget {
   readonly maxInputBytes: number
@@ -283,7 +290,7 @@ export function createWasmpptWorker(
       }
       const live = url.pathname === '/v1/live-generate'
       if ((url.pathname !== '/v1/generate' && !live) || request.method !== 'POST') {
-        return Response.json({ error: 'not found' }, { status: 404 })
+        return errorResponse(errorEnvelope('runtime', 'route-not-found', 'not found'), 404)
       }
       try {
         if (live && url.searchParams.get('r2') === null) {
@@ -334,10 +341,10 @@ export function createWasmpptWorker(
           },
         })
       } catch (error) {
-        const status = error instanceof HttpError ? error.status : 500
-        const message = error instanceof Error ? error.message : String(error)
-        console.error(JSON.stringify({ message: 'wasmppt generation failed', error: message }))
-        return Response.json({ error: message }, { status })
+        const envelope = normalizeWasmpptError(error)
+        const status = error instanceof HttpError ? error.status : httpStatusForEnvelope(envelope)
+        console.error(JSON.stringify({ message: 'wasmppt generation failed', error: envelope }))
+        return errorResponse(publicErrorEnvelope(envelope, status), status)
       }
     },
   } satisfies ExportedHandler<Env>
@@ -582,10 +589,54 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 
 class HttpError extends Error {
   readonly status: number
+  readonly envelope: WasmpptErrorEnvelope
 
-  constructor(status: number, message: string) {
+  constructor(
+    status: number,
+    message: string,
+    code = httpErrorCode(status),
+    domain: import('./error.js').WasmpptErrorDomain = 'runtime',
+  ) {
     super(message)
     this.name = 'HttpError'
     this.status = status
+    this.envelope = errorEnvelope(domain, code, message)
   }
+}
+
+function httpStatusForEnvelope(error: WasmpptErrorEnvelope): number {
+  if (error.code === 'cancelled') return 499
+  if (error.code === 'unknown-handle' || error.code === 'stale-revision') return 409
+  if (error.code === 'limit-exceeded' || error.causeCode === 'limit-exceeded') return 413
+  if (error.code.startsWith('unsupported-') || error.causeCode?.startsWith('unsupported-')) {
+    return 422
+  }
+  if (error.domain === 'package' || error.domain === 'xml' || error.domain === 'template' ||
+    error.domain === 'payload' || error.domain === 'generation' || error.domain === 'layout') {
+    return 400
+  }
+  return 500
+}
+
+function httpErrorCode(status: number): string {
+  if (status === 400) return 'invalid-request'
+  if (status === 404) return 'not-found'
+  if (status === 413) return 'limit-exceeded'
+  if (status === 431) return 'header-too-large'
+  return 'internal'
+}
+
+function publicErrorEnvelope(
+  error: WasmpptErrorEnvelope,
+  status: number,
+): WasmpptErrorEnvelope {
+  if (status < 500 || error.code !== 'internal') return error
+  return errorEnvelope('runtime', 'internal', 'internal wasmppt failure')
+}
+
+function errorResponse(error: WasmpptErrorEnvelope, status: number): Response {
+  return Response.json({ error }, {
+    status,
+    headers: { 'x-wasmppt-error-version': String(error.version) },
+  })
 }

@@ -8,6 +8,10 @@ test('repository contracts stay synchronized across code, docs, fixtures, and CI
 
 test('contract checker reports every independently stale consumer', () => {
   const errors = contractErrors({
+    browserError: 'ERROR_ENVELOPE_VERSION = 1',
+    workerError: 'ERROR_ENVELOPE_VERSION = 1',
+    wasm: 'set_property(&envelope, "version", &JsValue::from(1))',
+    hosts: 'Error envelope version 1',
     rustDisplay: 'pub const DISPLAY_LIST_VERSION: u16 = 2;',
     canvas: 'if (version !== 1) {',
     capabilities: { displayListVersion: 1 },

@@ -151,6 +151,7 @@ pub enum CompileErrorCode {
 pub struct CompileError {
     code: CompileErrorCode,
     message: String,
+    cause_code: Option<&'static str>,
 }
 
 impl CompileError {
@@ -158,6 +159,15 @@ impl CompileError {
         Self {
             code: CompileErrorCode::InvalidTemplate,
             message: message.into(),
+            cause_code: None,
+        }
+    }
+
+    fn package(error: wasmppt_opc::Error) -> Self {
+        Self {
+            code: CompileErrorCode::InvalidTemplate,
+            message: error.to_string(),
+            cause_code: Some(opc_error_code(error.code())),
         }
     }
 
@@ -165,11 +175,16 @@ impl CompileError {
         Self {
             code: CompileErrorCode::MacroPresent,
             message: message.into(),
+            cause_code: None,
         }
     }
 
     pub const fn code(&self) -> CompileErrorCode {
         self.code
+    }
+
+    pub const fn cause_code(&self) -> Option<&'static str> {
+        self.cause_code
     }
 }
 
@@ -235,7 +250,12 @@ impl TemplateCompiler {
         slide_entries.sort_unstable_by(|left, right| left.name.cmp(&right.name));
         for entry in slide_entries {
             let bytes = archive.read_entry(entry).map_err(|error| {
-                CompileError::new(format!("cannot read slide {}: {error}", entry.name))
+                let mut compile_error = CompileError::package(error);
+                compile_error.message = format!(
+                    "cannot read slide {}: {}",
+                    entry.name, compile_error.message
+                );
+                compile_error
             })?;
             match SlideView::parse(bytes) {
                 Ok(slide) => {
@@ -662,9 +682,11 @@ fn load_manifest<S: ReadAt>(
     let Some(entry) = archive.entry(MANIFEST_PART) else {
         return Ok(Vec::new());
     };
-    let bytes = archive
-        .read_entry(entry)
-        .map_err(|error| CompileError::new(format!("cannot read binding manifest: {error}")))?;
+    let bytes = archive.read_entry(entry).map_err(|error| {
+        let mut compile_error = CompileError::package(error);
+        compile_error.message = format!("cannot read binding manifest: {}", compile_error.message);
+        compile_error
+    })?;
     let document = match XmlDocument::parse(bytes) {
         Ok(document) => document,
         Err(error) => {
@@ -734,11 +756,51 @@ fn hash_source<S: ReadAt>(source: &S) -> Result<[u8; 32], CompileError> {
             .expect("hash chunk fits usize");
         source
             .read_at(offset, &mut buffer[..amount])
-            .map_err(|error| CompileError::new(format!("cannot hash template: {error}")))?;
+            .map_err(|error| {
+                let mut compile_error = CompileError::package(error);
+                compile_error.message = format!("cannot hash template: {}", compile_error.message);
+                compile_error
+            })?;
         hasher.update(&buffer[..amount]);
         offset += amount as u64;
     }
     Ok(hasher.finalize().into())
+}
+
+const fn opc_error_code(code: wasmppt_opc::ErrorCode) -> &'static str {
+    use wasmppt_opc::ErrorCode;
+    match code {
+        ErrorCode::Io => "io",
+        ErrorCode::Truncated => "truncated",
+        ErrorCode::InvalidSignature => "invalid-signature",
+        ErrorCode::InvalidField => "invalid-field",
+        ErrorCode::InvalidPath => "invalid-path",
+        ErrorCode::DuplicateEntry => "duplicate-entry",
+        ErrorCode::UnsupportedCompression => "unsupported-compression",
+        ErrorCode::UnsupportedEncryption => "unsupported-encryption",
+        ErrorCode::UnsupportedMultiDisk => "unsupported-multi-disk",
+        ErrorCode::UnsupportedZip64 => "unsupported-zip64",
+        ErrorCode::LimitExceeded => "limit-exceeded",
+        ErrorCode::OverlappingEntries => "overlapping-entries",
+        ErrorCode::ChecksumMismatch => "checksum-mismatch",
+        ErrorCode::SizeMismatch => "size-mismatch",
+        _ => "unknown",
+    }
+}
+
+const fn xml_error_code(code: wasmppt_xml::XmlErrorCode) -> &'static str {
+    use wasmppt_xml::XmlErrorCode;
+    match code {
+        XmlErrorCode::InvalidUtf8 => "invalid-utf8",
+        XmlErrorCode::Truncated => "truncated",
+        XmlErrorCode::InvalidSyntax => "invalid-syntax",
+        XmlErrorCode::UndeclaredPrefix => "undeclared-prefix",
+        XmlErrorCode::MismatchedEndTag => "mismatched-end-tag",
+        XmlErrorCode::DtdForbidden => "dtd-forbidden",
+        XmlErrorCode::Entity => "entity",
+        XmlErrorCode::LimitExceeded => "limit-exceeded",
+        _ => "unknown",
+    }
 }
 
 fn to_u32_range(range: Range<usize>) -> Range<u32> {

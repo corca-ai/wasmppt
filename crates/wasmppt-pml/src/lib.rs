@@ -24,6 +24,8 @@ pub enum PmlErrorCode {
 pub struct PmlError {
     code: PmlErrorCode,
     message: String,
+    cause_code: Option<&'static str>,
+    offset: Option<usize>,
 }
 
 impl PmlError {
@@ -31,11 +33,30 @@ impl PmlError {
         Self {
             code,
             message: message.into(),
+            cause_code: None,
+            offset: None,
+        }
+    }
+
+    fn xml(error: wasmppt_xml::XmlError) -> Self {
+        Self {
+            code: PmlErrorCode::Xml,
+            message: error.to_string(),
+            cause_code: Some(xml_error_code(error.code())),
+            offset: Some(error.offset()),
         }
     }
 
     pub const fn code(&self) -> PmlErrorCode {
         self.code
+    }
+
+    pub const fn cause_code(&self) -> Option<&'static str> {
+        self.cause_code
+    }
+
+    pub const fn offset(&self) -> Option<usize> {
+        self.offset
     }
 }
 
@@ -49,6 +70,21 @@ impl std::error::Error for PmlError {}
 
 pub type Result<T> = std::result::Result<T, PmlError>;
 
+const fn xml_error_code(code: wasmppt_xml::XmlErrorCode) -> &'static str {
+    use wasmppt_xml::XmlErrorCode;
+    match code {
+        XmlErrorCode::InvalidUtf8 => "invalid-utf8",
+        XmlErrorCode::Truncated => "truncated",
+        XmlErrorCode::InvalidSyntax => "invalid-syntax",
+        XmlErrorCode::UndeclaredPrefix => "undeclared-prefix",
+        XmlErrorCode::MismatchedEndTag => "mismatched-end-tag",
+        XmlErrorCode::DtdForbidden => "dtd-forbidden",
+        XmlErrorCode::Entity => "entity",
+        XmlErrorCode::LimitExceeded => "limit-exceeded",
+        _ => "unknown",
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PresentationView {
     document: XmlDocument,
@@ -57,8 +93,7 @@ pub struct PresentationView {
 
 impl PresentationView {
     pub fn parse(bytes: impl Into<Arc<[u8]>>) -> Result<Self> {
-        let document = XmlDocument::parse(bytes)
-            .map_err(|error| PmlError::new(PmlErrorCode::Xml, error.to_string()))?;
+        let document = XmlDocument::parse(bytes).map_err(PmlError::xml)?;
         ensure_root(&document, "presentation", &[PML_TRANSITIONAL, PML_STRICT])?;
         let mut slide_relationship_ids = Vec::new();
         for token in document.tokens() {
@@ -135,8 +170,7 @@ pub struct SlideView {
 
 impl SlideView {
     pub fn parse(bytes: impl Into<Arc<[u8]>>) -> Result<Self> {
-        let document = XmlDocument::parse(bytes)
-            .map_err(|error| PmlError::new(PmlErrorCode::Xml, error.to_string()))?;
+        let document = XmlDocument::parse(bytes).map_err(PmlError::xml)?;
         ensure_root(&document, "sld", &[PML_TRANSITIONAL, PML_STRICT])?;
         let mut shapes = Vec::new();
         let mut shape: Option<(usize, String, ShapeView)> = None;
@@ -244,9 +278,7 @@ impl SlideView {
                         let text = if matches!(&token.kind, TokenKind::Cdata) {
                             raw.to_owned()
                         } else {
-                            decode_entities(raw, token.range.start).map_err(|error| {
-                                PmlError::new(PmlErrorCode::Xml, error.to_string())
-                            })?
+                            decode_entities(raw, token.range.start).map_err(PmlError::xml)?
                         };
                         current.text_runs.push(TextRun { text, source_range });
                     }

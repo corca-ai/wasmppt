@@ -4,6 +4,7 @@ import {
   type WorkerRequest,
   type WorkerResponse,
 } from './protocol.js'
+import { cancellationEnvelope, normalizeWasmpptError } from './error.js'
 
 type ResponseWithoutVersion = WorkerResponse extends infer Response
   ? Response extends WorkerResponse
@@ -46,7 +47,7 @@ export function installWorkerRuntime(
     active.add(message.id)
     try {
       if (cancelled.delete(message.id)) {
-        post(scope, { id: message.id, type: 'cancelled' })
+        postCancelled(scope, message.id)
         return
       }
       switch (message.type) {
@@ -153,7 +154,7 @@ export function installWorkerRuntime(
             message.slideIndex,
           ))
           if (cancelled.delete(message.id)) {
-            post(scope, { id: message.id, type: 'cancelled' })
+            postCancelled(scope, message.id)
             return
           }
           progress(scope, message.id, 'resolve', 1, 1)
@@ -255,7 +256,7 @@ export function installWorkerRuntime(
           const handle = engine.open_presentation(new Uint8Array(message.presentation))
           if (cancelled.delete(message.id)) {
             engine.release_presentation(handle)
-            post(scope, { id: message.id, type: 'cancelled' })
+            postCancelled(scope, message.id)
             return
           }
           try {
@@ -279,7 +280,7 @@ export function installWorkerRuntime(
             engine.resolve_presentation_slide(message.presentationHandle, message.slideIndex),
           )
           if (cancelled.delete(message.id)) {
-            post(scope, { id: message.id, type: 'cancelled' })
+            postCancelled(scope, message.id)
             return
           }
           progress(scope, message.id, 'resolve', 1, 1)
@@ -299,7 +300,7 @@ export function installWorkerRuntime(
             engine.presentation_resource(message.presentationHandle, message.partName),
           )
           if (cancelled.delete(message.id)) {
-            post(scope, { id: message.id, type: 'cancelled' })
+            postCancelled(scope, message.id)
             return
           }
           scope.postMessage(
@@ -326,7 +327,7 @@ export function installWorkerRuntime(
           )
           const bytes = exactBuffer(await options.metafileToSvg(source))
           if (cancelled.delete(message.id)) {
-            post(scope, { id: message.id, type: 'cancelled' })
+            postCancelled(scope, message.id)
             return
           }
           scope.postMessage(
@@ -361,7 +362,7 @@ export function installWorkerRuntime(
       while (!engine.generation_done(generation)) {
         await yieldToWorkerQueue()
         if (cancelled.delete(id)) {
-          post(scope, { id, type: 'cancelled' })
+          postCancelled(scope, id)
           return
         }
         const chunk = exactBuffer(engine.generation_pull(generation, chunkBytes))
@@ -496,9 +497,21 @@ function isNonNegativeInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0
 }
 
-function normalizeError(error: unknown): { readonly name: string; readonly message: string } {
-  if (error instanceof Error) return { name: error.name, message: error.message }
-  return { name: 'Error', message: String(error) }
+function normalizeError(error: unknown): {
+  readonly error: import('./error.js').WasmpptErrorEnvelope
+  readonly name: string
+  readonly message: string
+} {
+  const normalized = normalizeWasmpptError(error)
+  return {
+    error: normalized.envelope,
+    name: normalized.name,
+    message: normalized.envelope.message,
+  }
+}
+
+function postCancelled(scope: WorkerRuntimeScope, id: number): void {
+  post(scope, { id, type: 'cancelled', error: cancellationEnvelope() })
 }
 
 function yieldToWorkerQueue(): Promise<void> {

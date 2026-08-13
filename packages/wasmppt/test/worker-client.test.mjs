@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   WORKER_PROTOCOL_VERSION,
+  WasmpptError,
   WasmpptWorkerClient,
   installWorkerRuntime,
 } from '../dist/index.js'
@@ -71,6 +72,59 @@ test('an unknown Worker response cannot consume a live request ID', async () => 
     diagnostics: [],
   })
   assert.equal((await pending).handle, 8)
+  client.terminate()
+})
+
+test('machine-readable errors survive Wasm, protocol v5, and the browser client', async () => {
+  const worker = new FakeWorker()
+  const client = new WasmpptWorkerClient(worker)
+  const pending = client.prepare(new ArrayBuffer(4))
+  const request = worker.messages[0]
+  worker.respond({
+    version: WORKER_PROTOCOL_VERSION,
+    id: request.id,
+    type: 'error',
+    error: {
+      version: 1,
+      domain: 'package',
+      code: 'invalid-signature',
+      message: 'not a ZIP package',
+      causeCode: 'invalid-signature',
+    },
+    name: 'WasmpptPackageError',
+    message: 'not a ZIP package',
+  })
+
+  await assert.rejects(pending, (error) => {
+    assert(error instanceof WasmpptError)
+    assert.equal(error.name, 'WasmpptPackageError')
+    assert.equal(error.domain, 'package')
+    assert.equal(error.code, 'invalid-signature')
+    assert.equal(error.envelope.causeCode, 'invalid-signature')
+    return true
+  })
+  client.terminate()
+})
+
+test('protocol v5 client decodes legacy v4 errors without treating messages as codes', async () => {
+  const worker = new FakeWorker()
+  const client = new WasmpptWorkerClient(worker)
+  const pending = client.prepare(new ArrayBuffer(4))
+  const request = worker.messages[0]
+  worker.respond({
+    version: 4,
+    id: request.id,
+    type: 'error',
+    name: 'WasmpptCompileError',
+    message: 'legacy detail',
+  })
+
+  await assert.rejects(pending, (error) => {
+    assert(error instanceof WasmpptError)
+    assert.equal(error.code, 'legacy-error')
+    assert.equal(error.message, 'legacy detail')
+    return true
+  })
   client.terminate()
 })
 
@@ -239,6 +293,7 @@ test('runtime cancellation is observed between transferable output chunks', asyn
   await new Promise((resolve) => setTimeout(resolve, 30))
   assert.equal(scope.responses.filter((message) => message.type === 'chunk').length, 1)
   assert.equal(scope.responses.at(-1).type, 'cancelled')
+  assert.equal(scope.responses.at(-1).error.code, 'cancelled')
 })
 
 test('runtime preserves chart binding metadata returned by Wasm', async () => {
@@ -281,6 +336,45 @@ test('runtime preserves chart binding metadata returned by Wasm', async () => {
     shapeId: 4,
     shapeName: 'Sales chart',
   }])
+})
+
+test('runtime transports a Wasm error envelope without rewriting machine fields', async () => {
+  class Scope extends EventTarget {
+    responses = []
+    postMessage(message) { this.responses.push(message) }
+  }
+  const scope = new Scope()
+  const error = new Error('not a ZIP package')
+  error.name = 'WasmpptPackageError'
+  error.wasmppt = Object.freeze({
+    version: 1,
+    domain: 'package',
+    code: 'invalid-signature',
+    message: error.message,
+    causeCode: 'invalid-signature',
+  })
+  installWorkerRuntime(scope, {
+    prepare_with_options: () => { throw error },
+  })
+  scope.dispatchEvent(new MessageEvent('message', {
+    data: {
+      version: WORKER_PROTOCOL_VERSION,
+      id: 76,
+      type: 'prepare',
+      template: new ArrayBuffer(8),
+      options: {},
+    },
+  }))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.deepEqual(scope.responses.at(-1), {
+    version: WORKER_PROTOCOL_VERSION,
+    id: 76,
+    type: 'error',
+    error: error.wasmppt,
+    name: 'WasmpptPackageError',
+    message: 'not a ZIP package',
+  })
 })
 
 test('runtime releases a prepared handle when metadata conversion fails', async () => {

@@ -5,15 +5,16 @@ use std::{
     sync::Arc,
 };
 
-use js_sys::{Array, Error as JavaScriptError};
+use js_sys::{Array, Error as JavaScriptError, Object, Reflect};
 use wasm_bindgen::prelude::*;
 use wasmppt_display::DisplayList;
-use wasmppt_layout::PresentationDocument;
-use wasmppt_opc::ZipArchive;
+use wasmppt_layout::{LayoutError, LayoutErrorCode, PresentationDocument};
+use wasmppt_opc::{Error as OpcError, ErrorCode as OpcErrorCode, ZipArchive};
 use wasmppt_template::{
-    BindingDiagnostic, BindingDiagnosticCode, BindingKind, BindingSource, CompileErrorCode,
-    CompilerOptions, GenerateErrorCode, GenerationCursor, InjectionData, LiveSession,
-    LiveSessionUpdate, MacroPolicy, PreparedTemplate, TemplateCompiler, TemplatePlan,
+    BindingDiagnostic, BindingDiagnosticCode, BindingKind, BindingSource, CompileError,
+    CompileErrorCode, CompilerOptions, GenerateError, GenerateErrorCode, GenerationCursor,
+    InjectionData, LiveSession, LiveSessionUpdate, MacroPolicy, PreparedTemplate, TemplateCompiler,
+    TemplatePlan,
 };
 
 const SESSION_SCENE_CACHE_BYTES: usize = 16 * 1024 * 1024;
@@ -26,17 +27,21 @@ pub fn engine_version() -> String {
 
 /// Resolve one slide to the compact backend-neutral display-list wire format.
 #[wasm_bindgen]
-pub fn resolve_display_list(presentation: &[u8], slide_index: u32) -> Result<Vec<u8>, JsError> {
-    let deck = PresentationDocument::open(presentation.to_vec()).map_err(js_error)?;
-    let resolved = deck.resolve_slide(slide_index as usize).map_err(js_error)?;
+pub fn resolve_display_list(presentation: &[u8], slide_index: u32) -> Result<Vec<u8>, JsValue> {
+    let deck = PresentationDocument::open(presentation.to_vec()).map_err(layout_error)?;
+    let resolved = deck
+        .resolve_slide(slide_index as usize)
+        .map_err(layout_error)?;
     Ok(DisplayList::from_resolve(&resolved).encode())
 }
 
 /// Stable signature used to compare native and Wasm display-list structure.
 #[wasm_bindgen]
-pub fn display_list_signature(presentation: &[u8], slide_index: u32) -> Result<String, JsError> {
-    let deck = PresentationDocument::open(presentation.to_vec()).map_err(js_error)?;
-    let resolved = deck.resolve_slide(slide_index as usize).map_err(js_error)?;
+pub fn display_list_signature(presentation: &[u8], slide_index: u32) -> Result<String, JsValue> {
+    let deck = PresentationDocument::open(presentation.to_vec()).map_err(layout_error)?;
+    let resolved = deck
+        .resolve_slide(slide_index as usize)
+        .map_err(layout_error)?;
     Ok(format!(
         "{:016x}",
         DisplayList::from_resolve(&resolved).structural_signature()
@@ -128,8 +133,8 @@ impl WasmpptEngine {
     }
 
     /// Compile an immutable template and return an opaque instance-local handle.
-    pub fn prepare(&mut self, template: &[u8]) -> Result<u32, JsError> {
-        self.prepare_default(template).map_err(js_value_as_js_error)
+    pub fn prepare(&mut self, template: &[u8]) -> Result<u32, JsValue> {
+        self.prepare_default(template)
     }
 
     /// Compile with explicit stable v2 option tags.
@@ -151,8 +156,7 @@ impl WasmpptEngine {
         let bytes: Arc<[u8]> = template.to_vec().into();
         let plan =
             TemplatePlan::decode(plan).map_err(|error| coded_error("WasmpptPlanError", error))?;
-        let prepared = PreparedTemplate::new(bytes, plan)
-            .map_err(|error| coded_error(generate_error_name(error.code()), error))?;
+        let prepared = PreparedTemplate::new(bytes, plan).map_err(generate_error)?;
         let handle = self.allocate_handle()?;
         self.templates.insert(
             handle,
@@ -164,7 +168,7 @@ impl WasmpptEngine {
         Ok(handle)
     }
 
-    pub fn prepared_weight(&self, handle: u32) -> Result<u64, JsError> {
+    pub fn prepared_weight(&self, handle: u32) -> Result<u64, JsValue> {
         Ok(self.template(handle)?.estimated_resident_bytes())
     }
 
@@ -221,16 +225,16 @@ impl WasmpptEngine {
     }
 
     /// Index a presentation once and retain its compressed package behind an opaque handle.
-    pub fn open_presentation(&mut self, presentation: &[u8]) -> Result<u32, JsError> {
-        let deck = PresentationDocument::open(presentation.to_vec()).map_err(js_error)?;
+    pub fn open_presentation(&mut self, presentation: &[u8]) -> Result<u32, JsValue> {
+        let deck = PresentationDocument::open(presentation.to_vec()).map_err(layout_error)?;
         let handle = self.allocate_handle()?;
         self.presentations.insert(handle, deck);
         Ok(handle)
     }
 
-    pub fn presentation_slide_count(&self, handle: u32) -> Result<u32, JsError> {
+    pub fn presentation_slide_count(&self, handle: u32) -> Result<u32, JsValue> {
         u32::try_from(self.presentation(handle)?.slide_count())
-            .map_err(|_| JsError::new("slide count exceeds the Wasm 32-bit address space"))
+            .map_err(|_| coded_error("WasmpptLimitError", "slide count exceeds u32"))
     }
 
     /// Resolve exactly one requested slide to the compact display-list wire format.
@@ -238,11 +242,11 @@ impl WasmpptEngine {
         &self,
         presentation_handle: u32,
         slide_index: u32,
-    ) -> Result<Vec<u8>, JsError> {
+    ) -> Result<Vec<u8>, JsValue> {
         let resolved = self
             .presentation(presentation_handle)?
             .resolve_slide(slide_index as usize)
-            .map_err(js_error)?;
+            .map_err(layout_error)?;
         Ok(DisplayList::from_resolve(&resolved).encode())
     }
 
@@ -251,10 +255,10 @@ impl WasmpptEngine {
         &self,
         presentation_handle: u32,
         part_name: &str,
-    ) -> Result<Vec<u8>, JsError> {
+    ) -> Result<Vec<u8>, JsValue> {
         self.presentation(presentation_handle)?
             .read_part(part_name)
-            .map_err(js_error)
+            .map_err(layout_error)
     }
 
     /// Create a revision-zero live session from one prepared template and complete
@@ -268,11 +272,9 @@ impl WasmpptEngine {
         let data = InjectionData::decode(payload)
             .map_err(|error| coded_error("WasmpptPayloadError", error))?;
         let prepared = self.template_record(template_handle)?.template.clone();
-        let session = prepared
-            .start_live_session(data)
-            .map_err(|error| coded_error(generate_error_name(error.code()), error))?;
-        let document = PresentationDocument::open_source(session.overlay())
-            .map_err(|error| coded_error("WasmpptLayoutError", error))?;
+        let session = prepared.start_live_session(data).map_err(generate_error)?;
+        let document =
+            PresentationDocument::open_source(session.overlay()).map_err(layout_error)?;
         let handle = self.allocate_handle()?;
         self.live_sessions.insert(
             handle,
@@ -291,7 +293,7 @@ impl WasmpptEngine {
 
     pub fn live_session_slide_count(&self, handle: u32) -> Result<u32, JsValue> {
         u32::try_from(self.live_session(handle)?.document.slide_count())
-            .map_err(|_| coded_error("WasmpptLayoutError", "slide count exceeds u32"))
+            .map_err(|_| coded_error("WasmpptLimitError", "slide count exceeds u32"))
     }
 
     /// Atomically apply a partial WPPD payload and return compact revision metadata.
@@ -330,7 +332,7 @@ impl WasmpptEngine {
                     Ok(())
                 },
             )
-            .map_err(|error| coded_error(generate_error_name(error.code()), error))?;
+            .map_err(generate_error)?;
         let old_invalidated = record
             .document
             .invalidated_slides_for_parts(update.changed_parts.iter().map(String::as_str));
@@ -374,14 +376,14 @@ impl WasmpptEngine {
         let fingerprint = record
             .document
             .slide_dependency_fingerprint(slide_index as usize)
-            .map_err(|error| coded_error("WasmpptLayoutError", error))?;
+            .map_err(layout_error)?;
         if let Some(bytes) = record.scenes.get((slide_index, fingerprint)) {
             return Ok(bytes);
         }
         let resolved = record
             .document
             .resolve_slide(slide_index as usize)
-            .map_err(|error| coded_error("WasmpptLayoutError", error))?;
+            .map_err(layout_error)?;
         let bytes = DisplayList::from_resolve(&resolved).encode();
         record
             .scenes
@@ -401,7 +403,7 @@ impl WasmpptEngine {
             .document
             .slide_dependency_fingerprint(slide_index as usize)
             .map(fingerprint_hex)
-            .map_err(|error| coded_error("WasmpptLayoutError", error))
+            .map_err(layout_error)
     }
 
     pub fn live_session_resource(
@@ -412,10 +414,7 @@ impl WasmpptEngine {
     ) -> Result<Vec<u8>, JsValue> {
         let record = self.live_session(handle)?;
         require_revision(record, revision)?;
-        record
-            .document
-            .read_part(part_name)
-            .map_err(|error| coded_error("WasmpptLayoutError", error))
+        record.document.read_part(part_name).map_err(layout_error)
     }
 
     pub fn live_session_resource_fingerprint(
@@ -430,7 +429,7 @@ impl WasmpptEngine {
             .document
             .part_fingerprint(part_name)
             .map(fingerprint_hex)
-            .map_err(|error| coded_error("WasmpptLayoutError", error))
+            .map_err(layout_error)
     }
 
     pub fn start_live_session_generation(
@@ -512,7 +511,7 @@ impl WasmpptEngine {
             .get_mut(&generation_handle)
             .ok_or_else(|| coded_error("WasmpptHandleError", "unknown generation handle"))?
             .pull(maximum_bytes as usize)
-            .map_err(|error| coded_error(generate_error_name(error.code()), error))
+            .map_err(generate_error)
     }
 
     pub fn generation_done(&self, generation_handle: u32) -> Result<bool, JsValue> {
@@ -541,7 +540,7 @@ impl WasmpptEngine {
 }
 
 impl WasmpptEngine {
-    fn allocate_handle(&mut self) -> Result<u32, JsError> {
+    fn allocate_handle(&mut self) -> Result<u32, JsValue> {
         for _ in 0..u32::MAX {
             let handle = self.next_handle;
             self.next_handle = self.next_handle.wrapping_add(1).max(1);
@@ -553,14 +552,17 @@ impl WasmpptEngine {
                 return Ok(handle);
             }
         }
-        Err(JsError::new("opaque handle space is exhausted"))
+        Err(coded_error(
+            "WasmpptHandleSpaceError",
+            "opaque handle space is exhausted",
+        ))
     }
 
-    fn template(&self, handle: u32) -> Result<&PreparedTemplate, JsError> {
+    fn template(&self, handle: u32) -> Result<&PreparedTemplate, JsValue> {
         self.templates
             .get(&handle)
             .map(|record| record.template.as_ref())
-            .ok_or_else(|| JsError::new("unknown template handle"))
+            .ok_or_else(|| coded_error("WasmpptHandleError", "unknown template handle"))
     }
 
     fn template_record(&self, handle: u32) -> Result<&PreparedRecord, JsValue> {
@@ -580,13 +582,11 @@ impl WasmpptEngine {
         options: CompilerOptions,
     ) -> Result<u32, JsValue> {
         let bytes: Arc<[u8]> = template.to_vec().into();
-        let archive = ZipArchive::from_bytes(bytes.clone())
-            .map_err(|error| coded_error("WasmpptPackageError", error))?;
+        let archive = ZipArchive::from_bytes(bytes.clone()).map_err(opc_error)?;
         let compiled = TemplateCompiler::new(options)
             .compile(&archive)
-            .map_err(|error| coded_error(compile_error_name(error.code()), error))?;
-        let prepared = PreparedTemplate::new(bytes, compiled.plan)
-            .map_err(|error| coded_error(generate_error_name(error.code()), error))?;
+            .map_err(compile_error)?;
+        let prepared = PreparedTemplate::new(bytes, compiled.plan).map_err(generate_error)?;
         let handle = self.allocate_handle()?;
         self.templates.insert(
             handle,
@@ -607,16 +607,16 @@ impl WasmpptEngine {
             .template_record(template_handle)?
             .template
             .generate_cursor(data)
-            .map_err(|error| coded_error(generate_error_name(error.code()), error))?;
+            .map_err(generate_error)?;
         let handle = self.allocate_handle()?;
         self.generations.insert(handle, cursor);
         Ok(handle)
     }
 
-    fn presentation(&self, handle: u32) -> Result<&PresentationDocument, JsError> {
+    fn presentation(&self, handle: u32) -> Result<&PresentationDocument, JsValue> {
         self.presentations
             .get(&handle)
-            .ok_or_else(|| JsError::new("unknown presentation handle"))
+            .ok_or_else(|| coded_error("WasmpptHandleError", "unknown presentation handle"))
     }
 
     fn live_session(&self, handle: u32) -> Result<&LiveSessionRecord, JsValue> {
@@ -749,14 +749,122 @@ fn live_update_array(
     output
 }
 
-fn js_error(error: impl std::fmt::Display) -> JsError {
-    JsError::new(&error.to_string())
+fn coded_error(name: &str, error: impl std::fmt::Display) -> JsValue {
+    let (domain, code) = match name {
+        "WasmpptPayloadError" => ("payload", "invalid-payload"),
+        "WasmpptPlanError" => ("template", "invalid-plan"),
+        "WasmpptOptionError" => ("runtime", "invalid-option"),
+        "WasmpptHandleError" => ("runtime", "unknown-handle"),
+        "WasmpptHandleSpaceError" => ("runtime", "handle-space-exhausted"),
+        "WasmpptRevisionError" => ("runtime", "stale-revision"),
+        "WasmpptLimitError" => ("runtime", "limit-exceeded"),
+        _ => ("runtime", "internal"),
+    };
+    envelope_error(
+        name,
+        domain,
+        code,
+        error.to_string(),
+        ErrorContext::default(),
+    )
 }
 
-fn coded_error(name: &str, error: impl std::fmt::Display) -> JsValue {
-    let js_error = JavaScriptError::new(&error.to_string());
+fn opc_error(error: OpcError) -> JsValue {
+    envelope_error(
+        "WasmpptPackageError",
+        "package",
+        opc_error_code(error.code()),
+        error.to_string(),
+        ErrorContext::default(),
+    )
+}
+
+fn compile_error(error: CompileError) -> JsValue {
+    envelope_error(
+        compile_error_name(error.code()),
+        "template",
+        compile_error_code(error.code()),
+        error.to_string(),
+        ErrorContext {
+            cause_code: error.cause_code(),
+            ..ErrorContext::default()
+        },
+    )
+}
+
+fn generate_error(error: GenerateError) -> JsValue {
+    let domain = if error.code() == GenerateErrorCode::InvalidRevision {
+        "runtime"
+    } else {
+        "generation"
+    };
+    envelope_error(
+        generate_error_name(error.code()),
+        domain,
+        generate_error_code(error.code()),
+        error.to_string(),
+        ErrorContext {
+            cause_code: error.cause_code(),
+            ..ErrorContext::default()
+        },
+    )
+}
+
+fn layout_error(error: LayoutError) -> JsValue {
+    envelope_error(
+        "WasmpptLayoutError",
+        "layout",
+        layout_error_code(error.code()),
+        error.to_string(),
+        ErrorContext {
+            cause_code: error.cause_code(),
+            part_name: error.part_name(),
+            offset: error.offset(),
+            slide_index: error.slide_index(),
+        },
+    )
+}
+
+#[derive(Default)]
+struct ErrorContext<'a> {
+    cause_code: Option<&'a str>,
+    part_name: Option<&'a str>,
+    offset: Option<usize>,
+    slide_index: Option<usize>,
+}
+
+fn envelope_error(
+    name: &str,
+    domain: &str,
+    code: &str,
+    message: String,
+    context: ErrorContext<'_>,
+) -> JsValue {
+    let js_error = JavaScriptError::new(&message);
     js_error.set_name(name);
+    let envelope = Object::new();
+    set_property(&envelope, "version", &JsValue::from(1));
+    set_property(&envelope, "domain", &JsValue::from(domain));
+    set_property(&envelope, "code", &JsValue::from(code));
+    set_property(&envelope, "message", &JsValue::from(message));
+    if let Some(value) = context.cause_code {
+        set_property(&envelope, "causeCode", &JsValue::from(value));
+    }
+    if let Some(value) = context.part_name {
+        set_property(&envelope, "partName", &JsValue::from(value));
+    }
+    if let Some(value) = context.offset {
+        set_property(&envelope, "offset", &JsValue::from_f64(value as f64));
+    }
+    if let Some(value) = context.slide_index {
+        set_property(&envelope, "slideIndex", &JsValue::from_f64(value as f64));
+    }
+    set_property(js_error.as_ref(), "wasmppt", envelope.as_ref());
     js_error.into()
+}
+
+fn set_property(target: &JsValue, name: &str, value: &JsValue) {
+    let _ = Reflect::set(target, &JsValue::from(name), value);
 }
 
 fn js_value_as_js_error(error: JsValue) -> JsError {
@@ -783,6 +891,45 @@ const fn compile_error_name(value: CompileErrorCode) -> &'static str {
         CompileErrorCode::InvalidTemplate => "WasmpptCompileError",
         CompileErrorCode::MacroPresent => "WasmpptMacroPresentError",
         _ => "WasmpptCompileError",
+    }
+}
+
+const fn compile_error_code(value: CompileErrorCode) -> &'static str {
+    match value {
+        CompileErrorCode::InvalidTemplate => "invalid-template",
+        CompileErrorCode::MacroPresent => "macro-present",
+        _ => "unknown",
+    }
+}
+
+const fn layout_error_code(value: LayoutErrorCode) -> &'static str {
+    match value {
+        LayoutErrorCode::Package => "invalid-package",
+        LayoutErrorCode::InvalidPresentation => "invalid-presentation",
+        LayoutErrorCode::MissingPresentation => "missing-presentation",
+        LayoutErrorCode::InvalidSlide => "invalid-slide",
+        LayoutErrorCode::LimitExceeded => "limit-exceeded",
+        _ => "unknown",
+    }
+}
+
+const fn opc_error_code(value: OpcErrorCode) -> &'static str {
+    match value {
+        OpcErrorCode::Io => "io",
+        OpcErrorCode::Truncated => "truncated",
+        OpcErrorCode::InvalidSignature => "invalid-signature",
+        OpcErrorCode::InvalidField => "invalid-field",
+        OpcErrorCode::InvalidPath => "invalid-path",
+        OpcErrorCode::DuplicateEntry => "duplicate-entry",
+        OpcErrorCode::UnsupportedCompression => "unsupported-compression",
+        OpcErrorCode::UnsupportedEncryption => "unsupported-encryption",
+        OpcErrorCode::UnsupportedMultiDisk => "unsupported-multi-disk",
+        OpcErrorCode::UnsupportedZip64 => "unsupported-zip64",
+        OpcErrorCode::LimitExceeded => "limit-exceeded",
+        OpcErrorCode::OverlappingEntries => "overlapping-entries",
+        OpcErrorCode::ChecksumMismatch => "checksum-mismatch",
+        OpcErrorCode::SizeMismatch => "size-mismatch",
+        _ => "unknown",
     }
 }
 
@@ -825,8 +972,27 @@ const fn generate_error_name(value: GenerateErrorCode) -> &'static str {
         GenerateErrorCode::Xml => "WasmpptXmlError",
         GenerateErrorCode::InvalidImage => "WasmpptImageError",
         GenerateErrorCode::InvalidChart => "WasmpptChartError",
+        GenerateErrorCode::InvalidTable => "WasmpptTableError",
         GenerateErrorCode::InvalidRevision => "WasmpptRevisionError",
         GenerateErrorCode::MacroPresent => "WasmpptMacroPresentError",
         _ => "WasmpptGenerateError",
+    }
+}
+
+const fn generate_error_code(value: GenerateErrorCode) -> &'static str {
+    match value {
+        GenerateErrorCode::InvalidTemplate => "invalid-template",
+        GenerateErrorCode::IncompletePlan => "incomplete-plan",
+        GenerateErrorCode::PlanMismatch => "plan-mismatch",
+        GenerateErrorCode::MissingValue => "missing-value",
+        GenerateErrorCode::InvalidBindingRange => "invalid-binding-range",
+        GenerateErrorCode::Package => "package",
+        GenerateErrorCode::Xml => "xml",
+        GenerateErrorCode::InvalidImage => "invalid-image",
+        GenerateErrorCode::InvalidChart => "invalid-chart",
+        GenerateErrorCode::InvalidTable => "invalid-table",
+        GenerateErrorCode::InvalidRevision => "stale-revision",
+        GenerateErrorCode::MacroPresent => "macro-present",
+        _ => "unknown",
     }
 }

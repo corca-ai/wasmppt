@@ -58,7 +58,7 @@ version must equal the Rust `wasm-bindgen` dependency.
 
 ## Browser Worker protocol
 
-Protocol version 4 uses monotonically allocated request IDs and discriminated messages
+Protocol version 5 uses monotonically allocated request IDs and discriminated messages
 for prepare, generate, release, cancel, progress, chunk, success, and error events. The
 main thread transfers the input `ArrayBuffer`, so ownership moves to the module Worker
 instead of paying a structured-clone copy. Generation data uses the versioned `WPPD` binary
@@ -74,6 +74,21 @@ observed when the Worker yields between output pulls. Preparation and dirty-entr
 are synchronous; applications requiring a hard CPU cancel during those phases
 should terminate that Worker, which deterministically rejects every pending request.
 
+Error envelope version 1 is the machine-readable failure contract across Rust, Wasm, the browser
+Worker, and Cloudflare. Every envelope contains `version`, `domain`, `code`, and `message`.
+`partName`, `offset`, `bindingId`, `slideIndex`, and `causeCode` appear when that context is known.
+The version, domain, code, and optional context field meanings are stable; `message` is
+informational, may change, and MUST NOT be parsed. Rust compile, generation, and layout error enums
+are non-exhaustive. Their adapters preserve lower-level OPC and XML codes in `causeCode` instead of
+embedding the only copy in prose.
+
+Browser protocol v5 `error` and `cancelled` responses carry this envelope. `WasmpptWorkerClient`
+rejects with `WasmpptError`, whose `domain`, `code`, and `envelope` are public. Cancellation keeps
+the familiar JavaScript name `AbortError` while its stable code is `runtime/cancelled`. Unknown
+opaque handles use `runtime/unknown-handle`; a revision mismatch uses `runtime/stale-revision`.
+The client continues to decode v4 `name`/`message` error and cancellation responses during the
+protocol migration, assigning legacy errors `runtime/legacy-error`; new requests always use v5.
+
 `createLiveSession`, `applyLiveDelta`, `resolveLiveSlide`, and `generateLiveStream` operate on one
 Worker-owned session. Exact revision checks make stale work observable. Changed binding IDs, parts,
 and slide indices are returned to the host; resources use content fingerprints so an A-B-A edit can
@@ -85,6 +100,13 @@ The ES-module Worker accepts `POST /v1/generate`. A template comes from the boun
 request stream or from `?r2=KEY` through the `TEMPLATES` R2 binding. `R2TemplateSource`
 uses ranged binding reads, not Cloudflare's REST API. The response is a
 `ReadableStream<Uint8Array>` drained from the Wasm output handle in bounded chunks.
+
+HTTP failures return `{ "error": <error-envelope-v1> }` and the
+`x-wasmppt-error-version: 1` header. Invalid package, XML, template, payload, generation, and layout
+codes map to 400; missing routes or R2 objects to 404; stale revisions and unknown handles to 409;
+limits to 413; and unsupported package features to 422. Request cancellation uses 499. Unknown
+internal failures use 500 and expose only `runtime/internal` with a generic public message; the
+full diagnostic remains in Worker logs.
 
 For an R2 template, clients may send the same structured Generation API v2 bytes used by the
 browser as an `application/vnd.corca.wasmppt.injection-v2` request body. The v1 media type remains

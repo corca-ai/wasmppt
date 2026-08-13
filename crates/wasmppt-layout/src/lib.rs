@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use sha2::{Digest, Sha256};
 use wasmppt_opc::{PackageGraph, PackagePartSource, PartId, RelationshipTarget, ZipArchive};
-use wasmppt_pml::PresentationView;
+use wasmppt_pml::{PmlError, PresentationView};
 
 mod resolve;
 
@@ -592,16 +592,116 @@ pub struct EmbeddedFontResource {
     pub part_name: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum LayoutErrorCode {
+    Package,
+    InvalidPresentation,
+    MissingPresentation,
+    InvalidSlide,
+    LimitExceeded,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LayoutError {
+    code: LayoutErrorCode,
     message: String,
+    part_name: Option<String>,
+    slide_index: Option<usize>,
+    cause_code: Option<&'static str>,
+    offset: Option<usize>,
 }
 
 impl LayoutError {
     pub(crate) fn new(message: impl Into<String>) -> Self {
         Self {
+            code: LayoutErrorCode::InvalidPresentation,
             message: message.into(),
+            part_name: None,
+            slide_index: None,
+            cause_code: None,
+            offset: None,
         }
+    }
+
+    fn missing_presentation() -> Self {
+        Self {
+            code: LayoutErrorCode::MissingPresentation,
+            message: "package has no PresentationML main part".to_owned(),
+            part_name: None,
+            slide_index: None,
+            cause_code: None,
+            offset: None,
+        }
+    }
+
+    fn invalid_slide(index: usize) -> Self {
+        Self {
+            code: LayoutErrorCode::InvalidSlide,
+            message: format!("slide index {index} is out of bounds"),
+            part_name: None,
+            slide_index: Some(index),
+            cause_code: None,
+            offset: None,
+        }
+    }
+
+    fn limit(message: impl Into<String>) -> Self {
+        Self {
+            code: LayoutErrorCode::LimitExceeded,
+            message: message.into(),
+            part_name: None,
+            slide_index: None,
+            cause_code: Some("limit-exceeded"),
+            offset: None,
+        }
+    }
+
+    fn pml(error: PmlError) -> Self {
+        Self {
+            code: LayoutErrorCode::InvalidPresentation,
+            message: error.to_string(),
+            part_name: None,
+            slide_index: None,
+            cause_code: error.cause_code(),
+            offset: error.offset(),
+        }
+    }
+
+    pub(crate) fn xml(error: wasmppt_xml::XmlError, part_name: impl Into<String>) -> Self {
+        Self {
+            code: LayoutErrorCode::InvalidPresentation,
+            message: error.to_string(),
+            part_name: Some(part_name.into()),
+            slide_index: None,
+            cause_code: Some(xml_error_code(error.code())),
+            offset: Some(error.offset()),
+        }
+    }
+
+    pub const fn code(&self) -> LayoutErrorCode {
+        self.code
+    }
+
+    pub fn part_name(&self) -> Option<&str> {
+        self.part_name.as_deref()
+    }
+
+    pub const fn slide_index(&self) -> Option<usize> {
+        self.slide_index
+    }
+
+    pub const fn cause_code(&self) -> Option<&'static str> {
+        self.cause_code
+    }
+
+    pub const fn offset(&self) -> Option<usize> {
+        self.offset
+    }
+
+    pub(crate) fn with_part_name(mut self, part_name: impl Into<String>) -> Self {
+        self.part_name = Some(part_name.into());
+        self
     }
 }
 
@@ -656,13 +756,12 @@ impl PresentationDocument {
                     .part_by_name("ppt/presentation.xml")
                     .map(|part| part.id)
             })
-            .ok_or_else(|| LayoutError::new("package has no PresentationML main part"))?;
+            .ok_or_else(LayoutError::missing_presentation)?;
         let presentation_name = graph.part_name(graph.part(presentation_part)).to_owned();
         let presentation_bytes = source
             .read_part(&presentation_name)
             .map_err(package_error)?;
-        let presentation = PresentationView::parse(presentation_bytes)
-            .map_err(|error| LayoutError::new(format!("cannot parse presentation: {error}")))?;
+        let presentation = PresentationView::parse(presentation_bytes).map_err(LayoutError::pml)?;
         let slides = presentation
             .slide_relationship_ids()
             .iter()
@@ -720,7 +819,7 @@ impl PresentationDocument {
         let slide = *self
             .slides
             .get(index)
-            .ok_or_else(|| LayoutError::new(format!("slide index {index} is out of bounds")))?;
+            .ok_or_else(|| LayoutError::invalid_slide(index))?;
         resolve::resolve_slide_parts_cached(
             self.source.as_ref(),
             &self.graph,
@@ -807,12 +906,12 @@ impl PresentationDocument {
         let slide = *self
             .slides
             .get(index)
-            .ok_or_else(|| LayoutError::new(format!("slide index {index} is out of bounds")))?;
+            .ok_or_else(|| LayoutError::invalid_slide(index))?;
         let mut names = self
             .graph
             .walk_from(slide, self.graph.parts().len().saturating_add(1))
             .map_err(|limit| {
-                LayoutError::new(format!(
+                LayoutError::limit(format!(
                     "slide dependency traversal exceeds {} parts",
                     limit.maximum
                 ))
@@ -907,7 +1006,50 @@ pub(crate) fn plain_i64(attributes: &[wasmppt_xml::Attribute], local: &str) -> O
 }
 
 fn package_error(error: wasmppt_opc::Error) -> LayoutError {
-    LayoutError::new(error.to_string())
+    LayoutError {
+        code: LayoutErrorCode::Package,
+        message: error.to_string(),
+        part_name: None,
+        slide_index: None,
+        cause_code: Some(opc_error_code(error.code())),
+        offset: None,
+    }
+}
+
+const fn opc_error_code(code: wasmppt_opc::ErrorCode) -> &'static str {
+    use wasmppt_opc::ErrorCode;
+    match code {
+        ErrorCode::Io => "io",
+        ErrorCode::Truncated => "truncated",
+        ErrorCode::InvalidSignature => "invalid-signature",
+        ErrorCode::InvalidField => "invalid-field",
+        ErrorCode::InvalidPath => "invalid-path",
+        ErrorCode::DuplicateEntry => "duplicate-entry",
+        ErrorCode::UnsupportedCompression => "unsupported-compression",
+        ErrorCode::UnsupportedEncryption => "unsupported-encryption",
+        ErrorCode::UnsupportedMultiDisk => "unsupported-multi-disk",
+        ErrorCode::UnsupportedZip64 => "unsupported-zip64",
+        ErrorCode::LimitExceeded => "limit-exceeded",
+        ErrorCode::OverlappingEntries => "overlapping-entries",
+        ErrorCode::ChecksumMismatch => "checksum-mismatch",
+        ErrorCode::SizeMismatch => "size-mismatch",
+        _ => "unknown",
+    }
+}
+
+const fn xml_error_code(code: wasmppt_xml::XmlErrorCode) -> &'static str {
+    use wasmppt_xml::XmlErrorCode;
+    match code {
+        XmlErrorCode::InvalidUtf8 => "invalid-utf8",
+        XmlErrorCode::Truncated => "truncated",
+        XmlErrorCode::InvalidSyntax => "invalid-syntax",
+        XmlErrorCode::UndeclaredPrefix => "undeclared-prefix",
+        XmlErrorCode::MismatchedEndTag => "mismatched-end-tag",
+        XmlErrorCode::DtdForbidden => "dtd-forbidden",
+        XmlErrorCode::Entity => "entity",
+        XmlErrorCode::LimitExceeded => "limit-exceeded",
+        _ => "unknown",
+    }
 }
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

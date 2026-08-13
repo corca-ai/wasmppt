@@ -351,13 +351,14 @@ impl SlideWriter<'_> {
                 } else {
                     theme_rgb(self.theme, "lt1", 0x00ff_ffff)
                 };
-                self.xml.push_str(&format!(
-                    "<a:solidFill><a:srgbClr val=\"{fill:06X}\"/></a:solidFill>"
-                ));
                 let border = theme_rgb(self.theme, "dk1", 0x007f_7f7f);
+                // CT_TableCellProperties requires border lines before its fill choice.
                 for side in ["L", "R", "T", "B"] {
                     self.xml.push_str(&format!("<a:ln{side} w=\"9525\"><a:solidFill><a:srgbClr val=\"{border:06X}\"/></a:solidFill><a:prstDash val=\"solid\"/></a:ln{side}>"));
                 }
+                self.xml.push_str(&format!(
+                    "<a:solidFill><a:srgbClr val=\"{fill:06X}\"/></a:solidFill>"
+                ));
                 self.xml.push_str("</a:tcPr></a:tc>");
             }
             self.xml.push_str("</a:tr>");

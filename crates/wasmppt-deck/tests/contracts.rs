@@ -189,7 +189,7 @@ fn all_contract_payloads_round_trip_deterministically() {
 }
 
 #[test]
-fn golden_v1_payloads_are_stable() {
+fn golden_payloads_are_stable() {
     let limits = DeckLimits::default();
     assert_golden(
         rich_spec().encode(&limits).unwrap(),
@@ -199,7 +199,7 @@ fn golden_v1_payloads_are_stable() {
         template_plan_with_unknown_diagnostic()
             .encode(&limits)
             .unwrap(),
-        include_str!("../../../fixtures/deck-contracts/template-plan-v1.hex"),
+        include_str!("../../../fixtures/deck-contracts/template-plan-v2.hex"),
     );
     assert_golden(
         valid_plan(&simple_spec(), &template_plan_with_unknown_diagnostic())
@@ -259,7 +259,21 @@ fn assert_code(
 
 fn assert_golden(actual: Vec<u8>, expected: &str) {
     let actual = hex(&actual);
-    assert_eq!(actual, expected.trim());
+    let expected = expected.trim();
+    let first_difference = actual
+        .bytes()
+        .zip(expected.bytes())
+        .position(|(left, right)| left != right)
+        .unwrap_or(actual.len().min(expected.len()));
+    assert_eq!(
+        actual,
+        expected,
+        "golden differs at hex offset {first_difference}; actual length {}, expected length {}; actual tail {}, expected tail {}",
+        actual.len(),
+        expected.len(),
+        &actual[first_difference.saturating_sub(20)..],
+        &expected[first_difference.saturating_sub(20)..]
+    );
 }
 
 fn simple_spec() -> DeckSpec {
@@ -510,14 +524,36 @@ fn template_plan() -> DeckTemplatePlan {
     DeckTemplatePlan {
         id: id(50),
         template_hash: [7; 32],
+        cache_key: [8; 32],
+        validator_version: 1,
+        compiler_policy: "test-policy".to_owned(),
         page_size: PAGE,
+        theme: TemplateTheme::default(),
+        layouts: vec![TemplateLayout {
+            id: id(52),
+            role: TemplateLayoutRole::Content,
+            matching_name: "wasmppt:content-v1".to_owned(),
+            source_part: "ppt/slideLayouts/slideLayout1.xml".to_owned(),
+            master_part: "ppt/slideMasters/slideMaster1.xml".to_owned(),
+            region_ids: vec![id(51)],
+            asset_ids: vec![],
+            background: None,
+        }],
         regions: vec![TemplateRegion {
             id: id(51),
+            layout_id: id(52),
             role: RegionRole::Body,
+            placeholder: PlaceholderIdentity {
+                kind: "body".to_owned(),
+                index: 1,
+            },
             frame: FRAME,
+            margins: TextMargins::default(),
+            text_levels: vec![],
             accepts: vec![SemanticRole::Title, SemanticRole::Prose, SemanticRole::List],
             required: true,
         }],
+        assets: vec![],
         diagnostics: vec![],
     }
 }

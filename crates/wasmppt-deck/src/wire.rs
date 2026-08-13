@@ -106,10 +106,18 @@ pub(crate) fn encode_template_plan(
     let mut writer = Writer::new(limits, TEMPLATE_MAGIC, DeckTemplatePlan::SCHEMA_VERSION)?;
     writer.id(plan.id)?;
     writer.raw(&plan.template_hash)?;
+    writer.raw(&plan.cache_key)?;
+    writer.u32(plan.validator_version)?;
+    writer.string(&plan.compiler_policy)?;
     writer.emu_size(plan.page_size)?;
+    writer.template_theme(&plan.theme)?;
+    writer.vec(&plan.layouts, |writer, layout| {
+        writer.template_layout(layout)
+    })?;
     writer.vec(&plan.regions, |writer, region| {
         writer.template_region(region)
     })?;
+    writer.vec(&plan.assets, |writer, asset| writer.template_asset(asset))?;
     writer.vec(&plan.diagnostics, |writer, diagnostic| {
         writer.diagnostic(diagnostic)
     })?;
@@ -129,11 +137,19 @@ pub(crate) fn decode_template_plan(
     let id = reader.id()?;
     let mut template_hash = [0; 32];
     template_hash.copy_from_slice(reader.take(32)?);
+    let mut cache_key = [0; 32];
+    cache_key.copy_from_slice(reader.take(32)?);
     let plan = DeckTemplatePlan {
         id,
         template_hash,
+        cache_key,
+        validator_version: reader.u32()?,
+        compiler_policy: reader.string()?,
         page_size: reader.emu_size()?,
+        theme: reader.template_theme()?,
+        layouts: reader.vec("template layouts", Reader::template_layout)?,
         regions: reader.vec("template regions", Reader::template_region)?,
+        assets: reader.vec("template assets", Reader::template_asset)?,
         diagnostics: reader.vec("template diagnostics", Reader::diagnostic)?,
     };
     reader.finish()?;
@@ -511,10 +527,109 @@ impl<'a> Writer<'a> {
 
     fn template_region(&mut self, region: &TemplateRegion) -> Result<(), WireError> {
         self.id(region.id)?;
+        self.id(region.layout_id)?;
         self.byte(region_role_tag(region.role))?;
+        self.string(&region.placeholder.kind)?;
+        self.u32(region.placeholder.index)?;
         self.rect(region.frame)?;
+        self.text_margins(region.margins)?;
+        self.vec(&region.text_levels, |writer, level| {
+            writer.template_text_level(level)
+        })?;
         self.vec(&region.accepts, |writer, role| writer.u16(role.code()))?;
         self.bool(region.required)
+    }
+
+    fn template_theme(&mut self, theme: &TemplateTheme) -> Result<(), WireError> {
+        self.theme_fonts(&theme.major_fonts)?;
+        self.theme_fonts(&theme.minor_fonts)?;
+        self.vec(&theme.colors, |writer, color| {
+            writer.string(&color.slot)?;
+            writer.u32(color.rgb)
+        })
+    }
+
+    fn theme_fonts(&mut self, fonts: &ThemeFontSet) -> Result<(), WireError> {
+        self.optional_string(fonts.latin.as_deref())?;
+        self.optional_string(fonts.east_asian.as_deref())?;
+        self.optional_string(fonts.complex_script.as_deref())
+    }
+
+    fn template_layout(&mut self, layout: &TemplateLayout) -> Result<(), WireError> {
+        self.id(layout.id)?;
+        self.byte(template_layout_role_tag(layout.role))?;
+        self.string(&layout.matching_name)?;
+        self.string(&layout.source_part)?;
+        self.string(&layout.master_part)?;
+        self.vec(&layout.region_ids, |writer, id| writer.id(*id))?;
+        self.vec(&layout.asset_ids, |writer, id| writer.id(*id))?;
+        self.bool(layout.background.is_some())?;
+        if let Some(background) = &layout.background {
+            self.source(background)?;
+        }
+        Ok(())
+    }
+
+    fn text_margins(&mut self, margins: TextMargins) -> Result<(), WireError> {
+        self.i64(margins.left)?;
+        self.i64(margins.top)?;
+        self.i64(margins.right)?;
+        self.i64(margins.bottom)
+    }
+
+    fn template_text_level(&mut self, level: &TemplateTextLevel) -> Result<(), WireError> {
+        self.byte(level.level)?;
+        self.optional_u32(level.font_size)?;
+        self.optional_string(level.latin_typeface.as_deref())?;
+        self.optional_string(level.east_asian_typeface.as_deref())?;
+        self.optional_string(level.complex_script_typeface.as_deref())?;
+        self.bool(level.color.is_some())?;
+        if let Some(color) = &level.color {
+            self.optional_string(color.scheme.as_deref())?;
+            self.u32(color.rgb)?;
+        }
+        self.optional_bool(level.bold)?;
+        self.optional_bool(level.italic)?;
+        self.optional_i64(level.margin_left)?;
+        self.optional_i64(level.indent)
+    }
+
+    fn template_asset(&mut self, asset: &TemplateAsset) -> Result<(), WireError> {
+        self.id(asset.id)?;
+        self.id(asset.layout_id)?;
+        self.byte(template_asset_kind_tag(asset.kind))?;
+        self.string(&asset.source_part)?;
+        self.source(&asset.source_xml)?;
+        self.bool(asset.frame.is_some())?;
+        if let Some(frame) = asset.frame {
+            self.rect(frame)?;
+        }
+        self.u32(asset.z_order)?;
+        self.vec(&asset.related_parts, |writer, part| writer.string(part))
+    }
+
+    fn optional_u32(&mut self, value: Option<u32>) -> Result<(), WireError> {
+        self.bool(value.is_some())?;
+        if let Some(value) = value {
+            self.u32(value)?;
+        }
+        Ok(())
+    }
+
+    fn optional_i64(&mut self, value: Option<i64>) -> Result<(), WireError> {
+        self.bool(value.is_some())?;
+        if let Some(value) = value {
+            self.i64(value)?;
+        }
+        Ok(())
+    }
+
+    fn optional_bool(&mut self, value: Option<bool>) -> Result<(), WireError> {
+        self.bool(value.is_some())?;
+        if let Some(value) = value {
+            self.bool(value)?;
+        }
+        Ok(())
     }
 
     fn diagnostic(&mut self, diagnostic: &DeckDiagnostic) -> Result<(), WireError> {
@@ -979,13 +1094,124 @@ impl<'a> Reader<'a> {
     fn template_region(&mut self) -> Result<TemplateRegion, WireError> {
         Ok(TemplateRegion {
             id: self.id()?,
+            layout_id: self.id()?,
             role: region_role(self.byte()?)?,
+            placeholder: PlaceholderIdentity {
+                kind: self.string()?,
+                index: self.u32()?,
+            },
             frame: self.rect()?,
+            margins: self.text_margins()?,
+            text_levels: self.vec("template text levels", Reader::template_text_level)?,
             accepts: self.vec("accepted semantic roles", |reader| {
                 semantic_role(reader.u16()?)
             })?,
             required: self.bool()?,
         })
+    }
+
+    fn template_theme(&mut self) -> Result<TemplateTheme, WireError> {
+        Ok(TemplateTheme {
+            major_fonts: self.theme_fonts()?,
+            minor_fonts: self.theme_fonts()?,
+            colors: self.vec("theme colors", |reader| {
+                Ok(ThemeColor {
+                    slot: reader.string()?,
+                    rgb: reader.u32()?,
+                })
+            })?,
+        })
+    }
+
+    fn theme_fonts(&mut self) -> Result<ThemeFontSet, WireError> {
+        Ok(ThemeFontSet {
+            latin: self.optional_string()?,
+            east_asian: self.optional_string()?,
+            complex_script: self.optional_string()?,
+        })
+    }
+
+    fn template_layout(&mut self) -> Result<TemplateLayout, WireError> {
+        Ok(TemplateLayout {
+            id: self.id()?,
+            role: template_layout_role(self.byte()?)?,
+            matching_name: self.string()?,
+            source_part: self.string()?,
+            master_part: self.string()?,
+            region_ids: self.vec("template layout region IDs", Reader::id)?,
+            asset_ids: self.vec("template layout asset IDs", Reader::id)?,
+            background: if self.bool()? {
+                Some(self.source()?)
+            } else {
+                None
+            },
+        })
+    }
+
+    fn text_margins(&mut self) -> Result<TextMargins, WireError> {
+        Ok(TextMargins {
+            left: self.i64()?,
+            top: self.i64()?,
+            right: self.i64()?,
+            bottom: self.i64()?,
+        })
+    }
+
+    fn template_text_level(&mut self) -> Result<TemplateTextLevel, WireError> {
+        let level = self.byte()?;
+        let font_size = self.optional_u32()?;
+        let latin_typeface = self.optional_string()?;
+        let east_asian_typeface = self.optional_string()?;
+        let complex_script_typeface = self.optional_string()?;
+        let color = if self.bool()? {
+            Some(TemplateTextColor {
+                scheme: self.optional_string()?,
+                rgb: self.u32()?,
+            })
+        } else {
+            None
+        };
+        Ok(TemplateTextLevel {
+            level,
+            font_size,
+            latin_typeface,
+            east_asian_typeface,
+            complex_script_typeface,
+            color,
+            bold: self.optional_bool()?,
+            italic: self.optional_bool()?,
+            margin_left: self.optional_i64()?,
+            indent: self.optional_i64()?,
+        })
+    }
+
+    fn template_asset(&mut self) -> Result<TemplateAsset, WireError> {
+        Ok(TemplateAsset {
+            id: self.id()?,
+            layout_id: self.id()?,
+            kind: template_asset_kind(self.byte()?)?,
+            source_part: self.string()?,
+            source_xml: self.source()?,
+            frame: if self.bool()? {
+                Some(self.rect()?)
+            } else {
+                None
+            },
+            z_order: self.u32()?,
+            related_parts: self.vec("template asset relationship parts", Reader::string)?,
+        })
+    }
+
+    fn optional_u32(&mut self) -> Result<Option<u32>, WireError> {
+        self.bool()?.then(|| self.u32()).transpose()
+    }
+
+    fn optional_i64(&mut self) -> Result<Option<i64>, WireError> {
+        self.bool()?.then(|| self.i64()).transpose()
+    }
+
+    fn optional_bool(&mut self) -> Result<Option<bool>, WireError> {
+        self.bool()?.then(|| self.bool()).transpose()
     }
 
     fn diagnostic(&mut self) -> Result<DeckDiagnostic, WireError> {
@@ -1242,6 +1468,40 @@ fn region_role(value: u8) -> Result<RegionRole, WireError> {
         9 => Ok(RegionRole::Code),
         10 => Ok(RegionRole::Footer),
         _ => Err(invalid_tag("region role")),
+    }
+}
+
+const fn template_layout_role_tag(value: TemplateLayoutRole) -> u8 {
+    match value {
+        TemplateLayoutRole::Title => 1,
+        TemplateLayoutRole::Content => 2,
+        TemplateLayoutRole::Statement => 3,
+    }
+}
+
+fn template_layout_role(value: u8) -> Result<TemplateLayoutRole, WireError> {
+    match value {
+        1 => Ok(TemplateLayoutRole::Title),
+        2 => Ok(TemplateLayoutRole::Content),
+        3 => Ok(TemplateLayoutRole::Statement),
+        _ => Err(invalid_tag("template layout role")),
+    }
+}
+
+const fn template_asset_kind_tag(value: TemplateAssetKind) -> u8 {
+    match value {
+        TemplateAssetKind::Decoration => 1,
+        TemplateAssetKind::Logo => 2,
+        TemplateAssetKind::Footer => 3,
+    }
+}
+
+fn template_asset_kind(value: u8) -> Result<TemplateAssetKind, WireError> {
+    match value {
+        1 => Ok(TemplateAssetKind::Decoration),
+        2 => Ok(TemplateAssetKind::Logo),
+        3 => Ok(TemplateAssetKind::Footer),
+        _ => Err(invalid_tag("template asset kind")),
     }
 }
 

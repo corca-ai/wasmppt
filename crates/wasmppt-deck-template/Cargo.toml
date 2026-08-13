@@ -1,0 +1,25 @@
+[package]
+name = "wasmppt-deck-template"
+description = "Host-neutral Cortex Theme Starter POTX profile compiler for wasmppt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+default = []
+
+[dependencies]
+sha2.workspace = true
+wasmppt-deck.workspace = true
+wasmppt-opc.workspace = true
+wasmppt-xml.workspace = true
+
+[dev-dependencies]
+wasmppt-opc.workspace = true
+
+[lints]
+workspace = true

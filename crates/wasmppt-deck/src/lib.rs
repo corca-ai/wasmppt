@@ -403,13 +403,20 @@ impl EmuRect {
 pub struct DeckTemplatePlan {
     pub id: StableId,
     pub template_hash: [u8; 32],
+    /// Hash over the template bytes and every compiler input that can change the plan.
+    pub cache_key: [u8; 32],
+    pub validator_version: u32,
+    pub compiler_policy: String,
     pub page_size: EmuSize,
+    pub theme: TemplateTheme,
+    pub layouts: Vec<TemplateLayout>,
     pub regions: Vec<TemplateRegion>,
+    pub assets: Vec<TemplateAsset>,
     pub diagnostics: Vec<DeckDiagnostic>,
 }
 
 impl DeckTemplatePlan {
-    pub const SCHEMA_VERSION: u32 = 1;
+    pub const SCHEMA_VERSION: u32 = 2;
 
     pub fn encode(&self, limits: &DeckLimits) -> Result<Vec<u8>, WireError> {
         wire::encode_template_plan(self, limits)
@@ -420,16 +427,122 @@ impl DeckTemplatePlan {
     }
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TemplateTheme {
+    pub major_fonts: ThemeFontSet,
+    pub minor_fonts: ThemeFontSet,
+    pub colors: Vec<ThemeColor>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ThemeFontSet {
+    pub latin: Option<String>,
+    pub east_asian: Option<String>,
+    pub complex_script: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ThemeColor {
+    /// DrawingML color-scheme slot such as `accent1` or `dk1`.
+    pub slot: String,
+    /// Resolved sRGB value. The high byte is red; alpha is intentionally excluded.
+    pub rgb: u32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TemplateLayout {
+    pub id: StableId,
+    pub role: TemplateLayoutRole,
+    pub matching_name: String,
+    pub source_part: String,
+    pub master_part: String,
+    pub region_ids: Vec<StableId>,
+    pub asset_ids: Vec<StableId>,
+    /// Exact XML range for the effective layout/master background, when present.
+    pub background: Option<SourceRange>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TemplateLayoutRole {
+    Title,
+    Content,
+    Statement,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct TemplateRegion {
     pub id: StableId,
+    pub layout_id: StableId,
     pub role: RegionRole,
+    pub placeholder: PlaceholderIdentity,
     pub frame: EmuRect,
+    pub margins: TextMargins,
+    pub text_levels: Vec<TemplateTextLevel>,
     pub accepts: Vec<SemanticRole>,
     pub required: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlaceholderIdentity {
+    /// Standard PresentationML `p:ph/@type`, normalized to its schema default.
+    pub kind: String,
+    /// Standard PresentationML `p:ph/@idx`, normalized to its schema default.
+    pub index: u32,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TextMargins {
+    pub left: Emu,
+    pub top: Emu,
+    pub right: Emu,
+    pub bottom: Emu,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TemplateTextLevel {
+    /// Zero-based list/text hierarchy level.
+    pub level: u8,
+    /// DrawingML font size in hundredths of a point.
+    pub font_size: Option<u32>,
+    pub latin_typeface: Option<String>,
+    pub east_asian_typeface: Option<String>,
+    pub complex_script_typeface: Option<String>,
+    pub color: Option<TemplateTextColor>,
+    pub bold: Option<bool>,
+    pub italic: Option<bool>,
+    pub margin_left: Option<Emu>,
+    pub indent: Option<Emu>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TemplateTextColor {
+    pub scheme: Option<String>,
+    pub rgb: u32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TemplateAsset {
+    pub id: StableId,
+    pub layout_id: StableId,
+    pub kind: TemplateAssetKind,
+    /// Part containing the exact shape or background XML.
+    pub source_part: String,
+    /// Exact source range copied from the original POTX when composing output.
+    pub source_xml: SourceRange,
+    pub frame: Option<EmuRect>,
+    pub z_order: u32,
+    /// Relationship targets needed by the preserved XML, in deterministic part-name order.
+    pub related_parts: Vec<String>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TemplateAssetKind {
+    Decoration,
+    Logo,
+    Footer,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum RegionRole {
     Title,
     Subtitle,
@@ -574,6 +687,17 @@ impl DeckDiagnosticCode {
     pub const PLAN_INVALID_GEOMETRY: Self = Self(104);
     pub const PLAN_INVALID_CONTINUATION: Self = Self(105);
     pub const PLAN_UNSTABLE_ID: Self = Self(106);
+    pub const TEMPLATE_INVALID_PACKAGE: Self = Self(200);
+    pub const TEMPLATE_WRONG_CONTENT_TYPE: Self = Self(201);
+    pub const TEMPLATE_UNSAFE_CONTENT: Self = Self(202);
+    pub const TEMPLATE_INVALID_GRAPH: Self = Self(203);
+    pub const TEMPLATE_MISSING_LAYOUT: Self = Self(204);
+    pub const TEMPLATE_DUPLICATE_LAYOUT: Self = Self(205);
+    pub const TEMPLATE_INVALID_PLACEHOLDER: Self = Self(206);
+    pub const TEMPLATE_DUPLICATE_PLACEHOLDER: Self = Self(207);
+    pub const TEMPLATE_INVALID_PAGE_SIZE: Self = Self(208);
+    pub const TEMPLATE_MISSING_THEME: Self = Self(209);
+    pub const TEMPLATE_INVALID_XML: Self = Self(210);
 
     #[must_use]
     pub const fn known_name(self) -> Option<&'static str> {
@@ -591,6 +715,17 @@ impl DeckDiagnosticCode {
             104 => Some("plan-invalid-geometry"),
             105 => Some("plan-invalid-continuation"),
             106 => Some("plan-unstable-id"),
+            200 => Some("template-invalid-package"),
+            201 => Some("template-wrong-content-type"),
+            202 => Some("template-unsafe-content"),
+            203 => Some("template-invalid-graph"),
+            204 => Some("template-missing-layout"),
+            205 => Some("template-duplicate-layout"),
+            206 => Some("template-invalid-placeholder"),
+            207 => Some("template-duplicate-placeholder"),
+            208 => Some("template-invalid-page-size"),
+            209 => Some("template-missing-theme"),
+            210 => Some("template-invalid-xml"),
             _ => None,
         }
     }

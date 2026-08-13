@@ -1,7 +1,7 @@
 # Semantic deck contracts
 
-Status: host-neutral contracts, validators, and version 1 binary codecs implemented;
-planning and composition are not implemented in this slice
+Status: host-neutral contracts, validators, template-profile compiler, and versioned binary
+codecs implemented; planning and composition are not implemented in this slice
 
 `wasmppt-deck` is the boundary between a host application's authoring model and the
 wasmppt semantic layout and composition pipeline. It keeps Markdown, project storage,
@@ -51,8 +51,12 @@ ordinal; fragment IDs use the complete source node ID and fragment slice.
 ## Template and physical plans
 
 `DeckTemplatePlan` contains the compiled template identity and SHA-256, exact page size,
-and semantic regions. Each region has one EMU frame, a role, accepted semantic roles, and
-a required marker. Visible layout and shape names are not part of this contract.
+deterministic cache key, theme fonts and colors, role-specific layouts, semantic regions,
+and preserved assets. Each region has one EMU frame, standard placeholder type/index,
+resolved text margins and hierarchy, a role, accepted semantic roles, and a required marker.
+Assets retain their original package part and exact XML source range so a later composer can
+copy unknown markup from the hash-matched POTX rather than reconstructing it. Visible layout
+and shape names are not part of this contract.
 
 `DeckPlan` contains physical pages grouped by logical slide. A page carries its stable ID,
 hidden state, one-based continuation ordinal and total, and planned regions. Each
@@ -93,7 +97,7 @@ The little-endian envelopes are:
 | Magic | Version | Value |
 | --- | ---: | --- |
 | `WDSF` | 1 | `DeckSpec` and binary resources |
-| `WDTP` | 1 | `DeckTemplatePlan` |
+| `WDTP` | 2 | `DeckTemplatePlan` |
 | `WDPL` | 1 | `DeckPlan` |
 
 Vectors and strings are length-prefixed. Media remains raw bytes rather than JSON or
@@ -104,13 +108,15 @@ and fragment limits before allocating the declared content.
 
 `DeckLimitCode` values are append-only and identify each bounded dimension. Callers may
 tighten `DeckLimits` for a host but MUST NOT turn a limit failure into partial content.
-The checked-in v1 hexadecimal fixtures pin all three binary envelopes.
+Checked-in hexadecimal fixtures pin WDSF v1, WDTP v2, and WDPL v1.
 
 ## Verification
 
 ```sh
 cargo test -p wasmppt-deck --all-features
 cargo clippy -p wasmppt-deck --all-targets --all-features -- -D warnings
+cargo test -p wasmppt-deck-template --all-features
+cargo clippy -p wasmppt-deck-template --all-targets --all-features -- -D warnings
 npm run check:core-boundary
 ```
 
@@ -126,3 +132,4 @@ reordering, target drift, geometry, continuation metadata, and derived IDs.
   transport boundaries.
 - [Template bindings](bindings.md) describes the separate compiled-template injection
   workload.
+- [Cortex Theme Starter compiler](deck-template.md) describes the explicit POTX profile.

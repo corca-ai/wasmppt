@@ -35,6 +35,7 @@ commit. See [quality gates](quality.md) for tier ownership and quarantine policy
 | Package | Kind | Host dependency | Initial responsibility |
 | --- | --- | --- | --- |
 | `wasmppt-deck` | library | none | semantic deck and physical-plan contracts |
+| `wasmppt-deck-template` | library | none | explicit Cortex Theme Starter POTX profiles |
 | `wasmppt-opc` | library | none | bounded ZIP and OPC substrate |
 | `wasmppt-xml` | library | none | loss-aware namespace and XML tokens |
 | `wasmppt-pml` | library | none | PresentationML typed views |
@@ -56,6 +57,10 @@ browser, JavaScript, Wasm binding, or Cloudflare runtime packages reachable from
 The large template and layout entry points keep orchestration separate from deterministic
 planning and parsing:
 
+- `wasmppt-deck-template` owns the strict Starter policy and package orchestration. Its
+  private XML projection retains element source ranges and exposes no package I/O. The
+  compiler reads packages only through bounded `wasmppt-opc` APIs and emits only
+  host-neutral `wasmppt-deck` values.
 - `wasmppt-template::inject` owns package reads, generation state, caching, and output
   orchestration. Its `patch` module owns bounded XML replacements, escaping, and relationship
   target normalization; its `table` module owns row overflow and height-scaling policy. Neither

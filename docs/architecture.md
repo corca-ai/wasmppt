@@ -84,6 +84,7 @@ The current workspace is:
 ```text
 crates/
   wasmppt-deck/       semantic deck, template-plan, and physical-plan contracts
+  wasmppt-deck-template/ explicit Cortex Theme Starter POTX profile compiler
   wasmppt-opc/        ZIP, content types, relationships, raw entry copying
   wasmppt-xml/        namespace-aware tokenization and range-based rewriting
   wasmppt-pml/        loss-aware PresentationML typed views
@@ -135,16 +136,20 @@ source diagnostics                 PresentationML composition
 ```
 
 `DeckTemplatePlan` is the template-side input to the planner. It owns the exact page
-geometry, stable template identity, semantic regions, accepted roles, and template
-diagnostics. A `DeckPlan` names both its source spec and template plan so a consumer
+geometry, stable template and cache identity, role-specific layouts, resolved placeholder
+regions and text hierarchy, theme fonts and colors, preserved template assets, and template
+diagnostics. `wasmppt-deck-template` compiles that value from the explicit Cortex Theme
+Starter POTX profile without inspecting example slides or visible names. A `DeckPlan` names
+both its source spec and template plan so a consumer
 cannot accidentally compose against a different revision or POTX profile.
 
-The implemented `wasmppt-deck` slice defines these contracts, bounded v1 binary codecs,
+The implemented `wasmppt-deck` slice defines these contracts, bounded binary codecs,
 and validators. The validators prove that renderable source fragments appear once and in
 source order, remain on their logical slide and compatible template region, use finite
 in-page geometry, and have stable continuation metadata. Semantic candidate generation,
 pagination, and PresentationML composition are separate later slices. See
-[semantic deck contracts](deck-engine.md) for the public data and wire contract.
+[semantic deck contracts](deck-engine.md) for the public data and wire contract and
+[Cortex Theme Starter compiler](deck-template.md) for the POTX profile boundary.
 
 ## Package substrate
 

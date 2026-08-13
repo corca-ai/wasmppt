@@ -367,9 +367,10 @@ function standaloneDocument(input: {
     'form-action \'none\'">' +
     `<meta name="wasmppt-page-size" content="${input.widthEmu}x${input.heightEmu}">` +
     `<title>${escapeText(input.title)}</title><style>${style}</style></head><body>` +
-    `<main class="wasmppt-offline-deck" data-page-count="${input.pages.length}" role="list">` +
+    '<main>' +
+    `<div class="wasmppt-offline-deck" data-page-count="${input.pages.length}" role="list">` +
     input.pages.join('') +
-    '</main></body></html>\n'
+    '</div></main></body></html>\n'
 }
 
 async function gifFirstFrameDataUrl(

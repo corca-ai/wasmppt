@@ -743,6 +743,7 @@ try {
       deckPhysicalIndices: [...deckOfflineDocument.querySelectorAll('[data-physical-slide-index]')]
         .map((element) => Number(element.dataset.physicalSlideIndex)),
       deckRole: offlineDocument.querySelector('.wasmppt-offline-deck')?.getAttribute('role'),
+      mainRole: offlineDocument.querySelector('main')?.getAttribute('role'),
       pageSetSemantics: [...offlineDocument.querySelectorAll('.wasmppt-offline-page')]
         .map((element) => ({
           role: element.getAttribute('role'),
@@ -1366,6 +1367,7 @@ try {
   assert.deepEqual(result.offlineFacts.deckResolveIndices, [0, 2])
   assert.deepEqual(result.offlineFacts.deckPhysicalIndices, [0, 2])
   assert.equal(result.offlineFacts.deckRole, 'list')
+  assert.equal(result.offlineFacts.mainRole, null)
   assert.deepEqual(result.offlineFacts.pageSetSemantics, [
     { role: 'listitem', position: '1', size: '2' },
     { role: 'listitem', position: '2', size: '2' },

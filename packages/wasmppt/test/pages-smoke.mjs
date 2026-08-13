@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { readFile, stat } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 
 import { chromium } from 'playwright'
 
 const root = resolve(import.meta.dirname, '../../..')
 const pages = resolve(root, 'target/pages')
+const downloads = resolve(root, 'target/pages-downloads')
 const types = new Map([
   ['.html', 'text/html; charset=utf-8'],
   ['.css', 'text/css; charset=utf-8'],
@@ -28,6 +29,7 @@ const server = createServer(async (request, response) => {
     response.end('not found')
   }
 })
+await mkdir(downloads, { recursive: true })
 await new Promise((resolvePromise, reject) => {
   server.once('error', reject)
   server.listen(0, '127.0.0.1', resolvePromise)
@@ -95,8 +97,18 @@ try {
     .every((link, index) => Number(link.dataset.revision) > previous[index]), beforeBurst)
   assert.deepEqual(await downloadRevisions(page), beforeBurst.map((revision) => revision + 1))
 
-  await assertDownload(page, '[data-deck="atlas"] [data-download]', 2_000)
-  await assertDownload(page, '[data-deck="garden"] [data-download]', 2_000)
+  await assertDownload(
+    page,
+    '[data-deck="atlas"] [data-download]',
+    2_000,
+    'wasmppt-atlas-report.pptx',
+  )
+  await assertDownload(
+    page,
+    '[data-deck="garden"] [data-download]',
+    2_000,
+    'wasmppt-signal-garden.pptx',
+  )
   assert.equal((await page.locator('#diagnostics').textContent()).includes('no repeated table row'), false)
   assert.deepEqual(errors, [])
   console.log('Pages garden rendered two templates from one coalesced editor and downloaded both PPTX files')
@@ -118,7 +130,7 @@ async function downloadRevisions(page) {
   )
 }
 
-async function assertDownload(page, selector, minimumBytes) {
+async function assertDownload(page, selector, minimumBytes, outputName) {
   const downloadPromise = page.waitForEvent('download')
   await page.locator(selector).click()
   const download = await downloadPromise
@@ -127,4 +139,5 @@ async function assertDownload(page, selector, minimumBytes) {
   const bytes = await readFile(path)
   assert.deepEqual([...bytes.subarray(0, 2)], [0x50, 0x4b])
   assert((await stat(path)).size > minimumBytes)
+  await writeFile(resolve(downloads, outputName), bytes)
 }

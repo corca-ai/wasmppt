@@ -26,7 +26,8 @@ The bundled templates are:
 Both fixtures are generated in the repository, recorded in `fixtures/corpus.json`, and covered by
 the corpus hash gate. They share `title`, `subtitle`, `metrics.label`, `metrics.value`, and `hero`
 semantics while retaining separate part graphs, overlays, invalidation, caches, and downloadable
-outputs.
+outputs. The generated fixtures include the minimum PresentationML master, layout, theme, and
+presentation-properties graph required by desktop PowerPoint.
 
 ## Build and deployment
 
@@ -41,9 +42,9 @@ npm run test:pages
 The CI `pages-dogfood` job downloads the same revision-bound Wasm artifact used by browser,
 workerd, and performance gates. It builds the site and runs the Chrome smoke test. That test proves
 there are two distinct initial Canvas results, one edit changes both previews, a burst is coalesced
-into one revision per session, no upload control exists, and both downloads are valid ZIP packages.
-Successful `main` pushes upload `target/pages`; the dependent `pages-deploy` job publishes that
-artifact through GitHub's official Pages workflow.
+into one revision per session, no upload control exists, and both downloads pass Microsoft Open XML
+SDK validation. Successful `main` pushes upload `target/pages`; the dependent `pages-deploy` job
+publishes that artifact through GitHub's official Pages workflow.
 
 ## Scope
 

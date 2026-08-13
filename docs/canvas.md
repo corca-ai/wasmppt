@@ -98,7 +98,7 @@ materialized live-edit overlay so normal AutoFit recomputes the largest fitting 
 blindly retaining a stale authored hint. Embedded font relationships travel
 as lazy resources; `registerEmbeddedFonts` applies size and OpenType embedding-permission checks
 before registering exact `FontFace` bytes. Hosts may additionally load the independent
-`wasmppt-shaper-wasm` artifact: its rustybuzz pipeline returns deterministic font-unit advances,
+`wasmppt-shaper-wasm` artifact: its HarfRust pipeline returns deterministic font-unit advances,
 offsets, glyph IDs, UTF-8 clusters, and safe-break flags which are retained in the shared layout
 plan. Its request identity also covers language, script, OpenType features, and variation
 coordinates. General effect DAGs and native SmartArt drawing remain incomplete.

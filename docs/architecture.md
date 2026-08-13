@@ -447,7 +447,7 @@ Presentation-level embedded-font entries are carried as lazy package-part names 
 bytes in the display list. The browser host reads a part only on first use, enforces a 32 MiB default
 limit, inspects OpenType `OS/2.fsType`, and refuses restricted or structurally unknown faces before
 `FontFace` registration. Generation-only Wasm therefore does not instantiate font machinery.
-The independently emitted `wasmppt-shaper-wasm` module uses rustybuzz over the same accepted bytes.
+The independently emitted `wasmppt-shaper-wasm` module uses HarfRust over the same accepted bytes.
 It returns backend-neutral glyph advances, offsets, IDs, UTF-8 clusters, and safe-break flags;
 bounded host caches key the result by font-byte fingerprint, face, language, script, OpenType
 features, variation coordinates, direction, and text. Canvas and DOM still

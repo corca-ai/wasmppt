@@ -174,32 +174,37 @@ pub fn shape_configured(
     validate_limits(font_bytes, text, options)?;
     let language = properties
         .language
-        .map(rustybuzz::Language::from_str)
+        .map(harfrust::Language::from_str)
         .transpose()
         .map_err(|_| invalid_properties())?;
     let script = properties
         .script
-        .map(rustybuzz::Script::from_str)
+        .map(harfrust::Script::from_str)
         .transpose()
         .map_err(|_| invalid_properties())?;
-    let features = parse_shape_properties(properties.features, rustybuzz::Feature::from_str)?;
-    let variations = parse_shape_properties(properties.variations, rustybuzz::Variation::from_str)?;
-    let mut face = rustybuzz::Face::from_slice(font_bytes, options.face_index)
+    let features = parse_shape_properties(properties.features, harfrust::Feature::from_str)?;
+    let variations = parse_shape_properties(properties.variations, harfrust::Variation::from_str)?;
+    let font = read_fonts::FileRef::new(font_bytes)
+        .ok()
+        .and_then(|file| file.fonts().nth(options.face_index as usize))
+        .and_then(Result::ok)
         .ok_or_else(|| ShapeError::new(ShapeErrorCode::InvalidFont, "font face is invalid"))?;
-    face.set_variations(&variations);
+    let shaper_data = harfrust::ShaperData::new(&font);
+    let instance = harfrust::ShaperInstance::from_variations(&font, variations);
+    let face = shaper_data.shaper(&font).instance(Some(&instance)).build();
     let units_per_em = u16::try_from(face.units_per_em())
         .ok()
         .filter(|value| *value > 0)
         .ok_or_else(|| {
             ShapeError::new(ShapeErrorCode::InvalidFont, "font units per em are invalid")
         })?;
-    let mut buffer = rustybuzz::UnicodeBuffer::new();
+    let mut buffer = harfrust::UnicodeBuffer::new();
     buffer.push_str(text);
     buffer.set_direction(match options.direction {
-        Direction::LeftToRight => rustybuzz::Direction::LeftToRight,
-        Direction::RightToLeft => rustybuzz::Direction::RightToLeft,
-        Direction::TopToBottom => rustybuzz::Direction::TopToBottom,
-        Direction::BottomToTop => rustybuzz::Direction::BottomToTop,
+        Direction::LeftToRight => harfrust::Direction::LeftToRight,
+        Direction::RightToLeft => harfrust::Direction::RightToLeft,
+        Direction::TopToBottom => harfrust::Direction::TopToBottom,
+        Direction::BottomToTop => harfrust::Direction::BottomToTop,
     });
     if let Some(language) = language {
         buffer.set_language(language);
@@ -208,7 +213,7 @@ pub fn shape_configured(
         buffer.set_script(script);
     }
     buffer.guess_segment_properties();
-    let shaped = rustybuzz::shape(&face, &features, buffer);
+    let shaped = face.shape(buffer, harfrust::ShapeOptions::new().features(&features));
     if shaped.len() > options.limits.max_glyphs {
         return Err(ShapeError::new(
             ShapeErrorCode::GlyphLimitExceeded,

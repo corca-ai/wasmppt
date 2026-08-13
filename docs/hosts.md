@@ -36,7 +36,7 @@ metafile input and returns at most 32 MiB of SVG. This keeps ordinary presentati
 and the generation-only Cloudflare adapter free of the parser and SVG player code.
 
 Exact font-byte shaping follows the same optional-artifact rule. `wasmppt-shaper-wasm` contains
-rustybuzz and accepts a bounded font, face index, language, script, OpenType features, variation
+HarfRust and accepts a bounded font, face index, language, script, OpenType features, variation
 coordinates, direction, and UTF-8 string. It also emits bounded UAX #14 line-break offsets. Shaping
 returns a compact
 versioned `WPSH` run containing font units, glyph IDs, advances, offsets, clusters, and safe-break

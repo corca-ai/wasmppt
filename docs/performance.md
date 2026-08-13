@@ -57,7 +57,7 @@ warm samples because host scheduling cannot honestly be folded into a native hea
 
 The primary scalar Wasm size excludes the optional metafile converter and exact-font shaper.
 EMF/WMF presentations load the separately reported converter artifact on first use. Applications
-load the rustybuzz shaper only when exact font bytes are available and explicitly configured.
+load the HarfRust shaper only when exact font bytes are available and explicitly configured.
 Presentations using neither capability do not fetch or instantiate either module. All artifact
 sizes remain visible so optional capability cost is not hidden.
 

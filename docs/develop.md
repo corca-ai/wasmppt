@@ -46,6 +46,24 @@ Core crates have empty default feature sets and MUST remain host-agnostic. Run
 `npm run check:core-boundary` to traverse the resolved Cargo dependency graph and reject
 browser, JavaScript, Wasm binding, or Cloudflare runtime packages reachable from core.
 
+### Core implementation ownership
+
+The large template and layout entry points keep orchestration separate from deterministic
+planning and parsing:
+
+- `wasmppt-template::inject` owns package reads, generation state, caching, and output
+  orchestration. Its `patch` module owns bounded XML replacements, escaping, and relationship
+  target normalization; its `table` module owns row overflow and height-scaling policy. Neither
+  helper module may read or write a package.
+- `wasmppt-layout::resolve` owns dependency traversal, inheritance order, diagnostics, and slide
+  assembly. Its `color` module owns theme color maps, font-scheme extraction, DrawingML color
+  parsing, and ordered color transforms. It consumes only XML tokens and resolved value types.
+
+Dependencies point from each orchestrator into these focused modules, never back into package I/O
+or across sibling modules. Preserve original byte ranges for template patches, apply color
+transforms in document order, and keep the public crate re-exports at their existing entry points
+when extending these areas.
+
 All crates are `publish = false` during the pre-alpha architecture phase. Publishing is
 enabled only after public API, semver, compatibility, and release artifact policies are
 accepted.

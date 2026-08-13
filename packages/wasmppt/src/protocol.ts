@@ -1,6 +1,6 @@
 import type { WasmpptErrorEnvelope } from './error.js'
 
-export const WORKER_PROTOCOL_VERSION = 7 as const
+export const WORKER_PROTOCOL_VERSION = 8 as const
 export const LEGACY_WORKER_PROTOCOL_VERSION = 6 as const
 
 export type TextBindings = Readonly<Record<string, string>>
@@ -35,6 +35,7 @@ export interface TemplateDiagnostic {
 
 export interface DeckSessionUpdate {
   readonly revision: number
+  readonly diagnostics: readonly DeckDiagnostic[]
   readonly slideCount: number
   readonly presentableSlides: readonly number[]
   readonly pages: readonly DeckPageMetadata[]
@@ -51,6 +52,22 @@ export interface DeckSessionUpdate {
     readonly reusedSourceBytes: number
     readonly removedParts: number
   }
+}
+
+export interface DeckDiagnostic {
+  /** Append-only numeric code; unknown future values remain lossless. */
+  readonly code: number
+  /** Known human-readable code name for this engine revision. */
+  readonly name?: string
+  readonly severity: 'info' | 'warning' | 'error'
+  readonly message: string
+  readonly source?: {
+    readonly source: string
+    readonly start: number
+    readonly end: number
+  }
+  readonly nodeId?: string
+  readonly pageId?: string
 }
 
 export interface DeckPageMetadata {
@@ -271,6 +288,7 @@ export type WorkerResponse =
       readonly slideCount: number
       readonly presentableSlides: readonly number[]
       readonly pages: readonly DeckPageMetadata[]
+      readonly diagnostics: readonly DeckDiagnostic[]
       readonly plan: ArrayBuffer
     }
   | ({
@@ -505,6 +523,7 @@ export interface WorkerEngine {
   create_deck_session_with_plan(templateHandle: number, spec: Uint8Array, plan: Uint8Array): number
   deck_session_revision(handle: number): number
   deck_session_plan(handle: number, revision: number): Uint8Array
+  deck_session_diagnostics(handle: number, revision: number): unknown[]
   deck_session_slide_count(handle: number): number
   deck_session_presentable_slides(handle: number): unknown[]
   deck_session_slide_metadata(handle: number, revision: number, slideIndex: number): unknown[]

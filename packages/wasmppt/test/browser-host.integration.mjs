@@ -422,6 +422,7 @@ try {
         slideCount: deckSession.slideCount,
         presentableSlides: deckSession.presentableSlides,
         pages: deckPages,
+        diagnostics: deckSession.diagnostics,
       },
       timings: {
         planSamplesMs: deckPlanSamplesMs,
@@ -1264,10 +1265,18 @@ try {
   assert.equal(result.deckEvidence.topology.slideCount, 14)
   assert.equal(result.deckEvidence.topology.presentableSlides.length, 13)
   assert.equal(result.deckEvidence.topology.pages.at(-1).hidden, true)
+  assert(
+    result.deckEvidence.topology.diagnostics.some(
+      (diagnostic) => diagnostic.code === 300 &&
+        diagnostic.name === 'plan-font-risk' &&
+        diagnostic.severity === 'warning' &&
+        typeof diagnostic.nodeId === 'string',
+    ),
+  )
   assert.equal(result.deckEvidence.invalidDeckSpecError.domain, 'payload')
   assert.equal(result.deckEvidence.invalidDeckSpecError.code, 'invalid-deck-spec')
   assert.equal(result.deckEvidence.atomicOverflowError.domain, 'layout')
-  assert.equal(result.deckEvidence.atomicOverflowError.code, 'deck-planning-failed')
+  assert.equal(result.deckEvidence.atomicOverflowError.code, 'plan-atomic-overflow')
   assert(
     result.deckEvidence.timings.summary.coldPlanMs
       <= performanceBudgets.browserScalarWasm.maximumDeckPlanMs,

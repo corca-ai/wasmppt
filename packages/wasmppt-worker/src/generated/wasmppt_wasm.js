@@ -205,6 +205,27 @@ export class WasmpptEngine {
         }
     }
     /**
+     * Lossless planner diagnostics owned by the exact session revision.
+     * @param {number} handle
+     * @param {number} revision
+     * @returns {Array<any>}
+     */
+    deck_session_diagnostics(handle, revision) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.wasmpptengine_deck_session_diagnostics(retptr, this.__wbg_ptr, handle, revision);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return takeObject(r0);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * @param {number} handle
      * @param {number} revision
      * @returns {Uint8Array}
@@ -1257,6 +1278,10 @@ function __wbg_get_imports() {
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
             // Cast intrinsic for `Ref(String) -> Externref`.
             const ret = getStringFromWasm0(arg0, arg1);
+            return addHeapObject(ret);
+        },
+        __wbindgen_object_clone_ref: function(arg0) {
+            const ret = getObject(arg0);
             return addHeapObject(ret);
         },
         __wbindgen_object_drop_ref: function(arg0) {

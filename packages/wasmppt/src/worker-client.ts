@@ -1,6 +1,7 @@
 import {
   LEGACY_WORKER_PROTOCOL_VERSION,
   WORKER_PROTOCOL_VERSION,
+  type DeckDiagnostic,
   type DeckSessionUpdate,
   type DeckPageMetadata,
   type TemplateBinding,
@@ -50,6 +51,7 @@ export interface OpenedDeckSession {
   readonly slideCount: number
   readonly presentableSlides: readonly number[]
   readonly pages: readonly DeckPageMetadata[]
+  readonly diagnostics: readonly DeckDiagnostic[]
   readonly plan: ArrayBuffer
 }
 
@@ -270,6 +272,7 @@ export class WasmpptWorkerClient {
       slideCount: response.slideCount,
       presentableSlides: response.presentableSlides,
       pages: response.pages,
+      diagnostics: response.diagnostics,
       plan: response.plan,
     }
   }

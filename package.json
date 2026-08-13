@@ -3,6 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./packages/wasmppt/src/index.ts",
+    "./browser-worker": "./packages/wasmppt/src/browser-worker.ts"
+  },
   "engines": {
     "node": ">=24"
   },

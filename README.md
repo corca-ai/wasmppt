@@ -39,6 +39,34 @@ cargo run -p wasmppt-template --example compile_generate -- template.potx output
 cargo run -p wasmppt-layout --example resolve_slide -- output.pptx 0
 ```
 
+## Exact-commit browser source dependency
+
+Pre-alpha browser hosts can consume the checked-in TypeScript and scalar Wasm artifacts directly
+from an exact repository commit. This path does not publish a registry package or run Rust during
+installation:
+
+```json
+{
+  "dependencies": {
+    "@corca-ai/wasmppt": "github:corca-ai/wasmppt#<full-merge-commit>"
+  }
+}
+```
+
+Vite-style hosts import the self-initializing module Worker through the exported subpath and wait
+for its startup handshake before sending deck requests:
+
+```ts
+import { connectWasmpptBrowserWorker } from '@corca-ai/wasmppt'
+import WasmpptBrowserWorker from '@corca-ai/wasmppt/browser-worker?worker'
+
+const client = await connectWasmpptBrowserWorker(new WasmpptBrowserWorker())
+```
+
+The root export is intentionally source-distributed while APIs are pre-alpha. Pin the full commit;
+never depend on a moving branch. `connectWasmpptBrowserWorker` terminates an initialization error
+or timeout, and the returned client owns normal request settlement and final Worker termination.
+
 ## Browser generation quickstart
 
 The example assumes the built module Worker from `target/pages/worker.js`. `prepare` transfers the

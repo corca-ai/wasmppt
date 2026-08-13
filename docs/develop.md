@@ -98,6 +98,12 @@ accepted.
 They are separate so browser UI dependencies cannot inflate or constrain the Worker
 integration. See [Runtime host adapters](hosts.md) for their protocols and limits.
 
+The repository root also exports the browser package TypeScript and
+`@corca-ai/wasmppt/browser-worker` entry for exact-commit Git dependencies. That pre-alpha
+distribution boundary uses the checked-in Wasm-bindgen artifacts and has no install-time build.
+It is not a release or semver promise: consumers must pin a full merge commit. The package-local
+exports continue to point at `dist` for workspace builds and tests.
+
 ## Build profiles
 
 - `release`: speed-oriented native and Wasm baseline with thin LTO.

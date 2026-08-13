@@ -254,6 +254,7 @@ try {
       wrapText,
     } = await import('/dist/canvas.js')
     const { DomSvgRenderer, VirtualizedDomViewer } = await import('/dist/dom-svg.js')
+    const { serializeDeckSessionToHtml, serializeOfflineHtmlDocument } = await import('/dist/offline.js')
     const { WasmFontShaper } = await import('/dist/shaper.js')
     const shaperModule = await import('/wasm/shaper/wasmppt_shaper_wasm.js')
     await shaperModule.default({
@@ -478,6 +479,164 @@ try {
     const advancedScene = decodeDisplayList(advancedDisplayBytes)
     const fidelityDisplayBytes = await client.resolveSlide(opened.handle, 2)
     const fidelityScene = decodeDisplayList(fidelityDisplayBytes)
+    const offlinePages = [
+      {
+        slideIndex: 0,
+        revision: 7,
+        displayList: displayBytes,
+        page: {
+          pageId: '11'.repeat(16),
+          logicalSlideId: '21'.repeat(16),
+          hidden: false,
+          continuationOrdinal: 1,
+          continuationTotal: 2,
+        },
+      },
+      {
+        slideIndex: 1,
+        revision: 7,
+        displayList: displayBytes.slice(0),
+        page: {
+          pageId: '12'.repeat(16),
+          logicalSlideId: '21'.repeat(16),
+          hidden: false,
+          continuationOrdinal: 2,
+          continuationTotal: 2,
+          continuationLabel: '2/2',
+        },
+      },
+    ]
+    const resolveOfflineResource = async ({ partName }, signal) =>
+      partName === 'ppt/media/image1.png'
+        ? onePixelPng
+        : client.presentationResource(opened.handle, partName, { signal })
+    const offline = await serializeOfflineHtmlDocument(
+      offlinePages,
+      resolveOfflineResource,
+      { title: 'Offline <deck>', language: 'ko' },
+    )
+    const repeatedOffline = await serializeOfflineHtmlDocument(
+      offlinePages,
+      resolveOfflineResource,
+      { title: 'Offline <deck>', language: 'ko' },
+    )
+    const offlineDocument = new DOMParser().parseFromString(offline.html, 'text/html')
+    const readingOrders = [...offlineDocument.querySelectorAll(
+      '.wasmppt-offline-page:first-child .wasmppt-dom-text-layer [data-reading-order]',
+    )].map((element) => Number(element.dataset.readingOrder))
+    const gifBytes = Uint8Array.from(
+      atob('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='),
+      (value) => value.charCodeAt(0),
+    )
+    const gifOffline = await serializeOfflineHtmlDocument(
+      offlinePages.slice(0, 1),
+      async () => gifBytes,
+    )
+    const gifDocument = new DOMParser().parseFromString(gifOffline.html, 'text/html')
+    const svgBytes = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><path fill="blue" d="M0 0h2v2H0z"/></svg>',
+    )
+    const svgOffline = await serializeOfflineHtmlDocument(
+      offlinePages.slice(0, 1),
+      async () => svgBytes,
+    )
+    const svgDocument = new DOMParser().parseFromString(svgOffline.html, 'text/html')
+    const advancedOffline = await serializeOfflineHtmlDocument([{
+      slideIndex: 2,
+      revision: 7,
+      displayList: advancedDisplayBytes,
+      page: {
+        pageId: '13'.repeat(16),
+        logicalSlideId: '23'.repeat(16),
+        hidden: false,
+        continuationOrdinal: 1,
+        continuationTotal: 1,
+      },
+    }], async () => onePixelPng)
+    const advancedOfflineDocument = new DOMParser().parseFromString(advancedOffline.html, 'text/html')
+    const deckResolveIndices = []
+    const deckOffline = await serializeDeckSessionToHtml({
+      resolveDeckSlide: async (_handle, revision, slideIndex) => {
+        deckResolveIndices.push(slideIndex)
+        return {
+          handle: 91,
+          revision,
+          slideIndex,
+          fingerprint: `page-${slideIndex}`,
+          page: {
+            pageId: String(slideIndex + 1).padStart(2, '0').repeat(16),
+            logicalSlideId: '31'.repeat(16),
+            hidden: false,
+            continuationOrdinal: slideIndex === 0 ? 1 : 2,
+            continuationTotal: 2,
+            ...(slideIndex === 0 ? {} : { continuationLabel: '2/2' }),
+          },
+          displayList: displayBytes.slice(0),
+        }
+      },
+      deckSessionResource: async () => ({ fingerprint: 'image', bytes: onePixelPng }),
+    }, {
+      handle: 91,
+      revision: 7,
+      slideCount: 3,
+      presentableSlides: [0, 2],
+      plan: new ArrayBuffer(0),
+    })
+    const deckOfflineDocument = new DOMParser().parseFromString(deckOffline.html, 'text/html')
+    let unresolvedResourceCode
+    try {
+      await serializeOfflineHtmlDocument(offlinePages.slice(0, 1), async () => {
+        throw new Error('project access revoked')
+      })
+    } catch (error) {
+      unresolvedResourceCode = error.code
+    }
+    const mismatchedPageSize = displayBytes.slice(0)
+    const mismatchedView = new DataView(mismatchedPageSize)
+    mismatchedView.setBigInt64(8, mismatchedView.getBigInt64(8, true) + 9_525n, true)
+    let mismatchedPageSizeCode
+    try {
+      await serializeOfflineHtmlDocument([
+        offlinePages[0],
+        { ...offlinePages[1], displayList: mismatchedPageSize },
+      ], resolveOfflineResource)
+    } catch (error) {
+      mismatchedPageSizeCode = error.code
+    }
+    const offlineFacts = {
+      deterministic: offline.html === repeatedOffline.html,
+      byteLength: offline.bytes.byteLength,
+      pageCount: offline.pageCount,
+      pageIds: offline.pageIds,
+      widthEmu: offline.widthEmu,
+      heightEmu: offline.heightEmu,
+      resourceCount: offline.resourceCount,
+      resourceBytes: offline.resourceBytes,
+      csp: offlineDocument.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content,
+      language: offlineDocument.documentElement.lang,
+      title: offlineDocument.title,
+      pageSize: offlineDocument.querySelector('meta[name="wasmppt-page-size"]')?.content,
+      continuation: offlineDocument.querySelector('[data-page-id="12121212121212121212121212121212"]')
+        ?.dataset.continuationLabel,
+      imageUrls: [...offlineDocument.querySelectorAll('svg image')]
+        .map((element) => element.getAttribute('href')),
+      gifUrl: gifDocument.querySelector('svg image')?.getAttribute('href'),
+      svgUrl: svgDocument.querySelector('svg image')?.getAttribute('href'),
+      advancedText: advancedOfflineDocument.body.textContent,
+      advancedPaths: advancedOfflineDocument.querySelectorAll('svg path').length,
+      advancedKinds: [...advancedOfflineDocument.querySelectorAll('[data-semantic-kind]')]
+        .map((element) => element.dataset.semanticKind),
+      deckResolveIndices,
+      deckPhysicalIndices: [...deckOfflineDocument.querySelectorAll('[data-physical-slide-index]')]
+        .map((element) => Number(element.dataset.physicalSlideIndex)),
+      readingOrderPreserved: readingOrders.every(
+        (value, index) => index === 0 || readingOrders[index - 1] <= value,
+      ),
+      safeLink: offlineDocument.querySelector('a[data-shape-id="2"]')?.getAttribute('href'),
+      scripts: offlineDocument.scripts.length,
+      unresolvedResourceCode,
+      mismatchedPageSizeCode,
+    }
     const domHost = document.createElement('div')
     document.body.append(domHost)
     const domRenderer = new DomSvgRenderer()
@@ -895,6 +1054,7 @@ try {
       advancedFacts,
       fidelityFacts,
       pptxBrowserComparison: { samplesMs: competitorSamplesMs, correctness: competitorFacts },
+      offlineFacts,
       domFacts,
       domMountedAtPeak,
       domMountedAfterScroll,
@@ -1004,6 +1164,31 @@ try {
   }
   assert.equal(result.pptxBrowserComparison.correctness.slideCount, 10)
   assert.equal(result.pptxBrowserComparison.correctness.width, 640)
+  assert.equal(result.offlineFacts.deterministic, true)
+  assert(result.offlineFacts.byteLength > 0)
+  assert.equal(result.offlineFacts.pageCount, 2)
+  assert.deepEqual(result.offlineFacts.pageIds, ['11'.repeat(16), '12'.repeat(16)])
+  assert.equal(result.offlineFacts.pageSize, `${result.offlineFacts.widthEmu}x${result.offlineFacts.heightEmu}`)
+  assert.equal(result.offlineFacts.language, 'ko')
+  assert.equal(result.offlineFacts.title, 'Offline <deck>')
+  assert.equal(result.offlineFacts.continuation, '2/2')
+  assert(result.offlineFacts.resourceCount > 0)
+  assert(result.offlineFacts.resourceBytes > 0)
+  assert(result.offlineFacts.csp.includes("default-src 'none'"))
+  assert(result.offlineFacts.imageUrls.every((url) => url?.startsWith('data:')))
+  assert(result.offlineFacts.gifUrl.startsWith('data:image/png'))
+  assert(result.offlineFacts.svgUrl.startsWith('data:image/svg+xml'))
+  assert(result.offlineFacts.advancedText.includes('Quarter'))
+  assert(result.offlineFacts.advancedPaths > 10)
+  assert(result.offlineFacts.advancedKinds.includes('table'))
+  assert(result.offlineFacts.advancedKinds.includes('chart'))
+  assert.deepEqual(result.offlineFacts.deckResolveIndices, [0, 2])
+  assert.deepEqual(result.offlineFacts.deckPhysicalIndices, [0, 2])
+  assert.equal(result.offlineFacts.readingOrderPreserved, true)
+  assert.equal(result.offlineFacts.safeLink, 'https://example.com/report')
+  assert.equal(result.offlineFacts.scripts, 0)
+  assert.equal(result.offlineFacts.unresolvedResourceCode, 'unresolved-resource')
+  assert.equal(result.offlineFacts.mismatchedPageSizeCode, 'invalid-document')
   assert.equal(result.domFacts.text, 'Actual title')
   assert.equal(result.domFacts.selectable, 'text')
   assert.equal(result.domFacts.href, 'https://example.com/report')

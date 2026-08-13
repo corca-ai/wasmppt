@@ -89,6 +89,29 @@ test('deck sessions transfer contracts, expose presentable pages, and discard st
   })
   assert.deepEqual((await creating).presentableSlides, [0, 2])
 
+  const currentResolve = client.resolveDeckSlide(32, 0, 2)
+  const currentResolveRequest = worker.messages.at(-1)
+  const currentPage = {
+    pageId: '03'.repeat(16),
+    logicalSlideId: '04'.repeat(16),
+    hidden: false,
+    continuationOrdinal: 2,
+    continuationTotal: 2,
+    continuationLabel: '2/2',
+  }
+  worker.respond({
+    version: WORKER_PROTOCOL_VERSION,
+    id: currentResolveRequest.id,
+    type: 'deck-slide-resolved',
+    sessionHandle: 32,
+    revision: 0,
+    slideIndex: 2,
+    fingerprint: 'current',
+    page: currentPage,
+    displayList: new ArrayBuffer(8),
+  })
+  assert.deepEqual((await currentResolve).page, currentPage)
+
   const staleResolve = client.resolveDeckSlide(32, 0, 0)
   const resolveRequest = worker.messages.at(-1)
   const updating = client.updateDeckSession(32, 0, new ArrayBuffer(36))
@@ -425,6 +448,9 @@ test('runtime exposes revisioned deck planning metadata without copying display 
       4, 3, [0, 2], [1], ['11'.repeat(16)], ['22'.repeat(16)],
       ['ppt/slides/slide2.xml'], 2, false, 20, 4, 512, 2048, 0,
     ],
+    deck_session_slide_metadata: () => [
+      '33'.repeat(16), '44'.repeat(16), false, 2, 3, '2/3',
+    ],
     deck_session_slide_fingerprint: () => 'fingerprint-4-1',
     resolve_deck_session_slide: () => new Uint8Array(64),
   })
@@ -453,6 +479,14 @@ test('runtime exposes revisioned deck planning metadata without copying display 
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(scope.responses.at(-1).type, 'deck-slide-resolved')
   assert.equal(scope.responses.at(-1).revision, 4)
+  assert.deepEqual(scope.responses.at(-1).page, {
+    pageId: '33'.repeat(16),
+    logicalSlideId: '44'.repeat(16),
+    hidden: false,
+    continuationOrdinal: 2,
+    continuationTotal: 3,
+    continuationLabel: '2/3',
+  })
   assert.deepEqual(scope.transfers.at(-1), [scope.responses.at(-1).displayList])
 })
 

@@ -355,8 +355,9 @@ JSON object graph.
 - **Canvas 2D** is the primary interactive and thumbnail backend. Parsing and resolution
   run in a Web Worker; drawing and target-font measurement run in the browser context that
   owns the canvas.
-- **DOM/SVG** uses positioned HTML for selectable text and inline SVG for PowerPoint
-  geometry. It favors accessibility and editing over maximum bulk-render throughput.
+- **DOM/SVG** is an output-only browser serializer. It uses positioned HTML for selectable
+  text and inline SVG for PowerPoint geometry, then emits network-closed standalone HTML for
+  HTML delivery and browser PDF printing. Interactive preview remains Canvas.
 - **Software rasterization** is optional and deferred. It is the only possible raster
   route in hosts without Canvas, but it adds font, image-decoding, binary-size, and memory
   costs.
@@ -418,6 +419,9 @@ await plan.renderTo(data, writableStream)
 const deck = await WasmPpt.open(pptxBytes)
 const scene = await deck.resolveSlide(0)
 canvasRenderer.draw(scene, canvas)
+
+const offline = await serializeDeckSessionToHtml(client, deckSession)
+download(new Blob([offline.bytes], { type: 'text/html' }))
 ```
 
 The actual API is not stable. It will prefer opaque handles, typed arrays, transferables,

@@ -5,8 +5,8 @@ and rendering PowerPoint Open XML packages in browsers, Cloudflare Workers, and 
 Its primary fast path compiles a POTX/POTM template once, generates PPTX files repeatedly, and
 preserves unknown OOXML content that it does not edit.
 
-Status: pre-alpha. Generation API v2, WPDL v10 rendering, Canvas 2D, DOM/SVG, native adapters, and
-Cloudflare R2 generation are implemented and continuously tested. Crates and npm packages are
+Status: pre-alpha. Generation API v2, WPDL v10 rendering, Canvas 2D, offline DOM/SVG documents,
+native adapters, and Cloudflare R2 generation are implemented and continuously tested. Crates and npm packages are
 deliberately unpublished (`publish = false` and `private: true`); there is no stable semver API yet.
 The future stability boundary will cover the documented Rust facades, package-root TypeScript
 exports, WPPD/WPDL wire versions, error-envelope fields, and released host artifacts.
@@ -106,8 +106,34 @@ try {
 }
 ```
 
-Canvas owns bitmap projection; use `DomSvgRenderer` when selectable text, reading order, links, and
-alternative text are required.
+Canvas owns interactive projection. `serializeDeckSessionToHtml` owns selectable, accessible,
+network-closed HTML and browser PDF input from the exact presentable deck-session revision:
+
+```js
+import { WasmpptWorkerClient, serializeDeckSessionToHtml } from './packages/wasmppt/dist/index.js'
+
+const client = new WasmpptWorkerClient(new Worker('/worker.js', { type: 'module' }))
+const potx = await fetch('/theme.potx').then((response) => response.arrayBuffer())
+const wdsf = await fetch('/deck.wdsf').then((response) => response.arrayBuffer())
+const template = await client.prepareDeckTemplate(potx)
+const session = await client.createDeckSession(template.handle, wdsf)
+
+try {
+  const offline = await serializeDeckSessionToHtml(client, session, { title: 'Quarterly report' })
+  const url = URL.createObjectURL(new Blob([offline.bytes], { type: 'text/html' }))
+  const link = Object.assign(document.createElement('a'), { href: url, download: 'report.html' })
+  link.click()
+  URL.revokeObjectURL(url)
+} finally {
+  await client.releaseDeckSession(session.handle)
+  await client.releaseDeckTemplate(template.handle)
+  client.terminate()
+}
+```
+
+The serializer reads only package parts named by WPDL, inlines every image/font under a closed
+Content Security Policy, freezes GIF to its first frame, and rejects unresolved or unsafe required
+resources. Its `@page` geometry comes only from the selected POTX through the deck plan.
 
 ## Cloudflare R2 generation and errors
 

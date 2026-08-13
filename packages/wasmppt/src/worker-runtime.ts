@@ -134,6 +134,11 @@ export function installWorkerRuntime(
         }
         case 'resolve-deck-slide': {
           progress(scope, message.id, 'resolve', 0, 1)
+          const page = decodeDeckPageMetadata(engine.deck_session_slide_metadata(
+            message.sessionHandle,
+            message.revision,
+            message.slideIndex,
+          ))
           const fingerprint = engine.deck_session_slide_fingerprint(
             message.sessionHandle,
             message.revision,
@@ -156,6 +161,7 @@ export function installWorkerRuntime(
             revision: message.revision,
             slideIndex: message.slideIndex,
             fingerprint,
+            page,
             displayList,
           }), [displayList])
           return
@@ -648,6 +654,25 @@ function decodeLiveUpdate(rows: unknown[]): Omit<
   }
 }
 
+function decodeDeckPageMetadata(rows: unknown[]): import('./protocol.js').DeckPageMetadata {
+  if (rows.length !== 6) throw new TypeError('invalid deck page metadata')
+  const [pageId, logicalSlideId, hidden, continuationOrdinal, continuationTotal, continuationLabel] = rows
+  if (!isStableId(pageId) || !isStableId(logicalSlideId) || typeof hidden !== 'boolean' ||
+    !isPositiveInteger(continuationOrdinal) || !isPositiveInteger(continuationTotal) ||
+    continuationOrdinal > continuationTotal ||
+    !(continuationLabel === null || typeof continuationLabel === 'string')) {
+    throw new TypeError('invalid deck page metadata')
+  }
+  return {
+    pageId,
+    logicalSlideId,
+    hidden,
+    continuationOrdinal,
+    continuationTotal,
+    ...(continuationLabel === null ? {} : { continuationLabel }),
+  }
+}
+
 function decodeDeckUpdate(rows: unknown[]): import('./protocol.js').DeckSessionUpdate {
   if (rows.length !== 14) throw new TypeError('invalid deck update metadata')
   const [revision, slideCount, presentableSlides, invalidatedSlides,
@@ -705,6 +730,14 @@ function decodeCacheTelemetry(rows: unknown[]): {
 
 function isNonNegativeInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) > 0
+}
+
+function isStableId(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{32}$/u.test(value)
 }
 
 function normalizeError(error: unknown): {

@@ -46,6 +46,9 @@ Every CI run performs these independent gates:
 - native, browser module-Worker, and workerd execute the same generated deck and require the same
   WPDL structural signature, while a separate exact-payload gate requires byte-identical PPTX
   output from the native sink and both bounded pull-stream hosts;
+- real Chromium serializes the same WPDL pages twice and requires byte-identical standalone HTML,
+  exact POTX page geometry and continuation metadata, semantic reading order, data-only resources,
+  GIF first-frame PNG output, safe links, deny-by-default CSP, and fail-closed resource resolution;
 - the machine-readable PresentationML capability matrix declares read, preserve, edit, and render
   behavior for every listed feature.
 

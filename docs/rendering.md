@@ -2,8 +2,8 @@
 
 `wasmppt-layout` resolves one requested slide through its reachable PresentationML
 dependency branch. `wasmppt-display` lowers that result to a compact backend-neutral
-binary display list. Canvas and HTML/SVG backends consume this shared representation in
-later layers; they do not interpret OOXML independently.
+binary display list. Canvas and output-only HTML/SVG backends consume this shared representation
+in later layers; they do not interpret OOXML independently.
 
 ## Lazy document model
 
@@ -103,6 +103,12 @@ uses it as an image resource.
 `encode()` emits a stable little-endian format. `structural_signature()` hashes the exact
 wire bytes. The same fixture has the same signature in native Rust and in a real Chrome
 Wasm module Worker; the browser integration test treats a mismatch as a failure.
+
+The offline serializer resolves every required WPDL image and embedded-font part through one
+host authorization port, rejects missing or unsafe resources, and emits data URLs under a
+deny-by-default Content Security Policy. Physical page IDs, logical-slide IDs, authoring indices,
+and continuation metadata come from the same revisioned `DeckPlan` that produced the WPDL and
+PPTX overlay. WPDL page dimensions are the only CSS and PDF print-page geometry input.
 
 ## Fixtures and verification
 

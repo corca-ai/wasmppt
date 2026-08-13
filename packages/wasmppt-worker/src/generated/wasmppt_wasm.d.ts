@@ -57,6 +57,10 @@ export class WasmpptEngine {
     deck_session_revision(handle: number): number;
     deck_session_slide_count(handle: number): number;
     deck_session_slide_fingerprint(handle: number, revision: number, slide_index: number): string;
+    /**
+     * Stable physical-page metadata from the exact plan owned by this revision.
+     */
+    deck_session_slide_metadata(handle: number, revision: number, slide_index: number): Array<any>;
     deck_template_cacheable(handle: number): boolean;
     deck_template_plan(handle: number): Uint8Array;
     /**
@@ -174,6 +178,7 @@ export interface InitOutput {
     readonly wasmpptengine_deck_session_revision: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_deck_session_slide_count: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_deck_session_slide_fingerprint: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly wasmpptengine_deck_session_slide_metadata: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmpptengine_deck_template_cacheable: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_deck_template_plan: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_generate_text: (a: number, b: number, c: number, d: number, e: number) => void;

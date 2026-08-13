@@ -17,11 +17,12 @@ jobs:
     name: Scheduled / bounded fuzz targets
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      RUSTUP_TOOLCHAIN: nightly-2026-08-01
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b # pinned action
-        with:
-          toolchain: nightly-2026-08-01
+      - name: Install pinned nightly toolchain
+        run: rustup toolchain install nightly-2026-08-01 --profile minimal --no-self-update
       - uses: taiki-e/install-action@b20dedce73af6905cdc30d6611090c9b67557c8d # v2
         with:
           tool: cargo-fuzz@0.13.2
@@ -45,12 +46,14 @@ jobs:
     name: Scheduled / Miri core subset
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      RUSTUP_TOOLCHAIN: nightly-2026-08-01
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b # pinned action
-        with:
-          toolchain: nightly-2026-08-01
-          components: miri
+      - name: Install pinned nightly toolchain with Miri
+        run: >-
+          rustup toolchain install nightly-2026-08-01 --profile minimal
+          --component miri --no-self-update
       - name: Prepare Miri sysroot
         run: cargo miri setup
       - name: Exercise the documented Miri-compatible subset

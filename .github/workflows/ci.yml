@@ -360,13 +360,19 @@ jobs:
           cargo run --locked -p wasmppt-native \
             --example write_table_continuation_fixture -- \
             target/compat/continued-table.pptx
+          cargo run --locked -p wasmppt-deck-compose \
+            --example write_compat_fixture -- \
+            target/compat/deck-compose.pptx
           cargo run --locked -p wasmppt-cli -- \
             validate target/compat/continued-table.pptx
+          cargo run --locked -p wasmppt-cli -- \
+            validate target/compat/deck-compose.pptx
       - name: Validate output with Microsoft Open XML SDK
         run: |
           for deck in \
             target/compat/generated.pptx \
-            target/compat/continued-table.pptx
+            target/compat/continued-table.pptx \
+            target/compat/deck-compose.pptx
           do
             dotnet run --project tools/openxml-validator/OpenXmlValidator.csproj \
               --configuration Release -- "$deck"

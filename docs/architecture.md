@@ -86,6 +86,7 @@ crates/
   wasmppt-deck/       semantic deck, template-plan, and physical-plan contracts
   wasmppt-deck-template/ explicit Cortex Theme Starter POTX profile compiler
   wasmppt-deck-layout/ bounded semantic layout and automatic pagination
+  wasmppt-deck-compose/ editable PresentationML and immutable package overlays
   wasmppt-opc/        ZIP, content types, relationships, raw entry copying
   wasmppt-xml/        namespace-aware tokenization and range-based rewriting
   wasmppt-pml/        loss-aware PresentationML typed views
@@ -133,7 +134,10 @@ host source adapter
         |                                regions, fragments,
         |                                type choices
         v                                      v
-source diagnostics                 PresentationML composition
+source diagnostics             wasmppt-deck-compose
+                                          |
+                                          v
+                              PresentationOverlay / PPTX
 ```
 
 `DeckTemplatePlan` is the template-side input to the planner. It owns the exact page
@@ -149,10 +153,13 @@ cannot accidentally compose against a different revision or POTX profile.
 observable fallback measurement, and automatic pagination. The validators prove that renderable
 source fragments appear once and in source order, remain on their logical slide and compatible
 template region, use finite in-page geometry, and have stable continuation metadata.
-PresentationML composition remains a separate later slice. See
+`wasmppt-deck-compose` projects the validated tuple into editable slide XML and an immutable
+`PresentationOverlay`. Only changed package parts are materialized; untouched template entries
+remain raw compressed bytes and exact export is drained through bounded pulls. See
 [semantic deck contracts](deck-engine.md) for the public data and wire contract and
 [Cortex Theme Starter compiler](deck-template.md) for the POTX profile boundary, and
-[semantic layout and pagination](deck-layout.md) for planner policy.
+[semantic layout and pagination](deck-layout.md) for planner policy, and
+[editable deck composition](deck-compose.md) for output semantics.
 
 ## Package substrate
 

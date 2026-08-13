@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - 'crates/wasmppt-layout/**'
+      - 'crates/wasmppt-deck-compose/**'
       - 'crates/wasmppt-display/**'
       - 'packages/wasmppt/**'
       - 'fixtures/render/**'

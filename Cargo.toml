@@ -4,6 +4,7 @@ members = [
     "crates/wasmppt-deck",
     "crates/wasmppt-deck-template",
     "crates/wasmppt-deck-layout",
+    "crates/wasmppt-deck-compose",
     "crates/wasmppt-display",
     "crates/wasmppt-layout",
     "crates/wasmppt-metafile",
@@ -30,9 +31,11 @@ authors = ["wasmppt contributors"]
 [workspace.dependencies]
 crc32fast = "1.5.0"
 flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
+gif = { version = "0.14.2", default-features = false, features = ["std"] }
 emf-core = { version = "0.1.0", default-features = false, features = ["svg"] }
 js-sys = "0.3.104"
 proptest = { version = "1.11.0", default-features = false, features = ["std"] }
+png = "0.18.1"
 harfrust = "0.12.0"
 read-fonts = "0.41.0"
 unicode-linebreak = "0.1.5"
@@ -42,6 +45,7 @@ wasmppt-display = { path = "crates/wasmppt-display", version = "0.0.0" }
 wasmppt-deck = { path = "crates/wasmppt-deck", version = "0.0.0" }
 wasmppt-deck-template = { path = "crates/wasmppt-deck-template", version = "0.0.0" }
 wasmppt-deck-layout = { path = "crates/wasmppt-deck-layout", version = "0.0.0" }
+wasmppt-deck-compose = { path = "crates/wasmppt-deck-compose", version = "0.0.0" }
 wasmppt-layout = { path = "crates/wasmppt-layout", version = "0.0.0" }
 wasmppt-metafile = { path = "crates/wasmppt-metafile", version = "0.0.0" }
 wasmppt-native = { path = "crates/wasmppt-native", version = "0.0.0" }

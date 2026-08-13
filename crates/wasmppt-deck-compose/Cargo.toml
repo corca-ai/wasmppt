@@ -1,0 +1,27 @@
+[package]
+name = "wasmppt-deck-compose"
+description = "Loss-aware PresentationML composition for wasmppt deck plans"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+default = []
+
+[dependencies]
+gif.workspace = true
+png.workspace = true
+sha2.workspace = true
+wasmppt-deck.workspace = true
+wasmppt-opc.workspace = true
+wasmppt-xml.workspace = true
+
+[dev-dependencies]
+wasmppt-layout.workspace = true
+
+[lints]
+workspace = true

@@ -26,6 +26,7 @@ mod error;
 mod graph;
 mod io;
 mod limits;
+mod overlay;
 mod read;
 mod write;
 
@@ -36,6 +37,7 @@ pub use graph::{
 };
 pub use io::{MemorySource, OutputSink, ReadAt, VecSink, WriteSink};
 pub use limits::PackageLimits;
+pub use overlay::{OverlayCursor, OverlayLimits, OverlayPart, OverlayStats, PackageOverlay};
 pub use read::{CompressionMethod, Entry, ZipArchive};
 pub use write::{
     EntryOptions, RewriteMode, StreamingZipWriter, WriteStats, ZipWriter, rewrite_archive,

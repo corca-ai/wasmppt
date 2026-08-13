@@ -1,7 +1,7 @@
 # Semantic deck contracts
 
-Status: host-neutral contracts, validators, template-profile compiler, bounded planning, and
-versioned binary codecs implemented; composition is not implemented in this slice
+Status: host-neutral contracts, validators, template-profile compiler, bounded planning,
+editable composition, live overlays, and versioned binary codecs implemented
 
 `wasmppt-deck` is the boundary between a host application's authoring model and the
 wasmppt semantic layout and composition pipeline. It keeps Markdown, project storage,
@@ -39,9 +39,10 @@ package.
 - raster and SVG resources as binary bytes with media type and optional dimensions.
 
 The model intentionally has no speaker-notes field. Markdown parsing, URL authorization,
-project-file access, SVG production, and GIF first-frame decoding belong to the host
-adapter. The core still validates that the adapter's typed hyperlink target matches its
-safe scheme and that every referenced resource is present.
+project-file access and SVG production belong to the host adapter. The core validates that
+the adapter's typed hyperlink target matches its safe scheme and that every referenced resource
+is present. Composition deterministically decodes GIF first frames so native and Wasm hosts do
+not produce different still images.
 
 Call `StableId::from_source` with a stable document identity, exact source range, and
 semantic role. Inserting an unrelated logical slide therefore does not renumber existing
@@ -124,6 +125,8 @@ cargo test -p wasmppt-deck-template --all-features
 cargo clippy -p wasmppt-deck-template --all-targets --all-features -- -D warnings
 cargo test -p wasmppt-deck-layout --all-features
 cargo clippy -p wasmppt-deck-layout --all-targets --all-features -- -D warnings
+cargo test -p wasmppt-deck-compose --all-features
+cargo clippy -p wasmppt-deck-compose --all-targets --all-features -- -D warnings
 npm run check:core-boundary
 ```
 
@@ -142,3 +145,5 @@ reordering, target drift, geometry, continuation metadata, and derived IDs.
 - [Cortex Theme Starter compiler](deck-template.md) describes the explicit POTX profile.
 - [Semantic layout and pagination](deck-layout.md) defines planner measurement, search, and
   continuation policy.
+- [Editable deck composition](deck-compose.md) defines PresentationML, media, overlay, and
+  streamed-export behavior.

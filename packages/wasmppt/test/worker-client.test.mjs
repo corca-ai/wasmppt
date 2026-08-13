@@ -78,6 +78,13 @@ test('deck sessions transfer contracts, expose presentable pages, and discard st
   const createRequest = worker.messages.at(-1)
   assert.deepEqual(worker.transfers.at(-1), [spec])
   const sessionPlan = new ArrayBuffer(12)
+  const diagnostics = [{
+    code: 300,
+    name: 'plan-font-risk',
+    severity: 'warning',
+    message: 'fallback metrics used',
+    nodeId: '11'.repeat(16),
+  }]
   const pages = [
     {
       pageId: '01'.repeat(16),
@@ -110,6 +117,7 @@ test('deck sessions transfer contracts, expose presentable pages, and discard st
     slideCount: 3,
     presentableSlides: [0, 2],
     pages,
+    diagnostics,
     plan: sessionPlan,
   })
   assert.deepEqual(await creating, {
@@ -118,6 +126,7 @@ test('deck sessions transfer contracts, expose presentable pages, and discard st
     slideCount: 3,
     presentableSlides: [0, 2],
     pages,
+    diagnostics,
     plan: sessionPlan,
   })
 
@@ -157,6 +166,10 @@ test('deck sessions transfer contracts, expose presentable pages, and discard st
     slideCount: 3,
     presentableSlides: [0, 2],
     pages,
+    diagnostics: [{
+      ...diagnostics[0],
+      source: { source: 'deck.md', start: 8, end: 20 },
+    }],
     invalidatedSlides: [0],
     invalidatedLogicalSlideIds: ['01'.repeat(16)],
     removedPageIds: ['02'.repeat(16)],
@@ -206,7 +219,7 @@ test('an unknown Worker response cannot consume a live request ID', async () => 
   client.terminate()
 })
 
-test('machine-readable errors survive Wasm, protocol v7, and the browser client', async () => {
+test('machine-readable errors survive Wasm, protocol v8, and the browser client', async () => {
   const worker = new FakeWorker()
   const client = new WasmpptWorkerClient(worker)
   const pending = client.prepare(new ArrayBuffer(4))
@@ -237,7 +250,7 @@ test('machine-readable errors survive Wasm, protocol v7, and the browser client'
   client.terminate()
 })
 
-test('protocol v7 client decodes legacy v6 errors without treating messages as codes', async () => {
+test('protocol v8 client decodes legacy v6 errors without treating messages as codes', async () => {
   const worker = new FakeWorker()
   const client = new WasmpptWorkerClient(worker)
   const pending = client.prepare(new ArrayBuffer(4))
@@ -490,6 +503,10 @@ test('runtime exposes revisioned deck topology without resolving display lists',
       3,
       `${slideIndex + 1}/3`,
     ],
+    deck_session_diagnostics: (_handle, revision) => [[
+      300, 'plan-font-risk', 'warning', `revision ${revision} fallback`,
+      ['deck.md', 8, 20], '11'.repeat(16), null,
+    ]],
     deck_session_slide_fingerprint: () => 'fingerprint-4-1',
     resolve_deck_session_slide: () => {
       displayListResolutions += 1
@@ -509,6 +526,14 @@ test('runtime exposes revisioned deck topology without resolving display lists',
   assert.equal(scope.responses.at(-1).type, 'deck-session-updated')
   assert.deepEqual(scope.responses.at(-1).invalidatedSlides, [1])
   assert.equal(scope.responses.at(-1).reusedPages, 2)
+  assert.deepEqual(scope.responses.at(-1).diagnostics, [{
+    code: 300,
+    name: 'plan-font-risk',
+    severity: 'warning',
+    message: 'revision 4 fallback',
+    source: { source: 'deck.md', start: 8, end: 20 },
+    nodeId: '11'.repeat(16),
+  }])
   assert.deepEqual(scope.responses.at(-1).pages.map((page) => page.hidden), [false, true, false])
   assert.equal(displayListResolutions, 0)
 

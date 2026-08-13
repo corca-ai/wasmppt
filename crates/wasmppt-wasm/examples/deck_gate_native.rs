@@ -1,8 +1,8 @@
 use std::{env, fs, io, path::PathBuf, time::Instant};
 
 use wasmppt_deck::{
-    DeckDiagnosticCode, DeckLimits, DeckPlan, DeckResource, DeckSpec, SemanticContent,
-    SemanticNode, SemanticRole,
+    DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckResource, DeckSpec,
+    DiagnosticSeverity, SemanticContent, SemanticNode, SemanticRole,
 };
 use wasmppt_deck_layout::{DeckPlanner, FontCatalog};
 use wasmppt_deck_template::ThemeTemplateCompiler;
@@ -385,8 +385,75 @@ fn topology_json(plan: &DeckPlan) -> String {
         .filter_map(|(index, page)| (!page.hidden).then_some(index.to_string()))
         .collect::<Vec<_>>()
         .join(",");
+    let diagnostics = plan
+        .diagnostics
+        .iter()
+        .map(diagnostic_json)
+        .collect::<Vec<_>>()
+        .join(",");
     format!(
-        "{{\"slideCount\":{},\"presentableSlides\":[{presentable}],\"pages\":[{pages}]}}\n",
-        plan.pages.len()
+        concat!(
+            "{{\"slideCount\":{},\"presentableSlides\":[{presentable}],",
+            "\"pages\":[{pages}],\"diagnostics\":[{diagnostics}]}}\n"
+        ),
+        plan.pages.len(),
+        presentable = presentable,
+        pages = pages,
+        diagnostics = diagnostics,
     )
+}
+
+fn diagnostic_json(diagnostic: &DeckDiagnostic) -> String {
+    let mut fields = vec![
+        format!("\"code\":{}", diagnostic.code.0),
+        diagnostic
+            .code
+            .known_name()
+            .map(|name| format!("\"name\":{}", json_string(name)))
+            .unwrap_or_default(),
+        format!(
+            "\"severity\":{}",
+            json_string(match diagnostic.severity {
+                DiagnosticSeverity::Info => "info",
+                DiagnosticSeverity::Warning => "warning",
+                DiagnosticSeverity::Error => "error",
+            })
+        ),
+        format!("\"message\":{}", json_string(&diagnostic.message)),
+    ];
+    fields.retain(|field| !field.is_empty());
+    if let Some(source) = &diagnostic.source {
+        fields.push(format!(
+            concat!("\"source\":{{\"source\":{},\"start\":{},\"end\":{}}}"),
+            json_string(&source.source),
+            source.start,
+            source.end,
+        ));
+    }
+    if let Some(node_id) = diagnostic.node_id {
+        fields.push(format!("\"nodeId\":{}", json_string(&node_id.to_string())));
+    }
+    if let Some(page_id) = diagnostic.page_id {
+        fields.push(format!("\"pageId\":{}", json_string(&page_id.to_string())));
+    }
+    format!("{{{}}}", fields.join(","))
+}
+
+fn json_string(value: &str) -> String {
+    let mut escaped = String::from("\"");
+    for character in value.chars() {
+        match character {
+            '\"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            character if character.is_control() => {
+                escaped.push_str(&format!("\\u{:04x}", character as u32));
+            }
+            character => escaped.push(character),
+        }
+    }
+    escaped.push('\"');
+    escaped
 }

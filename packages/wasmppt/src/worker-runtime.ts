@@ -86,6 +86,9 @@ export function installWorkerRuntime(
           try {
             const revision = engine.deck_session_revision(handle)
             const plan = exactBuffer(engine.deck_session_plan(handle, revision))
+            const diagnostics = decodeDeckDiagnostics(
+              engine.deck_session_diagnostics(handle, revision),
+            )
             const presentableSlides = decodeIndexArray(
               engine.deck_session_presentable_slides(handle),
               'presentable slide',
@@ -107,6 +110,7 @@ export function installWorkerRuntime(
               slideCount,
               presentableSlides,
               pages,
+              diagnostics,
               plan,
             }), [plan])
           } catch (error) {
@@ -130,6 +134,10 @@ export function installWorkerRuntime(
             update.slideCount,
             update.presentableSlides,
           )
+          const diagnostics = decodeDeckDiagnostics(engine.deck_session_diagnostics(
+            message.sessionHandle,
+            update.revision,
+          ))
           progress(scope, message.id, 'delta', 1, 1)
           post(scope, {
             id: message.id,
@@ -137,6 +145,7 @@ export function installWorkerRuntime(
             sessionHandle: message.sessionHandle,
             ...update,
             pages,
+            diagnostics,
           })
           return
         }
@@ -712,9 +721,50 @@ function decodeDeckPageInventory(
   return pages
 }
 
+function decodeDeckDiagnostics(
+  rows: unknown[],
+): import('./protocol.js').DeckDiagnostic[] {
+  return rows.map((value) => {
+    if (!Array.isArray(value) || value.length !== 7) {
+      throw new TypeError('invalid deck diagnostic metadata')
+    }
+    const [code, name, severity, message, rawSource, nodeId, pageId] = value
+    const source = rawSource === null ? undefined : decodeDeckDiagnosticSource(rawSource)
+    if (!isNonNegativeInteger(code) || code > 0xffff ||
+      !(name === null || typeof name === 'string') ||
+      !(severity === 'info' || severity === 'warning' || severity === 'error') ||
+      typeof message !== 'string' ||
+      !(nodeId === null || typeof nodeId === 'string') ||
+      !(pageId === null || typeof pageId === 'string')) {
+      throw new TypeError('invalid deck diagnostic metadata')
+    }
+    return {
+      code,
+      ...(name === null ? {} : { name }),
+      severity,
+      message,
+      ...(source === undefined ? {} : { source }),
+      ...(nodeId === null ? {} : { nodeId }),
+      ...(pageId === null ? {} : { pageId }),
+    }
+  })
+}
+
+function decodeDeckDiagnosticSource(value: unknown) {
+  if (!Array.isArray(value) || value.length !== 3) {
+    throw new TypeError('invalid deck diagnostic source metadata')
+  }
+  const [source, start, end] = value
+  if (typeof source !== 'string' || source.length === 0 ||
+    !isNonNegativeInteger(start) || !isNonNegativeInteger(end) || start > end) {
+    throw new TypeError('invalid deck diagnostic source metadata')
+  }
+  return { source, start, end }
+}
+
 function decodeDeckUpdate(
   rows: unknown[],
-): Omit<import('./protocol.js').DeckSessionUpdate, 'pages'> {
+): Omit<import('./protocol.js').DeckSessionUpdate, 'pages' | 'diagnostics'> {
   if (rows.length !== 14) throw new TypeError('invalid deck update metadata')
   const [revision, slideCount, presentableSlides, invalidatedSlides,
     invalidatedLogicalSlideIds, removedPageIds, changedParts, reusedPages, fullFallback,

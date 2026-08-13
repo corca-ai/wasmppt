@@ -391,6 +391,7 @@ describe('wasmppt workerd adapter', () => {
     let slideCount = 0
     let presentableSlides: number[] = []
     let pages: Array<Record<string, unknown>> = []
+    let diagnostics: Array<Record<string, unknown>> = []
     for (let iteration = 0; iteration < 7; iteration += 1) {
       const planStarted = performance.now()
       const measuredTemplate = engine.prepare_deck_template(
@@ -408,6 +409,10 @@ describe('wasmppt workerd adapter', () => {
       const measuredPresentableSlides = engine.deck_session_presentable_slides(
         measuredSession,
       ) as number[]
+      const measuredDiagnostics = engine.deck_session_diagnostics(
+        measuredSession,
+        measuredRevision,
+      ) as unknown[][]
       planSamplesMs.push(performance.now() - planStarted)
 
       const resolveStarted = performance.now()
@@ -463,11 +468,48 @@ describe('wasmppt workerd adapter', () => {
       slideCount = measuredSlideCount
       presentableSlides = measuredPresentableSlides
       pages = measuredPages
+      diagnostics = measuredDiagnostics.map((row) => {
+        const [code, name, severity, message, source, nodeId, pageId] = row
+        const diagnostic: Record<string, unknown> = { code, severity, message }
+        if (name !== null) diagnostic.name = name
+        if (Array.isArray(source)) {
+          diagnostic.source = { source: source[0], start: source[1], end: source[2] }
+        }
+        if (nodeId !== null) diagnostic.nodeId = nodeId
+        if (pageId !== null) diagnostic.pageId = pageId
+        return diagnostic
+      })
       expect(engine.release_generation(measuredGeneration)).toBe(true)
       expect(engine.release_deck_session(measuredSession)).toBe(true)
       expect(engine.release_deck_template(measuredTemplate)).toBe(true)
     }
     const template = engine.prepare_deck_template(new Uint8Array(env.DECK_GATE_STARTER))
+    const revisionedSession = engine.create_deck_session(
+      template,
+      new Uint8Array(env.DECK_GATE_SPEC),
+    )
+    engine.apply_deck_session_spec(
+      revisionedSession,
+      0,
+      1,
+      new Uint8Array(env.DECK_GATE_SPEC),
+    )
+    expect(engine.deck_session_diagnostics(revisionedSession, 1)).toEqual(
+      expect.arrayContaining([
+        expect.arrayContaining([300, 'plan-font-risk', 'warning']),
+      ]),
+    )
+    let staleDiagnostics
+    try {
+      engine.deck_session_diagnostics(revisionedSession, 0)
+    } catch (error) {
+      staleDiagnostics = (error as Error & { wasmppt?: unknown }).wasmppt
+    }
+    expect(staleDiagnostics).toMatchObject({
+      domain: 'runtime',
+      code: 'stale-revision',
+    })
+    expect(engine.release_deck_session(revisionedSession)).toBe(true)
     let invalidDeckSpec
     try {
       engine.create_deck_session(
@@ -488,7 +530,12 @@ describe('wasmppt workerd adapter', () => {
       plan: bytesBase64(plan),
       slides: slides.map(bytesBase64),
       pptx: bytesBase64(pptx),
-      topology: { slideCount, presentableSlides: [...presentableSlides], pages },
+      topology: {
+        slideCount,
+        presentableSlides: [...presentableSlides],
+        pages,
+        diagnostics,
+      },
       timings: {
         planSamplesMs,
         resolveAllSamplesMs,
@@ -509,13 +556,20 @@ describe('wasmppt workerd adapter', () => {
     expect(slideCount).toBe(14)
     expect(presentableSlides).toHaveLength(13)
     expect(pages.at(-1)).toMatchObject({ hidden: true })
+    expect(diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 300,
+        name: 'plan-font-risk',
+        severity: 'warning',
+      }),
+    ]))
     expect(invalidDeckSpec).toMatchObject({
       domain: 'payload',
       code: 'invalid-deck-spec',
     })
     expect(atomicOverflow).toMatchObject({
       domain: 'layout',
-      code: 'deck-planning-failed',
+      code: 'plan-atomic-overflow',
     })
     expect(evidence.timings.summary.coldPlanMs)
       .toBeLessThanOrEqual(env.DECK_GATE_PLAN_BUDGET_MS)

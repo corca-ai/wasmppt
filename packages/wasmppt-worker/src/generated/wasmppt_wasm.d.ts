@@ -47,6 +47,10 @@ export class WasmpptEngine {
      */
     create_live_session_payload(template_handle: number, payload: Uint8Array): number;
     deck_session_cache_telemetry(handle: number): Array<any>;
+    /**
+     * Lossless planner diagnostics owned by the exact session revision.
+     */
+    deck_session_diagnostics(handle: number, revision: number): Array<any>;
     deck_session_plan(handle: number, revision: number): Uint8Array;
     /**
      * Authoring indices include hidden pages; presentable indices never do.
@@ -171,6 +175,7 @@ export interface InitOutput {
     readonly wasmpptengine_create_deck_session_with_plan: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly wasmpptengine_create_live_session_payload: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmpptengine_deck_session_cache_telemetry: (a: number, b: number, c: number) => void;
+    readonly wasmpptengine_deck_session_diagnostics: (a: number, b: number, c: number, d: number) => void;
     readonly wasmpptengine_deck_session_plan: (a: number, b: number, c: number, d: number) => void;
     readonly wasmpptengine_deck_session_presentable_slides: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_deck_session_resource: (a: number, b: number, c: number, d: number, e: number, f: number) => void;

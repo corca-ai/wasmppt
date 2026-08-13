@@ -8,10 +8,11 @@ use std::{
 use js_sys::{Array, Error as JavaScriptError, Object, Reflect};
 use wasm_bindgen::prelude::*;
 use wasmppt_deck::{
-    DeckLimits, DeckPlan, DeckSpec, SemanticContent, SemanticNode, SourceRange, StableId,
+    DeckDiagnostic, DeckLimits, DeckPlan, DeckSpec, DiagnosticSeverity, SemanticContent,
+    SemanticNode, SourceRange, StableId,
 };
 use wasmppt_deck_compose::{ComposeLimits, DeckComposer, PresentationOverlay};
-use wasmppt_deck_layout::{DeckPlanner, FontCatalog, IncrementalPlanUpdate};
+use wasmppt_deck_layout::{DeckPlanner, FontCatalog, IncrementalPlanUpdate, PlanError};
 use wasmppt_deck_template::ThemeTemplateCompiler;
 use wasmppt_display::{DisplayList, SemanticSource};
 use wasmppt_layout::{LayoutError, LayoutErrorCode, PresentationDocument};
@@ -553,7 +554,7 @@ impl WasmpptEngine {
         let template = self.deck_template_record(template_handle)?.clone();
         let plan = DeckPlanner::default()
             .plan(&spec, &template.plan, &FontCatalog::default(), &limits)
-            .map_err(|error| coded_error("WasmpptDeckLayoutError", error))?;
+            .map_err(deck_layout_error)?;
         self.insert_deck_session(template, spec, plan)
     }
 
@@ -584,6 +585,13 @@ impl WasmpptEngine {
             .plan
             .encode(&DeckLimits::default())
             .map_err(|error| coded_error("WasmpptDeckPlanError", error))
+    }
+
+    /// Lossless planner diagnostics owned by the exact session revision.
+    pub fn deck_session_diagnostics(&self, handle: u32, revision: u32) -> Result<Array, JsValue> {
+        let record = self.deck_session(handle)?;
+        require_deck_revision(record, revision)?;
+        Ok(deck_diagnostics_array(&record.plan.diagnostics))
     }
 
     pub fn deck_session_slide_count(&self, handle: u32) -> Result<u32, JsValue> {
@@ -662,7 +670,7 @@ impl WasmpptEngine {
                 &FontCatalog::default(),
                 &limits,
             )
-            .map_err(|error| coded_error("WasmpptDeckLayoutError", error))?;
+            .map_err(deck_layout_error)?;
         self.publish_deck_revision(handle, next_revision, next_spec, update)
     }
 
@@ -1395,6 +1403,61 @@ fn live_update_array(
         output.push(&JsValue::from_f64(value as f64));
     }
     output
+}
+
+fn deck_diagnostics_array(diagnostics: &[DeckDiagnostic]) -> Array {
+    let output = Array::new();
+    for diagnostic in diagnostics {
+        let row = Array::new();
+        row.push(&JsValue::from(diagnostic.code.0));
+        row.push(
+            &diagnostic
+                .code
+                .known_name()
+                .map_or(JsValue::NULL, JsValue::from),
+        );
+        row.push(&JsValue::from(match diagnostic.severity {
+            DiagnosticSeverity::Info => "info",
+            DiagnosticSeverity::Warning => "warning",
+            DiagnosticSeverity::Error => "error",
+        }));
+        row.push(&JsValue::from(diagnostic.message.as_str()));
+        let source = diagnostic.source.as_ref().map(|source| {
+            let value = Array::new();
+            value.push(&JsValue::from(source.source.as_str()));
+            value.push(&JsValue::from(source.start));
+            value.push(&JsValue::from(source.end));
+            value
+        });
+        row.push(
+            &source
+                .as_ref()
+                .map_or(JsValue::NULL, |value| JsValue::from(value.clone())),
+        );
+        row.push(
+            &diagnostic
+                .node_id
+                .map_or(JsValue::NULL, |id| JsValue::from(id.to_string())),
+        );
+        row.push(
+            &diagnostic
+                .page_id
+                .map_or(JsValue::NULL, |id| JsValue::from(id.to_string())),
+        );
+        output.push(&row);
+    }
+    output
+}
+
+fn deck_layout_error(error: PlanError) -> JsValue {
+    let code = error.code.known_name().unwrap_or("deck-planning-failed");
+    envelope_error(
+        "WasmpptDeckLayoutError",
+        "layout",
+        code,
+        error.to_string(),
+        ErrorContext::default(),
+    )
 }
 
 fn coded_error(name: &str, error: impl std::fmt::Display) -> JsValue {

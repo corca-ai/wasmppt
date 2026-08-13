@@ -4,4 +4,7 @@ set -eu
 repository_root=$(git rev-parse --show-toplevel)
 cd "$repository_root"
 
-npm run precommit
+if ! npm run precommit; then
+  echo "pre-commit checks failed; reproduce with: npm run precommit" >&2
+  exit 1
+fi

@@ -16,6 +16,7 @@
     "build": "tsc -p tsconfig.json && mkdir -p dist/generated && cp src/generated/wasmppt_wasm.js src/generated/wasmppt_wasm.d.ts src/generated/wasmppt_wasm_bg.wasm src/generated/wasmppt_wasm_bg.wasm.d.ts dist/generated/",
     "check": "tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit && wrangler types --include-runtime false --check",
     "test": "vitest run",
+    "test:unit": "vitest run --config vitest.unit.config.ts",
     "types:worker": "wrangler types worker-configuration.d.ts --include-runtime false"
   },
   "devDependencies": {

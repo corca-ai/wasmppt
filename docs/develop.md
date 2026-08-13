@@ -115,19 +115,31 @@ node benchmarks/run.mjs --ci
 awiki lint -root docs
 ```
 
-Enable the repository-owned pre-commit hook once per clone:
+Enable the repository-owned hooks once per clone:
 
 ```sh
 npm run hooks:install
 ```
 
-The hook runs `npm run precommit`: staged whitespace checks, Rust formatting,
-JavaScript/TypeScript linting, Markdown and shell linting, package type checks, architectural and
-cross-file contract checks, repository tool tests, and the `awiki` documentation graph check. It
-deliberately omits native compilation, browser integration, and performance suites; run the
-complete commands above before submitting a high-risk change. The hook is version-controlled
-under `.githooks/` and the installer sets the clone-local `core.hooksPath`, so no hook
-implementation is copied into `.git`.
+The pre-commit hook runs `npm run precommit`, composed from two reproducible layers:
+
+- `npm run check:fast` checks Rust formatting, JavaScript/TypeScript/Markdown/shell lint,
+  package types, architectural and cross-file contracts, and the documentation graph.
+- `npm run test:fast` runs offline Rust library tests, repository tool tests, browser-package Node
+  tests, and Worker adapter tests that do not launch workerd.
+
+Staged whitespace is checked before both layers. The gate performs no installs or network fetches;
+run `npm ci` and install the separately listed system tools during bootstrap. Its warm-run target is
+under 30 seconds on a contributor machine (3.2 seconds measured on the reference macOS checkout on
+2026-08-13). Browser integration, workerd integration, and performance suites remain deliberate
+omissions. CI is authoritative. In an exceptional situation, bypass only this local guard with
+`git commit --no-verify`, disclose the bypass in the pull request, and run `npm run precommit` as
+soon as the environment is repaired.
+
+The hooks are version-controlled under `.githooks/`; the installer verifies their execute bits and
+sets the clone-local `core.hooksPath`, so no implementation is copied into `.git`. Repository tests
+exercise installation in a temporary Git repository and lock the hook-to-command mapping. A failed
+hook prints the exact manual reproduction command.
 
 Build and report the raw Wasm artifact size with:
 

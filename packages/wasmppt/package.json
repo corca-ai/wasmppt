@@ -15,7 +15,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit && tsc -p test/readme-tsconfig.json",
-    "test": "npm run build && node --test test/*.test.mjs",
+    "test": "npm run test:unit",
+    "test:unit": "npm run build && node --test test/*.test.mjs",
     "test:browser": "npm run build && node test/browser-host.integration.mjs"
   },
   "devDependencies": {

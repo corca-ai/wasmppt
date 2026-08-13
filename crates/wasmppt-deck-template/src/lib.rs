@@ -866,7 +866,9 @@ fn placeholder_role(layout: TemplateLayoutRole, kind: &str) -> Option<RegionRole
         "subTitle" => Some(RegionRole::Subtitle),
         "body" | "obj" => Some(RegionRole::Body),
         "pic" => Some(RegionRole::Media),
-        "ftr" | "dt" | "sldNum" => Some(RegionRole::Footer),
+        // Page furniture is preserved by `collect_assets`; it is not a
+        // semantic insertion target and therefore must not become a region.
+        "ftr" | "dt" | "sldNum" => None,
         _ => None,
     }
 }

@@ -1,7 +1,7 @@
 use wasmppt_opc::{CompressionMethod, EntryOptions, VecSink, ZipArchive, ZipWriter};
 use wasmppt_template::{
-    BindingDiagnosticCode, BindingSource, CompressionProfile, ReuseDecision, TemplateCompiler,
-    TemplatePlan,
+    BindingDiagnosticCode, BindingSource, CompileErrorCode, CompilerOptions, MacroPolicy,
+    ReuseDecision, TemplateCompiler, TemplatePlan,
 };
 
 fn package(extra_shapes: &str, manifest: Option<&str>) -> Vec<u8> {
@@ -88,18 +88,40 @@ fn compiles_metadata_manifest_and_split_run_tokens_once_into_a_stable_plan() {
 }
 
 #[test]
-fn identity_mismatch_fails_closed_to_recompilation() {
+fn macro_policy_identity_mismatch_fails_closed_to_recompilation() {
     let archive = ZipArchive::from_bytes(package("", None)).unwrap();
     let plan = TemplateCompiler::new(Default::default())
         .compile(&archive)
         .unwrap()
         .plan;
     let mut expected = plan.identity.clone();
-    expected.compression = CompressionProfile::StoreMedia;
+    expected.macro_policy = MacroPolicy::Reject;
     assert!(matches!(
         plan.reuse_decision(&expected),
         ReuseDecision::Recompile(_)
     ));
+}
+
+#[test]
+fn reject_policy_reports_a_stable_error_before_compiling_macro_content() {
+    let bytes = package("", None);
+    let archive = ZipArchive::from_bytes(bytes).unwrap();
+    let options = CompilerOptions {
+        macro_policy: MacroPolicy::Reject,
+        ..CompilerOptions::default()
+    };
+    assert!(
+        TemplateCompiler::new(options.clone())
+            .compile(&archive)
+            .is_ok()
+    );
+
+    let macro_shape = r#"<p:sp><p:nvSpPr><p:cNvPr id="9" name="Macro"><a:hlinkClick action="ppaction://macro?name=Run"/></p:cNvPr></p:nvSpPr></p:sp>"#;
+    let macro_archive = ZipArchive::from_bytes(package(macro_shape, None)).unwrap();
+    let error = TemplateCompiler::new(options)
+        .compile(&macro_archive)
+        .unwrap_err();
+    assert_eq!(error.code(), CompileErrorCode::MacroPresent);
 }
 
 #[test]
@@ -145,4 +167,13 @@ fn rejects_text_metadata_on_a_shape_without_writable_text_runs() {
 #[test]
 fn rejects_truncated_or_unknown_plan_serialization() {
     assert!(TemplatePlan::decode(b"bad").is_err());
+
+    let archive = ZipArchive::from_bytes(package("", None)).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&archive)
+        .unwrap()
+        .plan;
+    let mut obsolete = plan.encode();
+    obsolete[4..8].copy_from_slice(&1u32.to_le_bytes());
+    assert!(TemplatePlan::decode(&obsolete).is_err());
 }

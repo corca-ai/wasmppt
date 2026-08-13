@@ -20,7 +20,8 @@ filesystem adapter does not duplicate ZIP or OOXML logic.
 `WasmpptEngine` is an instance-local opaque-handle table. Its narrow ABI supports:
 
 - copying one typed-array template into Wasm and compiling it once;
-- compiling with explicit policies or restoring a source-verified binary plan;
+- compiling with explicit strip/reject and visible-token policies or restoring a
+  source-verified binary plan;
 - querying discovered bindings, diagnostics, and the binary plan;
 - querying a conservative prepared-template byte weight;
 - generating from a versioned structured binary payload;

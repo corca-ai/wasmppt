@@ -68,14 +68,12 @@ The versioned binary representation starts with a schema marker and has a bounde
 Its structural signature is SHA-256 over deterministic plan bytes and is identical for
 native and Wasm builds of the same engine.
 
-Cache identity includes:
+Cache identity includes only behaviorally relevant inputs:
 
 - the SHA-256 of every source template byte;
 - plan and binding schema versions;
-- engine version;
-- macro policy;
-- PowerPoint compatibility profile; and
-- compression profile.
+- engine version; and
+- macro policy.
 
 `reuse_decision` compares every field and every completeness proof. Any mismatch returns
 `Recompile`; stale plans are never used with a warning.
@@ -91,10 +89,13 @@ The input `ArrayBuffer` is transferred to the Worker. A successful result contai
   shape name where available; and
 - stable compilation diagnostics for authoring tools.
 
-`PrepareOptions` selects macro, compatibility, compression, and visible-token policies. Passing
+`PrepareOptions` selects macro and visible-token policies. Passing
 the returned plan into a later `prepare` call skips binding discovery only after the Rust core
 decodes the plan and verifies its source-template identity. Option tags and binary plan schema
-are stable inputs to cache identity; JavaScript object property order is not.
+are stable inputs to cache identity; JavaScript object property order is not. Plan schema v2
+removes the unimplemented compatibility and compression selectors; a v1 plan is rejected so its
+owner can recompile it. Compatibility profiles and configurable compression remain deferred until
+each has an observable, tested implementation.
 
 WPPD v2 reuses those stable binding IDs for conditional/repeated shapes, rich text, safe
 hyperlinks, basic solid-fill edits, image-fit policies, and notes. Applications do not need to

@@ -57,8 +57,6 @@ export function installWorkerRuntime(
             ? engine.prepare_with_options(
                 template,
                 macroPolicyTag(message.options.macroPolicy),
-                compatibilityTag(message.options.compatibility),
-                compressionTag(message.options.compression),
                 message.options.allowVisibleTokens ?? true,
               )
             : engine.prepare_with_plan(template, new Uint8Array(message.plan))
@@ -507,18 +505,9 @@ function yieldToWorkerQueue(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0))
 }
 
-function macroPolicyTag(value: 'strip' | 'reject' | 'preserve-as-pptm' | undefined): number {
+function macroPolicyTag(value: 'strip' | 'reject' | undefined): number {
   if (value === undefined || value === 'strip') return 0
-  if (value === 'reject') return 1
-  return 2
-}
-
-function compatibilityTag(value: 'powerpoint-2016' | 'microsoft-365' | undefined): number {
-  return value === 'powerpoint-2016' ? 0 : 1
-}
-
-function compressionTag(value: 'balanced-deflate-6' | 'store-media' | undefined): number {
-  return value === 'store-media' ? 1 : 0
+  return 1
 }
 
 function decodeBindings(rows: unknown[]): import('./protocol.js').TemplateBinding[] {

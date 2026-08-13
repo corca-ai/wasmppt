@@ -138,6 +138,9 @@ The default conversion removes VBA project/data parts, VBA and signature relatio
 parts, content-type declarations for removed parts, package digital signatures, and
 macro Action attributes. It converts POTX, POTM, and macro-enabled presentation main
 content types to the PPTX presentation main content type. The library never executes VBA.
+`macroPolicy: 'reject'` instead rejects a package containing those artifacts or a macro action
+during preparation with the stable `WasmpptMacroPresentError` name. Macro-preserving PPTM output
+is not exposed until its package semantics can be implemented and validated end to end.
 
 Unknown parts and unsupported XML are not normalized. If an unrelated entry is not dirty,
 its compressed bytes survive verbatim.

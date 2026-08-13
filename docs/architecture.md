@@ -210,8 +210,8 @@ SmartArt editing remains unsupported because it requires coordinated diagram and
 - raw-copy, conditional-copy, and rewrite entry sets;
 - explicit completeness flags for every optimization assumption.
 
-The cache identity includes at least the plan schema, engine version, template hash,
-binding schema, macro policy, compatibility profile, and compression profile. A mismatch
+The cache identity includes the plan schema, engine version, template hash, binding schema,
+and macro policy. A mismatch
 is a cache miss, never a warning.
 
 ### POTM/POTX to PPTX policy

@@ -13,7 +13,13 @@ use wasmppt_opc::{
 use wasmppt_pml::SlideView;
 use wasmppt_xml::{TokenKind, XmlDocument, decode_entities};
 
-use crate::{BindingKind, BindingTarget, RelationshipAction, TemplatePlan};
+use crate::{
+    BindingKind, BindingTarget, MacroPolicy, RelationshipAction, TemplatePlan,
+    policy::{
+        is_template_main_type, prohibited_content, prohibited_content_type, prohibited_part,
+        prohibited_relationship_type,
+    },
+};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ImageCrop {
@@ -200,6 +206,7 @@ pub enum GenerateErrorCode {
     InvalidChart,
     InvalidTable,
     InvalidRevision,
+    MacroPresent,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -978,6 +985,13 @@ impl PreparedTemplate {
             ));
         }
         let archive = ZipArchive::from_bytes(bytes).map_err(package_error)?;
+        if plan.identity.macro_policy == MacroPolicy::Reject {
+            if let Some(reason) = prohibited_content(&archive).map_err(|message| {
+                GenerateError::new(GenerateErrorCode::InvalidTemplate, message)
+            })? {
+                return Err(GenerateError::new(GenerateErrorCode::MacroPresent, reason));
+            }
+        }
         let removed_parts = archive
             .entries()
             .iter()
@@ -3861,33 +3875,6 @@ fn escape_xml_attribute(value: &str) -> String {
     escape_xml(value)
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
-}
-
-fn prohibited_part(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    lower.contains("vbaproject")
-        || lower.contains("vbadata")
-        || lower.starts_with("_xmlsignatures/")
-        || lower.ends_with("origin.sigs")
-}
-
-fn prohibited_content_type(value: &str) -> bool {
-    let lower = value.to_ascii_lowercase();
-    lower.contains("vba") || lower.contains("digital-signature")
-}
-
-fn prohibited_relationship_type(value: &str) -> bool {
-    let lower = value.to_ascii_lowercase();
-    lower.contains("vbaproject") || lower.contains("vbadata") || lower.contains("digital-signature")
-}
-
-fn is_template_main_type(value: &str) -> bool {
-    matches!(
-        value,
-        "application/vnd.openxmlformats-officedocument.presentationml.template.main+xml"
-            | "application/vnd.ms-powerpoint.template.macroEnabled.main+xml"
-            | "application/vnd.ms-powerpoint.presentation.macroEnabled.main+xml"
-    )
 }
 
 fn options_from_entry(entry: &Entry) -> EntryOptions {

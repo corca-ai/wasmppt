@@ -56,9 +56,9 @@ export class WasmpptEngine {
      */
     prepare(template: Uint8Array): number;
     /**
-     * Compile with explicit stable v1 option tags.
+     * Compile with explicit stable v2 option tags.
      */
-    prepare_with_options(template: Uint8Array, macro_policy: number, compatibility: number, compression: number, allow_visible_tokens: boolean): number;
+    prepare_with_options(template: Uint8Array, macro_policy: number, allow_visible_tokens: boolean): number;
     /**
      * Restore a previously compiled plan after verifying its source identity.
      */
@@ -135,7 +135,7 @@ export interface InitOutput {
     readonly wasmpptengine_new: () => number;
     readonly wasmpptengine_open_presentation: (a: number, b: number, c: number, d: number) => void;
     readonly wasmpptengine_prepare: (a: number, b: number, c: number, d: number) => void;
-    readonly wasmpptengine_prepare_with_options: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
+    readonly wasmpptengine_prepare_with_options: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly wasmpptengine_prepare_with_plan: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly wasmpptengine_prepared_bindings: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_prepared_diagnostics: (a: number, b: number, c: number) => void;

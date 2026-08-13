@@ -3,9 +3,7 @@ export const WORKER_PROTOCOL_VERSION = 4 as const
 export type TextBindings = Readonly<Record<string, string>>
 
 export interface TemplateCompilerOptions {
-  readonly macroPolicy?: 'strip' | 'reject' | 'preserve-as-pptm'
-  readonly compatibility?: 'powerpoint-2016' | 'microsoft-365'
-  readonly compression?: 'balanced-deflate-6' | 'store-media'
+  readonly macroPolicy?: 'strip' | 'reject'
   readonly allowVisibleTokens?: boolean
 }
 
@@ -336,8 +334,6 @@ export interface WorkerEngine {
   prepare_with_options(
     template: Uint8Array,
     macroPolicy: number,
-    compatibility: number,
-    compression: number,
     allowVisibleTokens: boolean,
   ): number
   prepare_with_plan(template: Uint8Array, plan: Uint8Array): number

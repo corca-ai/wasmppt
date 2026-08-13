@@ -373,20 +373,18 @@ export class WasmpptEngine {
         }
     }
     /**
-     * Compile with explicit stable v1 option tags.
+     * Compile with explicit stable v2 option tags.
      * @param {Uint8Array} template
      * @param {number} macro_policy
-     * @param {number} compatibility
-     * @param {number} compression
      * @param {boolean} allow_visible_tokens
      * @returns {number}
      */
-    prepare_with_options(template, macro_policy, compatibility, compression, allow_visible_tokens) {
+    prepare_with_options(template, macro_policy, allow_visible_tokens) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
             const ptr0 = passArray8ToWasm0(template, wasm.__wbindgen_export);
             const len0 = WASM_VECTOR_LEN;
-            wasm.wasmpptengine_prepare_with_options(retptr, this.__wbg_ptr, ptr0, len0, macro_policy, compatibility, compression, allow_visible_tokens);
+            wasm.wasmpptengine_prepare_with_options(retptr, this.__wbg_ptr, ptr0, len0, macro_policy, allow_visible_tokens);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);

@@ -9,6 +9,7 @@ use wasmppt_xml::{TokenKind, XmlDocument};
 
 mod inject;
 mod payload;
+mod policy;
 
 pub use inject::{
     ChartData, ChartSeriesData, GenerateError, GenerateErrorCode, GenerateOutput, GenerateStats,
@@ -18,7 +19,7 @@ pub use inject::{
 };
 pub use payload::{INJECTION_SCHEMA_VERSION, InjectionDecodeError};
 
-pub const PLAN_SCHEMA_VERSION: u32 = 1;
+pub const PLAN_SCHEMA_VERSION: u32 = 2;
 pub const BINDING_SCHEMA_VERSION: u32 = 2;
 pub const MANIFEST_PART: &str = "wasmppt/bindings.xml";
 const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -27,26 +28,11 @@ const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub enum MacroPolicy {
     Strip,
     Reject,
-    PreserveAsPptm,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CompatibilityProfile {
-    PowerPoint2016,
-    Microsoft365,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CompressionProfile {
-    BalancedDeflate6,
-    StoreMedia,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompilerOptions {
     pub macro_policy: MacroPolicy,
-    pub compatibility: CompatibilityProfile,
-    pub compression: CompressionProfile,
     pub allow_visible_tokens: bool,
 }
 
@@ -54,8 +40,6 @@ impl Default for CompilerOptions {
     fn default() -> Self {
         Self {
             macro_policy: MacroPolicy::Strip,
-            compatibility: CompatibilityProfile::Microsoft365,
-            compression: CompressionProfile::BalancedDeflate6,
             allow_visible_tokens: true,
         }
     }
@@ -67,8 +51,6 @@ pub struct PlanIdentity {
     pub engine_version: String,
     pub binding_schema: u32,
     pub macro_policy: MacroPolicy,
-    pub compatibility: CompatibilityProfile,
-    pub compression: CompressionProfile,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -158,16 +140,36 @@ pub struct CompileOutput {
     pub diagnostics: Vec<BindingDiagnostic>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum CompileErrorCode {
+    InvalidTemplate,
+    MacroPresent,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompileError {
+    code: CompileErrorCode,
     message: String,
 }
 
 impl CompileError {
     fn new(message: impl Into<String>) -> Self {
         Self {
+            code: CompileErrorCode::InvalidTemplate,
             message: message.into(),
         }
+    }
+
+    fn macro_present(message: impl Into<String>) -> Self {
+        Self {
+            code: CompileErrorCode::MacroPresent,
+            message: message.into(),
+        }
+    }
+
+    pub const fn code(&self) -> CompileErrorCode {
+        self.code
     }
 }
 
@@ -192,13 +194,16 @@ impl TemplateCompiler {
         &self,
         archive: &ZipArchive<S>,
     ) -> Result<CompileOutput, CompileError> {
+        if self.options.macro_policy == MacroPolicy::Reject {
+            if let Some(reason) = policy::prohibited_content(archive).map_err(CompileError::new)? {
+                return Err(CompileError::macro_present(reason));
+            }
+        }
         let identity = PlanIdentity {
             template_sha256: hash_source(archive.source())?,
             engine_version: ENGINE_VERSION.to_owned(),
             binding_schema: BINDING_SCHEMA_VERSION,
             macro_policy: self.options.macro_policy,
-            compatibility: self.options.compatibility,
-            compression: self.options.compression,
         };
         let graph = PackageGraph::build(archive)
             .map_err(|error| CompileError::new(format!("cannot build package graph: {error}")))?;
@@ -753,8 +758,6 @@ pub enum PlanMismatch {
     Engine,
     BindingSchema,
     MacroPolicy,
-    Compatibility,
-    Compression,
     Incomplete,
 }
 
@@ -770,10 +773,6 @@ impl TemplatePlan {
             Some(PlanMismatch::BindingSchema)
         } else if self.identity.macro_policy != expected.macro_policy {
             Some(PlanMismatch::MacroPolicy)
-        } else if self.identity.compatibility != expected.compatibility {
-            Some(PlanMismatch::Compatibility)
-        } else if self.identity.compression != expected.compression {
-            Some(PlanMismatch::Compression)
         } else if !self.completeness.graph_valid
             || !self.completeness.bindings_unambiguous
             || !self.completeness.raw_copy_partition_complete
@@ -798,8 +797,6 @@ impl TemplatePlan {
         put_string(&mut bytes, &self.identity.engine_version);
         put_u32(&mut bytes, self.identity.binding_schema);
         bytes.push(self.identity.macro_policy as u8);
-        bytes.push(self.identity.compatibility as u8);
-        bytes.push(self.identity.compression as u8);
         let flags = u8::from(self.completeness.graph_valid)
             | (u8::from(self.completeness.bindings_unambiguous) << 1)
             | (u8::from(self.completeness.raw_copy_partition_complete) << 2)
@@ -867,23 +864,15 @@ impl<'a> PlanReader<'a> {
             return Err(PlanDecodeError);
         }
         let schema_version = self.u32()?;
+        if schema_version != PLAN_SCHEMA_VERSION {
+            return Err(PlanDecodeError);
+        }
         let template_sha256 = self.take(32)?.try_into().map_err(|_| PlanDecodeError)?;
         let engine_version = self.string()?;
         let binding_schema = self.u32()?;
         let macro_policy = match self.byte()? {
             0 => MacroPolicy::Strip,
             1 => MacroPolicy::Reject,
-            2 => MacroPolicy::PreserveAsPptm,
-            _ => return Err(PlanDecodeError),
-        };
-        let compatibility = match self.byte()? {
-            0 => CompatibilityProfile::PowerPoint2016,
-            1 => CompatibilityProfile::Microsoft365,
-            _ => return Err(PlanDecodeError),
-        };
-        let compression = match self.byte()? {
-            0 => CompressionProfile::BalancedDeflate6,
-            1 => CompressionProfile::StoreMedia,
             _ => return Err(PlanDecodeError),
         };
         let flags = self.byte()?;
@@ -957,8 +946,6 @@ impl<'a> PlanReader<'a> {
                 engine_version,
                 binding_schema,
                 macro_policy,
-                compatibility,
-                compression,
             },
             completeness: Completeness {
                 graph_valid: flags & 1 != 0,

@@ -11,9 +11,9 @@ use wasmppt_display::DisplayList;
 use wasmppt_layout::PresentationDocument;
 use wasmppt_opc::ZipArchive;
 use wasmppt_template::{
-    BindingDiagnostic, BindingDiagnosticCode, BindingKind, BindingSource, CompatibilityProfile,
-    CompilerOptions, CompressionProfile, GenerateErrorCode, GenerationCursor, InjectionData,
-    LiveSession, LiveSessionUpdate, MacroPolicy, PreparedTemplate, TemplateCompiler, TemplatePlan,
+    BindingDiagnostic, BindingDiagnosticCode, BindingKind, BindingSource, CompileErrorCode,
+    CompilerOptions, GenerateErrorCode, GenerationCursor, InjectionData, LiveSession,
+    LiveSessionUpdate, MacroPolicy, PreparedTemplate, TemplateCompiler, TemplatePlan,
 };
 
 const SESSION_SCENE_CACHE_BYTES: usize = 16 * 1024 * 1024;
@@ -132,19 +132,15 @@ impl WasmpptEngine {
         self.prepare_default(template).map_err(js_value_as_js_error)
     }
 
-    /// Compile with explicit stable v1 option tags.
+    /// Compile with explicit stable v2 option tags.
     pub fn prepare_with_options(
         &mut self,
         template: &[u8],
         macro_policy: u8,
-        compatibility: u8,
-        compression: u8,
         allow_visible_tokens: bool,
     ) -> Result<u32, JsValue> {
         let options = CompilerOptions {
             macro_policy: decode_macro_policy(macro_policy)?,
-            compatibility: decode_compatibility(compatibility)?,
-            compression: decode_compression(compression)?,
             allow_visible_tokens,
         };
         self.compile_template(template, options)
@@ -588,7 +584,7 @@ impl WasmpptEngine {
             .map_err(|error| coded_error("WasmpptPackageError", error))?;
         let compiled = TemplateCompiler::new(options)
             .compile(&archive)
-            .map_err(|error| coded_error("WasmpptCompileError", error))?;
+            .map_err(|error| coded_error(compile_error_name(error.code()), error))?;
         let prepared = PreparedTemplate::new(bytes, compiled.plan)
             .map_err(|error| coded_error(generate_error_name(error.code()), error))?;
         let handle = self.allocate_handle()?;
@@ -775,7 +771,6 @@ fn decode_macro_policy(value: u8) -> Result<MacroPolicy, JsValue> {
     match value {
         0 => Ok(MacroPolicy::Strip),
         1 => Ok(MacroPolicy::Reject),
-        2 => Ok(MacroPolicy::PreserveAsPptm),
         _ => Err(coded_error(
             "WasmpptOptionError",
             "invalid macro policy tag",
@@ -783,25 +778,11 @@ fn decode_macro_policy(value: u8) -> Result<MacroPolicy, JsValue> {
     }
 }
 
-fn decode_compatibility(value: u8) -> Result<CompatibilityProfile, JsValue> {
+const fn compile_error_name(value: CompileErrorCode) -> &'static str {
     match value {
-        0 => Ok(CompatibilityProfile::PowerPoint2016),
-        1 => Ok(CompatibilityProfile::Microsoft365),
-        _ => Err(coded_error(
-            "WasmpptOptionError",
-            "invalid compatibility profile tag",
-        )),
-    }
-}
-
-fn decode_compression(value: u8) -> Result<CompressionProfile, JsValue> {
-    match value {
-        0 => Ok(CompressionProfile::BalancedDeflate6),
-        1 => Ok(CompressionProfile::StoreMedia),
-        _ => Err(coded_error(
-            "WasmpptOptionError",
-            "invalid compression profile tag",
-        )),
+        CompileErrorCode::InvalidTemplate => "WasmpptCompileError",
+        CompileErrorCode::MacroPresent => "WasmpptMacroPresentError",
+        _ => "WasmpptCompileError",
     }
 }
 
@@ -845,6 +826,7 @@ const fn generate_error_name(value: GenerateErrorCode) -> &'static str {
         GenerateErrorCode::InvalidImage => "WasmpptImageError",
         GenerateErrorCode::InvalidChart => "WasmpptChartError",
         GenerateErrorCode::InvalidRevision => "WasmpptRevisionError",
+        GenerateErrorCode::MacroPresent => "WasmpptMacroPresentError",
         _ => "WasmpptGenerateError",
     }
 }

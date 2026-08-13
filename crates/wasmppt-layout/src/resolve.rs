@@ -24,6 +24,8 @@ use color::{
     parse_theme,
 };
 
+const MARKUP_COMPATIBILITY: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+
 #[derive(Clone, Debug, Default)]
 struct RawShape {
     id: u32,
@@ -1199,8 +1201,32 @@ fn parse_drawing_part(document: &XmlDocument, theme: &Theme) -> ParsedPart {
         }
     }
     let mut groups = Vec::<(usize, GroupTransform)>::new();
+    let mut alternate_content_end = None;
     for (index, token) in document.tokens().iter().enumerate() {
+        if alternate_content_end.is_some_and(|end| index <= end) {
+            continue;
+        }
         match &token.kind {
+            TokenKind::Start { name, .. }
+                if name.local == "AlternateContent"
+                    && name.namespace.is_some_and(|namespace| {
+                        document.namespace(namespace) == MARKUP_COMPATIBILITY
+                    }) =>
+            {
+                if let Some(end) = element_end(document, index) {
+                    if let Some(shape) = parse_alternate_content(
+                        document,
+                        index,
+                        end,
+                        groups.iter().map(|(_, transform)| *transform).collect(),
+                        theme,
+                        &mut parsed.diagnostics,
+                    ) {
+                        parsed.shapes.push(shape);
+                        alternate_content_end = Some(end);
+                    }
+                }
+            }
             TokenKind::Start {
                 name,
                 attributes: _,
@@ -1275,6 +1301,118 @@ fn parse_drawing_part(document: &XmlDocument, theme: &Theme) -> ParsedPart {
     parsed
 }
 
+fn parse_alternate_content(
+    document: &XmlDocument,
+    start: usize,
+    end: usize,
+    groups: Vec<GroupTransform>,
+    theme: &Theme,
+    diagnostics: &mut Vec<(ResolveDiagnosticCode, Option<u32>, String)>,
+) -> Option<RawShape> {
+    let depth = document.tokens()[start].depth + 1;
+    let mut choice = None;
+    let mut fallback = None;
+    for index in start + 1..=end {
+        let token = &document.tokens()[index];
+        let TokenKind::Start { name, .. } = &token.kind else {
+            continue;
+        };
+        if token.depth != depth
+            || name
+                .namespace
+                .is_none_or(|namespace| document.namespace(namespace) != MARKUP_COMPATIBILITY)
+        {
+            continue;
+        }
+        match name.local.as_str() {
+            "Choice" if choice.is_none() => {
+                choice = element_end(document, index).map(|end| (index, end))
+            }
+            "Fallback" if fallback.is_none() => {
+                fallback = element_end(document, index).map(|end| (index, end));
+            }
+            _ => {}
+        }
+    }
+
+    let (choice_start, choice_end) = choice?;
+    let graphic_frames = child_elements(document, choice_start, choice_end, "graphicFrame");
+    let mut smartart_candidates = graphic_frames
+        .iter()
+        .filter_map(|(start, end)| {
+            let mut candidate_diagnostics = Vec::new();
+            let shape = parse_graphic_frame(
+                document,
+                *start,
+                *end,
+                groups.clone(),
+                theme,
+                &mut candidate_diagnostics,
+            );
+            (shape.preserved_graphic == Some(PreservedFeature::SmartArt))
+                .then_some((shape, candidate_diagnostics))
+        })
+        .collect::<Vec<_>>();
+    if smartart_candidates.is_empty() {
+        return None;
+    }
+    let (smartart, smartart_diagnostics) = smartart_candidates.remove(0);
+    if graphic_frames.len() != 1 || !smartart_candidates.is_empty() {
+        diagnostics.extend(smartart_diagnostics);
+        return Some(smartart);
+    }
+
+    let Some((fallback_start, fallback_end)) = fallback else {
+        diagnostics.extend(smartart_diagnostics);
+        return Some(smartart);
+    };
+    let pictures = child_elements(document, fallback_start, fallback_end, "pic");
+    if pictures.len() != 1 {
+        diagnostics.extend(smartart_diagnostics);
+        return Some(smartart);
+    }
+    let mut fallback_diagnostics = Vec::new();
+    let mut picture = parse_shape(
+        document,
+        pictures[0].0,
+        pictures[0].1,
+        groups,
+        theme,
+        &mut fallback_diagnostics,
+    );
+    if picture.image_relationship_id.is_none() {
+        diagnostics.extend(smartart_diagnostics);
+        return Some(smartart);
+    }
+    picture.id = smartart.id;
+    picture.name = smartart.name;
+    picture.alternative_text = smartart.alternative_text.or(picture.alternative_text);
+    picture.preserved_graphic = None;
+    diagnostics.extend(fallback_diagnostics);
+    Some(picture)
+}
+
+fn child_elements(
+    document: &XmlDocument,
+    start: usize,
+    end: usize,
+    local: &str,
+) -> Vec<(usize, usize)> {
+    let minimum_depth = document.tokens()[start].depth + 1;
+    (start + 1..end)
+        .filter_map(|index| {
+            let token = &document.tokens()[index];
+            matches!(
+                &token.kind,
+                TokenKind::Start { name, .. }
+                    if name.local == local && token.depth >= minimum_depth
+            )
+            .then(|| element_end(document, index).map(|end| (index, end)))
+            .flatten()
+        })
+        .collect()
+}
+
 fn parse_graphic_frame(
     document: &XmlDocument,
     start: usize,
@@ -1323,7 +1461,7 @@ fn parse_graphic_frame(
                 diagnostics.push((
                     ResolveDiagnosticCode::UnsupportedSmartArt,
                     Some(shape.id),
-                    "SmartArt data and fallback relationships are preserved but not rendered"
+                    "SmartArt data is preserved but no provably associated fallback image is available"
                         .to_owned(),
                 ));
             }
@@ -3215,6 +3353,113 @@ fn deduplicate_trace(trace: &mut ResolutionTrace) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn smartart_alternate_content(fallback: &str) -> String {
+        format!(
+            r#"<p:sld xmlns:p="p" xmlns:a="a" xmlns:dgm="dgm" xmlns:r="r" xmlns:mc="{MARKUP_COMPATIBILITY}"><p:cSld><p:spTree><mc:AlternateContent><mc:Choice Requires="dgm"><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="8" name="Process" descr="Process diagram"/></p:nvGraphicFramePr><p:xfrm><a:off x="100" y="200"/><a:ext cx="300" cy="400"/></p:xfrm><a:graphic><a:graphicData><dgm:relIds r:dm="rDiagram"/></a:graphicData></a:graphic></p:graphicFrame></mc:Choice>{fallback}</mc:AlternateContent></p:spTree></p:cSld></p:sld>"#,
+        )
+    }
+
+    #[test]
+    fn smartart_uses_only_the_picture_in_its_alternate_content_fallback() {
+        let source = smartart_alternate_content(
+            r#"<mc:Fallback><p:pic><p:nvPicPr><p:cNvPr id="81" name="Preview"/></p:nvPicPr><p:blipFill><a:blip r:embed="rPreview"/><a:srcRect l="1000" t="2000" r="3000" b="4000"/></p:blipFill><p:spPr><a:xfrm><a:off x="500" y="600"/><a:ext cx="700" cy="800"/></a:xfrm></p:spPr></p:pic></mc:Fallback>"#,
+        );
+        let document = XmlDocument::parse(source.into_bytes()).unwrap();
+        let parsed = parse_drawing_part(&document, &Theme::default());
+
+        assert!(parsed.diagnostics.is_empty());
+        assert_eq!(parsed.shapes.len(), 1);
+        let shape = &parsed.shapes[0];
+        assert_eq!(shape.id, 8);
+        assert_eq!(shape.name, "Process");
+        assert_eq!(shape.alternative_text.as_deref(), Some("Process diagram"));
+        assert_eq!(shape.image_relationship_id.as_deref(), Some("rPreview"));
+        assert_eq!(shape.preserved_graphic, None);
+        assert_eq!(
+            shape.transform.unwrap().bounds.origin,
+            EmuPoint { x: 500, y: 600 }
+        );
+        assert_eq!(
+            shape.transform.unwrap().bounds.size,
+            EmuSize {
+                width: 700,
+                height: 800
+            }
+        );
+        assert_eq!(
+            shape.crop,
+            ImageCrop {
+                left: 1_000,
+                top: 2_000,
+                right: 3_000,
+                bottom: 4_000,
+            }
+        );
+    }
+
+    #[test]
+    fn smartart_without_one_provable_fallback_picture_stays_a_placeholder() {
+        for fallback in [
+            "",
+            r#"<mc:Fallback><p:pic><p:nvPicPr><p:cNvPr id="81" name="No relationship"/></p:nvPicPr></p:pic></mc:Fallback>"#,
+            r#"<mc:Fallback><p:pic><p:nvPicPr><p:cNvPr id="81" name="First"/></p:nvPicPr><p:blipFill><a:blip r:embed="rOne"/></p:blipFill></p:pic><p:pic><p:nvPicPr><p:cNvPr id="82" name="Second"/></p:nvPicPr><p:blipFill><a:blip r:embed="rTwo"/></p:blipFill></p:pic></mc:Fallback>"#,
+        ] {
+            let source = smartart_alternate_content(fallback);
+            let document = XmlDocument::parse(source.into_bytes()).unwrap();
+            let parsed = parse_drawing_part(&document, &Theme::default());
+
+            assert_eq!(parsed.shapes.len(), 1);
+            assert_eq!(
+                parsed.shapes[0].preserved_graphic,
+                Some(PreservedFeature::SmartArt)
+            );
+            assert_eq!(parsed.shapes[0].image_relationship_id, None);
+            assert!(parsed.diagnostics.iter().any(|diagnostic| {
+                diagnostic.0 == ResolveDiagnosticCode::UnsupportedSmartArt
+                    && diagnostic.1 == Some(8)
+            }));
+        }
+    }
+
+    #[test]
+    fn alternate_content_that_is_not_smartart_keeps_the_existing_parse_path() {
+        let source = format!(
+            r#"<p:sld xmlns:p="p" xmlns:a="a" xmlns:r="r" xmlns:mc="{MARKUP_COMPATIBILITY}"><p:cSld><p:spTree><mc:AlternateContent><mc:Choice><p:pic><p:nvPicPr><p:cNvPr id="1" name="Choice picture"/></p:nvPicPr><p:blipFill><a:blip r:embed="rChoice"/></p:blipFill></p:pic></mc:Choice><mc:Fallback><p:pic><p:nvPicPr><p:cNvPr id="2" name="Fallback picture"/></p:nvPicPr><p:blipFill><a:blip r:embed="rFallback"/></p:blipFill></p:pic></mc:Fallback></mc:AlternateContent></p:spTree></p:cSld></p:sld>"#,
+        );
+        let document = XmlDocument::parse(source.into_bytes()).unwrap();
+        let parsed = parse_drawing_part(&document, &Theme::default());
+
+        assert_eq!(parsed.shapes.len(), 2);
+        assert_eq!(parsed.shapes[0].name, "Choice picture");
+        assert_eq!(parsed.shapes[1].name, "Fallback picture");
+    }
+
+    #[test]
+    fn ambiguous_smartart_choice_does_not_adopt_its_picture_fallback() {
+        let source = smartart_alternate_content(
+            r#"<mc:Fallback><p:pic><p:nvPicPr><p:cNvPr id="81" name="Preview"/></p:nvPicPr><p:blipFill><a:blip r:embed="rPreview"/></p:blipFill></p:pic></mc:Fallback>"#,
+        )
+        .replace(
+            "</mc:Choice>",
+            r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="9" name="Other frame"/></p:nvGraphicFramePr></p:graphicFrame></mc:Choice>"#,
+        );
+        let document = XmlDocument::parse(source.into_bytes()).unwrap();
+        let parsed = parse_drawing_part(&document, &Theme::default());
+
+        assert_eq!(parsed.shapes.len(), 1);
+        assert_eq!(
+            parsed.shapes[0].preserved_graphic,
+            Some(PreservedFeature::SmartArt)
+        );
+        assert_eq!(parsed.shapes[0].image_relationship_id, None);
+        assert!(
+            parsed
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.0 == ResolveDiagnosticCode::UnsupportedSmartArt)
+        );
+    }
 
     #[test]
     fn parses_every_supported_two_dimensional_chart_family() {

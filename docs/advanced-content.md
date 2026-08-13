@@ -39,9 +39,13 @@ depend on producer-assigned chart part names.
 ## Advanced content policy
 
 Custom geometry, gradient and pattern fills, shadows and effects, SmartArt, animation,
-transitions, 3D, OLE, and VBA are never silently classified as rendered. Their source bytes and
-relationships survive unrelated edits. Stable diagnostic codes describe the missing rendering
-capability, and drawable preserved-graphic regions use labeled placeholders instead of blank
+transitions, 3D, OLE, and VBA are never silently classified as rendered. SmartArt can render an
+authored picture fallback only when one `mc:AlternateContent` container proves the association
+between one diagram choice and one fallback picture. The fallback follows the ordinary bounded,
+lazy image path, including crop, external-resource policy, and visible decode failure behavior.
+The engine does not search unrelated slide or diagram images and does not claim native SmartArt
+layout or editing. If that association is absent or ambiguous, source bytes and relationships
+survive unrelated edits and a stable diagnostic labels the placeholder instead of leaving blank
 space. OLE and VBA are never activated; default POTM conversion strips prohibited active content
 as documented in [high-speed template injection](injection.md).
 
@@ -65,9 +69,12 @@ template crates. The metafile parser and SVG player live in their own lazy Wasm 
 
 ## Verification
 
-The generated two-slide fixture includes a styled table, a column-chart cache linked to a nested
-workbook, SmartArt relationships, an EMF relationship, a transition, animation timing, and 3D
-properties. Rust verifies lazy reachable-part reads, table layout, chart values, workbook linkage,
-atomic edits, and stable diagnostics. The real browser Wasm gate resolves slide two and verifies
-that Canvas and DOM/SVG receive the same semantic kinds and diagnostic codes while rendering table,
-chart, and converted EMF primitives.
+The generated fixture includes a styled table, a column-chart cache linked to a nested workbook,
+SmartArt data/drawing/extensions plus an associated PNG fallback, an EMF relationship, a
+transition, animation timing, and 3D properties. Rust verifies lazy reachable-part reads, exact
+SmartArt payload preservation, fallback bounds/crop/z-order, missing and malformed fallback
+behavior, table layout, chart values, workbook linkage, atomic edits, and stable diagnostics. An
+Apache POI SmartArt fixture independently verifies that a deck without an associated fallback
+stays diagnostic-only even when diagram content contains other images. The real browser Wasm gate
+resolves slide two and verifies that Canvas and DOM/SVG use the same image command while rendering
+the fallback, table, chart, and converted EMF primitives.

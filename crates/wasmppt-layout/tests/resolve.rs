@@ -1,14 +1,34 @@
 use std::sync::Arc;
 
 use wasmppt_layout::{
-    ChartKind, ElementKind, Fill, LayoutErrorCode, PresentationDocument, PreservedFeature,
+    ChartKind, ElementKind, Fill, ImageCrop, LayoutErrorCode, PresentationDocument,
     ResolveDiagnosticCode, RgbaColor, TextAutofit,
 };
-use wasmppt_opc::ZipArchive;
+use wasmppt_opc::{CompressionMethod, EntryOptions, VecSink, ZipArchive, ZipWriter};
 use wasmppt_template::{InjectionData, PreparedTemplate, TemplateCompiler};
 
 const FIXTURE: &[u8] = include_bytes!("../../../fixtures/render/basic.pptx");
 const DOGFOOD_TEMPLATE: &[u8] = include_bytes!("../../../fixtures/dogfood/report.potx");
+
+fn with_external_smartart_preview() -> Vec<u8> {
+    let archive = ZipArchive::from_bytes(FIXTURE.to_vec()).unwrap();
+    let options = EntryOptions::deterministic(CompressionMethod::Deflate);
+    let mut writer = ZipWriter::new(VecSink::new());
+    for entry in archive.entries() {
+        let mut bytes = archive.read_entry(entry).unwrap();
+        if entry.name == "ppt/slides/_rels/slide2.xml.rels" {
+            bytes = String::from_utf8(bytes)
+                .unwrap()
+                .replace(
+                    "Target=\"../media/smartart-preview.png\"",
+                    "Target=\"https://example.invalid/smartart-preview.png\" TargetMode=\"External\"",
+                )
+                .into_bytes();
+        }
+        writer.write_entry(&entry.name, &bytes, &options).unwrap();
+    }
+    writer.finish().unwrap().0.into_inner()
+}
 
 #[test]
 fn layout_errors_preserve_stable_package_and_slide_context() {
@@ -305,14 +325,41 @@ fn reads_tables_chart_caches_and_preserves_advanced_content_explicitly() {
             .contains(&"ppt/embeddings/sales.xlsx".to_owned())
     );
 
-    assert!(output.slide.elements.iter().any(|element| {
-        matches!(
-            element.kind,
-            ElementKind::PreservedGraphic {
-                feature: PreservedFeature::SmartArt
-            }
-        )
-    }));
+    let smartart_preview = output
+        .slide
+        .elements
+        .iter()
+        .find(|element| element.name == "SmartArt")
+        .expect("SmartArt preview element");
+    assert!(matches!(
+        &smartart_preview.kind,
+        ElementKind::Image {
+            relationship_id,
+            part_name: Some(name),
+            crop: ImageCrop {
+                left: 1_000,
+                top: 2_000,
+                right: 3_000,
+                bottom: 4_000,
+            },
+        } if relationship_id == "rSmartArtPreview" && name == "ppt/media/smartart-preview.png"
+    ));
+    assert_eq!(smartart_preview.transform.bounds.origin.x, 5_600_000);
+    assert_eq!(smartart_preview.transform.bounds.origin.y, 4_300_000);
+    assert_eq!(smartart_preview.z_order, 3);
+    assert!(
+        output
+            .trace
+            .visited_parts
+            .contains(&"ppt/media/smartart-preview.png".to_owned())
+    );
+    assert!(output.trace.decoded_media_parts.is_empty());
+    assert!(
+        !output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == ResolveDiagnosticCode::UnsupportedSmartArt)
+    );
     assert!(output.slide.elements.iter().any(|element| {
         matches!(
             &element.kind,
@@ -320,7 +367,6 @@ fn reads_tables_chart_caches_and_preserves_advanced_content_explicitly() {
         )
     }));
     for code in [
-        ResolveDiagnosticCode::UnsupportedSmartArt,
         ResolveDiagnosticCode::UnsupportedAnimation,
         ResolveDiagnosticCode::UnsupportedTransition,
         ResolveDiagnosticCode::UnsupportedThreeD,
@@ -333,6 +379,40 @@ fn reads_tables_chart_caches_and_preserves_advanced_content_explicitly() {
             "missing diagnostic {code:?}"
         );
     }
+}
+
+#[test]
+fn malformed_smartart_preview_relationship_uses_the_standard_image_placeholder() {
+    let output = PresentationDocument::open(with_external_smartart_preview())
+        .unwrap()
+        .resolve_slide(1)
+        .unwrap();
+    let preview = output
+        .slide
+        .elements
+        .iter()
+        .find(|element| element.name == "SmartArt")
+        .unwrap();
+    assert!(matches!(
+        &preview.kind,
+        ElementKind::Image {
+            relationship_id,
+            part_name: None,
+            ..
+        } if relationship_id == "rSmartArtPreview"
+    ));
+    assert!(
+        output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == ResolveDiagnosticCode::MissingImage)
+    );
+    assert!(
+        !output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == ResolveDiagnosticCode::UnsupportedSmartArt)
+    );
 }
 
 #[test]

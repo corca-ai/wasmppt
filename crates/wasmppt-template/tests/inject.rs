@@ -955,6 +955,34 @@ fn chart_injection_updates_cache_and_embedded_workbook_atomically() {
 }
 
 #[test]
+fn unrelated_generation_preserves_smartart_data_drawing_and_extensions_exactly() {
+    let bytes = ADVANCED_FIXTURE.to_vec();
+    let source = ZipArchive::from_bytes(bytes.clone()).unwrap();
+    let plan = TemplateCompiler::new(Default::default())
+        .compile(&source)
+        .unwrap()
+        .plan;
+    let output = PreparedTemplate::new(bytes, plan)
+        .unwrap()
+        .generate(&InjectionData::new())
+        .unwrap();
+    let generated = ZipArchive::from_bytes(output.bytes).unwrap();
+
+    for part_name in [
+        "ppt/diagrams/data1.xml",
+        "ppt/diagrams/_rels/data1.xml.rels",
+        "ppt/diagrams/drawing1.xml",
+        "ppt/media/smartart-preview.png",
+    ] {
+        let expected = source.read_entry(source.entry(part_name).unwrap()).unwrap();
+        let actual = generated
+            .read_entry(generated.entry(part_name).unwrap())
+            .unwrap();
+        assert_eq!(actual, expected, "{part_name} changed during generation");
+    }
+}
+
+#[test]
 fn chart_injection_uses_stable_alt_text_metadata_instead_of_part_names() {
     let bytes = named_chart_template();
     let archive = ZipArchive::from_bytes(bytes.clone()).unwrap();

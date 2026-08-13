@@ -88,9 +88,11 @@ paragraph/run-preserving rich text, linear gradients, bounded custom
 paths, outer shadows, connectors, and arrowheads. Version 3 extends `DrawText` with the
 effective text-frame style and adds an
 explicit preserved-graphic placeholder command. Version 1 and 2 scenes still decode
-with documented defaults. Unsupported SmartArt, OLE, and graphic frames no longer become
-invisible regions: backends draw a labeled placeholder while retaining the diagnostic and
-untouched source package. EMF/WMF pictures remain ordinary image commands and retain their
+with documented defaults. SmartArt with one picture fallback provably paired by
+`mc:AlternateContent` lowers to the ordinary image command, so Canvas and DOM/SVG share its
+bounds, crop, z-order, lazy resource policy, and failure fallback. SmartArt without that authored
+association, OLE, and unknown graphic frames remain labeled placeholders with diagnostics and an
+untouched source package; no native SmartArt layout or edit support is implied. EMF/WMF pictures remain ordinary image commands and retain their
 package part name. A separate Wasm module converts those bytes to dimensioned SVG only when
 an image resolver requests them; Canvas decodes the SVG through an HTML image and DOM/SVG
 uses it as an image resource.

@@ -18,7 +18,7 @@
     { "id": "gradients-patterns", "read": "linear-radial-path-pattern", "preserve": "yes", "edit": "no", "render": "canvas-svg" },
     { "id": "shadows-effects", "read": "outer-shadow-effect-dag-detected", "preserve": "yes", "edit": "no", "render": "outer-shadow-canvas-svg" },
     { "id": "connectors-line-ends", "read": "preset-and-five-line-ends", "preserve": "yes", "edit": "no", "render": "canvas-svg" },
-    { "id": "smartart", "read": "relationships-detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
+    { "id": "smartart", "read": "relationships-and-alternate-content-fallback-detected", "preserve": "yes", "edit": "no", "render": "associated-image-fallback-or-diagnostic" },
     { "id": "emf-wmf", "read": "bounded-record-parser", "preserve": "yes", "edit": "no", "render": "lazy-wasm-svg-common-records" },
     { "id": "animation", "read": "detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },
     { "id": "transition", "read": "detected", "preserve": "yes", "edit": "no", "render": "diagnostic-only" },

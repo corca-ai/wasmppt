@@ -31,7 +31,7 @@
     {
       "id": "render-basic-pptx",
       "path": "fixtures/render/basic.pptx",
-      "sha256": "c4abd85d152b0e7cc3dc058bcec05b8a49ef698a6d37d9b7fc1e29ad5ec9da6e",
+      "sha256": "782949b7afa685324070abf005988667cfdc2b6b6e2d822af32f75de9d03e71b",
       "provenance": "generated-in-repository",
       "generator": "cargo run -p wasmppt-native --example write_render_fixture -- fixtures/render/basic.pptx",
       "license": "Apache-2.0",
@@ -74,6 +74,14 @@
       "id": "apache-poi-bar-chart-pptx",
       "url": "https://raw.githubusercontent.com/apache/poi/fe4184d649c0f7950e3a610c7dbc0591b7a52e3e/test-data/slideshow/bar-chart.pptx",
       "sha256": "79e1d218bfb2903e8dc8425a6b1997d9c1976f5a5f025bada85b0c47b5777969",
+      "provenance": "apache-poi-test-data-pinned-commit",
+      "license": "Apache-2.0",
+      "redistribution": "fetch-only"
+    },
+    {
+      "id": "apache-poi-smartart-simple-pptx",
+      "url": "https://raw.githubusercontent.com/apache/poi/fe4184d649c0f7950e3a610c7dbc0591b7a52e3e/test-data/slideshow/smartart-simple.pptx",
+      "sha256": "238ff6433dac00b2722edb9a29d97f56ab4f3c9c37f33a73d6f53baf494916aa",
       "provenance": "apache-poi-test-data-pinned-commit",
       "license": "Apache-2.0",
       "redistribution": "fetch-only"

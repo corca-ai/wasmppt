@@ -368,11 +368,16 @@ jobs:
             target/compat/SampleShow.pptx \
             target/compat/WithMaster.pptx \
             target/compat/bar-chart.pptx \
+            target/compat/smartart-simple.pptx \
             target/compat/LIBRE_OFFICE-100610-0.pptx
           do
             cargo run --locked -p wasmppt-cli -- validate "$deck"
             cargo run --locked -p wasmppt-cli -- resolve "$deck" 0
           done
+          cargo run --locked -p wasmppt-cli -- resolve \
+            target/compat/smartart-simple.pptx 0 2>&1 \
+            | tee target/compat/smartart-simple.resolve.txt
+          grep 'unsupported-smart-art' target/compat/smartart-simple.resolve.txt
 
   licenses:
     name: Security / dependency policy

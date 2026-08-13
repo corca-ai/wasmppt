@@ -108,7 +108,9 @@ before registering exact `FontFace` bytes. Hosts may additionally load the indep
 `wasmppt-shaper-wasm` artifact: its HarfRust pipeline returns deterministic font-unit advances,
 offsets, glyph IDs, UTF-8 clusters, and safe-break flags which are retained in the shared layout
 plan. Its request identity also covers language, script, OpenType features, and variation
-coordinates. General effect DAGs and native SmartArt drawing remain incomplete.
+coordinates. An authored SmartArt picture fallback uses this same image path only when its
+`mc:AlternateContent` association is unambiguous; native SmartArt layout and drawing remain
+unsupported.
 Common editable 2D text paint covers solid/linear/radial/pattern fills, outlines, inner/outer
 shadows, glow, blur, soft edges, a bounded reflection, and arch, wave, inflate, and deflate warp
 presets. Unsupported effect-DAG nodes retain

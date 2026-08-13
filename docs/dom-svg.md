@@ -65,8 +65,9 @@ change aborts stale work, and `dispose()` removes every mounted slide and cached
 ## Deliberate limits
 
 Optional exact font-byte shaping is supplied by the separately loaded Rustybuzz Wasm module and
-retained on the same positioned run plan used by Canvas. General effect DAGs and native SmartArt
-rendering remain unsupported.
+retained on the same positioned run plan used by Canvas. An unambiguously associated SmartArt
+picture fallback is emitted through the same image command as Canvas. General effect DAGs and
+native SmartArt layout and rendering remain unsupported.
 Both rendering backends preserve the package
 source and surface the same explicit diagnostic and visible placeholder for unsupported graphics
 rather than silently dropping content.

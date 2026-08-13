@@ -2,6 +2,22 @@ use std::{env, fs, path::PathBuf};
 
 use wasmppt_opc::{CompressionMethod, EntryOptions, VecSink, ZipWriter};
 
+const SMARTART_PREVIEW_PNG: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x10, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0xf3, 0xff,
+    0x61, 0x00, 0x00, 0x00, 0x4b, 0x49, 0x44, 0x41, 0x54, 0x78, 0x01, 0xec, 0x90, 0xc1, 0x09, 0x00,
+    0x20, 0x0c, 0x03, 0x83, 0x4b, 0xb8, 0x93, 0x4e, 0xe4, 0x02, 0x3a, 0x91, 0x3b, 0xe9, 0x14, 0xfa,
+    0x4f, 0xa1, 0x7d, 0xf4, 0x61, 0x1f, 0x16, 0xf2, 0x08, 0x94, 0x90, 0x4b, 0x2a, 0x7d, 0x1d, 0x8f,
+    0x12, 0x9c, 0x17, 0x30, 0x60, 0xb6, 0x0c, 0x4d, 0x4c, 0x1c, 0x10, 0x81, 0x2b, 0x5a, 0xfe, 0x23,
+    0x00, 0x62, 0x83, 0x3a, 0x36, 0x34, 0xf1, 0xa8, 0x22, 0x80, 0x1f, 0x2c, 0xff, 0x3e, 0xe0, 0x02,
+    0x00, 0x00, 0xff, 0xff, 0x88, 0x05, 0x66, 0x11, 0x00, 0x00, 0x00, 0x06, 0x49, 0x44, 0x41, 0x54,
+    0x03, 0x00, 0x36, 0x1b, 0x43, 0x91, 0x2f, 0x0d, 0x3f, 0x96, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+    0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+const SMARTART_FRAME: &str = r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="8" name="SmartArt"/></p:nvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/diagram"><dgm:relIds r:dm="rDiagram"/></a:graphicData></a:graphic></p:graphicFrame>"#;
+const SMARTART_ALTERNATE_CONTENT: &str = r#"<mc:AlternateContent><mc:Choice Requires="dgm"><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="8" name="SmartArt" descr="SmartArt process preview"/></p:nvGraphicFramePr><p:xfrm><a:off x="5600000" y="4300000"/><a:ext cx="2500000" cy="1800000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/diagram"><dgm:relIds r:dm="rDiagram"/></a:graphicData></a:graphic></p:graphicFrame></mc:Choice><mc:Fallback><p:pic><p:nvPicPr><p:cNvPr id="80" name="SmartArt preview image"/></p:nvPicPr><p:blipFill><a:blip r:embed="rSmartArtPreview"/><a:srcRect l="1000" t="2000" r="3000" b="4000"/></p:blipFill><p:spPr><a:xfrm><a:off x="5600000" y="4300000"/><a:ext cx="2500000" cy="1800000"/></a:xfrm></p:spPr></p:pic></mc:Fallback></mc:AlternateContent>"#;
+
 fn main() {
     let output = env::args_os()
         .nth(1)
@@ -15,7 +31,7 @@ fn main() {
     let entries: [(&str, &[u8]); 18] = [
         (
             "[Content_Types].xml",
-            br#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/></Types>"#,
+            br#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/><Default Extension="emf" ContentType="image/x-emf"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/diagrams/data1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.diagramData+xml"/><Override PartName="/ppt/diagrams/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.diagramDrawing+xml"/></Types>"#,
         ),
         (
             "_rels/.rels",
@@ -87,10 +103,57 @@ fn main() {
         ),
     ];
     for (name, bytes) in entries {
+        let rewritten;
+        let bytes = if name == "ppt/slides/slide2.xml" {
+            rewritten = std::str::from_utf8(bytes)
+                .unwrap()
+                .replace(
+                    "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"",
+                    "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\"",
+                )
+                .replace(SMARTART_FRAME, SMARTART_ALTERNATE_CONTENT);
+            rewritten.as_bytes()
+        } else if name == "ppt/slides/_rels/slide2.xml.rels" {
+            rewritten = std::str::from_utf8(bytes).unwrap().replace(
+                "</Relationships>",
+                "<Relationship Id=\"rDiagram\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramData\" Target=\"../diagrams/data1.xml\"/><Relationship Id=\"rSmartArtPreview\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/smartart-preview.png\"/></Relationships>",
+            );
+            rewritten.as_bytes()
+        } else {
+            bytes
+        };
         writer
             .write_entry(name, bytes, &options)
             .expect("write fixture entry");
     }
+    writer
+        .write_entry(
+            "ppt/diagrams/data1.xml",
+            br#"<dgm:dataModel xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><dgm:ptLst/><dgm:cxnLst/><dgm:extLst><dgm:ext uri="urn:wasmppt:opaque-smartart-extension"><future:payload xmlns:future="urn:wasmppt:future">preserve exactly</future:payload></dgm:ext></dgm:extLst></dgm:dataModel>"#,
+            &options,
+        )
+        .expect("write SmartArt data");
+    writer
+        .write_entry(
+            "ppt/diagrams/_rels/data1.xml.rels",
+            br#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rDrawing" Type="http://schemas.microsoft.com/office/2007/relationships/diagramDrawing" Target="drawing1.xml"/></Relationships>"#,
+            &options,
+        )
+        .expect("write SmartArt data relationships");
+    writer
+        .write_entry(
+            "ppt/diagrams/drawing1.xml",
+            br#"<dsp:drawing xmlns:dsp="http://schemas.microsoft.com/office/drawing/2008/diagram"><dsp:spTree future="preserve"/></dsp:drawing>"#,
+            &options,
+        )
+        .expect("write SmartArt drawing");
+    writer
+        .write_entry(
+            "ppt/media/smartart-preview.png",
+            SMARTART_PREVIEW_PNG,
+            &EntryOptions::deterministic(CompressionMethod::Stored),
+        )
+        .expect("write SmartArt preview");
     writer
         .write_entry(
             "ppt/theme/theme1.xml",

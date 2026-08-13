@@ -240,7 +240,7 @@ try {
   })
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto(`http://127.0.0.1:${address.port}/`)
-  const result = await page.evaluate(async () => {
+  const result = await page.evaluate(async (smartartRegion) => {
     const { WasmpptWorkerClient } = await import('/dist/worker-client.js')
     const { encodeInjectionData } = await import('/dist/injection.js')
     const {
@@ -560,8 +560,13 @@ try {
     }
     const advancedTelemetry = await renderer.render(advancedScene, advancedContext, {
       imageResolver: async (image, signal) => {
-        const bytes = await loadMetafileSvg(image, signal)
-        return decodeSvgImage(bytes, signal)
+        if (image.partName?.match(/\.(?:emf|wmf)$/i)) {
+          const bytes = await loadMetafileSvg(image, signal)
+          return decodeSvgImage(bytes, signal)
+        }
+        if (image.partName === undefined) throw new Error('image part is missing')
+        const bytes = await client.presentationResource(opened.handle, image.partName, { signal })
+        return decodeRasterImage(bytes, {}, signal)
       },
     })
     const advancedPixels = advancedContext.getImageData(
@@ -571,7 +576,9 @@ try {
       advancedCanvas.height,
     ).data
     let advancedColoredPixels = 0
+    let smartartColoredPixels = 0
     let advancedPixelHash = 0x811c9dc5
+    const [smartartX, smartartY, smartartWidth, smartartHeight] = smartartRegion
     for (let offset = 0; offset < advancedPixels.length; offset += 4) {
       advancedPixelHash = Math.imul(advancedPixelHash ^ advancedPixels[offset], 0x01000193) >>> 0
       advancedPixelHash = Math.imul(advancedPixelHash ^ advancedPixels[offset + 1], 0x01000193) >>> 0
@@ -581,7 +588,14 @@ try {
         advancedPixels[offset] !== 255 ||
         advancedPixels[offset + 1] !== 255 ||
         advancedPixels[offset + 2] !== 255
-      ) advancedColoredPixels += 1
+      ) {
+        advancedColoredPixels += 1
+        const pixel = offset / 4
+        const x = pixel % advancedCanvas.width
+        const y = Math.floor(pixel / advancedCanvas.width)
+        if (x >= smartartX && x < smartartX + smartartWidth &&
+            y >= smartartY && y < smartartY + smartartHeight) smartartColoredPixels += 1
+      }
     }
     const advancedDomHost = document.createElement('div')
     document.body.append(advancedDomHost)
@@ -589,10 +603,14 @@ try {
       revision: 1,
       slideIndex: 1,
       imageResolver: async (image, signal) => {
-        const bytes = new Uint8Array(await loadMetafileSvg(image, signal))
+        const metafile = image.partName?.match(/\.(?:emf|wmf)$/i)
+        if (image.partName === undefined) throw new Error('image part is missing')
+        const bytes = new Uint8Array(metafile
+          ? await loadMetafileSvg(image, signal)
+          : await client.presentationResource(opened.handle, image.partName, { signal }))
         let binary = ''
         for (const byte of bytes) binary += String.fromCharCode(byte)
-        return `data:image/svg+xml;base64,${btoa(binary)}`
+        return `data:${metafile ? 'image/svg+xml' : 'image/png'};base64,${btoa(binary)}`
       },
     })
     const advancedFacts = {
@@ -603,6 +621,7 @@ try {
         : command.kind === 'draw-text' ? [advancedScene.strings[command.text]] : []),
       diagnosticCodes: advancedScene.diagnostics.map((diagnostic) => diagnostic.code),
       coloredPixels: advancedColoredPixels,
+      smartartColoredPixels,
       pixelHash: advancedPixelHash.toString(16).padStart(8, '0'),
       commandCount: advancedTelemetry.commandCount,
       svgPathCount: advancedDomHost.querySelectorAll('path').length,
@@ -889,7 +908,7 @@ try {
         breakTokens: exactBreakTokens,
       },
     }
-  })
+  }, featureRegions.smartart)
   assert.equal(result.transferredByteLength, 0, 'template ArrayBuffer was cloned, not transferred')
   const sortedWarmSamples = result.warmInjectionSamplesMs.toSorted((left, right) => left - right)
   const warmP50Ms = sortedWarmSamples[Math.ceil(sortedWarmSamples.length * 0.5) - 1]
@@ -949,11 +968,10 @@ try {
   assert(result.telemetry.mediaDecodeMs >= 0)
   assert(result.advancedFacts.semanticKinds.includes('table'))
   assert(result.advancedFacts.semanticKinds.includes('chart'))
-  assert(result.advancedFacts.semanticKinds.includes('preserved-graphic'))
+  assert(result.advancedFacts.semanticKinds.includes('image'))
   assert(result.advancedFacts.textRuns.includes('Quarter'))
   assert(result.advancedFacts.textRuns.includes('42'))
   for (const code of [
-    'unsupported-smartart',
     'unsupported-animation',
     'unsupported-transition',
     'unsupported-3d',
@@ -965,8 +983,9 @@ try {
     result.advancedFacts.diagnosticCodes,
   )
   assert(result.advancedFacts.coloredPixels > 10_000)
+  assert(result.advancedFacts.smartartColoredPixels > 1_000)
   assert(result.advancedFacts.metafileSvgBytes > 0)
-  assert.equal(result.advancedFacts.inlineImages, 1)
+  assert.equal(result.advancedFacts.inlineImages, 2)
   assert(result.advancedFacts.commandCount > 10)
   assert(result.advancedFacts.svgPathCount > 10)
   assert(result.fidelityFacts.commandCount >= 13)
@@ -1107,6 +1126,7 @@ try {
       { id: 'shapes', slideIndex: 1, region: featureRegions.shapes, metric: 'minimum-colored-pixels', actual: result.advancedFacts.coloredPixels, tolerance: 10_000, passed: result.advancedFacts.coloredPixels > 10_000 },
       { id: 'raster-images', slideIndex: 0, region: featureRegions['raster-images'], metric: 'sampled-pixel-differences', actual: sampledPixelDifferences, tolerance: 0, passed: sampledPixelDifferences === 0 },
       { id: 'charts', slideIndex: 1, region: featureRegions.charts, metric: 'minimum-svg-paths', actual: result.advancedFacts.svgPathCount, tolerance: 10, passed: result.advancedFacts.svgPathCount > 10 },
+      { id: 'smartart', slideIndex: 1, region: featureRegions.smartart, metric: 'minimum-fallback-image-pixels', actual: result.advancedFacts.smartartColoredPixels, tolerance: 1_000, passed: result.advancedFacts.smartartColoredPixels > 1_000 },
       { id: 'metafiles', slideIndex: 1, region: featureRegions.metafiles, metric: 'minimum-converted-bytes', actual: result.advancedFacts.metafileSvgBytes, tolerance: 1, passed: result.advancedFacts.metafileSvgBytes > 0 },
       ...fidelityFeatureDefinitions.map((feature) => ({
         id: feature.id,

@@ -10,6 +10,7 @@
         { "id": "raster-images", "slideIndex": 0, "region": [280, 80, 61, 1] },
         { "id": "shapes", "slideIndex": 1, "region": [0, 0, 640, 360] },
         { "id": "charts", "slideIndex": 1, "region": [0, 0, 640, 360] },
+        { "id": "smartart", "slideIndex": 1, "region": [294, 226, 131, 94] },
         { "id": "metafiles", "slideIndex": 1, "region": [0, 0, 640, 360] },
         { "id": "shape-autofit", "slideIndex": 2, "region": [20, 15, 180, 55] },
         { "id": "normal-autofit", "slideIndex": 2, "region": [220, 15, 180, 55] },

@@ -278,6 +278,7 @@ export async function serializeOfflineHtmlDocument(
       })
       const root = rendered.root
       root.classList.add('wasmppt-offline-page')
+      root.setAttribute('role', 'listitem')
       root.dataset['revision'] = String(revision)
       root.dataset['pageId'] = page.page.pageId
       root.dataset['logicalSlideId'] = page.page.logicalSlideId
@@ -366,7 +367,7 @@ function standaloneDocument(input: {
     'form-action \'none\'">' +
     `<meta name="wasmppt-page-size" content="${input.widthEmu}x${input.heightEmu}">` +
     `<title>${escapeText(input.title)}</title><style>${style}</style></head><body>` +
-    `<main class="wasmppt-offline-deck" data-page-count="${input.pages.length}">` +
+    `<main class="wasmppt-offline-deck" data-page-count="${input.pages.length}" role="list">` +
     input.pages.join('') +
     '</main></body></html>\n'
 }

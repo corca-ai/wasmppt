@@ -742,6 +742,13 @@ try {
       deckResolveIndices,
       deckPhysicalIndices: [...deckOfflineDocument.querySelectorAll('[data-physical-slide-index]')]
         .map((element) => Number(element.dataset.physicalSlideIndex)),
+      deckRole: offlineDocument.querySelector('.wasmppt-offline-deck')?.getAttribute('role'),
+      pageSetSemantics: [...offlineDocument.querySelectorAll('.wasmppt-offline-page')]
+        .map((element) => ({
+          role: element.getAttribute('role'),
+          position: element.getAttribute('aria-posinset'),
+          size: element.getAttribute('aria-setsize'),
+        })),
       readingOrderPreserved: readingOrders.every(
         (value, index) => index === 0 || readingOrders[index - 1] <= value,
       ),
@@ -1358,6 +1365,11 @@ try {
   assert(result.offlineFacts.advancedKinds.includes('chart'))
   assert.deepEqual(result.offlineFacts.deckResolveIndices, [0, 2])
   assert.deepEqual(result.offlineFacts.deckPhysicalIndices, [0, 2])
+  assert.equal(result.offlineFacts.deckRole, 'list')
+  assert.deepEqual(result.offlineFacts.pageSetSemantics, [
+    { role: 'listitem', position: '1', size: '2' },
+    { role: 'listitem', position: '2', size: '2' },
+  ])
   assert.equal(result.offlineFacts.readingOrderPreserved, true)
   assert.equal(result.offlineFacts.safeLink, 'https://example.com/report')
   assert.equal(result.offlineFacts.scripts, 0)

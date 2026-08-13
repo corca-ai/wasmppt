@@ -88,6 +88,8 @@ image/font loaders, host HTML, and output-specific CSS overrides are outside thi
 already own exact WPDL and `DeckPageMetadata`. Identical inputs and resource bytes serialize to
 identical UTF-8 bytes in the supported browser. `OfflineDocumentError.code` distinguishes invalid
 document topology, unresolved resources, unsafe resources, and resource-limit failures.
+The standalone deck is an accessible list whose slide list items carry their valid set position
+and size, while retaining the slide roledescription from the shared DOM projection.
 
 ## Incremental DOM primitive
 

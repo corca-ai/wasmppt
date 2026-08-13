@@ -145,9 +145,16 @@ is not exposed until its package semantics can be implemented and validated end 
 Unknown parts and unsupported XML are not normalized. If an unrelated entry is not dirty,
 its compressed bytes survive verbatim.
 
+Generated slides always have a deterministic opaque background for compatibility with consumers
+that render an unspecified PresentationML background as transparent. The generator preserves an
+existing slide, layout, or master background. Only when the complete inheritance chain has no
+`p:bg` does it add an explicit white background at the available master or layout level, falling
+back to the generated slide when no inheritance part exists.
+
 ## Validation
 
-Rust tests cover WPPD v1/v2, POTX, Strict POTX targeted editing, synthetic POTM stripping, split-run text, escaping, Unicode, image
+Rust tests cover WPPD v1/v2, POTX, Strict POTX targeted editing, synthetic POTM stripping,
+explicit and inherited background preservation, missing-background defaulting, split-run text, escaping, Unicode, image
 media/relationships/crops/content types, repeated table rows, deterministic slide clones,
 slide exclusion, hyperlinks, notes, opaque parts, malformed bindings, and a non-seekable
 sink, semantic conditions/repetition/rich text, named chart bindings, explicit table overflow,

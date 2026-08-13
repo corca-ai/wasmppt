@@ -43,6 +43,24 @@ fn validates_a_complete_source_ordered_plan() {
 }
 
 #[test]
+fn validates_whole_fragments_for_splittable_nodes_that_fit_one_region() {
+    let spec = simple_spec();
+    let template = template_plan();
+    let mut plan = valid_plan(&spec, &template);
+    let content = &spec.logical_slides[1];
+
+    plan.pages[1].regions[0].fragments =
+        vec![fragment(content.nodes[0].id, FragmentSlice::Whole, 600_000)];
+    plan.pages[2].regions[0].fragments = vec![fragment(
+        content.nodes[1].id,
+        FragmentSlice::Whole,
+        1_600_000,
+    )];
+
+    assert!(validate_deck_plan(&spec, &template, &plan, &DeckLimits::default()).is_valid());
+}
+
+#[test]
 fn reports_each_plan_integrity_failure_with_a_stable_code() {
     let spec = simple_spec();
     let template = template_plan();

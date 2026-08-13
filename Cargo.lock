@@ -589,6 +589,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasmppt-deck-layout"
+version = "0.0.0"
+dependencies = [
+ "proptest",
+ "sha2",
+ "wasmppt-deck",
+ "wasmppt-shaper",
+]
+
+[[package]]
 name = "wasmppt-deck-template"
 version = "0.0.0"
 dependencies = [

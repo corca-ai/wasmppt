@@ -20,6 +20,8 @@ This is the canonical index for living `wasmppt` documentation.
   physical plans, stable identities, exact-ownership validation, and binary boundaries.
 - [Cortex Theme Starter compiler](deck-template.md) — explicit POTX layout contract,
   resolved template profiles, active-content policy, and deterministic cache identity.
+- [Semantic layout and pagination](deck-layout.md) — bounded candidate search, exact font
+  measurement, authored content relations, continuation policy, and deterministic plans.
 - [High-speed template injection](injection.md) — prepared warm generation,
   text, images, tables, slides, macro stripping, streaming, and validation.
 - [Live editing and incremental preview](live-editing.md) — revisioned deltas,

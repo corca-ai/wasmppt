@@ -74,8 +74,16 @@ theme, layout, master, media, chart, or other reachable dependency. See
 - semantic command ranges for source shape IDs, reading order, accessible names, and links;
 - resolver diagnostics shared without reinterpretation by every rendering backend.
 
-WPDL version 5 adds RTL/tab/vertical text metadata, decoration and spacing, curved custom
-paths, radial gradients, patterns, and the expanded preset set. WPDL version 4 adds
+WPDL version 9 distinguishes source-faithful normal-AutoFit hints from live-edited recomputation.
+WPDL version 8 separates inner text shadows from outer shadows while retaining the complete v7
+contract. WPDL version 7 adds typed paragraph spacing, authored normal-AutoFit hints, shape-resize AutoFit,
+columns, embedded-font resources, and common editable-text effects including outlines, shadows,
+glow, blur, soft edges, and reflection. Character and common automatic
+numbering markers remain semantic paragraph data; picture bullets carry their lazy image
+relationship and use the same bounded media resolver as ordinary images. Positioned runs expose
+paragraph-local UTF-16 source ranges to selection and accessibility consumers. It retains the RTL/tab/vertical
+text metadata, decoration and spacing, curved custom paths, radial gradients, patterns, and the
+expanded preset set introduced by version 5. WPDL version 4 adds
 paragraph/run-preserving rich text, linear gradients, bounded custom
 paths, outer shadows, connectors, and arrowheads. Version 3 extends `DrawText` with the
 effective text-frame style and adds an

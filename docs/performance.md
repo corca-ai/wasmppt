@@ -55,9 +55,11 @@ artifacts, fixture hashes, CPU/RAM/OS/runtime, iteration count,
 release profile, and compression configuration. Browser and workerd reports retain their own raw
 warm samples because host scheduling cannot honestly be folded into a native headline.
 
-The primary scalar Wasm size excludes the optional metafile converter. EMF/WMF presentations load
-the separately reported converter artifact on first use; presentations without metafiles neither
-fetch nor instantiate it. Both sizes remain visible so optional capability cost is not hidden.
+The primary scalar Wasm size excludes the optional metafile converter and exact-font shaper.
+EMF/WMF presentations load the separately reported converter artifact on first use. Applications
+load the HarfRust shaper only when exact font bytes are available and explicitly configured.
+Presentations using neither capability do not fetch or instantiate either module. All artifact
+sizes remain visible so optional capability cost is not hidden.
 
 ## Release budgets
 

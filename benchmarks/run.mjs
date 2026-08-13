@@ -62,6 +62,8 @@ liveOperations.peakResidentBytes = operationMeasured.peakResidentBytes
 
 const wasmPath = resolve(root, 'packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm')
 const wasmBytes = (await stat(wasmPath)).size
+const metafileWasmBytes = (await stat(resolve(root, 'packages/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm_bg.wasm'))).size
+const shaperWasmBytes = (await stat(resolve(root, 'packages/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm_bg.wasm'))).size
 const trackedChanges = execFileSync(
   'git',
   ['status', '--porcelain', '--untracked-files=no'],
@@ -87,7 +89,7 @@ const report = {
     runtimes: { node: process.version, rustc: output('rustc', ['--version']) },
   },
   configuration: { profile: 'release', wasmProfile: 'wasm-release', compression: fixtureContract.compression, iterations },
-  artifacts: { scalarWasmBytes: wasmBytes },
+  artifacts: { scalarWasmBytes: wasmBytes, metafileWasmBytes, shaperWasmBytes },
   results,
   liveOperations,
 }
@@ -139,6 +141,8 @@ function enforceNativeBudget(benchmarkReport, allBudgets) {
   assert(result.zip.rawCopiedEntries >= budget.minimumRawCopiedEntries)
   assert(result.zip.inflatedEntries <= budget.maximumInflatedEntries)
   assert(benchmarkReport.artifacts.scalarWasmBytes <= allBudgets.browserScalarWasm.maximumBinaryBytes)
+  assert(benchmarkReport.artifacts.metafileWasmBytes <= allBudgets.browserScalarWasm.maximumMetafileBinaryBytes)
+  assert(benchmarkReport.artifacts.shaperWasmBytes <= allBudgets.browserScalarWasm.maximumShaperBinaryBytes)
   for (const [slides, limits] of Object.entries(allBudgets.nativeLive)) {
     const live = benchmarkReport.results.find((entry) => entry.scenario === 'mixed' && entry.slides === Number(slides))
     assert(live, `missing live-editing budget fixture mixed-${slides}`)

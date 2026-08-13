@@ -714,6 +714,10 @@ impl PackagePartSource for PreparedOverlay {
         self.names.contains(name)
     }
 
+    fn is_modified(&self, name: &str) -> bool {
+        self.overrides.contains_key(name)
+    }
+
     fn read_part(&self, name: &str) -> wasmppt_opc::Result<Vec<u8>> {
         if !self.names.contains(name) {
             return Err(PackageError::new(

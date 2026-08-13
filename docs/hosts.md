@@ -1,7 +1,7 @@
 # Runtime Host Adapters
 
 The native, browser, and Cloudflare Workers adapters expose the same Rust engine without
-allowing host APIs into the seven core crates. The executable contract is the shared
+allowing host APIs into the host-agnostic core crates. The executable contract is the shared
 `fixtures/host-adapters/minimal.potx` fixture: CI opens and generates it through native
 file capabilities, a real Chrome module Worker, and the `workerd` runtime.
 
@@ -34,6 +34,14 @@ The browser Worker dynamically imports and instantiates it only for a
 `presentation-metafile-svg` request. Its host-agnostic converter accepts at most 8 MiB of
 metafile input and returns at most 32 MiB of SVG. This keeps ordinary presentation startup
 and the generation-only Cloudflare adapter free of the parser and SVG player code.
+
+Exact font-byte shaping follows the same optional-artifact rule. `wasmppt-shaper-wasm` contains
+HarfRust and accepts a bounded font, face index, language, script, OpenType features, variation
+coordinates, direction, and UTF-8 string. It also emits bounded UAX #14 line-break offsets. Shaping
+returns a compact
+versioned `WPSH` run containing font units, glyph IDs, advances, offsets, clusters, and safe-break
+flags. The browser loads it only when an application configures `WasmFontShaper`; generation-only
+Cloudflare requests never fetch or instantiate it.
 
 The scalar artifact is always correct. SIMD and threads are reported as optional runtime
 capabilities; neither changes document semantics or enables a code path without a scalar

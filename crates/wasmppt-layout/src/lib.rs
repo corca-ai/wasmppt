@@ -141,6 +141,7 @@ pub enum TextAlignment {
     Center,
     Right,
     Justify,
+    Distributed,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -176,9 +177,27 @@ pub enum TextTabAlignment {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TextFontAlignment {
+    #[default]
+    Automatic,
+    Top,
+    Center,
+    Baseline,
+    Bottom,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ResolvedTextTab {
     pub position: Emu,
     pub alignment: TextTabAlignment,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextSpacing {
+    /// DrawingML percentage in thousandths of a percent.
+    Percent(i32),
+    /// DrawingML point value in hundredths of a point.
+    Points(i32),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -195,6 +214,14 @@ pub struct ResolvedTextStyle {
     pub character_spacing: i32,
     /// DrawingML baseline shift in thousandths of a percent.
     pub baseline: i32,
+    pub outline: Option<Stroke>,
+    pub shadow: Option<OuterShadow>,
+    pub inner_shadow: Option<OuterShadow>,
+    pub fill: Option<Fill>,
+    pub glow: Option<TextGlow>,
+    pub blur_radius: Emu,
+    pub soft_edge_radius: Emu,
+    pub reflection: bool,
     pub alignment: TextAlignment,
     pub vertical_alignment: TextVerticalAlignment,
     pub margin_left: Emu,
@@ -212,6 +239,13 @@ pub enum TextAutofit {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TextWarp {
+    pub preset: String,
+    /// First DrawingML adjustment in thousandths of a percent.
+    pub adjustment: i32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedTextRun {
     pub text: String,
     pub style: ResolvedTextStyle,
@@ -224,15 +258,23 @@ pub struct ResolvedParagraph {
     pub runs: Vec<ResolvedTextRun>,
     pub alignment: TextAlignment,
     pub bullet: Option<String>,
+    pub bullet_image: Option<ResolvedBulletImage>,
+    pub bullet_style: Option<ResolvedTextStyle>,
     pub level: u8,
     pub margin_left: Emu,
     pub indent: Emu,
-    /// DrawingML percentage in thousandths of a percent, when present.
-    pub line_spacing: Option<i32>,
-    pub space_before: Option<i32>,
-    pub space_after: Option<i32>,
+    pub line_spacing: Option<TextSpacing>,
+    pub space_before: Option<TextSpacing>,
+    pub space_after: Option<TextSpacing>,
     pub direction: TextDirection,
     pub tabs: Vec<ResolvedTextTab>,
+    pub font_alignment: TextFontAlignment,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedBulletImage {
+    pub relationship_id: String,
+    pub part_name: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -245,7 +287,17 @@ pub struct ResolvedTextFrame {
     pub margin_bottom: Emu,
     pub wrap: bool,
     pub autofit: TextAutofit,
+    /// Stored `a:normAutofit` scale in thousandths of a percent.
+    pub autofit_font_scale: Option<i32>,
+    /// Stored percentage line-spacing reduction in thousandths of a percent.
+    pub autofit_line_spacing_reduction: Option<i32>,
+    /// Recompute the largest fit because this logical slide revision changed its source text.
+    pub autofit_recompute: bool,
     pub flow: TextFlow,
+    pub column_count: u8,
+    pub column_spacing: Emu,
+    pub default_tab_size: Emu,
+    pub warp: Option<TextWarp>,
 }
 
 impl Default for ResolvedTextStyle {
@@ -265,6 +317,14 @@ impl Default for ResolvedTextStyle {
             strike: false,
             character_spacing: 0,
             baseline: 0,
+            outline: None,
+            shadow: None,
+            inner_shadow: None,
+            fill: None,
+            glow: None,
+            blur_radius: 0,
+            soft_edge_radius: 0,
+            reflection: false,
             alignment: TextAlignment::Left,
             vertical_alignment: TextVerticalAlignment::Top,
             margin_left: 91_440,
@@ -273,6 +333,12 @@ impl Default for ResolvedTextStyle {
             margin_bottom: 45_720,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TextGlow {
+    pub color: RgbaColor,
+    pub radius: Emu,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -505,8 +571,25 @@ pub struct ResolutionTrace {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveOutput {
     pub slide: ResolvedSlide,
+    pub embedded_fonts: Vec<EmbeddedFontResource>,
     pub diagnostics: Vec<ResolveDiagnostic>,
     pub trace: ResolutionTrace,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EmbeddedFontStyle {
+    Regular,
+    Bold,
+    Italic,
+    BoldItalic,
+}
+
+/// A lazily readable font part referenced by the presentation main part.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EmbeddedFontResource {
+    pub family: String,
+    pub style: EmbeddedFontStyle,
+    pub part_name: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -540,6 +623,7 @@ pub struct PresentationDocument {
     slide_size: EmuSize,
     reverse_dependencies: BTreeMap<usize, Vec<PartId>>,
     open_trace: ResolutionTrace,
+    embedded_fonts: Vec<EmbeddedFontResource>,
 }
 
 impl PresentationDocument {
@@ -599,6 +683,7 @@ impl PresentationDocument {
             height: 6_858_000,
         });
         let reverse_dependencies = reverse_dependencies(&graph);
+        let embedded_fonts = resolve::discover_embedded_fonts(source.as_ref(), &graph)?;
         Ok(Self {
             source,
             graph,
@@ -611,6 +696,7 @@ impl PresentationDocument {
                 parsed_xml_parts: vec![presentation_name],
                 decoded_media_parts: Vec::new(),
             },
+            embedded_fonts,
         })
     }
 
@@ -635,7 +721,13 @@ impl PresentationDocument {
             .slides
             .get(index)
             .ok_or_else(|| LayoutError::new(format!("slide index {index} is out of bounds")))?;
-        resolve_slide_parts(self.source.as_ref(), &self.graph, slide, self.slide_size)
+        resolve::resolve_slide_parts_cached(
+            self.source.as_ref(),
+            &self.graph,
+            slide,
+            self.slide_size,
+            &self.embedded_fonts,
+        )
     }
 
     /// Inflate one explicitly requested package part for a render-host resource resolver.
@@ -659,6 +751,7 @@ impl PresentationDocument {
             slide_size: self.slide_size,
             reverse_dependencies: self.reverse_dependencies.clone(),
             open_trace: self.open_trace.clone(),
+            embedded_fonts: self.embedded_fonts.clone(),
         }
     }
 

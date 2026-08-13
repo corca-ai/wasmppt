@@ -18,9 +18,11 @@ WPDL version 2 added two side tables without changing Canvas drawing commands:
 
 WPDL version 3 added effective text-frame styling and preserved-graphic placeholders. WPDL
 version 4 adds paragraph/run-preserving rich text, linear gradients, bounded move/line/close
-custom paths, outer shadows, and connector line ends. WPDL version 5 adds RTL/tab/vertical
-text metadata, spacing and decorations, curved path segments, radial gradients, patterns,
-and expanded presets. The decoder retains v1-v4 compatibility.
+custom paths, outer shadows, and connector line ends. WPDL version 7 adds typed spacing, authored
+normal-AutoFit hints, shape-resize bounds, columns, lazy embedded fonts, and editable 2D text
+outlines, outer shadows, glow, blur, soft edges, and reflection. WPDL version 8 separates inner
+shadow paint from outer shadow paint. WPDL version 9 distinguishes source-faithful AutoFit from
+live-edited recomputation. The decoder retains v1-v8 compatibility.
 
 The resolver reads `cNvPr` description/title attributes and hyperlink relationships. External
 links are retained in the scene. The browser exposes clickable `http`, `https`, `mailto`, and
@@ -57,7 +59,9 @@ change aborts stale work, and `dispose()` removes every mounted slide and cached
 
 ## Deliberate limits
 
-Optional font-byte shaping, general effect DAGs, and native SmartArt rendering remain unsupported.
+Optional exact font-byte shaping is supplied by the separately loaded Rustybuzz Wasm module and
+retained on the same positioned run plan used by Canvas. General effect DAGs and native SmartArt
+rendering remain unsupported.
 Both rendering backends preserve the package
 source and surface the same explicit diagnostic and visible placeholder for unsupported graphics
 rather than silently dropping content.

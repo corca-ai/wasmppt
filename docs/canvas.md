@@ -20,7 +20,7 @@ the common display-list semantics on Canvas 2D:
 - preset paths, fills, strokes, rotation, flips, and nested group transforms;
 - linear/radial gradients, patterns, curved bounded custom paths, outer shadows, connectors, and line ends;
 - relationship-addressed images with PowerPoint source cropping;
-- shared WPDL v5 paragraph/run layout for mixed styles, script-specific theme fonts,
+- shared WPDL v9 paragraph/run layout for mixed styles, script-specific theme fonts,
   RTL, tabs, vertical flow, decoration, baseline/character spacing, bullets, indentation,
   wrapping, autofit, alignment and text-frame anchoring;
 - deterministic cache eviction and disposal for decoded images.
@@ -50,9 +50,13 @@ missing-font fallback, Korean and Latin wrapping, and mixed-order batched measur
 For `a:normAutofit`, the shared rich-text planner reflows at each candidate font scale and uses a
 bounded binary search for the largest scale whose measured width and height fit the text frame.
 Base-font token measurements are reused across candidates, so AutoFit adds layout work without
-repeating browser font measurements. `a:spAutoFit` remains represented but shape resizing is not
-yet projected by the browser backends. Authored `fontScale` and `lnSpcReduction` hints are not yet
-transported to the display list; the planner currently derives its scale from measured content.
+repeating browser font measurements. Authored `fontScale` and `lnSpcReduction` values seed normal
+AutoFit, while edited overflowing content is recomputed downward. `a:spAutoFit` keeps font sizes and
+projects bounded effective geometry through both browser backends. Text columns honor `numCol` and
+`spcCol` after margins and AutoFit are resolved.
+PresentationML text frames do not define the Wordprocessing Shape `wps:linkedTxbx` chain used by
+Word. If that foreign extension appears in a deck it remains byte-preserved and renders each shape
+independently; cycles or cross-shape overflow are therefore never guessed from vendor markup.
 
 ## Lazy viewer and resource ownership
 
@@ -89,8 +93,19 @@ baselines and per-slide tolerance reports belong to the compatibility-gate slice
 
 ## Current boundary
 
-The renderer supports WPDL v5 while retaining v1-v4 decoding. Optional font-byte shaping,
-general effect DAGs, and native SmartArt drawing remain incomplete.
+The renderer supports WPDL v9 while retaining v1-v8 decoding. Version 9 marks text from a
+materialized live-edit overlay so normal AutoFit recomputes the largest fitting scale instead of
+blindly retaining a stale authored hint. Embedded font relationships travel
+as lazy resources; `registerEmbeddedFonts` applies size and OpenType embedding-permission checks
+before registering exact `FontFace` bytes. Hosts may additionally load the independent
+`wasmppt-shaper-wasm` artifact: its HarfRust pipeline returns deterministic font-unit advances,
+offsets, glyph IDs, UTF-8 clusters, and safe-break flags which are retained in the shared layout
+plan. Its request identity also covers language, script, OpenType features, and variation
+coordinates. General effect DAGs and native SmartArt drawing remain incomplete.
+Common editable 2D text paint covers solid/linear/radial/pattern fills, outlines, inner/outer
+shadows, glow, blur, soft edges, a bounded reflection, and arch, wave, inflate, and deflate warp
+presets. Unsupported effect-DAG nodes retain
+readable unwarped text and source markup.
 PNG/JPEG/GIF/SVG metadata is inspected before decode, byte and pixel limits are enforced, unsafe
 SVG active/external content is rejected, GIF preview is the deterministic first frame, and browser
 decode applies EXIF orientation. EMF/WMF supports common GDI records through the lazy

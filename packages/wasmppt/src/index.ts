@@ -7,6 +7,7 @@ export * from './worker-client.js'
 export * from './worker-runtime.js'
 export * from './canvas.js'
 export * from './dom-svg.js'
+export * from './shaper.js'
 
 /** Browser-owned locations for separately emitted engine and worker assets. */
 export interface BrowserEngineAssets {

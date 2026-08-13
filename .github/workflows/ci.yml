@@ -80,9 +80,15 @@ jobs:
             packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm.d.ts \
             packages/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm.js \
             packages/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm.d.ts \
-            packages/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm_bg.wasm.d.ts
+            packages/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm_bg.wasm.d.ts \
+            packages/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm.js \
+            packages/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm.d.ts \
+            packages/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm_bg.wasm.d.ts
       - name: Report Wasm artifact size
-        run: node scripts/report-wasm-size.mjs target/wasm32-unknown-unknown/wasm-release/wasmppt_wasm.wasm
+        run: |
+          node scripts/report-wasm-size.mjs target/wasm32-unknown-unknown/wasm-release/wasmppt_wasm.wasm
+          node scripts/report-wasm-size.mjs target/wasm32-unknown-unknown/wasm-release/wasmppt_metafile_wasm.wasm
+          node scripts/report-wasm-size.mjs target/wasm32-unknown-unknown/wasm-release/wasmppt_shaper_wasm.wasm
       - name: Publish the shared Wasm host artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -179,7 +185,7 @@ jobs:
         run: |
           cargo run --locked -p wasmppt-cli -- resolve fixtures/render/basic.pptx 0 \
             | tee target/native-display-signature.txt
-          grep 'signature 36fb217963862a0a' target/native-display-signature.txt
+          grep 'signature 7598126794a9c455' target/native-display-signature.txt
       - name: Publish per-slide visual report
         uses: actions/upload-artifact@v7
         with:

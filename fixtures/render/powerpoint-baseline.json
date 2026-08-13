@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "fixture": "fixtures/render/basic.pptx",
+  "fixtureSha256": "c4abd85d152b0e7cc3dc058bcec05b8a49ef698a6d37d9b7fc1e29ad5ec9da6e",
+  "slideCount": 3,
+  "exportWidth": 640,
+  "exportHeight": 360,
+  "redistribution": "Repository fixture and derived reference images are distributed under the repository license.",
+  "owner": "wasmppt maintainers",
+  "metrics": {
+    "wholeSlide": "ImageMagick AE with 5% per-channel fuzz",
+    "maximumDifferentPixelRatio": 0.35
+  },
+  "regions": [
+    { "slideIndex": 0, "name": "grouped-title", "x": 0, "y": 0, "width": 430, "height": 230, "tolerance": 0.35 },
+    { "slideIndex": 0, "name": "cropped-image", "x": 260, "y": 40, "width": 130, "height": 130, "tolerance": 0.25 },
+    { "slideIndex": 1, "name": "table", "x": 25, "y": 25, "width": 265, "height": 135, "tolerance": 0.35 },
+    { "slideIndex": 1, "name": "chart", "x": 310, "y": 20, "width": 300, "height": 215, "tolerance": 0.40 },
+    { "slideIndex": 1, "name": "metafile", "x": 440, "y": 230, "width": 150, "height": 110, "tolerance": 0.40 },
+    { "slideIndex": 2, "name": "shape-autofit", "x": 20, "y": 15, "width": 180, "height": 55, "tolerance": 0.40 },
+    { "slideIndex": 2, "name": "normal-autofit", "x": 220, "y": 15, "width": 180, "height": 55, "tolerance": 0.40 },
+    { "slideIndex": 2, "name": "unicode-wrap", "x": 415, "y": 15, "width": 200, "height": 55, "tolerance": 0.40 },
+    { "slideIndex": 2, "name": "paragraph-metrics", "x": 20, "y": 88, "width": 275, "height": 120, "tolerance": 0.40 },
+    { "slideIndex": 2, "name": "columns", "x": 315, "y": 88, "width": 300, "height": 120, "tolerance": 0.40 },
+    { "slideIndex": 2, "name": "text-effects", "x": 20, "y": 230, "width": 595, "height": 95, "tolerance": 0.45 }
+  ]
+}

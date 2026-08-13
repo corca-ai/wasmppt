@@ -35,6 +35,12 @@ regressing external fixture by keeping its registry record and changing its expe
 an issue link; do not silently remove evidence. Promote it after the raw scorecard and relevant
 desktop-consumer artifact pass.
 
+The browser shaping gate obtains `KaTeX_Main-Regular.ttf` from the pinned `katex` npm dependency
+(MIT license) during `npm ci`; the font is not copied into the repository or published package.
+It verifies exact font-byte glyph clusters, OpenType feature-sensitive cache identity, UAX #14
+break offsets, and warm cache reuse. Presentation fixtures and derived PowerPoint images continue
+to follow the registry redistribution policy above.
+
 The live-editing performance corpus is generated separately from compatibility claims. Its public
 contract in `benchmarks/fixtures.json` defines text, image, and mixed POTX cases at 10, 50, and 200
 slides, including multilingual text and deterministic media payloads. The benchmark report records

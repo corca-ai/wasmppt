@@ -1,3 +1,5 @@
+import type { FontByteShaper, ShapedFontRun } from './shaper.js'
+
 const EMU_PER_CSS_PIXEL = 9_525
 
 export interface RgbaColor {
@@ -34,6 +36,12 @@ export interface SceneImage {
   readonly relationshipId: string
 }
 
+export interface SceneEmbeddedFont {
+  readonly family: string
+  readonly style: 'regular' | 'bold' | 'italic' | 'bold-italic'
+  readonly partName: string
+}
+
 export interface SceneTextStyle {
   readonly fontSize: number
   readonly color: RgbaColor
@@ -44,7 +52,15 @@ export interface SceneTextStyle {
   readonly strike: boolean
   readonly characterSpacing: number
   readonly baseline: number
-  readonly alignment: 'left' | 'center' | 'right' | 'justify'
+  readonly outline?: { readonly color: RgbaColor; readonly width: number; readonly dash?: string }
+  readonly shadow?: { readonly color: RgbaColor; readonly blurRadius: number; readonly distance: number; readonly direction: number }
+  readonly innerShadow?: { readonly color: RgbaColor; readonly blurRadius: number; readonly distance: number; readonly direction: number }
+  readonly fill?: SceneFill
+  readonly glow?: { readonly color: RgbaColor; readonly radius: number }
+  readonly blurRadius: number
+  readonly softEdgeRadius: number
+  readonly reflection: boolean
+  readonly alignment: 'left' | 'center' | 'right' | 'justify' | 'distributed'
   readonly verticalAlignment: 'top' | 'center' | 'bottom'
   readonly marginLeft: number
   readonly marginTop: number
@@ -63,14 +79,22 @@ export interface SceneParagraph {
   readonly runs: readonly SceneTextRun[]
   readonly alignment: SceneTextStyle['alignment']
   readonly bullet?: string
+  readonly bulletImageResource?: number
+  readonly bulletStyle?: SceneTextStyle
   readonly level: number
   readonly marginLeft: number
   readonly indent: number
-  readonly lineSpacing?: number
-  readonly spaceBefore?: number
-  readonly spaceAfter?: number
+  readonly lineSpacing?: SceneTextSpacing
+  readonly spaceBefore?: SceneTextSpacing
+  readonly spaceAfter?: SceneTextSpacing
   readonly direction: 'ltr' | 'rtl'
   readonly tabs: readonly SceneTextTab[]
+  readonly fontAlignment: 'automatic' | 'top' | 'center' | 'baseline' | 'bottom'
+}
+
+export interface SceneTextSpacing {
+  readonly kind: 'percent' | 'points'
+  readonly value: number
 }
 
 export interface SceneTextTab {
@@ -87,7 +111,14 @@ export interface SceneTextFrame {
   readonly marginBottom: number
   readonly wrap: boolean
   readonly autofit: 'none' | 'shrink-text' | 'resize-shape'
+  readonly autofitFontScale?: number
+  readonly autofitLineSpacingReduction?: number
+  readonly autofitRecompute: boolean
   readonly flow: 'horizontal' | 'vertical' | 'vertical-270'
+  readonly columnCount: number
+  readonly columnSpacing: number
+  readonly defaultTabSize: number
+  readonly warp?: { readonly preset: string; readonly adjustment: number }
 }
 
 export interface SceneGradientStop {
@@ -245,6 +276,7 @@ export interface DisplayScene {
   readonly groups: readonly SceneGroupTransform[]
   readonly strings: readonly string[]
   readonly images: readonly SceneImage[]
+  readonly embeddedFonts: readonly SceneEmbeddedFont[]
   readonly semantics: readonly SceneSemanticElement[]
   readonly diagnostics: readonly SceneDiagnostic[]
   readonly byteLength: number
@@ -256,7 +288,7 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
   const reader = new BinaryReader(bytes)
   if (reader.ascii(4) !== 'WPDL') throw new Error('display list has an invalid magic value')
   const version = reader.u16()
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5) {
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8 && version !== 9) {
     throw new Error(`unsupported display-list version ${version}`)
   }
   if (reader.u16() !== 0) throw new Error('display-list reserved flags are non-zero')
@@ -267,11 +299,13 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
   const groupCount = reader.boundedCount('group')
   const stringCount = reader.boundedCount('string')
   const imageCount = reader.boundedCount('image')
+  const embeddedFontCount = version >= 7 ? reader.boundedCount('embedded font') : 0
   const semanticCount = version >= 2 ? reader.boundedCount('semantic element') : 0
   const diagnosticCount = version >= 2 ? reader.boundedCount('diagnostic') : 0
   const commands: SceneCommand[] = []
+  const inlineImages: SceneImage[] = []
   for (let index = 0; index < commandCount; index += 1) {
-    commands.push(readCommand(reader, version))
+    commands.push(readCommand(reader, version, inlineImages, imageCount))
   }
   const groups: SceneGroupTransform[] = []
   for (let index = 0; index < groupCount; index += 1) {
@@ -289,6 +323,20 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
   for (let index = 0; index < imageCount; index += 1) {
     const partName = reader.utf8Blob()
     images.push({ partName: partName === '' ? undefined : partName, relationshipId: reader.utf8Blob() })
+  }
+  images.push(...inlineImages)
+  const embeddedFonts: SceneEmbeddedFont[] = []
+  for (let index = 0; index < embeddedFontCount; index += 1) {
+    const family = reader.utf8Blob()
+    const style = reader.u8()
+    if (family === '' || style > 3) throw new Error('display list contains an invalid embedded font')
+    const partName = reader.utf8Blob()
+    if (partName === '') throw new Error('display list contains an empty embedded font part name')
+    embeddedFonts.push({
+      family,
+      style: ['regular', 'bold', 'italic', 'bold-italic'][style] as SceneEmbeddedFont['style'],
+      partName,
+    })
   }
   const semantics: SceneSemanticElement[] = []
   for (let index = 0; index < semanticCount; index += 1) {
@@ -338,6 +386,7 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
     groups: Object.freeze(groups),
     strings: Object.freeze(strings),
     images: Object.freeze(images),
+    embeddedFonts: Object.freeze(embeddedFonts),
     semantics: Object.freeze(semantics),
     diagnostics: Object.freeze(diagnostics),
     byteLength: bytes.byteLength,
@@ -355,6 +404,7 @@ export interface ThemeFontSet {
 export interface WebFontDefinition {
   readonly family: string
   readonly source: string | ArrayBuffer
+  readonly faceIndex?: number
   readonly descriptors?: FontFaceDescriptors
 }
 
@@ -364,6 +414,10 @@ export interface ResolvedFont {
   readonly script: FontScript
   readonly exact: boolean
   readonly css: string
+  readonly sizePixels: number
+  readonly shapingKey?: string
+  readonly fontBytes?: Uint8Array
+  readonly faceIndex?: number
 }
 
 export interface FontResolverOptions {
@@ -372,6 +426,7 @@ export interface FontResolverOptions {
   readonly webFonts?: readonly WebFontDefinition[]
   readonly fallback?: Partial<Record<FontScript, string>>
   readonly host?: FontLoadingHost
+  readonly shaper?: FontByteShaper
 }
 
 export interface FontLoadingHost {
@@ -383,9 +438,10 @@ export interface FontLoadingHost {
 export class FontResolver {
   readonly #theme: ThemeFontSet
   readonly #substitutions: Readonly<Record<string, string>>
-  readonly #webFonts: ReadonlyMap<string, WebFontDefinition>
+  readonly #webFonts = new Map<string, WebFontDefinition[]>()
   readonly #fallback: Record<FontScript, string>
   readonly #host: FontLoadingHost
+  readonly #shaper?: FontByteShaper
   readonly #loaded = new Map<string, Promise<void>>()
   readonly #resolved = new Map<string, Promise<ResolvedFont>>()
 
@@ -396,13 +452,14 @@ export class FontResolver {
       complexScript: options.theme?.complexScript ?? 'Noto Sans Arabic',
     }
     this.#substitutions = Object.freeze({ ...options.substitutions })
-    this.#webFonts = new Map((options.webFonts ?? []).map((font) => [font.family, font]))
+    for (const font of options.webFonts ?? []) this.registerWebFont(font)
     this.#fallback = {
       latin: options.fallback?.latin ?? 'sans-serif',
       'east-asian': options.fallback?.['east-asian'] ?? 'sans-serif',
       complex: options.fallback?.complex ?? 'sans-serif',
     }
     this.#host = options.host ?? new BrowserFontLoadingHost()
+    this.#shaper = options.shaper
   }
 
   async resolve(
@@ -437,7 +494,7 @@ export class FontResolver {
     const script = detectFontScript(text)
     const requested = requestedFamily ?? this.#themeFamily(script)
     const family = this.#substitutions[requested] ?? requested
-    await this.#load(family)
+    const loadedDefinitions = await this.#load(family, emphasis)
     const prefix = `${emphasis.italic === true ? 'italic' : 'normal'} ${emphasis.bold === true ? '700' : '400'}`
     const css = `${prefix} ${sizePixels}px ${quoteFontFamily(family)}`
     const exact = this.#host.check(css, representativeText(script, text))
@@ -446,13 +503,49 @@ export class FontResolver {
     const cssFamily = exact
       ? `${quoteFontFamily(family)}, ${quoteFontFamily(fallbackFamily)}`
       : quoteFontFamily(fallbackFamily)
+    const byteDefinition = exact
+      ? loadedDefinitions.find((definition) => definition.source instanceof ArrayBuffer)
+      : undefined
     return Object.freeze({
       requestedFamily: requested,
       family: resolvedFamily,
       script,
       exact,
       css: `${prefix} ${sizePixels}px ${cssFamily}`,
+      sizePixels,
+      ...(byteDefinition?.source instanceof ArrayBuffer
+        ? {
+            shapingKey: `${family}\0${byteDefinition.faceIndex ?? 0}\0${emphasis.bold === true ? 1 : 0}${emphasis.italic === true ? 1 : 0}`,
+            fontBytes: new Uint8Array(byteDefinition.source),
+            faceIndex: byteDefinition.faceIndex ?? 0,
+          }
+        : {}),
     })
+  }
+
+  /** Shapes from exact registered font bytes when the optional shaper is configured. */
+  async shape(
+    text: string,
+    font: ResolvedFont,
+    direction: 'ltr' | 'rtl' | 'ttb' | 'btt',
+  ): Promise<ShapedFontRun | undefined> {
+    if (this.#shaper === undefined || font.fontBytes === undefined) return undefined
+    return this.#shaper.shape({
+      fontBytes: font.fontBytes,
+      faceIndex: font.faceIndex,
+      text,
+      direction,
+    })
+  }
+
+  /** Returns a UAX #14 break plan when the optional text engine is installed. */
+  async breakText(text: string): Promise<readonly string[]> {
+    if (this.#shaper === undefined) return lineBreakTokens(text)
+    const tokens = await this.#shaper.breakText(text)
+    return Object.freeze(tokens.flatMap((token) =>
+      /\p{Script=Thai}|\p{Script=Lao}|\p{Script=Khmer}/u.test(token)
+        ? lineBreakTokens(token)
+        : [token]))
   }
 
   #themeFamily(script: FontScript): string {
@@ -461,16 +554,148 @@ export class FontResolver {
     return this.#theme.latin
   }
 
-  async #load(family: string): Promise<void> {
-    const definition = this.#webFonts.get(family)
-    if (definition === undefined) return
-    let loading = this.#loaded.get(family)
-    if (loading === undefined) {
-      loading = this.#host.load(definition)
-      this.#loaded.set(family, loading)
-    }
-    await loading
+  /** Adds a font face without rebuilding the resolver; live layouts are invalidated safely. */
+  registerWebFont(definition: WebFontDefinition): void {
+    const definitions = this.#webFonts.get(definition.family) ?? []
+    definitions.push(definition)
+    this.#webFonts.set(definition.family, definitions)
+    this.#resolved.clear()
   }
+
+  async #load(
+    family: string,
+    emphasis: { readonly bold?: boolean; readonly italic?: boolean },
+  ): Promise<readonly WebFontDefinition[]> {
+    const definitions = this.#webFonts.get(family)
+    if (definitions === undefined) return []
+    const weight = emphasis.bold === true ? '700' : '400'
+    const style = emphasis.italic === true ? 'italic' : 'normal'
+    const matching = definitions.filter((definition) =>
+      (definition.descriptors?.weight ?? '400') === weight &&
+      (definition.descriptors?.style ?? 'normal') === style)
+    const selected = matching.length === 0 ? definitions : matching
+    await Promise.all(selected.map(async (definition, index) => {
+      const key = `${family}\0${weight}\0${style}\0${index}`
+      let loading = this.#loaded.get(key)
+      if (loading === undefined) {
+        loading = this.#host.load(definition)
+        this.#loaded.set(key, loading)
+      }
+      await loading
+    }))
+    return selected
+  }
+}
+
+export interface EmbeddedFontLoadOptions {
+  readonly maxFontBytes?: number
+  readonly resource: (partName: string, signal?: AbortSignal) => Promise<ArrayBuffer | Uint8Array>
+  readonly signal?: AbortSignal
+}
+
+export interface OpenTypeEmbeddingInfo {
+  readonly fsType?: number
+  readonly permitted: boolean
+  readonly reason: 'installable' | 'preview-print' | 'editable' | 'restricted' | 'unknown'
+}
+
+/** Loads presentation font parts lazily and enforces the OpenType embedding permission bits. */
+export async function registerEmbeddedFonts(
+  scene: Pick<DisplayScene, 'embeddedFonts'>,
+  resolver: FontResolver,
+  options: EmbeddedFontLoadOptions,
+): Promise<void> {
+  const maximum = options.maxFontBytes ?? 32 * 1024 * 1024
+  if (!Number.isSafeInteger(maximum) || maximum <= 0) throw new RangeError('maxFontBytes must be positive')
+  for (const font of scene.embeddedFonts) {
+    if (options.signal !== undefined) throwIfAborted(options.signal)
+    const source = await options.resource(font.partName, options.signal)
+    const bytes = source instanceof Uint8Array ? source : new Uint8Array(source)
+    if (bytes.byteLength === 0 || bytes.byteLength > maximum) {
+      throw new Error(`embedded font ${font.partName} exceeds the byte limit`)
+    }
+    const decoded = embeddedFontGuid(font.partName) === undefined
+      ? bytes.slice()
+      : decodeOoxmlObfuscatedFont(bytes, embeddedFontGuid(font.partName)!)
+    const permission = inspectOpenTypeEmbedding(decoded)
+    if (!permission.permitted) {
+      throw new Error(`embedded font ${font.partName} prohibits preview embedding`)
+    }
+    resolver.registerWebFont({
+      family: font.family,
+      source: new Uint8Array(decoded).buffer,
+      descriptors: {
+        weight: font.style === 'bold' || font.style === 'bold-italic' ? '700' : '400',
+        style: font.style === 'italic' || font.style === 'bold-italic' ? 'italic' : 'normal',
+      },
+    })
+  }
+}
+
+/** Decodes the ECMA-376 first-32-byte GUID XOR font obfuscation in a bounded copy. */
+export function decodeOoxmlObfuscatedFont(
+  input: ArrayBuffer | Uint8Array,
+  guid: string,
+): Uint8Array {
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
+  const hex = guid.replace(/[{}-]/gu, '')
+  if (!/^[0-9a-f]{32}$/iu.test(hex)) throw new Error('embedded font GUID is invalid')
+  const key = Array.from({ length: 16 }, (_, index) => {
+    const sourceIndex = 15 - index
+    return Number.parseInt(hex.slice(sourceIndex * 2, sourceIndex * 2 + 2), 16)
+  })
+  const output = bytes.slice()
+  for (let index = 0; index < Math.min(32, output.byteLength); index += 1) {
+    output[index] = output[index]! ^ key[index % 16]!
+  }
+  return output
+}
+
+/** Reads OS/2.fsType without allocating tables or trusting font offsets. */
+export function inspectOpenTypeEmbedding(input: ArrayBuffer | Uint8Array): OpenTypeEmbeddingInfo {
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
+  if (bytes.byteLength < 12) return { permitted: false, reason: 'unknown' }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const tag = new TextDecoder('ascii').decode(bytes.subarray(0, 4))
+  if (tag === 'ttcf') {
+    const faceCount = view.getUint32(8)
+    if (faceCount === 0 || faceCount > 64 || 12 + faceCount * 4 > bytes.byteLength) {
+      return { permitted: false, reason: 'unknown' }
+    }
+    const faces = Array.from({ length: faceCount }, (_, index) =>
+      inspectSfntEmbedding(bytes, view.getUint32(12 + index * 4)))
+    if (faces.some((face) => !face.permitted)) {
+      return faces.find((face) => !face.permitted) ?? { permitted: false, reason: 'unknown' }
+    }
+    return faces[0] ?? { permitted: false, reason: 'unknown' }
+  }
+  return inspectSfntEmbedding(bytes, 0)
+}
+
+function inspectSfntEmbedding(bytes: Uint8Array, faceOffset: number): OpenTypeEmbeddingInfo {
+  if (faceOffset < 0 || faceOffset + 12 > bytes.byteLength) return { permitted: false, reason: 'unknown' }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const tableCount = view.getUint16(faceOffset + 4)
+  if (tableCount > 4096 || faceOffset + 12 + tableCount * 16 > bytes.byteLength) {
+    return { permitted: false, reason: 'unknown' }
+  }
+  for (let index = 0; index < tableCount; index += 1) {
+    const offset = faceOffset + 12 + index * 16
+    if (new TextDecoder('ascii').decode(bytes.subarray(offset, offset + 4)) !== 'OS/2') continue
+    const tableOffset = view.getUint32(offset + 8)
+    const tableLength = view.getUint32(offset + 12)
+    if (tableLength < 10 || tableOffset + tableLength > bytes.byteLength) return { permitted: false, reason: 'unknown' }
+    const fsType = view.getUint16(tableOffset + 8)
+    if ((fsType & 0x0002) !== 0 || (fsType & 0x0200) !== 0) return { fsType, permitted: false, reason: 'restricted' }
+    if ((fsType & 0x0008) !== 0) return { fsType, permitted: true, reason: 'editable' }
+    if ((fsType & 0x0004) !== 0) return { fsType, permitted: true, reason: 'preview-print' }
+    return { fsType, permitted: fsType === 0, reason: fsType === 0 ? 'installable' : 'unknown' }
+  }
+  return { permitted: false, reason: 'unknown' }
+}
+
+function embeddedFontGuid(partName: string): string | undefined {
+  return partName.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/iu)?.[0]
 }
 
 class BrowserFontLoadingHost implements FontLoadingHost {
@@ -605,6 +830,20 @@ export interface RichTextLayoutRun {
   readonly fontSize: number
   readonly baselineShift: number
   readonly direction: 'ltr' | 'rtl'
+  readonly outline?: SceneTextStyle['outline']
+  readonly shadow?: SceneTextStyle['shadow']
+  readonly innerShadow?: SceneTextStyle['innerShadow']
+  readonly fill?: SceneFill
+  readonly glow?: SceneTextStyle['glow']
+  readonly blurRadius: number
+  readonly softEdgeRadius: number
+  readonly reflection: boolean
+  readonly shaped?: ShapedFontRun
+  readonly warpRotation: number
+  readonly bulletImageResource?: number
+  readonly paragraphIndex: number
+  readonly sourceStart?: number
+  readonly sourceEnd?: number
 }
 
 export interface RichTextLayoutPlan {
@@ -612,6 +851,7 @@ export interface RichTextLayoutPlan {
   readonly contentWidth: number
   readonly contentHeight: number
   readonly layoutBounds: EmuRect
+  readonly effectiveBounds: EmuRect
   readonly rotationDegrees: 0 | 90 | -90
 }
 
@@ -626,16 +866,7 @@ export async function buildRichTextLayout(
     : command.frame.flow === 'vertical-270'
       ? -90
       : 0
-  const layoutBounds = rotationDegrees === 0
-    ? command.bounds
-    : {
-        x: command.bounds.x + (command.bounds.width - command.bounds.height) / 2,
-        y: command.bounds.y + (command.bounds.height - command.bounds.width) / 2,
-        width: command.bounds.height,
-        height: command.bounds.width,
-      }
-  const innerX = toPixels(layoutBounds.x + command.frame.marginLeft)
-  const innerY = toPixels(layoutBounds.y + command.frame.marginTop)
+  const layoutBounds = rotatedLayoutBounds(command.bounds, rotationDegrees)
   const innerWidth = Math.max(
     0,
     toPixels(layoutBounds.width - command.frame.marginLeft - command.frame.marginRight),
@@ -644,9 +875,24 @@ export async function buildRichTextLayout(
     0,
     toPixels(layoutBounds.height - command.frame.marginTop - command.frame.marginBottom),
   )
+  const columnCount = Math.max(1, Math.min(16, command.frame.columnCount ?? 1))
+  const columnSpacing = Math.max(0, toPixels(command.frame.columnSpacing ?? 0))
+  const columnWidth = Math.max(
+    0,
+    (innerWidth - columnSpacing * (columnCount - 1)) / columnCount,
+  )
   const resolved = await Promise.all(
-    command.frame.paragraphs.flatMap((paragraph) =>
-      paragraph.runs.map(async (run) => {
+    command.frame.paragraphs.flatMap((paragraph) => {
+      const first = paragraph.runs[0]
+      const marker: SceneTextRun[] = (paragraph.bullet !== undefined || paragraph.bulletImageResource !== undefined) && first !== undefined
+        ? [{
+            text: paragraph.bullet ?? '◼',
+            style: paragraph.bulletStyle ?? first.style,
+            eastAsianFontFamily: first.eastAsianFontFamily,
+            complexScriptFontFamily: first.complexScriptFontFamily,
+          }]
+        : []
+      return [...marker, ...paragraph.runs].map(async (run) => {
         const script = detectFontScript(run.text)
         const requested =
           script === 'east-asian'
@@ -660,18 +906,27 @@ export async function buildRichTextLayout(
           requested,
           run.style,
         )
-      }),
-    ),
+      })
+    }),
   )
+  const breakPlans = new Map<SceneTextRun, readonly string[]>()
+  await Promise.all(command.frame.paragraphs.flatMap((paragraph) =>
+    paragraph.runs.map(async (run) => {
+      breakPlans.set(run, command.frame.wrap ? await resolver.breakText(run.text) : [run.text])
+    })))
   const measureRequests: TextMeasureRequest[] = []
   let measureFontIndex = 0
   for (const paragraph of command.frame.paragraphs) {
-    if (paragraph.bullet !== undefined && paragraph.runs[0] !== undefined) {
-      measureRequests.push({ text: `${paragraph.bullet} `, font: resolved[measureFontIndex]!.css })
+    if ((paragraph.bullet !== undefined || paragraph.bulletImageResource !== undefined) && paragraph.runs[0] !== undefined) {
+      measureRequests.push({
+        text: paragraph.bulletImageResource === undefined ? `${paragraph.bullet} ` : '◼ ',
+        font: resolved[measureFontIndex]!.css,
+      })
+      measureFontIndex += 1
     }
     for (const run of paragraph.runs) {
       const font = resolved[measureFontIndex++]!
-      for (const token of command.frame.wrap ? lineBreakTokens(run.text) : [run.text]) {
+      for (const token of breakPlans.get(run) ?? [run.text]) {
         if (token !== '\n' && token !== '\t') measureRequests.push({ text: token, font: font.css })
       }
     }
@@ -680,14 +935,42 @@ export async function buildRichTextLayout(
   const measurementLookup = new Map(
     measureRequests.map((request, index) => [`${request.font}\0${request.text}`, measured[index]!]),
   )
+  const shapingLookup = new Map<string, ShapedFontRun>()
+  const shapingTasks: Promise<void>[] = []
+  let shapingFontIndex = 0
+  for (const paragraph of command.frame.paragraphs) {
+    const direction = paragraph.direction
+    if ((paragraph.bullet !== undefined || paragraph.bulletImageResource !== undefined) && paragraph.runs[0] !== undefined) {
+      const font = resolved[shapingFontIndex++]!
+      const value = paragraph.bulletImageResource === undefined ? `${paragraph.bullet} ` : '◼ '
+      shapingTasks.push(resolver.shape(value, font, direction).then((run) => {
+        if (run !== undefined) shapingLookup.set(shapedLookupKey(font, direction, value), run)
+      }))
+    }
+    for (const sourceRun of paragraph.runs) {
+      const font = resolved[shapingFontIndex++]!
+      for (const token of breakPlans.get(sourceRun) ?? [sourceRun.text]) {
+        if (token === '\n' || token === '\t') continue
+        const value = token.replaceAll('\u00AD', '')
+        shapingTasks.push(resolver.shape(value, font, direction).then((run) => {
+          if (run !== undefined) shapingLookup.set(shapedLookupKey(font, direction, value), run)
+        }))
+      }
+    }
+  }
+  await Promise.all(shapingTasks)
   type LayoutLine = {
-    readonly runs: Array<Omit<RichTextLayoutRun, 'x' | 'baseline'>>
+    readonly runs: Array<Omit<RichTextLayoutRun, 'x' | 'baseline' | 'warpRotation'>>
     readonly height: number
     readonly alignment: SceneTextStyle['alignment']
     readonly before: number
     readonly after: number
     readonly left: number
     readonly direction: 'ltr' | 'rtl'
+    readonly column?: number
+    readonly top?: number
+    readonly lastInParagraph: boolean
+    readonly fontAlignment: SceneParagraph['fontAlignment']
   }
   type ScaledLayout = {
     readonly lines: readonly LayoutLine[]
@@ -698,7 +981,14 @@ export async function buildRichTextLayout(
     font: ResolvedFont,
     token: string,
     characterSpacing: number,
+    direction: 'ltr' | 'rtl',
   ): number => {
+    const shaped = shapingLookup.get(shapedLookupKey(font, direction, token))
+    if (shaped !== undefined) {
+      const advance = Math.abs(shaped.glyphs.reduce((sum, glyph) => sum + glyph.xAdvance, 0))
+      return advance / shaped.unitsPerEm * font.sizePixels +
+        characterGapCount(token) * characterSpacing
+    }
     const key = `${font.css}\0${token}`
     let width = measurementLookup.get(key)
     if (width === undefined) {
@@ -711,51 +1001,104 @@ export async function buildRichTextLayout(
   const layoutAtScale = (scale: number): ScaledLayout => {
     let resolvedIndex = 0
     const lines: LayoutLine[] = []
-    for (const paragraph of command.frame.paragraphs) {
-      const lineRuns: Array<Omit<RichTextLayoutRun, 'x' | 'baseline'>> = []
+    for (const [paragraphIndex, paragraph] of command.frame.paragraphs.entries()) {
+      const lineRuns: Array<Omit<RichTextLayoutRun, 'x' | 'baseline' | 'warpRotation'>> = []
       let lineWidth = 0
       let lineHeight = 0
       let firstLine = true
-      const paragraphBefore = spacingPixels(paragraph.spaceBefore) * scale
+      const baseLineHeight = paragraph.runs.reduce(
+        (height, run) => Math.max(
+          height,
+          pointsToCssPixels(run.style.fontSize / 100) * 1.2,
+        ),
+        1,
+      )
+      const metricLineHeight = Math.max(
+        baseLineHeight,
+        paragraph.bulletStyle === undefined
+          ? 1
+          : pointsToCssPixels(paragraph.bulletStyle.fontSize / 100) * 1.2,
+      )
+      const paragraphBefore = spacingPixels(paragraph.spaceBefore, metricLineHeight) * scale
       const left = toPixels(paragraph.marginLeft + paragraph.indent)
-      const available = Math.max(0, innerWidth - left)
-      const inputs = paragraph.bullet === undefined || paragraph.runs[0] === undefined
-        ? paragraph.runs
-        : [{ ...paragraph.runs[0]!, text: `${paragraph.bullet} ` }, ...paragraph.runs]
-      const finishLine = (after: number): void => {
+      const available = Math.max(0, columnWidth - left)
+      const firstRun = paragraph.runs[0]
+      let inputs: readonly SceneTextRun[] = paragraph.runs
+      if (
+        firstRun !== undefined &&
+        (paragraph.bullet !== undefined || paragraph.bulletImageResource !== undefined)
+      ) {
+        inputs = [{
+          text: paragraph.bullet === undefined ? '◼ ' : `${paragraph.bullet} `,
+          style: paragraph.bulletStyle ?? firstRun.style,
+          eastAsianFontFamily: firstRun.eastAsianFontFamily,
+          complexScriptFontFamily: firstRun.complexScriptFontFamily,
+        }, ...paragraph.runs]
+      }
+      const finishLine = (after: number, lastInParagraph = false): void => {
         lines.push({
           runs: lineRuns.splice(0),
-          height: applyScaledLineSpacing(lineHeight || scale, paragraph.lineSpacing, scale),
+          height: applyScaledLineSpacing(
+            lineHeight || scale,
+            paragraph.lineSpacing,
+            scale,
+            command.frame.autofitLineSpacingReduction,
+          ),
           alignment: paragraph.alignment,
           before: firstLine ? paragraphBefore : 0,
           after,
           left,
           direction: paragraph.direction,
+          lastInParagraph,
+          fontAlignment: paragraph.fontAlignment ?? 'automatic',
         })
         firstLine = false
         lineWidth = 0
         lineHeight = 0
       }
+      let paragraphSourceOffset = 0
       for (const run of inputs) {
-        const isBullet = paragraph.bullet !== undefined && run === inputs[0]
-        const font = isBullet ? resolved[resolvedIndex]! : resolved[resolvedIndex++]!
+        const isBullet = (paragraph.bullet !== undefined || paragraph.bulletImageResource !== undefined) && run === inputs[0]
+        const font = resolved[resolvedIndex++]!
         const baseSpacing = pointsToCssPixels(run.style.characterSpacing / 100)
         const spacing = baseSpacing * scale
-        const tokens = command.frame.wrap ? lineBreakTokens(run.text) : [run.text]
-        for (const rawToken of tokens) {
+        const tokens = breakPlans.get(run) ?? [run.text]
+        let runSourceOffset = 0
+        for (const [tokenIndex, rawToken] of tokens.entries()) {
           if (rawToken === '\n') {
             finishLine(0)
+            if (!isBullet) runSourceOffset += rawToken.length
             continue
           }
           const measureToken = (value: string): number =>
-            baseTokenWidth(font, value, baseSpacing) * scale
-          const rawWidth = rawToken === '\t'
-            ? nextTabWidth(lineWidth / scale, paragraph.tabs) * scale
+            baseTokenWidth(
+              font,
+              value.replaceAll('\u00AD', ''),
+              baseSpacing,
+              paragraph.direction,
+            ) * scale
+          const followingTokens = rawToken === '\t' ? tokens.slice(tokenIndex + 1) : []
+          const followingBoundary = followingTokens.findIndex((value) => value === '\n' || value === '\t')
+          const following = followingTokens
+            .slice(0, followingBoundary < 0 ? followingTokens.length : followingBoundary)
+            .join('')
+          let rawWidth = rawToken === '\t'
+            ? nextTabWidth(
+                lineWidth / scale,
+                paragraph.tabs,
+                command.frame.defaultTabSize,
+                measureToken(following) / scale,
+                measureToken(following.split(/[.,]/u)[0] ?? '') / scale,
+              ) * scale
             : measureToken(rawToken)
+          if (isBullet && rawToken.trim() !== '' && paragraph.indent < 0) {
+            rawWidth = Math.max(rawWidth, -toPixels(paragraph.indent) * scale)
+          }
           const fragments = command.frame.wrap && !isSoftWhitespace(rawToken) &&
               rawToken !== '\t' && rawWidth > available
             ? splitTokenToFit(rawToken, available, measureToken)
             : [rawToken]
+          let fragmentSourceOffset = runSourceOffset
           for (const token of fragments) {
             const width = token === rawToken ? rawWidth : measureToken(token)
             const softWhitespace = isSoftWhitespace(token)
@@ -768,6 +1111,17 @@ export async function buildRichTextLayout(
                 (height, existing) => Math.max(height, existing.fontSize * 1.2),
                 0,
               )
+              const previous = lineRuns[lineRuns.length - 1]
+              if (previous?.text.endsWith('\u00AD')) {
+                context.font = previous.font.css
+                const hyphenWidth = context.measureText('-').width
+                lineRuns[lineRuns.length - 1] = {
+                  ...previous,
+                  text: `${previous.text.slice(0, -1)}-`,
+                  width: previous.width + hyphenWidth,
+                }
+                lineWidth += hyphenWidth
+              }
               finishLine(0)
               if (softWhitespace) continue
             }
@@ -783,35 +1137,99 @@ export async function buildRichTextLayout(
               fontSize,
               baselineShift: run.style.baseline / 100_000,
               direction: paragraph.direction,
+              outline: run.style.outline,
+              shadow: run.style.shadow,
+              innerShadow: run.style.innerShadow,
+              fill: run.style.fill,
+              glow: run.style.glow,
+              blurRadius: run.style.blurRadius,
+              softEdgeRadius: run.style.softEdgeRadius,
+              reflection: run.style.reflection,
+              shaped: shapingLookup.get(shapedLookupKey(
+                font,
+                paragraph.direction,
+                token.replaceAll('\u00AD', ''),
+              )),
+              bulletImageResource: isBullet && rawToken.trim() !== ''
+                ? paragraph.bulletImageResource
+                : undefined,
+              paragraphIndex,
+              sourceStart: isBullet ? undefined : paragraphSourceOffset + fragmentSourceOffset,
+              sourceEnd: isBullet ? undefined : paragraphSourceOffset + fragmentSourceOffset + token.length,
             })
             lineWidth += width
             lineHeight = Math.max(lineHeight, fontSize * 1.2)
+            fragmentSourceOffset += token.length
           }
+          if (!isBullet) runSourceOffset += rawToken.length
         }
+        if (!isBullet) paragraphSourceOffset += run.text.length
       }
-      finishLine(spacingPixels(paragraph.spaceAfter) * scale)
+      finishLine(spacingPixels(paragraph.spaceAfter, metricLineHeight) * scale, true)
     }
+    let column = 0
+    let columnHeight = 0
+    let maximumColumnHeight = 0
+    const flowedLines = lines.map((line) => {
+      const requiredHeight = line.before + line.height + line.after
+      if (
+        columnHeight > 0 &&
+        columnHeight + requiredHeight > innerHeight &&
+        column + 1 < columnCount
+      ) {
+        maximumColumnHeight = Math.max(maximumColumnHeight, columnHeight)
+        column += 1
+        columnHeight = 0
+      }
+      const flowed = Object.assign({}, line, { column, top: columnHeight })
+      columnHeight += requiredHeight
+      maximumColumnHeight = Math.max(maximumColumnHeight, columnHeight)
+      return flowed
+    })
     return {
-      lines,
-      contentWidth: lines.reduce(
+      lines: flowedLines,
+      contentWidth: flowedLines.reduce(
         (maximum, line) => Math.max(
           maximum,
-          line.left + line.runs.reduce((sum, run) => sum + run.width, 0),
+          (line.column ?? 0) * (columnWidth + columnSpacing) +
+            line.left + line.runs.reduce((sum, run) => sum + run.width, 0),
         ),
         0,
       ),
-      contentHeight: lines.reduce(
-        (sum, line) => sum + line.before + line.height + line.after,
-        0,
-      ),
+      contentHeight: maximumColumnHeight,
     }
   }
   const fits = (layout: ScaledLayout): boolean =>
     layout.contentWidth <= innerWidth && layout.contentHeight <= innerHeight
-  let scaledLayout = layoutAtScale(1)
-  if (command.frame.autofit === 'shrink-text' && !fits(scaledLayout)) {
+  const authoredScale = command.frame.autofit === 'shrink-text'
+    ? Math.min(1, Math.max(0.01, (command.frame.autofitFontScale ?? 100_000) / 100_000))
+    : 1
+  let scaledLayout = layoutAtScale(authoredScale)
+  if (command.frame.autofit === 'shrink-text' && command.frame.autofitRecompute) {
+    const fullSize = layoutAtScale(1)
+    if (fits(fullSize)) {
+      scaledLayout = fullSize
+    } else {
+      let lowerScale = fits(scaledLayout) ? authoredScale : 0.1
+      let best = fits(scaledLayout) ? scaledLayout : layoutAtScale(lowerScale)
+      let upperScale = 1
+      if (fits(best)) {
+        for (let iteration = 0; iteration < 10; iteration += 1) {
+          const candidateScale = (lowerScale + upperScale) / 2
+          const candidate = layoutAtScale(candidateScale)
+          if (fits(candidate)) {
+            lowerScale = candidateScale
+            best = candidate
+          } else {
+            upperScale = candidateScale
+          }
+        }
+      }
+      scaledLayout = best
+    }
+  } else if (command.frame.autofit === 'shrink-text' && !fits(scaledLayout)) {
     let lowerScale = 0.1
-    let upperScale = 1
+    let upperScale = authoredScale
     let best = layoutAtScale(lowerScale)
     if (fits(best)) {
       for (let iteration = 0; iteration < 12; iteration += 1) {
@@ -828,43 +1246,173 @@ export async function buildRichTextLayout(
     scaledLayout = best
   }
   const { lines, contentWidth, contentHeight } = scaledLayout
-  let y = innerY
-  if (command.frame.verticalAlignment === 'center') y += Math.max(0, (innerHeight - contentHeight) / 2)
-  if (command.frame.verticalAlignment === 'bottom') y += Math.max(0, innerHeight - contentHeight)
+  const effectiveBounds = command.frame.autofit === 'resize-shape'
+    ? resizedTextShapeBounds(command, contentWidth, contentHeight, rotationDegrees)
+    : command.bounds
+  const effectiveLayoutBounds = rotatedLayoutBounds(effectiveBounds, rotationDegrees)
+  const effectiveInnerHeight = Math.max(
+    0,
+    toPixels(
+      effectiveLayoutBounds.height - command.frame.marginTop - command.frame.marginBottom,
+    ),
+  )
+  const effectiveInnerX = toPixels(effectiveLayoutBounds.x + command.frame.marginLeft)
+  const verticalOffset = command.frame.verticalAlignment === 'center'
+    ? Math.max(0, (effectiveInnerHeight - contentHeight) / 2)
+    : command.frame.verticalAlignment === 'bottom'
+      ? Math.max(0, effectiveInnerHeight - contentHeight)
+      : 0
   const output: RichTextLayoutRun[] = []
   for (const line of lines) {
-    y += line.before
-    const visualRuns = line.direction === 'rtl'
+    const y = toPixels(effectiveLayoutBounds.y + command.frame.marginTop) +
+      verticalOffset + (line.top ?? 0) + line.before
+    let visualRuns = line.direction === 'rtl'
       ? Array.from(line.runs, (_, index) => line.runs[line.runs.length - index - 1]!)
       : line.runs
-    const width = visualRuns.reduce((sum, run) => sum + run.width, 0)
-    let x = innerX + line.left
-    if (line.alignment === 'center') x += Math.max(0, (innerWidth - line.left - width) / 2)
+    let width = visualRuns.reduce((sum, run) => sum + run.width, 0)
+    const remaining = Math.max(0, columnWidth - line.left - width)
+    if (line.alignment === 'justify' && !line.lastInParagraph && remaining > 0) {
+      const spaces = visualRuns.filter((run) => isSoftWhitespace(run.text))
+      if (spaces.length > 0) {
+        const extra = remaining / spaces.length
+        visualRuns = visualRuns.map((run) => isSoftWhitespace(run.text)
+          ? { ...run, width: run.width + extra }
+          : run)
+        width += remaining
+      }
+    } else if (line.alignment === 'distributed' && remaining > 0) {
+      const gaps = visualRuns.reduce((sum, run) => sum + characterGapCount(run.text), 0)
+      if (gaps > 0) {
+        const extra = remaining / gaps
+        visualRuns = visualRuns.map((run) => ({
+          ...run,
+          width: run.width + characterGapCount(run.text) * extra,
+          characterSpacing: run.characterSpacing + extra,
+        }))
+        width += remaining
+      }
+    }
+    let x = effectiveInnerX + (line.column ?? 0) * (columnWidth + columnSpacing) + line.left
+    if (line.alignment === 'center') x += Math.max(0, (columnWidth - line.left - width) / 2)
     if (line.alignment === 'right' || (line.alignment === 'left' && line.direction === 'rtl')) {
-      x += Math.max(0, innerWidth - line.left - width)
+      x += Math.max(0, columnWidth - line.left - width)
     }
     for (const run of visualRuns) {
+      const naturalBaseline = line.fontAlignment === 'top'
+        ? y + run.fontSize * 0.82
+        : line.fontAlignment === 'center'
+          ? y + line.height / 2 + run.fontSize * 0.32
+          : line.fontAlignment === 'bottom'
+            ? y + line.height - run.fontSize * 0.18
+            : y + line.height * 0.82
       output.push({
         ...run,
         x,
-        baseline: y + line.height * 0.82 - run.fontSize * run.baselineShift,
+        baseline: naturalBaseline - run.fontSize * run.baselineShift,
+        warpRotation: 0,
       })
       x += run.width
     }
-    y += line.height + line.after
   }
+  const warpedOutput = command.frame.warp === undefined
+    ? output
+    : output.map((run) => applyTextWarp(run, command.frame.warp!, effectiveLayoutBounds))
   return Object.freeze({
-    runs: Object.freeze(output),
+    runs: Object.freeze(warpedOutput),
     contentWidth,
     contentHeight,
-    layoutBounds,
+    layoutBounds: effectiveLayoutBounds,
+    effectiveBounds,
     rotationDegrees,
   })
+}
+
+function applyTextWarp(
+  run: RichTextLayoutRun,
+  warp: NonNullable<SceneTextFrame['warp']>,
+  bounds: EmuRect,
+): RichTextLayoutRun {
+  const left = toPixels(bounds.x)
+  const width = Math.max(1, toPixels(bounds.width))
+  const height = Math.max(1, toPixels(bounds.height))
+  const normalized = Math.max(-1, Math.min(1, ((run.x + run.width / 2 - left) / width) * 2 - 1))
+  const amplitude = Math.min(height / 2, height * warp.adjustment / 200_000)
+  let offset = 0
+  let rotation = 0
+  if (warp.preset === 'textArchUp' || warp.preset === 'textArchUpPour' || warp.preset === 'archUp' || warp.preset === 'archUpPour') {
+    offset = -amplitude * (1 - normalized * normalized)
+    rotation = normalized * 20
+  } else if (warp.preset === 'textArchDown' || warp.preset === 'textArchDownPour' || warp.preset === 'archDown' || warp.preset === 'archDownPour') {
+    offset = amplitude * (1 - normalized * normalized)
+    rotation = -normalized * 20
+  } else if (warp.preset === 'textWave1' || warp.preset === 'textWave2' || warp.preset === 'wave1' || warp.preset === 'wave2') {
+    const doubleWave = warp.preset === 'textWave2' || warp.preset === 'wave2'
+    offset = Math.sin((normalized + 1) * Math.PI * (doubleWave ? 2 : 1)) * amplitude
+    rotation = Math.cos((normalized + 1) * Math.PI * (doubleWave ? 2 : 1)) * 12
+  } else if (warp.preset === 'textInflate' || warp.preset === 'inflate') {
+    offset = -amplitude * (1 - normalized * normalized)
+  } else if (warp.preset === 'textDeflate' || warp.preset === 'deflate') {
+    offset = amplitude * (1 - normalized * normalized)
+  }
+  return { ...run, baseline: run.baseline + offset, warpRotation: rotation }
+}
+
+function rotatedLayoutBounds(bounds: EmuRect, rotationDegrees: 0 | 90 | -90): EmuRect {
+  return rotationDegrees === 0
+    ? bounds
+    : {
+        x: bounds.x + (bounds.width - bounds.height) / 2,
+        y: bounds.y + (bounds.height - bounds.width) / 2,
+        width: bounds.height,
+        height: bounds.width,
+      }
+}
+
+function resizedTextShapeBounds(
+  command: Extract<SceneCommand, { readonly kind: 'draw-rich-text' }>,
+  contentWidth: number,
+  contentHeight: number,
+  rotationDegrees: 0 | 90 | -90,
+): EmuRect {
+  const maximumDimension = 91_440_000
+  const originalLayout = rotatedLayoutBounds(command.bounds, rotationDegrees)
+  const measuredLayoutWidth = command.frame.wrap
+    ? originalLayout.width
+    : Math.max(
+        originalLayout.width,
+        contentWidth * EMU_PER_CSS_PIXEL + command.frame.marginLeft + command.frame.marginRight,
+      )
+  const measuredLayoutHeight = Math.max(
+    originalLayout.height,
+    contentHeight * EMU_PER_CSS_PIXEL + command.frame.marginTop + command.frame.marginBottom,
+  )
+  const requiredLayoutWidth = Number.isFinite(measuredLayoutWidth)
+    ? Math.min(maximumDimension, Math.max(originalLayout.width, measuredLayoutWidth))
+    : originalLayout.width
+  const requiredLayoutHeight = Number.isFinite(measuredLayoutHeight)
+    ? Math.min(maximumDimension, Math.max(originalLayout.height, measuredLayoutHeight))
+    : originalLayout.height
+  const width = rotationDegrees === 0 ? requiredLayoutWidth : requiredLayoutHeight
+  const height = rotationDegrees === 0 ? requiredLayoutHeight : requiredLayoutWidth
+  const deltaWidth = width - command.bounds.width
+  const deltaHeight = height - command.bounds.height
+  const anchor = command.frame.verticalAlignment === 'center'
+    ? 0.5
+    : command.frame.verticalAlignment === 'bottom'
+      ? 1
+      : 0
+  return {
+    x: command.bounds.x - (rotationDegrees === 0 ? 0 : deltaWidth * anchor),
+    y: command.bounds.y - (rotationDegrees === 0 ? deltaHeight * anchor : 0),
+    width,
+    height,
+  }
 }
 
 function drawRichTextLayout(
   context: CanvasRenderingContext2D,
   plan: RichTextLayoutPlan,
+  images: readonly (DecodedImage | undefined)[] = [],
 ): void {
   context.save()
   if (plan.rotationDegrees !== 0) {
@@ -877,14 +1425,73 @@ function drawRichTextLayout(
   context.textAlign = 'left'
   context.textBaseline = 'alphabetic'
   for (const run of plan.runs) {
+    context.save()
+    if (run.warpRotation !== 0) {
+      const centerX = run.x + run.width / 2
+      const centerY = run.baseline - run.fontSize / 2
+      context.translate(centerX, centerY)
+      context.rotate(run.warpRotation * Math.PI / 180)
+      context.translate(-centerX, -centerY)
+    }
     context.font = run.font.css
-    context.fillStyle = cssColor(run.color)
+    context.fillStyle = textFillStyle(context, run)
+    context.filter = run.blurRadius > 0 || run.softEdgeRadius > 0
+      ? `blur(${toPixels(Math.max(run.blurRadius, run.softEdgeRadius))}px)`
+      : 'none'
     context.direction = run.direction
     context.textAlign = run.direction === 'rtl' ? 'right' : 'left'
     const start = run.direction === 'rtl' ? run.x + run.width : run.x
     const spaced = context as CanvasRenderingContext2D & { letterSpacing?: string }
     if (spaced.letterSpacing !== undefined) spaced.letterSpacing = `${run.characterSpacing}px`
-    context.fillText(run.text, start, run.baseline)
+    if (run.shadow !== undefined) {
+      const radians = run.shadow.direction / 60_000 * Math.PI / 180
+      context.shadowColor = cssColor(run.shadow.color)
+      context.shadowBlur = toPixels(run.shadow.blurRadius)
+      context.shadowOffsetX = Math.cos(radians) * toPixels(run.shadow.distance)
+      context.shadowOffsetY = Math.sin(radians) * toPixels(run.shadow.distance)
+    } else if (run.glow !== undefined) {
+      context.shadowColor = cssColor(run.glow.color)
+      context.shadowBlur = toPixels(run.glow.radius)
+      context.shadowOffsetX = 0
+      context.shadowOffsetY = 0
+    }
+    const bulletImage = run.bulletImageResource === undefined ? undefined : images[run.bulletImageResource]
+    if (bulletImage !== undefined) {
+      const size = run.fontSize
+      context.drawImage(bulletImage.source, run.x, run.baseline - size * 0.82, size, size)
+    } else if (run.fill?.kind !== 'none') context.fillText(run.text, start, run.baseline)
+    if (run.reflection && bulletImage === undefined && run.fill?.kind !== 'none') {
+      context.save()
+      context.globalAlpha *= 0.22
+      context.translate(0, 2 * (run.baseline + run.fontSize * 0.18))
+      context.scale(1, -1)
+      context.fillText(run.text, start, run.baseline)
+      context.restore()
+    }
+    if (run.innerShadow !== undefined && bulletImage === undefined && run.fill?.kind !== 'none') {
+      const radians = run.innerShadow.direction / 60_000 * Math.PI / 180
+      context.save()
+      context.globalCompositeOperation = 'source-atop'
+      context.strokeStyle = cssColor(run.innerShadow.color)
+      context.lineWidth = Math.max(0.5, run.fontSize / 18)
+      context.shadowColor = cssColor(run.innerShadow.color)
+      context.shadowBlur = toPixels(run.innerShadow.blurRadius)
+      context.shadowOffsetX = Math.cos(radians) * toPixels(run.innerShadow.distance)
+      context.shadowOffsetY = Math.sin(radians) * toPixels(run.innerShadow.distance)
+      context.strokeText(run.text, start, run.baseline)
+      context.restore()
+    }
+    context.shadowColor = 'transparent'
+    context.shadowBlur = 0
+    context.shadowOffsetX = 0
+    context.shadowOffsetY = 0
+    if (run.outline !== undefined) {
+      context.strokeStyle = cssColor(run.outline.color)
+      context.lineWidth = Math.max(0.5, toPixels(run.outline.width))
+      context.setLineDash(dashPattern(run.outline.dash, context.lineWidth))
+      context.strokeText(run.text, start, run.baseline)
+      context.setLineDash([])
+    }
     if (spaced.letterSpacing !== undefined) spaced.letterSpacing = '0px'
     if (run.underline || run.strike) {
       context.strokeStyle = cssColor(run.color)
@@ -902,22 +1509,40 @@ function drawRichTextLayout(
         context.stroke()
       }
     }
+    context.restore()
   }
   context.restore()
 }
 
-function spacingPixels(value: number | undefined): number {
+function spacingPixels(value: SceneTextSpacing | undefined, referenceHeight: number): number {
   if (value === undefined) return 0
-  return pointsToCssPixels(value / 100)
+  return value.kind === 'percent'
+    ? referenceHeight * value.value / 100_000
+    : pointsToCssPixels(value.value / 100)
 }
 
-function applyScaledLineSpacing(height: number, value: number | undefined, scale: number): number {
+function applyScaledLineSpacing(
+  height: number,
+  value: SceneTextSpacing | undefined,
+  scale: number,
+  reduction = 0,
+): number {
   if (value === undefined) return height
-  return value >= 10_000 ? height * value / 100_000 : pointsToCssPixels(value / 100) * scale
+  return value.kind === 'percent'
+    ? height * Math.max(0, value.value - reduction) / 100_000
+    : pointsToCssPixels(value.value / 100) * scale
 }
 
 function scaleCssFont(css: string, scale: number): string {
   return css.replace(/([0-9.]+)px/, (_match, size: string) => `${Number(size) * scale}px`)
+}
+
+function shapedLookupKey(
+  font: ResolvedFont,
+  direction: 'ltr' | 'rtl',
+  text: string,
+): string {
+  return `${font.shapingKey ?? font.css}\0${direction}\0${text}`
 }
 
 export interface DecodedImage {
@@ -1240,9 +1865,8 @@ export class CanvasDisplayListRenderer {
       (command): command is Extract<SceneCommand, { readonly kind: 'draw-text' }> =>
         command.kind === 'draw-text',
     )
-    const richTextCommands = scene.commands.filter(
-      (command): command is Extract<SceneCommand, { readonly kind: 'draw-rich-text' }> =>
-        command.kind === 'draw-rich-text',
+    const richTextEntries = scene.commands.flatMap((command, commandIndex) =>
+      command.kind === 'draw-rich-text' ? [{ command, commandIndex }] : [],
     )
     const fontStart = performance.now()
     const resolvedFonts = await Promise.all(
@@ -1264,7 +1888,7 @@ export class CanvasDisplayListRenderer {
       this.#textMeasurements,
     )
     const richTextLayouts = await Promise.all(
-      richTextCommands.map(async (command) => {
+      richTextEntries.map(async ({ command }) => {
         const key = `${this.#fontResolverId(fontResolver)}\0${JSON.stringify(command)}`
         const cached = this.#richTextLayouts.get(key)
         if (cached !== undefined) return cached
@@ -1273,6 +1897,25 @@ export class CanvasDisplayListRenderer {
         return layout
       }),
     )
+    const richTextLayoutsByCommand = new Map(
+      richTextEntries.map((entry, index) => [entry.commandIndex, richTextLayouts[index]!] as const),
+    )
+    const resizedBoundsByCommand = new Map<number, EmuRect>()
+    for (const semantic of scene.semantics) {
+      const richCommandIndex = Array.from(
+        { length: semantic.commandCount },
+        (_, offset) => semantic.firstCommand + offset,
+      ).find((index) => scene.commands[index]?.kind === 'draw-rich-text')
+      if (richCommandIndex === undefined) continue
+      const richCommand = scene.commands[richCommandIndex]
+      const layout = richTextLayoutsByCommand.get(richCommandIndex)
+      if (richCommand?.kind !== 'draw-rich-text' || richCommand.frame.autofit !== 'resize-shape' || layout === undefined) {
+        continue
+      }
+      for (let index = semantic.firstCommand; index < semantic.firstCommand + semantic.commandCount; index += 1) {
+        resizedBoundsByCommand.set(index, layout.effectiveBounds)
+      }
+    }
     const fontMeasurementMs = performance.now() - fontStart
     const mediaStart = performance.now()
     const decodedImages = await this.#resolveImages(
@@ -1288,9 +1931,15 @@ export class CanvasDisplayListRenderer {
     try {
       context.setTransform(rootScale, 0, 0, rootScale, 0, 0)
       let textIndex = 0
-      let richTextIndex = 0
-      for (const command of scene.commands) {
+      for (const [commandIndex, command] of scene.commands.entries()) {
         throwIfAborted(signal)
+        const resizedBounds = resizedBoundsByCommand.get(commandIndex)
+        const commandTransform = 'transform' in command && typeof command.transform === 'object'
+          ? command.transform
+          : undefined
+        const transform = commandTransform !== undefined && resizedBounds !== undefined
+          ? { ...commandTransform, bounds: resizedBounds }
+          : commandTransform
         switch (command.kind) {
           case 'clear':
             context.save()
@@ -1307,30 +1956,30 @@ export class CanvasDisplayListRenderer {
             context.restore()
             break
           case 'fill-preset':
-            drawPreset(context, command.geometry, command.transform, () => {
+            drawPreset(context, command.geometry, transform!, () => {
               context.fillStyle = cssColor(command.color)
               context.fill()
             })
             break
           case 'stroke-preset':
-            drawPreset(context, command.geometry, command.transform, () => {
+            drawPreset(context, command.geometry, transform!, () => {
               context.strokeStyle = cssColor(command.color)
               context.lineWidth = toPixels(command.width)
               context.setLineDash(dashPattern(command.dash, toPixels(command.width)))
               context.stroke()
             })
-            if (command.geometry === 4) drawLineEnds(context, command.transform, command)
+            if (command.geometry === 4) drawLineEnds(context, transform!, command)
             break
           case 'fill-gradient-preset':
-            drawPreset(context, command.geometry, command.transform, () => {
-              context.fillStyle = canvasGradient(context, command.transform.bounds, command.angle, command.stops)
+            drawPreset(context, command.geometry, transform!, () => {
+              context.fillStyle = canvasGradient(context, transform!.bounds, command.angle, command.stops)
               context.fill()
             })
             break
           case 'fill-radial-gradient-preset':
-            drawPreset(context, command.geometry, command.transform, () => {
-              const width = toPixels(command.transform.bounds.width)
-              const height = toPixels(command.transform.bounds.height)
+            drawPreset(context, command.geometry, transform!, () => {
+              const width = toPixels(transform!.bounds.width)
+              const height = toPixels(transform!.bounds.height)
               const radius = Math.max(width, height) / 2
               const gradient = context.createRadialGradient(width / 2, height / 2, 0, width / 2, height / 2, radius)
               for (const stop of command.stops) gradient.addColorStop(stop.position / 100_000, cssColor(stop.color))
@@ -1339,11 +1988,11 @@ export class CanvasDisplayListRenderer {
             })
             break
           case 'fill-pattern-preset':
-            drawPreset(context, command.geometry, command.transform, () => {
+            drawPreset(context, command.geometry, transform!, () => {
               drawPatternFill(
                 context,
-                toPixels(command.transform.bounds.width),
-                toPixels(command.transform.bounds.height),
+                toPixels(transform!.bounds.width),
+                toPixels(transform!.bounds.height),
                 command.preset,
                 command.foreground,
                 command.background,
@@ -1351,15 +2000,15 @@ export class CanvasDisplayListRenderer {
             })
             break
           case 'draw-custom-path':
-            drawCustomPath(context, command)
+            drawCustomPath(context, transform === command.transform ? command : { ...command, transform: transform! })
             break
           case 'draw-outer-shadow':
-            drawOuterShadow(context, command)
+            drawOuterShadow(context, transform === command.transform ? command : { ...command, transform: transform! })
             break
           case 'draw-image': {
             const image = decodedImages[command.resource]
-            if (image !== undefined) drawImage(context, image.source, command.transform, command.crop)
-            else drawUnsupportedGraphic(context, command.transform, 'Image unavailable')
+            if (image !== undefined) drawImage(context, image.source, transform!, command.crop)
+            else drawUnsupportedGraphic(context, transform!, 'Image unavailable')
             break
           }
           case 'draw-text': {
@@ -1371,11 +2020,14 @@ export class CanvasDisplayListRenderer {
             break
           }
           case 'draw-rich-text':
-            drawRichTextLayout(context, richTextLayouts[richTextIndex]!)
-            richTextIndex += 1
+            drawRichTextLayout(
+              context,
+              requiredMap(richTextLayoutsByCommand, commandIndex, 'rich-text layout'),
+              decodedImages,
+            )
             break
           case 'draw-unsupported':
-            drawUnsupportedGraphic(context, command.transform, unsupportedLabel(command.feature))
+            drawUnsupportedGraphic(context, transform!, unsupportedLabel(command.feature))
             break
         }
       }
@@ -1812,7 +2464,12 @@ class BinaryReader {
   }
 }
 
-function readCommand(reader: BinaryReader, version: number): SceneCommand {
+function readCommand(
+  reader: BinaryReader,
+  version: number,
+  inlineImages: SceneImage[] = [],
+  declaredImageCount = 0,
+): SceneCommand {
   switch (reader.u8()) {
     case 1:
       return { kind: 'clear', color: readColor(reader) }
@@ -1870,21 +2527,51 @@ function readCommand(reader: BinaryReader, version: number): SceneCommand {
       const wrap = reader.u8() !== 0
       const autofitCode = reader.u8()
       if (autofitCode > 2) throw new Error('display list contains an unknown text autofit mode')
+      const autofitFontScale = version >= 6 ? optionalI32(reader) : undefined
+      const autofitLineSpacingReduction = version >= 6 ? optionalI32(reader) : undefined
+      const autofitRecompute = version >= 9 && reader.u8() !== 0
       const flowCode = version >= 5 ? reader.u8() : 0
       if (flowCode > 2) throw new Error('display list contains an unknown text flow')
+      const columnCount = version >= 6 ? reader.u8() : 1
+      if (columnCount < 1 || columnCount > 16) {
+        throw new Error('display list contains an invalid text column count')
+      }
+      const columnSpacing = version >= 6 ? reader.safeI64('text column spacing') : 0
+      if (columnSpacing < 0) throw new Error('display list contains negative text column spacing')
+      const defaultTabSize = version >= 7 ? reader.safeI64('default text tab size') : 457_200
+      if (defaultTabSize <= 0) throw new Error('display list contains an invalid default text tab size')
+      const warpPreset = version >= 7 ? reader.utf8Blob() : ''
+      const warpAdjustment = version >= 7 ? optionalI32(reader) : undefined
+      const warp = warpPreset === '' ? undefined : {
+        preset: warpPreset,
+        adjustment: warpAdjustment ?? 25_000,
+      }
       const paragraphs: SceneParagraph[] = []
       const paragraphCount = reader.boundedCount('paragraph')
       for (let paragraphIndex = 0; paragraphIndex < paragraphCount; paragraphIndex += 1) {
         const alignment = textAlignment(reader.u8())
         const rawBullet = reader.utf8Blob()
+        const bulletImagePartName = version >= 7 ? reader.utf8Blob() : ''
+        const bulletImageRelationshipId = version >= 7 ? reader.utf8Blob() : ''
+        const bulletImageResource = bulletImagePartName === '' && bulletImageRelationshipId === ''
+          ? undefined
+          : declaredImageCount + inlineImages.push({
+              partName: bulletImagePartName || undefined,
+              relationshipId: bulletImageRelationshipId,
+            }) - 1
+        const bulletStyle = version >= 7 && reader.u8() !== 0
+          ? readTextStyle(reader, version)
+          : undefined
         const level = reader.u8()
         const paragraphMarginLeft = reader.safeI64('paragraph left margin')
         const indent = reader.safeI64('paragraph indent')
-        const lineSpacing = optionalI32(reader)
-        const spaceBefore = optionalI32(reader)
-        const spaceAfter = optionalI32(reader)
+        const lineSpacing = version >= 6 ? readTextSpacing(reader) : legacyTextSpacing(reader)
+        const spaceBefore = version >= 6 ? readTextSpacing(reader) : legacyTextSpacing(reader)
+        const spaceAfter = version >= 6 ? readTextSpacing(reader) : legacyTextSpacing(reader)
         const directionCode = version >= 5 ? reader.u8() : 0
         if (directionCode > 1) throw new Error('display list contains an unknown text direction')
+        const fontAlignmentCode = version >= 7 ? reader.u8() : 0
+        if (fontAlignmentCode > 4) throw new Error('display list contains an unknown text font alignment')
         const tabs: SceneTextTab[] = []
         const tabCount = version >= 5 ? reader.boundedCount('text tab') : 0
         for (let tabIndex = 0; tabIndex < tabCount; tabIndex += 1) {
@@ -1914,6 +2601,8 @@ function readCommand(reader: BinaryReader, version: number): SceneCommand {
           runs,
           alignment,
           bullet: rawBullet || undefined,
+          bulletImageResource,
+          bulletStyle,
           level,
           marginLeft: paragraphMarginLeft,
           indent,
@@ -1922,6 +2611,7 @@ function readCommand(reader: BinaryReader, version: number): SceneCommand {
           spaceAfter,
           direction: directionCode === 1 ? 'rtl' : 'ltr',
           tabs,
+          fontAlignment: ['automatic', 'top', 'center', 'baseline', 'bottom'][fontAlignmentCode] as SceneParagraph['fontAlignment'],
         })
       }
       return {
@@ -1936,7 +2626,14 @@ function readCommand(reader: BinaryReader, version: number): SceneCommand {
           marginBottom,
           wrap,
           autofit: autofitCode === 1 ? 'shrink-text' : autofitCode === 2 ? 'resize-shape' : 'none',
+          autofitFontScale,
+          autofitLineSpacingReduction,
+          autofitRecompute,
           flow: flowCode === 1 ? 'vertical' : flowCode === 2 ? 'vertical-270' : 'horizontal',
+          columnCount,
+          columnSpacing,
+          defaultTabSize,
+          warp,
         },
       }
     }
@@ -2092,18 +2789,92 @@ function readTextStyle(reader: BinaryReader, version: number): SceneTextStyle {
     marginRight: reader.safeI64('text right margin'),
     marginBottom: reader.safeI64('text bottom margin'),
   }
-  return {
+  const base = {
     ...style,
     underline: version >= 5 ? reader.u8() !== 0 : false,
     strike: version >= 5 ? reader.u8() !== 0 : false,
     characterSpacing: version >= 5 ? reader.i32() : 0,
     baseline: version >= 5 ? reader.i32() : 0,
+    blurRadius: 0,
+    softEdgeRadius: 0,
+    reflection: false,
   }
+  if (version < 7) return base
+  const outline = reader.u8() === 0 ? undefined : {
+    color: readColor(reader),
+    width: reader.safeI64('text outline width'),
+    dash: reader.utf8Blob() || undefined,
+  }
+  if (outline !== undefined) { lineEnd(reader.u8()); lineEnd(reader.u8()) }
+  const shadow = reader.u8() === 0 ? undefined : {
+    color: readColor(reader),
+    blurRadius: reader.safeI64('text shadow blur radius'),
+    distance: reader.safeI64('text shadow distance'),
+    direction: reader.i32(),
+  }
+  const innerShadow = version < 8 || reader.u8() === 0 ? undefined : {
+      color: readColor(reader),
+      blurRadius: reader.safeI64('text inner shadow blur radius'),
+      distance: reader.safeI64('text inner shadow distance'),
+      direction: reader.i32(),
+    }
+  const fill = reader.u8() === 0 ? undefined : readFill(reader)
+  const glow = reader.u8() === 0 ? undefined : {
+    color: readColor(reader),
+    radius: reader.safeI64('text glow radius'),
+  }
+  const blurRadius = reader.safeI64('text blur radius')
+  const softEdgeRadius = reader.safeI64('text soft-edge radius')
+  const reflection = reader.u8() !== 0
+  return { ...base, outline, shadow, innerShadow, fill, glow, blurRadius, softEdgeRadius, reflection }
+}
+
+function textFillStyle(
+  context: CanvasRenderingContext2D,
+  run: RichTextLayoutRun,
+): string | CanvasGradient {
+  const fill = run.fill
+  if (fill === undefined || fill.kind === 'none') return cssColor(run.color)
+  if (fill.kind === 'solid') return cssColor(fill.color)
+  if (fill.kind === 'pattern') return cssColor(fill.foreground)
+  if (fill.kind === 'linear-gradient') {
+    const radians = fill.angle / 60_000 * Math.PI / 180
+    const dx = Math.cos(radians) * run.width / 2
+    const dy = Math.sin(radians) * run.fontSize / 2
+    const gradient = context.createLinearGradient(
+      run.x + run.width / 2 - dx,
+      run.baseline - run.fontSize / 2 - dy,
+      run.x + run.width / 2 + dx,
+      run.baseline - run.fontSize / 2 + dy,
+    )
+    for (const stop of fill.stops) gradient.addColorStop(Math.max(0, Math.min(1, stop.position / 100_000)), cssColor(stop.color))
+    return gradient
+  }
+  const gradient = context.createRadialGradient(
+    run.x + run.width / 2, run.baseline - run.fontSize / 2, 0,
+    run.x + run.width / 2, run.baseline - run.fontSize / 2, Math.max(run.width, run.fontSize) / 2,
+  )
+  for (const stop of fill.stops) gradient.addColorStop(Math.max(0, Math.min(1, stop.position / 100_000)), cssColor(stop.color))
+  return gradient
 }
 
 function optionalI32(reader: BinaryReader): number | undefined {
   const value = reader.i32()
   return value === -0x8000_0000 ? undefined : value
+}
+
+function legacyTextSpacing(reader: BinaryReader): SceneTextSpacing | undefined {
+  const value = optionalI32(reader)
+  if (value === undefined) return undefined
+  return { kind: value >= 10_000 ? 'percent' : 'points', value }
+}
+
+function readTextSpacing(reader: BinaryReader): SceneTextSpacing | undefined {
+  const kind = reader.u8()
+  if (kind === 0) return undefined
+  if (kind === 1) return { kind: 'percent', value: reader.i32() }
+  if (kind === 2) return { kind: 'points', value: reader.i32() }
+  throw new Error('display list contains an unknown text spacing kind')
 }
 
 function unsupportedFeature(
@@ -2126,6 +2897,9 @@ function defaultTextStyle(): SceneTextStyle {
     strike: false,
     characterSpacing: 0,
     baseline: 0,
+    blurRadius: 0,
+    softEdgeRadius: 0,
+    reflection: false,
     alignment: 'left',
     verticalAlignment: 'top',
     marginLeft: 91_440,
@@ -2140,6 +2914,7 @@ function textAlignment(value: number): SceneTextStyle['alignment'] {
   if (value === 2) return 'center'
   if (value === 3) return 'right'
   if (value === 4) return 'justify'
+  if (value === 5) return 'distributed'
   throw new Error('display list contains an unknown text alignment')
 }
 
@@ -2190,6 +2965,13 @@ function validateReferences(
       throw new Error('display list references an unknown string')
     } else if (command.kind === 'draw-image' && command.resource >= imageCount) {
       throw new Error('display list references an unknown image')
+    } else if (command.kind === 'draw-rich-text') {
+      for (const paragraph of command.frame.paragraphs) {
+        if (
+          paragraph.bulletImageResource !== undefined &&
+          paragraph.bulletImageResource >= imageCount
+        ) throw new Error('display list references an unknown picture bullet')
+      }
     }
   }
   if (depth !== 0) throw new Error('display list group stack is unbalanced')
@@ -2226,7 +3008,7 @@ function detectFontScript(text: string): FontScript {
   if (/\p{Script=Hangul}|\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}/u.test(text)) {
     return 'east-asian'
   }
-  if (/\p{Script=Arabic}|\p{Script=Hebrew}|\p{Script=Devanagari}|\p{Script=Thai}/u.test(text)) {
+  if (/\p{Script=Arabic}|\p{Script=Hebrew}|\p{Script=Devanagari}|\p{Script=Thai}|\p{Script=Lao}|\p{Script=Khmer}/u.test(text)) {
     return 'complex'
   }
   return 'latin'
@@ -2257,7 +3039,8 @@ function lineBreakTokens(text: string): readonly string[] {
     if (whitespace !== '') tokens.push(whitespace)
     whitespace = ''
   }
-  for (const character of text) {
+  let wordJoin = false
+  for (const character of segmentGraphemes(text)) {
     if (character === '\n') {
       flushLatin()
       flushWhitespace()
@@ -2270,25 +3053,44 @@ function lineBreakTokens(text: string): readonly string[] {
       if (opening !== '') tokens.push(opening)
       opening = ''
       tokens.push(character)
-    } else if (/\s/u.test(character)) {
-      flushLatin()
-      whitespace += character
-    } else if (/\p{Script=Han}|\p{Script=Hangul}|\p{Script=Hiragana}|\p{Script=Katakana}/u.test(character)) {
+    } else if (character === '\u2060') {
+      wordJoin = true
+    } else if (character === '\u200B') {
       flushLatin()
       flushWhitespace()
-      if (/[（［｛〈《「『【〔〖〘〚]/u.test(character)) {
-        opening += character
-      } else if (/[）］｝〉》」』】〕〗〙〛、。，．？！：；]/u.test(character) && tokens.length > 0) {
-        tokens[tokens.length - 1] += opening + character
-        opening = ''
-      } else {
-        tokens.push(opening + character)
-        opening = ''
-      }
+      tokens.push(character)
+      wordJoin = false
+    } else if (character === '\u00AD') {
+      latin += character
+      flushLatin()
+      wordJoin = false
+    } else if (isBreakableWhitespace(character)) {
+      flushLatin()
+      whitespace += character
+      wordJoin = false
+    } else if (/[（［｛〈《「『【〔〖〘〚]/u.test(character)) {
+      flushLatin()
+      flushWhitespace()
+      opening += character
+    } else if (/[）］｝〉》」』】〕〗〙〛、。，．？！：；]/u.test(character)) {
+      flushLatin()
+      flushWhitespace()
+      if (tokens.length > 0) tokens[tokens.length - 1] += opening + character
+      else opening += character
+      opening = ''
+    } else if (
+      !wordJoin &&
+      /\p{Script=Han}|\p{Script=Hangul}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Thai}|\p{Script=Lao}|\p{Script=Khmer}/u.test(character)
+    ) {
+      flushLatin()
+      flushWhitespace()
+      tokens.push(opening + character)
+      opening = ''
     } else {
       flushWhitespace()
       latin += opening + character
       opening = ''
+      wordJoin = false
     }
   }
   if (opening !== '') latin += opening
@@ -2298,7 +3100,9 @@ function lineBreakTokens(text: string): readonly string[] {
 }
 
 function isSoftWhitespace(token: string): boolean {
-  return token !== '\n' && token !== '\t' && /^\s+$/u.test(token)
+  return token === '\u200B' || (
+    token !== '\n' && token !== '\t' && [...token].every(isBreakableWhitespace)
+  )
 }
 
 function splitTokenToFit(
@@ -2309,7 +3113,7 @@ function splitTokenToFit(
   if (!(maxWidth > 0)) return [token]
   const fragments: string[] = []
   let fragment = ''
-  for (const character of token) {
+  for (const character of segmentGraphemes(token)) {
     const candidate = fragment + character
     if (fragment !== '' && measure(candidate) > maxWidth) {
       fragments.push(fragment)
@@ -2323,22 +3127,71 @@ function splitTokenToFit(
 }
 
 function characterGapCount(text: string): number {
-  return Math.max(0, Array.from(text).length - 1)
+  return Math.max(0, segmentGraphemes(text).length - 1)
 }
 
-function nextTabWidth(current: number, tabs: readonly SceneTextTab[]): number {
-  const stop = tabs
-    .map((tab) => toPixels(tab.position))
-    .filter((position) => position > current)
-    .sort((left, right) => left - right)[0]
-  if (stop !== undefined) return stop - current
-  const defaultInterval = toPixels(457_200)
+function isBreakableWhitespace(value: string): boolean {
+  return value !== '\u00A0' && value !== '\u202F' && /^\s+$/u.test(value)
+}
+
+function segmentGraphemes(text: string): readonly string[] {
+  const output: string[] = []
+  let joinNext = false
+  let regionalCount = 0
+  for (const character of text) {
+    const combining = character === '\u200D' || /\p{Mark}/u.test(character) ||
+      /[\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/u.test(character) ||
+      /\p{Emoji_Modifier}/u.test(character)
+    const regional = /\p{Regional_Indicator}/u.test(character)
+    if (
+      output.length === 0 ||
+      (!joinNext && !combining && !(regional && regionalCount % 2 === 1))
+    ) {
+      output.push(character)
+    } else {
+      output[output.length - 1] += character
+    }
+    joinNext = character === '\u200D'
+    regionalCount = regional ? regionalCount + 1 : 0
+  }
+  return output
+}
+
+function nextTabWidth(
+  current: number,
+  tabs: readonly SceneTextTab[],
+  defaultTabSize = 457_200,
+  followingWidth = 0,
+  decimalPrefixWidth = 0,
+): number {
+  let tab: SceneTextTab | undefined
+  for (const candidate of tabs) {
+    if (
+      toPixels(candidate.position) > current &&
+      (tab === undefined || candidate.position < tab.position)
+    ) tab = candidate
+  }
+  if (tab !== undefined) {
+    const stop = toPixels(tab.position)
+    const offset = tab.alignment === 'center' ? followingWidth / 2
+      : tab.alignment === 'right' ? followingWidth
+        : tab.alignment === 'decimal' ? decimalPrefixWidth
+          : 0
+    return Math.max(1, stop - current - offset)
+  }
+  const defaultInterval = toPixels(defaultTabSize)
   return Math.max(1, (Math.floor(current / defaultInterval) + 1) * defaultInterval - current)
 }
 
 function required<Value>(values: readonly Value[], index: number, label: string): Value {
   const value = values[index]
   if (value === undefined) throw new Error(`display list references an unknown ${label}`)
+  return value
+}
+
+function requiredMap<Key, Value>(values: ReadonlyMap<Key, Value>, key: Key, label: string): Value {
+  const value = values.get(key)
+  if (value === undefined) throw new Error(`${label} is missing`)
   return value
 }
 
@@ -2743,7 +3596,9 @@ function drawText(
       : style.verticalAlignment === 'bottom'
         ? top + Math.max(0, height - blockHeight)
         : top
-  const alignment = style.alignment === 'justify' ? 'left' : style.alignment
+  const alignment = style.alignment === 'justify' || style.alignment === 'distributed'
+    ? 'left'
+    : style.alignment
   context.textAlign = alignment
   const x = alignment === 'center' ? left + width / 2 : alignment === 'right' ? left + width : left
   for (let index = 0; index < lines.length; index += 1) {

@@ -145,6 +145,12 @@ export class DomSvgRenderer {
     }
     removeMissing(state.graphicElements, retained)
     removeMissing(state.textElements, retained)
+    for (const semantic of [...scene.semantics].sort(
+      (left, right) => left.readingOrder - right.readingOrder || left.zOrder - right.zOrder,
+    )) {
+      const element = state.textElements.get(semanticKey(semantic))
+      if (element !== undefined) state.textLayer.append(element)
+    }
     return Object.freeze({
       root: state.root,
       revision: options.revision,
@@ -228,6 +234,7 @@ function graphicElement(state: SlideDomState, semantic: SceneSemanticElement): S
     state.graphicElements.set(key, group)
   }
   group.dataset['shapeId'] = String(semantic.shapeId)
+  group.dataset['semanticKind'] = semantic.kind
   group.dataset['commandFirst'] = String(semantic.firstCommand)
   group.dataset['commandCount'] = String(semantic.commandCount)
   group.setAttribute('aria-label', semantic.alternativeText ?? semantic.name)
@@ -598,6 +605,7 @@ async function updateAccessibleOverlay(
     state.textElements.set(key, element)
   }
   element.dataset['shapeId'] = String(semantic.shapeId)
+  element.dataset['semanticKind'] = semantic.kind
   element.dataset['selectionId'] = semantic.source?.semanticId ?? `shape:${semantic.zOrder}:${semantic.shapeId}`
   element.dataset['readingOrder'] = String(semantic.readingOrder)
   if (semantic.source !== undefined) {

@@ -1,11 +1,12 @@
 # Accessible DOM and SVG backend
 
-Status: implemented baseline
+Status: output-only standalone document serialization implemented
 
 The secondary browser backend consumes the same decoded `DisplayScene` as Canvas. It does not
 parse PresentationML, resolve themes, inherit placeholders, or calculate geometry independently.
 Inline SVG projects the resolved graphic commands, while positioned HTML projects semantic text
-and interaction metadata.
+and interaction metadata. Cortex interactive preview, presentation, and storyboard surfaces remain
+Canvas-only; DOM/SVG exists for offline HTML and browser PDF output.
 
 ## Semantic WPDL boundary
 
@@ -35,7 +36,7 @@ links are retained in the scene. The browser exposes clickable `http`, `https`, 
 
 - SVG paths and image elements carry source shape IDs and accessible names;
 - HTML text is positioned over the graphic layer, remains selectable, and follows resolved
-  z-order as DOM reading order;
+  z-order for paint while the selectable overlay follows explicit semantic reading order;
 - hyperlinks use anchors and preserve the resolved alternative description;
 - `data-selection-id`, source shape ID, explicit reading order, source range, and command range
   support editor and selection integrations.
@@ -53,15 +54,51 @@ SVG serialization and DOM accessibility remain adapter policy, but adding or cor
 or group transform has one backend-neutral owner. Focused tests project every supported preset to
 both Canvas operations and SVG path data before the browser visual fingerprint gate runs.
 
-## Incremental updates and virtualization
+## Standalone HTML and PDF output
+
+`serializeDeckSessionToHtml` resolves the engine-owned presentable page indices from one exact
+deck-session revision. Each page carries its physical page ID, logical-slide ID, authoring index,
+hidden state, continuation ordinal/total, and optional continuation label. Hidden pages remain in
+the exact PPTX overlay with `show="0"` but do not enter this presentation/PDF page set.
+
+The selected POTX dimensions travel through `DeckPlan` and WPDL in English Metric Units (EMU).
+The serializer requires every page to have that same size and derives both CSS boxes and `@page`
+print geometry from it. There is no aspect ratio or output page-size option. Page order, fragment
+ownership, placement, semantic IDs, selectable text, safe links, accessible names, and continuation
+metadata therefore project the same revision used by Canvas and PPTX.
+
+The Cortex host supplies one authorized resolver from a package part name to bytes. The serializer:
+
+- loads only WPDL image and embedded-font part names;
+- rejects an unresolved, empty, oversized, unsupported, or active resource instead of emitting a
+  partial document;
+- accepts bounded PNG, JPEG, and inactive SVG, and freezes GIF to the browser-decoded first frame
+  as an inline PNG;
+- deobfuscates OOXML fonts, enforces OpenType preview/print permission, and emits inline
+  `@font-face` rules;
+- escapes host title/language metadata and semantic text through DOM text APIs; and
+- emits no script and a Content Security Policy with `default-src 'none'`, data-only images/fonts,
+  no connect/media/object/frame/form/base source, and inline style as the sole exception.
+
+Safe `http`, `https`, `mailto`, and `tel` anchors remain usable when a reader chooses them. They are
+navigation metadata, not automatically fetched document resources. Project URLs, arbitrary network
+image/font loaders, host HTML, and output-specific CSS overrides are outside this API.
+
+`serializeOfflineHtmlDocument` exposes the lower-level resolved-page adapter for browser hosts that
+already own exact WPDL and `DeckPageMetadata`. Identical inputs and resource bytes serialize to
+identical UTF-8 bytes in the supported browser. `OfflineDocumentError.code` distinguishes invalid
+document topology, unresolved resources, unsafe resources, and resource-limit failures.
+
+## Incremental DOM primitive
 
 Each host retains its slide root and keyed semantic elements. A newer revision updates existing
 SVG groups and HTML nodes in place, an equal revision is a no-op, and an older revision is
 ignored. This preserves selection and integration identity across ordinary updates.
 
-`VirtualizedDomViewer` uses the same Worker resolver and bounded scene cache as the Canvas viewer.
-Only visible slide hosts remain in the DOM; neighbor prefetch does not mount nodes. A viewport
-change aborts stale work, and `dispose()` removes every mounted slide and cached scene.
+`VirtualizedDomViewer` remains a low-level test and integration primitive, not a Cortex preview
+surface. It uses the same Worker resolver and bounded scene cache as the Canvas viewer. Only visible
+slide hosts remain in the DOM; neighbor prefetch does not mount nodes. A viewport change aborts
+stale work, and `dispose()` removes every mounted slide and cached scene.
 
 ## Deliberate limits
 

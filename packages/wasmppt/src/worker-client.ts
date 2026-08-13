@@ -2,6 +2,7 @@ import {
   LEGACY_WORKER_PROTOCOL_VERSION,
   WORKER_PROTOCOL_VERSION,
   type DeckSessionUpdate,
+  type DeckPageMetadata,
   type TemplateBinding,
   type TemplateCompilerOptions,
   type TemplateDiagnostic,
@@ -56,6 +57,7 @@ export interface ResolvedDeckSlide {
   readonly revision: number
   readonly slideIndex: number
   readonly fingerprint: string
+  readonly page: DeckPageMetadata
   readonly displayList: ArrayBuffer
 }
 
@@ -344,6 +346,7 @@ export class WasmpptWorkerClient {
       revision: response.revision,
       slideIndex: response.slideIndex,
       fingerprint: response.fingerprint,
+      page: response.page,
       displayList: response.displayList,
     }
   }

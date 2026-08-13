@@ -36,8 +36,8 @@ This is the canonical index for living `wasmppt` documentation.
   geometry and diagnostics, dependency invalidation, and binary display lists.
 - [Browser Canvas renderer](canvas.md) — Worker-owned lazy resolution, Canvas
   execution, fonts, virtualization, resource budgets, and stage telemetry.
-- [Accessible DOM and SVG backend](dom-svg.md) — selectable text, accessibility,
-  hyperlinks, semantic metadata, shared diagnostics, and incremental DOM updates.
+- [Offline DOM and SVG output](dom-svg.md) — selectable text, accessibility, safe links,
+  exact page metadata, closed resources, deterministic HTML, and PDF print geometry.
 - [Tables, charts, and advanced content](advanced-content.md) — table layout,
   chart caches and workbook edits, explicit fallbacks, and the capability matrix.
 - [Compatibility, security, and visual gates](compatibility.md) — corpus provenance,

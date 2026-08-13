@@ -52,6 +52,15 @@ export interface DeckSessionUpdate {
   }
 }
 
+export interface DeckPageMetadata {
+  readonly pageId: string
+  readonly logicalSlideId: string
+  readonly hidden: boolean
+  readonly continuationOrdinal: number
+  readonly continuationTotal: number
+  readonly continuationLabel?: string
+}
+
 export type WorkerRequest =
   | {
       readonly version: typeof WORKER_PROTOCOL_VERSION
@@ -276,6 +285,7 @@ export type WorkerResponse =
       readonly revision: number
       readonly slideIndex: number
       readonly fingerprint: string
+      readonly page: DeckPageMetadata
       readonly displayList: ArrayBuffer
     }
   | {
@@ -495,6 +505,7 @@ export interface WorkerEngine {
   deck_session_plan(handle: number, revision: number): Uint8Array
   deck_session_slide_count(handle: number): number
   deck_session_presentable_slides(handle: number): unknown[]
+  deck_session_slide_metadata(handle: number, revision: number, slideIndex: number): unknown[]
   apply_deck_session_spec(
     handle: number,
     expectedRevision: number,

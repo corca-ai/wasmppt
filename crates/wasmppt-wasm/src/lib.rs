@@ -602,6 +602,34 @@ impl WasmpptEngine {
         Ok(output)
     }
 
+    /// Stable physical-page metadata from the exact plan owned by this revision.
+    pub fn deck_session_slide_metadata(
+        &self,
+        handle: u32,
+        revision: u32,
+        slide_index: u32,
+    ) -> Result<Array, JsValue> {
+        let record = self.deck_session(handle)?;
+        require_deck_revision(record, revision)?;
+        let page = record.plan.pages.get(slide_index as usize).ok_or_else(|| {
+            coded_error("WasmpptDeckPlanError", "deck slide index is out of bounds")
+        })?;
+        let output = Array::new();
+        output.push(&JsValue::from(page.id.to_string()));
+        output.push(&JsValue::from(page.logical_slide_id.to_string()));
+        output.push(&JsValue::from(page.hidden));
+        output.push(&JsValue::from(page.continuation.ordinal));
+        output.push(&JsValue::from(page.continuation.total));
+        output.push(
+            &page
+                .continuation
+                .label
+                .as_deref()
+                .map_or(JsValue::NULL, JsValue::from),
+        );
+        Ok(output)
+    }
+
     /// Atomically decode, incrementally replan, compose, and publish one complete WDSF revision.
     pub fn apply_deck_session_spec(
         &mut self,

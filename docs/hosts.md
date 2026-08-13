@@ -69,11 +69,19 @@ when a host chooses not to install the optional converter.
 
 The v6 `deck-*` operations compile or restore a POTX plan, create and update complete WDSF
 revisions, return the current WDPL and hidden-filtered presentable page indices, resolve one
-physical page, stream resources, and export the exact preview overlay. Changed logical slides,
+physical page with stable page, logical-slide, hidden, and continuation metadata, stream resources,
+and export the exact preview overlay. Changed logical slides,
 physical pages, and package parts are explicit. WDSF, WDPL, WPDL, and resource buffers transfer
 ownership across the Worker boundary; bounded content-addressed caches retain only reusable data.
 Hidden pages remain addressable by authoring index and carry PresentationML `show="0"`; the
 presentable/export page-index set omits them without constructing a second preview revision.
+
+`serializeDeckSessionToHtml` consumes only those presentable indices, exact-revision WPDL results,
+and `deckSessionResource` bytes. The Cortex host does not provide a URL loader or HTML fragment:
+it authorizes package-part reads, and the serializer owns sanitization, deterministic data-URL
+inlining, GIF first-frame freezing, embedded-font permission checks, page metadata, print CSS, and
+a deny-by-default Content Security Policy. A stale revision, unresolved resource, active SVG, font
+embedding restriction, or configured byte/pixel limit fails the complete document.
 
 `WasmpptWorkerClient` owns every pending Promise and stream controller. Explicit
 termination, Worker `error`, and `messageerror` reject all pending operations. Cancellation

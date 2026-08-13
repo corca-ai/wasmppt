@@ -1,7 +1,8 @@
 # Cortex Theme Starter compiler
 
 Status: explicit Starter v1 discovery, validation, profile compilation, and deterministic
-cache identity implemented; automatic layout and PresentationML composition are later slices
+cache identity implemented; automatic layout and PresentationML composition are implemented by
+the downstream deck-layout and deck-compose crates
 
 `wasmppt-deck-template` converts a bounded POTX package into the host-neutral
 `DeckTemplatePlan` consumed by semantic layout. It is separate from

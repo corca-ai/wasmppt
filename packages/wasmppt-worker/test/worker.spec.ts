@@ -6,6 +6,7 @@ import {
   encodeLiveEditBundle,
   type WorkerEngine,
 } from '../src/index'
+import { WasmpptEngine } from '../src/generated/wasmppt_wasm.js'
 
 declare global {
   namespace Cloudflare {
@@ -13,6 +14,12 @@ declare global {
       HOST_FIXTURE: number[]
       RENDER_FIXTURE: number[]
       DOGFOOD_FIXTURE: number[]
+      DECK_GATE_STARTER: number[]
+      DECK_GATE_SPEC: number[]
+      DECK_GATE_ATOMIC_OVERFLOW: number[]
+      DECK_GATE_PLAN_BUDGET_MS: number
+      DECK_GATE_RESOLVE_BUDGET_MS: number
+      DECK_GATE_EXPORT_BUDGET_MS: number
       WORKER_P95_BUDGET_MS: number
       WORKER_LIVE_P95_BUDGET_MS: number
       WORKER_MEMORY_BUDGET_BYTES: number
@@ -23,6 +30,19 @@ declare global {
 
 const fixture = (): Uint8Array => new Uint8Array(env.HOST_FIXTURE)
 const testContext = {} as ExecutionContext
+
+function bytesBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let offset = 0; offset < bytes.byteLength; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  }
+  return btoa(binary)
+}
+
+function percentile(samples: number[], quantile: number): number {
+  const sorted = [...samples].sort((left, right) => left - right)
+  return sorted[Math.max(0, Math.ceil(sorted.length * quantile) - 1)]!
+}
 
 describe('prepared plan cache', () => {
   it('does not release a handle while refreshing the same cache entry', () => {
@@ -357,6 +377,156 @@ describe('wasmppt workerd adapter', () => {
     )
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ signature: '0698523062a91bcd' })
+  })
+
+  it('emits deterministic DeckSpec plan, preview, topology, and export evidence', () => {
+    const engine = new WasmpptEngine()
+    const planSamplesMs: number[] = []
+    const resolveAllSamplesMs: number[] = []
+    const exportSamplesMs: number[] = []
+    let templatePlan: Uint8Array<ArrayBufferLike> = new Uint8Array()
+    let plan: Uint8Array<ArrayBufferLike> = new Uint8Array()
+    let slides: Uint8Array[] = []
+    let pptx = new Uint8Array()
+    let slideCount = 0
+    let presentableSlides: number[] = []
+    let pages: Array<Record<string, unknown>> = []
+    for (let iteration = 0; iteration < 7; iteration += 1) {
+      const planStarted = performance.now()
+      const measuredTemplate = engine.prepare_deck_template(
+        new Uint8Array(env.DECK_GATE_STARTER),
+      )
+      expect(engine.deck_template_cacheable(measuredTemplate)).toBe(true)
+      const measuredTemplatePlan = engine.deck_template_plan(measuredTemplate)
+      const measuredSession = engine.create_deck_session(
+        measuredTemplate,
+        new Uint8Array(env.DECK_GATE_SPEC),
+      )
+      const measuredRevision = engine.deck_session_revision(measuredSession)
+      const measuredPlan = engine.deck_session_plan(measuredSession, measuredRevision)
+      const measuredSlideCount = engine.deck_session_slide_count(measuredSession)
+      const measuredPresentableSlides = engine.deck_session_presentable_slides(
+        measuredSession,
+      ) as number[]
+      planSamplesMs.push(performance.now() - planStarted)
+
+      const resolveStarted = performance.now()
+      const measuredSlides: Uint8Array[] = []
+      const measuredPages: Array<Record<string, unknown>> = []
+      for (let slideIndex = 0; slideIndex < measuredSlideCount; slideIndex += 1) {
+        measuredSlides.push(engine.resolve_deck_session_slide(
+          measuredSession,
+          measuredRevision,
+          slideIndex,
+        ))
+        const page = engine.deck_session_slide_metadata(
+          measuredSession,
+          measuredRevision,
+          slideIndex,
+        ) as unknown[]
+        measuredPages.push({
+          slideIndex,
+          pageId: page[0],
+          logicalSlideId: page[1],
+          hidden: page[2],
+          continuationOrdinal: page[3],
+          continuationTotal: page[4],
+          continuationLabel: page[5] ?? null,
+        })
+      }
+      resolveAllSamplesMs.push(performance.now() - resolveStarted)
+
+      const exportStarted = performance.now()
+      const measuredGeneration = engine.start_deck_session_generation(
+        measuredSession,
+        measuredRevision,
+      )
+      const chunks: Uint8Array[] = []
+      let outputBytes = 0
+      while (!engine.generation_done(measuredGeneration)) {
+        const chunk = engine.generation_pull(measuredGeneration, 64 * 1024)
+        chunks.push(chunk)
+        outputBytes += chunk.byteLength
+      }
+      const measuredPptx = new Uint8Array(outputBytes)
+      let outputOffset = 0
+      for (const chunk of chunks) {
+        measuredPptx.set(chunk, outputOffset)
+        outputOffset += chunk.byteLength
+      }
+      exportSamplesMs.push(performance.now() - exportStarted)
+
+      templatePlan = measuredTemplatePlan
+      plan = measuredPlan
+      slides = measuredSlides
+      pptx = measuredPptx
+      slideCount = measuredSlideCount
+      presentableSlides = measuredPresentableSlides
+      pages = measuredPages
+      expect(engine.release_generation(measuredGeneration)).toBe(true)
+      expect(engine.release_deck_session(measuredSession)).toBe(true)
+      expect(engine.release_deck_template(measuredTemplate)).toBe(true)
+    }
+    const template = engine.prepare_deck_template(new Uint8Array(env.DECK_GATE_STARTER))
+    let invalidDeckSpec
+    try {
+      engine.create_deck_session(
+        template,
+        new Uint8Array(env.DECK_GATE_SPEC).slice(0, -1),
+      )
+    } catch (error) {
+      invalidDeckSpec = (error as Error & { wasmppt?: unknown }).wasmppt
+    }
+    let atomicOverflow
+    try {
+      engine.create_deck_session(template, new Uint8Array(env.DECK_GATE_ATOMIC_OVERFLOW))
+    } catch (error) {
+      atomicOverflow = (error as Error & { wasmppt?: unknown }).wasmppt
+    }
+    const evidence = {
+      templatePlan: bytesBase64(templatePlan),
+      plan: bytesBase64(plan),
+      slides: slides.map(bytesBase64),
+      pptx: bytesBase64(pptx),
+      topology: { slideCount, presentableSlides: [...presentableSlides], pages },
+      timings: {
+        planSamplesMs,
+        resolveAllSamplesMs,
+        exportSamplesMs,
+        summary: {
+          coldPlanMs: planSamplesMs[0],
+          warmPlanP50Ms: percentile(planSamplesMs.slice(1), 0.5),
+          warmPlanP95Ms: percentile(planSamplesMs.slice(1), 0.95),
+          resolveAllP50Ms: percentile(resolveAllSamplesMs, 0.5),
+          resolveAllP95Ms: percentile(resolveAllSamplesMs, 0.95),
+          exportP50Ms: percentile(exportSamplesMs, 0.5),
+          exportP95Ms: percentile(exportSamplesMs, 0.95),
+        },
+      },
+      invalidDeckSpec,
+      atomicOverflow,
+    }
+    expect(slideCount).toBe(14)
+    expect(presentableSlides).toHaveLength(13)
+    expect(pages.at(-1)).toMatchObject({ hidden: true })
+    expect(invalidDeckSpec).toMatchObject({
+      domain: 'payload',
+      code: 'invalid-deck-spec',
+    })
+    expect(atomicOverflow).toMatchObject({
+      domain: 'layout',
+      code: 'deck-planning-failed',
+    })
+    expect(evidence.timings.summary.coldPlanMs)
+      .toBeLessThanOrEqual(env.DECK_GATE_PLAN_BUDGET_MS)
+    expect(evidence.timings.summary.warmPlanP95Ms)
+      .toBeLessThanOrEqual(env.DECK_GATE_PLAN_BUDGET_MS)
+    expect(evidence.timings.summary.resolveAllP95Ms)
+      .toBeLessThanOrEqual(env.DECK_GATE_RESOLVE_BUDGET_MS)
+    expect(evidence.timings.summary.exportP95Ms)
+      .toBeLessThanOrEqual(env.DECK_GATE_EXPORT_BUDGET_MS)
+    expect(engine.release_deck_template(template)).toBe(true)
+    console.log(`DECK_GATE_WORKERD:${JSON.stringify(evidence)}`)
   })
 
   it('enforces the warm Cloudflare workerd release budget with raw samples', async () => {

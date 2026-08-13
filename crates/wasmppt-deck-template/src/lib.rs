@@ -928,6 +928,8 @@ fn accepted_roles(role: RegionRole) -> Vec<SemanticRole> {
             SemanticRole::Quote,
             SemanticRole::Credit,
             SemanticRole::Definition,
+            SemanticRole::DefinitionTerm,
+            SemanticRole::DefinitionDescription,
             SemanticRole::Statement,
         ],
         RegionRole::Statement => vec![

@@ -7,6 +7,12 @@ on:
       - 'crates/wasmppt-layout/**'
       - 'crates/wasmppt-display/**'
       - 'packages/wasmppt/**'
+      - 'crates/wasmppt-deck/**'
+      - 'crates/wasmppt-deck-template/**'
+      - 'crates/wasmppt-deck-layout/**'
+      - 'crates/wasmppt-deck-compose/**'
+      - 'crates/wasmppt-wasm/**'
+      - 'fixtures/deck-gates/**'
       - 'fixtures/render/**'
       - 'tools/office-consumers/**'
   release:
@@ -38,6 +44,11 @@ jobs:
         run: >-
           ./tools/office-consumers/powerpoint.ps1
           fixtures/render/basic.pptx target/powerpoint-ground-truth
+      - name: Open the generated deck gate without repair and export PDF
+        shell: pwsh
+        run: >-
+          ./tools/office-consumers/powerpoint.ps1
+          target/deck-gates/browser.pptx target/powerpoint-deck-gate
       - name: Prove the visual gate rejects a one-pixel regression
         shell: pwsh
         run: ./tools/office-consumers/test-compare-visuals.ps1
@@ -52,6 +63,7 @@ jobs:
           name: powerpoint-ground-truth-${{ github.sha }}
           path: |
             target/powerpoint-ground-truth
+            target/powerpoint-deck-gate
             target/visual-report
           if-no-files-found: error
       - name: Summarize PowerPoint evidence

@@ -240,6 +240,16 @@ fn compiles_exact_geometry_inherited_regions_theme_and_preserved_assets() {
     assert_eq!(content_body.text_levels[0].italic, Some(true));
     assert_eq!(content_body.text_levels[0].margin_left, Some(1000));
     assert!(
+        content_body
+            .accepts
+            .contains(&wasmppt_deck::SemanticRole::DefinitionTerm)
+    );
+    assert!(
+        content_body
+            .accepts
+            .contains(&wasmppt_deck::SemanticRole::DefinitionDescription)
+    );
+    assert!(
         result
             .plan
             .assets

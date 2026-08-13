@@ -60,8 +60,8 @@ candidate at that floor fails with `PLAN_ATOMIC_OVERFLOW`; it is not clipped or 
 
 Derived physical pages retain the logical slide's hidden state and selected template layout. They
 carry the source H2/title identity for repeated heading chrome and the minimal `n/total` marker.
-The first continued fragment of a table on each page records its header-row repeat count. A future
-composer must render this metadata without creating additional source fragments.
+The first continued fragment of a table on each page records its header-row repeat count. The
+composer renders this metadata without creating additional source fragments.
 
 ## Bounds and failure policy
 

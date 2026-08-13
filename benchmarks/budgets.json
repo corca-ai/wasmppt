@@ -131,11 +131,17 @@
     "maximumLiveInvalidatedSlides": 1,
     "maximumLiveSustainedAverageMs": 100,
     "maximumRapidScrollAverageMs": 100,
-    "maximumStronglyReferencedSlides": 3
+    "maximumStronglyReferencedSlides": 3,
+    "maximumDeckPlanMs": 2000,
+    "maximumDeckResolveAllMs": 3000,
+    "maximumDeckExportMs": 3000
   },
   "cloudflareWorkerd": {
     "maximumWarmRequestP95Ms": 1000,
     "maximumLiveRequestP95Ms": 1000,
-    "maximumAccountedMemoryBytes": 134217728
+    "maximumAccountedMemoryBytes": 134217728,
+    "maximumDeckPlanMs": 2000,
+    "maximumDeckResolveAllMs": 3000,
+    "maximumDeckExportMs": 3000
   }
 }

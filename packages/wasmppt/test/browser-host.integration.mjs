@@ -118,6 +118,18 @@ const routes = new Map([
     [join(workspaceDirectory, 'fixtures/render/basic.pptx'), 'application/octet-stream'],
   ],
   [
+    '/deck-gate-starter.potx',
+    [join(workspaceDirectory, 'fixtures/deck-gates/starter.potx'), 'application/octet-stream'],
+  ],
+  [
+    '/deck-gate-spec.wdsf',
+    [join(workspaceDirectory, 'fixtures/deck-gates/deck-spec.wdsf'), 'application/octet-stream'],
+  ],
+  [
+    '/deck-gate-atomic-overflow.wdsf',
+    [join(workspaceDirectory, 'fixtures/deck-gates/atomic-overflow.wdsf'), 'application/octet-stream'],
+  ],
+  [
     '/competitor-fixture.pptx',
     [join(workspaceDirectory, 'target/benchmarks/pptxgenjs-text-10.pptx'), 'application/octet-stream'],
   ],
@@ -330,6 +342,129 @@ try {
     })
     await client.releaseLiveSession(topologySession.handle)
     await client.release(prepared.handle)
+    // Serialized into the browser by Playwright; it cannot reference a Node-side helper.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
+    const encodeBase64 = (bytes) => {
+      let binary = ''
+      const view = new Uint8Array(bytes)
+      for (let offset = 0; offset < view.byteLength; offset += 0x8000) {
+        binary += String.fromCharCode(...view.subarray(offset, offset + 0x8000))
+      }
+      return btoa(binary)
+    }
+    const deckTemplateSource = await fetch('/deck-gate-starter.potx')
+      .then((response) => response.arrayBuffer())
+    const deckSpecSource = await fetch('/deck-gate-spec.wdsf')
+      .then((response) => response.arrayBuffer())
+    const deckPlanSamplesMs = []
+    const deckResolveAllSamplesMs = []
+    const deckExportSamplesMs = []
+    let deckTemplate
+    let deckSession
+    let deckSlides
+    let deckPages
+    let deckPptx
+    for (let iteration = 0; iteration < 7; iteration += 1) {
+      const deckStarted = performance.now()
+      const measuredTemplate = await client.prepareDeckTemplate(deckTemplateSource.slice(0))
+      const measuredSession = await client.createDeckSession(
+        measuredTemplate.handle,
+        deckSpecSource.slice(0),
+      )
+      deckPlanSamplesMs.push(performance.now() - deckStarted)
+      const measuredSlides = []
+      const measuredPages = []
+      const deckResolveStarted = performance.now()
+      for (let slideIndex = 0; slideIndex < measuredSession.slideCount; slideIndex += 1) {
+        const resolved = await client.resolveDeckSlide(
+          measuredSession.handle,
+          measuredSession.revision,
+          slideIndex,
+        )
+        measuredSlides.push(encodeBase64(resolved.displayList))
+        measuredPages.push({
+          slideIndex,
+          pageId: resolved.page.pageId,
+          logicalSlideId: resolved.page.logicalSlideId,
+          hidden: resolved.page.hidden,
+          continuationOrdinal: resolved.page.continuationOrdinal,
+          continuationTotal: resolved.page.continuationTotal,
+          continuationLabel: resolved.page.continuationLabel ?? null,
+        })
+      }
+      deckResolveAllSamplesMs.push(performance.now() - deckResolveStarted)
+      const deckExportStarted = performance.now()
+      const measuredPptx = await client.generateDeck(
+        measuredSession.handle,
+        measuredSession.revision,
+      )
+      deckExportSamplesMs.push(performance.now() - deckExportStarted)
+      if (iteration === 6) {
+        deckTemplate = measuredTemplate
+        deckSession = measuredSession
+        deckSlides = measuredSlides
+        deckPages = measuredPages
+        deckPptx = measuredPptx
+      } else {
+        await client.releaseDeckSession(measuredSession.handle)
+        await client.releaseDeckTemplate(measuredTemplate.handle)
+      }
+    }
+    // Serialized into the browser by Playwright; it cannot reference a Node-side helper.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
+    const percentile = (samples, quantile) => {
+      const sorted = samples.toSorted((left, right) => left - right)
+      return sorted[Math.max(0, Math.ceil(sorted.length * quantile) - 1)]
+    }
+    let invalidDeckSpecError
+    try {
+      const truncated = new Uint8Array(
+        await fetch('/deck-gate-spec.wdsf').then((response) => response.arrayBuffer()),
+      ).slice(0, -1)
+      await client.createDeckSession(deckTemplate.handle, truncated.buffer)
+    } catch (error) {
+      invalidDeckSpecError = error.envelope
+    }
+    let atomicOverflowError
+    try {
+      await client.createDeckSession(
+        deckTemplate.handle,
+        await fetch('/deck-gate-atomic-overflow.wdsf')
+          .then((response) => response.arrayBuffer()),
+      )
+    } catch (error) {
+      atomicOverflowError = error.envelope
+    }
+    const deckEvidence = {
+      cacheable: deckTemplate.cacheable,
+      templatePlanBase64: encodeBase64(deckTemplate.plan),
+      planBase64: encodeBase64(deckSession.plan),
+      slidesBase64: deckSlides,
+      pptxBase64: encodeBase64(deckPptx),
+      topology: {
+        slideCount: deckSession.slideCount,
+        presentableSlides: deckSession.presentableSlides,
+        pages: deckPages,
+      },
+      timings: {
+        planSamplesMs: deckPlanSamplesMs,
+        resolveAllSamplesMs: deckResolveAllSamplesMs,
+        exportSamplesMs: deckExportSamplesMs,
+        summary: {
+          coldPlanMs: deckPlanSamplesMs[0],
+          warmPlanP50Ms: percentile(deckPlanSamplesMs.slice(1), 0.5),
+          warmPlanP95Ms: percentile(deckPlanSamplesMs.slice(1), 0.95),
+          resolveAllP50Ms: percentile(deckResolveAllSamplesMs, 0.5),
+          resolveAllP95Ms: percentile(deckResolveAllSamplesMs, 0.95),
+          exportP50Ms: percentile(deckExportSamplesMs, 0.5),
+          exportP95Ms: percentile(deckExportSamplesMs, 0.95),
+        },
+      },
+      invalidDeckSpecError,
+      atomicOverflowError,
+    }
+    await client.releaseDeckSession(deckSession.handle)
+    await client.releaseDeckTemplate(deckTemplate.handle)
     const liveEditingMatrix = []
     const pixelCanvas = new OffscreenCanvas(1, 1)
     const pixelContext = pixelCanvas.getContext('2d')
@@ -1013,6 +1148,7 @@ try {
       coldPrepareMs,
       warmInjectionSamplesMs,
       topologyUpdate,
+      deckEvidence,
       liveEditingMatrix,
       residentBytes: prepared.residentBytes,
       zipSignature: [...output.subarray(0, 2)],
@@ -1119,6 +1255,58 @@ try {
   const parityDirectory = join(workspaceDirectory, 'target/host-parity')
   await mkdir(parityDirectory, { recursive: true })
   await writeFile(join(parityDirectory, 'browser.pptx'), Buffer.from(result.outputBase64, 'base64'))
+  const deckGateDirectory = join(workspaceDirectory, 'target/deck-gates')
+  await mkdir(deckGateDirectory, { recursive: true })
+  await writeFile(
+    join(deckGateDirectory, 'browser.wdtp'),
+    Buffer.from(result.deckEvidence.templatePlanBase64, 'base64'),
+  )
+  await writeFile(
+    join(deckGateDirectory, 'browser.wdpl'),
+    Buffer.from(result.deckEvidence.planBase64, 'base64'),
+  )
+  await writeFile(
+    join(deckGateDirectory, 'browser.pptx'),
+    Buffer.from(result.deckEvidence.pptxBase64, 'base64'),
+  )
+  for (const [index, displayList] of result.deckEvidence.slidesBase64.entries()) {
+    await writeFile(
+      join(deckGateDirectory, `browser-${String(index).padStart(4, '0')}.wpdl`),
+      Buffer.from(displayList, 'base64'),
+    )
+  }
+  await writeFile(
+    join(deckGateDirectory, 'browser-topology.json'),
+    `${JSON.stringify(result.deckEvidence.topology)}\n`,
+  )
+  await writeFile(
+    join(deckGateDirectory, 'browser-timings.json'),
+    `${JSON.stringify(result.deckEvidence.timings)}\n`,
+  )
+  assert.equal(result.deckEvidence.cacheable, true)
+  assert.equal(result.deckEvidence.topology.slideCount, 14)
+  assert.equal(result.deckEvidence.topology.presentableSlides.length, 13)
+  assert.equal(result.deckEvidence.topology.pages.at(-1).hidden, true)
+  assert.equal(result.deckEvidence.invalidDeckSpecError.domain, 'payload')
+  assert.equal(result.deckEvidence.invalidDeckSpecError.code, 'invalid-deck-spec')
+  assert.equal(result.deckEvidence.atomicOverflowError.domain, 'layout')
+  assert.equal(result.deckEvidence.atomicOverflowError.code, 'deck-planning-failed')
+  assert(
+    result.deckEvidence.timings.summary.coldPlanMs
+      <= performanceBudgets.browserScalarWasm.maximumDeckPlanMs,
+  )
+  assert(
+    result.deckEvidence.timings.summary.warmPlanP95Ms
+      <= performanceBudgets.browserScalarWasm.maximumDeckPlanMs,
+  )
+  assert(
+    result.deckEvidence.timings.summary.resolveAllP95Ms
+      <= performanceBudgets.browserScalarWasm.maximumDeckResolveAllMs,
+  )
+  assert(
+    result.deckEvidence.timings.summary.exportP95Ms
+      <= performanceBudgets.browserScalarWasm.maximumDeckExportMs,
+  )
   assert.equal(result.slideCount, 3)
   assert.equal(result.commandCount, 12)
   assert.equal(result.decodedImageBytesAfterClear, 0)

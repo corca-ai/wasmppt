@@ -20,6 +20,7 @@ node benchmarks/prepare-browser-comparator.mjs
 node benchmarks/comparisons/pptxgenjs/run.mjs 10 10 target/benchmarks/pptxgenjs-text-10.pptx
 npm run test:browser --workspace @corca-ai/wasmppt
 npm test --workspace @corca-ai/wasmppt-worker
+node scripts/deck-gates.mjs --workerd-log=target/host-parity/workerd.log
 ```
 
 `benchmarks/run.mjs` deterministically creates the public 3-by-3 matrix in
@@ -89,6 +90,12 @@ The scalar browser artifact has a 3 MiB raw-Wasm ceiling after the revisioned de
 composer, and POTX compiler joined the browser engine in protocol v6. This is an explicit
 architecture budget, not an exemption: the benchmark still rejects growth beyond that ceiling,
 and the deck-specific multi-host size matrix is completed in the deck compatibility gate.
+
+The [deck compatibility gate](deck-gates.md) also enforces browser and workerd ceilings for
+Starter compilation plus initial planning, all-page resolution, and exact-revision PPTX export.
+Its report retains seven raw timing samples and cold/warm p50/p95 summaries for native, browser,
+and workerd next to exact cross-host plan, display-list, topology, and package identities, so
+latency evidence cannot outlive the correctness result it measured.
 
 Every enforced check publishes its absolute and percentage margin in `budgetEvaluation`, including
 passing checks, and the raw artifact is uploaded even when the gate fails. Published artifacts contain the raw JSON and exact

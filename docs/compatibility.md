@@ -57,6 +57,10 @@ and controlled PowerPoint, LibreOffice, and Keynote results remain separate fide
 artifacts; none is inferred from ZIP validation or structural success. Each scorecard stage retains
 its commands, versions, hashes, stdout/stderr, and failure list, including on a failing CI run.
 
+The [deck compatibility gate](deck-gates.md) separately executes the comprehensive Starter POTX
+and WDSF fixture in native Rust, Chromium, and workerd. It requires exact WDTP, WDPL, WPDL,
+topology, and PPTX bytes before the existing browser visual and controlled Office evidence applies.
+
 The fuzz targets live under `crates/wasmppt-opc/fuzz`. They cover arbitrary ZIP opening and
 inflation, relationship graphs and extension markup, raw XML tokenization, lazy slide/geometry
 resolution, and template binding compilation. Browser hosts inspect PNG/JPEG dimensions and EXIF

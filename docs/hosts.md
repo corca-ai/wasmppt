@@ -117,6 +117,10 @@ The byte-budgeted LRU stores only immutable prepared handles. It is an optimizat
 eviction or a miss recompiles the template and cannot change correctness. All input bytes,
 bindings, output handles, offsets, readers, and stream controllers are request-local, in
 line with [Cloudflare's global-state guidance](https://developers.cloudflare.com/workers/best-practices/workers-best-practices/).
+Each cache lookup returns a request-scoped lease. Eviction removes the entry from future lookups
+immediately, while an active lease defers releasing its Wasm handle until request payload parsing
+and generation startup finish. Health telemetry separates lookup-resident bytes from bytes pinned
+only by evicted leases.
 R2 ranged reads follow the official
 [Workers R2 API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/).
 Mutable `LiveSession` handles are also request-local by contract and are never inserted into this

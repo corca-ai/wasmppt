@@ -1,6 +1,11 @@
 import { env, exports } from 'cloudflare:workers'
 import { describe, expect, it } from 'vitest'
-import { PreparedPlanCache, encodeLiveEditBundle } from '../src/index'
+import {
+  PreparedPlanCache,
+  createWasmpptWorker,
+  encodeLiveEditBundle,
+  type WorkerEngine,
+} from '../src/index'
 
 declare global {
   namespace Cloudflare {
@@ -16,6 +21,7 @@ declare global {
 }
 
 const fixture = (): Uint8Array => new Uint8Array(env.HOST_FIXTURE)
+const testContext = {} as ExecutionContext
 
 describe('prepared plan cache', () => {
   it('does not release a handle while refreshing the same cache entry', () => {
@@ -26,9 +32,54 @@ describe('prepared plan cache', () => {
     expect(cache.insert('template', entry)).toBe(true)
     expect(released).toEqual([])
     expect(cache.residentBytes).toBe(12)
-    expect(cache.get('template')).toBe(entry)
+    const lease = cache.acquire('template')
+    expect(lease?.handle).toBe(entry.handle)
+    lease?.release()
     cache.clear()
     expect(released).toEqual([7])
+  })
+
+  it('defers eviction and clear until every active lease is released exactly once', () => {
+    const released: number[] = []
+    const cache = new PreparedPlanCache(12, (handle) => released.push(handle))
+    expect(cache.insert('first', { handle: 1, weight: 8 })).toBe(true)
+    const first = cache.acquire('first')!
+
+    expect(cache.insert('second', { handle: 2, weight: 8 })).toBe(true)
+    expect(cache.residentBytes).toBe(8)
+    expect(cache.retiredBytes).toBe(8)
+    expect(cache.ownedBytes).toBe(16)
+    expect(released).toEqual([])
+
+    const second = cache.acquire('second')!
+    cache.clear()
+    cache.clear()
+    expect(cache.residentBytes).toBe(0)
+    expect(cache.retiredBytes).toBe(16)
+    first.release()
+    first.release()
+    expect(released).toEqual([1])
+    second.release()
+    second.release()
+    expect(released).toEqual([1, 2])
+    expect(cache.retiredBytes).toBe(0)
+    expect(cache.ownedBytes).toBe(0)
+  })
+
+  it('retires a replaced same-key handle without invalidating its lease', () => {
+    const released: number[] = []
+    const cache = new PreparedPlanCache(16, (handle) => released.push(handle))
+    expect(cache.insert('template', { handle: 1, weight: 8 })).toBe(true)
+    const oldLease = cache.acquire('template')!
+    expect(cache.insert('template', { handle: 2, weight: 8 })).toBe(true)
+    const currentLease = cache.acquire('template')!
+    expect(currentLease.handle).toBe(2)
+    expect(released).toEqual([])
+    oldLease.release()
+    expect(released).toEqual([1])
+    cache.clear()
+    currentLease.release()
+    expect(released).toEqual([1, 2])
   })
 
   it('rejects unsafe cache weights', () => {
@@ -47,6 +98,93 @@ describe('prepared plan cache', () => {
 })
 
 describe('wasmppt workerd adapter', () => {
+  it('pins different-key cache entries across an awaited request body', async () => {
+    await env.TEMPLATES.put('lease-a.potx', fixture())
+    await env.TEMPLATES.put('lease-b.potx', fixture())
+    const engine = new LeaseTestEngine(8n)
+    const worker = createWasmpptWorker(engine, { budget: { maxCachedPlanBytes: 8 } })
+    const paused = pausedBody()
+    const first = dispatch(worker, injectionRequest('lease-a.potx', paused.stream))
+    await engine.waitForPrepared(1)
+
+    const second = await dispatch(worker, injectionRequest('lease-b.potx', new Uint8Array()))
+    expect(second.status).toBe(200)
+    await second.arrayBuffer()
+    expect(engine.releasedTemplates).toEqual([])
+    const whilePinned = await dispatch(worker, new Request('https://wasmppt.test/healthz'))
+    expect(await whilePinned.json()).toMatchObject({
+      cachedPlanBytes: 8,
+      pinnedEvictedPlanBytes: 8,
+      ownedPlanBytes: 16,
+    })
+
+    paused.close()
+    const firstResponse = await first
+    expect(firstResponse.status).toBe(200)
+    await firstResponse.arrayBuffer()
+    expect(engine.releasedTemplates).toEqual([1])
+  })
+
+  it('shares one pinned handle between concurrent same-key requests', async () => {
+    await env.TEMPLATES.put('lease-same.potx', fixture())
+    const engine = new LeaseTestEngine(8n)
+    const worker = createWasmpptWorker(engine, { budget: { maxCachedPlanBytes: 8 } })
+    const paused = pausedBody()
+    const first = dispatch(worker, injectionRequest('lease-same.potx', paused.stream))
+    await engine.waitForPrepared(1)
+
+    const second = await dispatch(worker, injectionRequest('lease-same.potx', new Uint8Array()))
+    expect(second.status).toBe(200)
+    await second.arrayBuffer()
+    expect(engine.preparedTemplates).toEqual([1])
+    expect(engine.releasedTemplates).toEqual([])
+
+    paused.close()
+    const firstResponse = await first
+    expect(firstResponse.status).toBe(200)
+    await firstResponse.arrayBuffer()
+    expect(engine.releasedTemplates).toEqual([])
+  })
+
+  it('releases a lease when request-body cancellation fails the read', async () => {
+    await env.TEMPLATES.put('lease-cancel.potx', fixture())
+    await env.TEMPLATES.put('lease-after-cancel.potx', fixture())
+    const engine = new LeaseTestEngine(8n)
+    const worker = createWasmpptWorker(engine, { budget: { maxCachedPlanBytes: 8 } })
+    const paused = pausedBody()
+    const cancelled = dispatch(worker, injectionRequest('lease-cancel.potx', paused.stream))
+    await engine.waitForPrepared(1)
+    paused.fail(new DOMException('request cancelled', 'AbortError'))
+    expect((await cancelled).status).toBe(500)
+
+    const next = await dispatch(
+      worker,
+      injectionRequest('lease-after-cancel.potx', new Uint8Array()),
+    )
+    expect(next.status).toBe(200)
+    await next.arrayBuffer()
+    expect(engine.releasedTemplates).toEqual([1])
+  })
+
+  it('keeps an oversized prepared handle request-local', async () => {
+    await env.TEMPLATES.put('lease-oversized.potx', fixture())
+    const engine = new LeaseTestEngine(9n)
+    const worker = createWasmpptWorker(engine, { budget: { maxCachedPlanBytes: 8 } })
+    const response = await dispatch(
+      worker,
+      injectionRequest('lease-oversized.potx', new Uint8Array()),
+    )
+    expect(response.status).toBe(200)
+    expect(engine.releasedTemplates).toEqual([1])
+    await response.arrayBuffer()
+    const health = await dispatch(worker, new Request('https://wasmppt.test/healthz'))
+    expect(await health.json()).toMatchObject({
+      cachedPlanBytes: 0,
+      pinnedEvictedPlanBytes: 0,
+      ownedPlanBytes: 0,
+    })
+  })
+
   it('executes the shared native/browser/workerd fixture and streams PPTX', async () => {
     const response = await exports.default.fetch(
       new Request('https://wasmppt.test/v1/generate', {
@@ -213,6 +351,121 @@ describe('wasmppt workerd adapter', () => {
 })
 
 export {}
+
+function dispatch(
+  worker: ReturnType<typeof createWasmpptWorker>,
+  request: Request,
+): Promise<Response> {
+  // Requests constructed inside workerd tests lack runtime-populated `cf` metadata in their type.
+  return Promise.resolve(worker.fetch!(request as never, env, testContext))
+}
+
+function injectionRequest(key: string, body: BodyInit): Request {
+  return new Request(`https://wasmppt.test/v1/generate?r2=${key}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/vnd.corca.wasmppt.injection-v2' },
+    body,
+  })
+}
+
+function pausedBody(): {
+  readonly stream: ReadableStream<Uint8Array>
+  readonly close: () => void
+  readonly fail: (error: Error) => void
+} {
+  let controller: ReadableStreamDefaultController<Uint8Array> | undefined
+  const stream = new ReadableStream<Uint8Array>({
+    start(value) {
+      controller = value
+    },
+  })
+  return {
+    stream,
+    close: () => controller?.close(),
+    fail: (error) => controller?.error(error),
+  }
+}
+
+class LeaseTestEngine implements WorkerEngine {
+  readonly preparedTemplates: number[] = []
+  readonly releasedTemplates: number[] = []
+  readonly #templateWeight: bigint
+  readonly #validTemplates = new Set<number>()
+  readonly #finishedGenerations = new Set<number>()
+  readonly #preparedWaiters: (() => void)[] = []
+  #nextTemplate = 1
+  #nextGeneration = 100
+
+  constructor(templateWeight: bigint) {
+    this.#templateWeight = templateWeight
+  }
+
+  prepare(): number {
+    const handle = this.#nextTemplate
+    this.#nextTemplate += 1
+    this.preparedTemplates.push(handle)
+    this.#validTemplates.add(handle)
+    for (const notify of this.#preparedWaiters.splice(0)) notify()
+    return handle
+  }
+
+  async waitForPrepared(count: number): Promise<void> {
+    while (this.preparedTemplates.length < count) {
+      await new Promise<void>((resolve) => this.#preparedWaiters.push(resolve))
+    }
+  }
+
+  prepared_weight(handle: number): bigint {
+    this.#assertTemplate(handle)
+    return this.#templateWeight
+  }
+
+  start_generation_payload(handle: number): number {
+    this.#assertTemplate(handle)
+    const generation = this.#nextGeneration
+    this.#nextGeneration += 1
+    return generation
+  }
+
+  create_live_session_payload(): number {
+    throw new Error('live sessions are not used by this test engine')
+  }
+
+  apply_live_session_payload(): unknown[] {
+    throw new Error('live sessions are not used by this test engine')
+  }
+
+  start_live_session_generation(): number {
+    throw new Error('live sessions are not used by this test engine')
+  }
+
+  generation_pull(handle: number): Uint8Array {
+    this.#finishedGenerations.add(handle)
+    return Uint8Array.of(0x50, 0x4b)
+  }
+
+  generation_done(handle: number): boolean {
+    return this.#finishedGenerations.has(handle)
+  }
+
+  release_template(handle: number): boolean {
+    if (!this.#validTemplates.delete(handle)) return false
+    this.releasedTemplates.push(handle)
+    return true
+  }
+
+  release_generation(handle: number): boolean {
+    return this.#finishedGenerations.delete(handle)
+  }
+
+  release_live_session(): boolean {
+    return false
+  }
+
+  #assertTemplate(handle: number): void {
+    if (!this.#validTemplates.has(handle)) throw new Error('released template handle reused')
+  }
+}
 
 function dogfoodPayload(): Uint8Array {
   const chunks: Uint8Array[] = []

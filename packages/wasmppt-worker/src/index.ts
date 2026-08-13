@@ -43,12 +43,42 @@ interface CachedPlan {
   readonly weight: number
 }
 
+interface CachedPlanState extends CachedPlan {
+  leases: number
+  retired: boolean
+  released: boolean
+}
+
+export interface PreparedPlanLease extends CachedPlan {
+  release(): void
+}
+
+class HandleLease implements PreparedPlanLease {
+  readonly handle: number
+  readonly weight: number
+  readonly #releaseHandle: () => void
+  #released = false
+
+  constructor(entry: CachedPlan, releaseHandle: () => void) {
+    this.handle = entry.handle
+    this.weight = entry.weight
+    this.#releaseHandle = releaseHandle
+  }
+
+  release(): void {
+    if (this.#released) return
+    this.#released = true
+    this.#releaseHandle()
+  }
+}
+
 /** Byte-budgeted LRU of immutable prepared templates. */
 export class PreparedPlanCache {
-  readonly #entries = new Map<string, CachedPlan>()
+  readonly #entries = new Map<string, CachedPlanState>()
   readonly #maxBytes: number
   readonly #release: (handle: number) => void
   #residentBytes = 0
+  #retiredBytes = 0
 
   constructor(maxBytes: number, release: (handle: number) => void) {
     assertPositiveSafeInteger(maxBytes, 'maxCachedPlanBytes')
@@ -60,12 +90,21 @@ export class PreparedPlanCache {
     return this.#residentBytes
   }
 
-  get(key: string): CachedPlan | undefined {
+  get retiredBytes(): number {
+    return this.#retiredBytes
+  }
+
+  get ownedBytes(): number {
+    return this.#residentBytes + this.#retiredBytes
+  }
+
+  acquire(key: string): PreparedPlanLease | undefined {
     const entry = this.#entries.get(key)
     if (entry === undefined) return undefined
     this.#entries.delete(key)
     this.#entries.set(key, entry)
-    return entry
+    entry.leases += 1
+    return new HandleLease(entry, () => this.#releaseLease(entry))
   }
 
   insert(key: string, entry: CachedPlan): boolean {
@@ -74,35 +113,66 @@ export class PreparedPlanCache {
     }
     const previous = this.#entries.get(key)
     if (previous?.handle === entry.handle) {
-      if (entry.weight > this.#maxBytes) return true
+      if (entry.weight !== previous.weight) {
+        throw new RangeError('one prepared handle cannot have multiple cache weights')
+      }
       this.#entries.delete(key)
-      this.#residentBytes -= previous.weight
-      this.#entries.set(key, Object.freeze(entry))
-      this.#residentBytes += entry.weight
+      this.#entries.set(key, previous)
       return true
     }
     if (entry.weight > this.#maxBytes) return false
     if (previous !== undefined) {
       this.#entries.delete(key)
       this.#residentBytes -= previous.weight
-      this.#release(previous.handle)
+      this.#retire(previous)
     }
-    this.#entries.set(key, Object.freeze(entry))
+    const state: CachedPlanState = {
+      ...entry,
+      leases: 0,
+      retired: false,
+      released: false,
+    }
+    this.#entries.set(key, state)
     this.#residentBytes += entry.weight
     while (this.#residentBytes > this.#maxBytes) {
-      const oldest = this.#entries.entries().next().value as [string, CachedPlan] | undefined
+      const oldest = this.#entries.entries().next().value as [string, CachedPlanState] | undefined
       if (oldest === undefined) break
       this.#entries.delete(oldest[0])
       this.#residentBytes -= oldest[1].weight
-      this.#release(oldest[1].handle)
+      this.#retire(oldest[1])
     }
-    return this.#entries.get(key) === entry
+    return this.#entries.get(key) === state
   }
 
   clear(): void {
-    for (const entry of this.#entries.values()) this.#release(entry.handle)
+    for (const entry of this.#entries.values()) this.#retire(entry)
     this.#entries.clear()
     this.#residentBytes = 0
+  }
+
+  #retire(entry: CachedPlanState): void {
+    if (entry.retired || entry.released) return
+    entry.retired = true
+    if (entry.leases === 0) {
+      this.#releaseEntry(entry)
+    } else {
+      this.#retiredBytes += entry.weight
+    }
+  }
+
+  #releaseLease(entry: CachedPlanState): void {
+    if (entry.leases === 0) return
+    entry.leases -= 1
+    if (entry.retired && entry.leases === 0) {
+      this.#retiredBytes -= entry.weight
+      this.#releaseEntry(entry)
+    }
+  }
+
+  #releaseEntry(entry: CachedPlanState): void {
+    if (entry.released) return
+    entry.released = true
+    this.#release(entry.handle)
   }
 }
 
@@ -204,7 +274,12 @@ export function createWasmpptWorker(
     async fetch(request, env): Promise<Response> {
       const url = new URL(request.url)
       if (url.pathname === '/healthz') {
-        return Response.json({ ok: true, cachedPlanBytes: cache.residentBytes })
+        return Response.json({
+          ok: true,
+          cachedPlanBytes: cache.residentBytes,
+          pinnedEvictedPlanBytes: cache.retiredBytes,
+          ownedPlanBytes: cache.ownedBytes,
+        })
       }
       const live = url.pathname === '/v1/live-generate'
       if ((url.pathname !== '/v1/generate' && !live) || request.method !== 'POST') {
@@ -216,48 +291,33 @@ export function createWasmpptWorker(
         }
         const source = await readTemplate(request, env.TEMPLATES, url, budget)
         const cacheKey = source.cacheKey ?? (await sha256Hex(source.bytes))
-        let cached = cache.get(cacheKey)
-        let releaseTemplate = false
-        if (cached === undefined) {
-          const handle = engine.prepare(source.bytes)
-          try {
-            const weight = bigintToSafeNumber(engine.prepared_weight(handle), 'prepared plan weight')
-            const entry = Object.freeze({ handle, weight })
-            if (!cache.insert(cacheKey, entry)) releaseTemplate = true
-            cached = entry
-          } catch (error) {
-            engine.release_template(handle)
-            throw error
-          }
-        }
-
-        const requestPayload = live
-          ? await readBoundedBody(request, budget.maxPayloadBytes, 'live edit bundle')
-          : source.cacheKey !== undefined && isInjectionPayload(request)
-            ? await readBoundedBody(request, budget.maxPayloadBytes, 'injection payload')
-            : encodeTextPayload(parseTextBindings(request.headers.get('x-wasmppt-bindings')))
+        const lease = acquirePreparedPlan(engine, cache, cacheKey, source.bytes)
         let generationHandle: number
         let liveRevision: number | undefined
-        if (live) {
-          const bundle = decodeLiveEditBundle(requestPayload)
-          let session: number | undefined
-          try {
-            session = engine.create_live_session_payload(cached.handle, bundle.initial)
-            for (let index = 0; index < bundle.deltas.length; index += 1) {
-              engine.apply_live_session_payload(session, index, index + 1, bundle.deltas[index]!)
+        try {
+          const requestPayload = live
+            ? await readBoundedBody(request, budget.maxPayloadBytes, 'live edit bundle')
+            : source.cacheKey !== undefined && isInjectionPayload(request)
+              ? await readBoundedBody(request, budget.maxPayloadBytes, 'injection payload')
+              : encodeTextPayload(parseTextBindings(request.headers.get('x-wasmppt-bindings')))
+          if (live) {
+            const bundle = decodeLiveEditBundle(requestPayload)
+            let session: number | undefined
+            try {
+              session = engine.create_live_session_payload(lease.handle, bundle.initial)
+              for (let index = 0; index < bundle.deltas.length; index += 1) {
+                engine.apply_live_session_payload(session, index, index + 1, bundle.deltas[index]!)
+              }
+              liveRevision = bundle.deltas.length
+              generationHandle = engine.start_live_session_generation(session, liveRevision)
+            } finally {
+              if (session !== undefined) engine.release_live_session(session)
             }
-            liveRevision = bundle.deltas.length
-            generationHandle = engine.start_live_session_generation(session, liveRevision)
-          } finally {
-            if (session !== undefined) engine.release_live_session(session)
-            if (releaseTemplate) engine.release_template(cached.handle)
+          } else {
+            generationHandle = engine.start_generation_payload(lease.handle, requestPayload)
           }
-        } else {
-          try {
-            generationHandle = engine.start_generation_payload(cached.handle, requestPayload)
-          } finally {
-            if (releaseTemplate) engine.release_template(cached.handle)
-          }
+        } finally {
+          lease.release()
         }
 
         return new Response(outputStream(engine, generationHandle, budget), {
@@ -281,6 +341,33 @@ export function createWasmpptWorker(
       }
     },
   } satisfies ExportedHandler<Env>
+}
+
+function acquirePreparedPlan(
+  engine: WorkerEngine,
+  cache: PreparedPlanCache,
+  cacheKey: string,
+  template: Uint8Array,
+): PreparedPlanLease {
+  const cached = cache.acquire(cacheKey)
+  if (cached !== undefined) return cached
+
+  const handle = engine.prepare(template)
+  let cacheOwnsHandle = false
+  try {
+    const weight = bigintToSafeNumber(engine.prepared_weight(handle), 'prepared plan weight')
+    const entry = Object.freeze({ handle, weight })
+    cacheOwnsHandle = cache.insert(cacheKey, entry)
+    if (cacheOwnsHandle) {
+      return cache.acquire(cacheKey)!
+    }
+    return new HandleLease(entry, () => {
+      engine.release_template(handle)
+    })
+  } catch (error) {
+    if (!cacheOwnsHandle) engine.release_template(handle)
+    throw error
+  }
 }
 
 interface LiveEditBundle {

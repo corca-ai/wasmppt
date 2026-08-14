@@ -77,13 +77,22 @@ slides or visible shape names. The selected topology and slot count are encoded 
 page, while fixed template content and topology-slot regions remain distinguishable through
 composition.
 
+Standard prose and list flow uses at most eight semantic units per column. It remains a readable
+stack through eight units, balances 9--16 units across two columns, then creates balanced
+continuation pages; 11 and 16 equal-demand items therefore resolve to 6/5 and 8/8, while 17 and 18
+resolve to 9/8 and 9/9 across pages. Three-column flow is reserved for code and admits at most 12
+logical lines per lane. These thresholds are candidate bounds, not a shortcut around measurement:
+every admitted partition must still fit measured demand at or above the readable floor.
+
 Dynamic programming compares the worst readability band before physical page count. A comfortable
 continuation therefore wins over a one-page result compressed toward the readable floor. Remaining
-ties compare width/crop loss, measured slot-demand imbalance, continuation orphaning, whitespace,
-topology complexity, and a stable topology ordinal. Peer, gallery, table, and mixed media/text
-collections reject stack or generic flow assignments that would discard their semantic topology.
-Source order, contiguous flow partitions, and authored relation groups are hard constraints rather
-than soft cost terms.
+ties compare balanced semantic-unit load across continuation pages, normalized measured content
+area, width/crop loss, measured slot-demand imbalance, continuation orphaning, squared whitespace,
+topology complexity, and a stable topology ordinal. An equally balanced solution keeps the earlier
+page or column at least as full as the later one. Peer, gallery, table, and mixed media/text
+collections reject stack or generic flow assignments that would discard their semantic topology;
+table rows use only the table-wide topology. Source order, contiguous flow partitions, and authored
+relation groups are hard constraints rather than soft cost terms.
 
 Text may shrink only to `PlannerPolicy::readable_floor`. An atomic group that cannot fit any legal
 candidate at that floor fails with `PLAN_ATOMIC_OVERFLOW`; it is not clipped or silently split.
@@ -93,7 +102,8 @@ candidate at that floor fails with `PLAN_ATOMIC_OVERFLOW`; it is not clipped or 
 Derived physical pages retain the logical slide's hidden state and selected template layout. They
 carry the source H2/title identity for repeated heading chrome and the minimal `n/total` marker.
 The first continued fragment of a table on each page records its header-row repeat count. The
-composer renders this metadata without creating additional source fragments.
+planner coalesces every contiguous row range into exactly one native-table fragment per page, and
+the composer renders repeated-header metadata without creating additional source fragments.
 
 ## Bounds and failure policy
 

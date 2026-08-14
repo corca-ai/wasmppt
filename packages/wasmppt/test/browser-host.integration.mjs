@@ -1270,8 +1270,8 @@ try {
     `${JSON.stringify(result.deckEvidence.timings)}\n`,
   )
   assert.equal(result.deckEvidence.cacheable, true)
-  assert.equal(result.deckEvidence.topology.slideCount, 11)
-  assert.equal(result.deckEvidence.topology.presentableSlides.length, 10)
+  assert.equal(result.deckEvidence.topology.slideCount, 13)
+  assert.equal(result.deckEvidence.topology.presentableSlides.length, 12)
   assert.equal(result.deckEvidence.topology.pages.at(-1).hidden, true)
   assert(
     result.deckEvidence.topology.diagnostics.some(

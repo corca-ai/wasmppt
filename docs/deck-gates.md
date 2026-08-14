@@ -21,6 +21,11 @@ SVG, tables, charts, code, diagrams, display math, definitions, hidden slides, m
 diagnostics, and enough content for automatic continuation pages. `atomic-overflow.wdsf` is a
 valid contract that cannot fit at the readable floor.
 
+The 18-row table is expected to remain at the template's comfortable type size and continue across
+three physical pages. Each page contains one native editable table, continued pages repeat the
+single header row as chrome, and the portable topology evidence fixes the resulting 13-page deck
+and 12-page presentable set.
+
 Regenerate and compare the fixtures with:
 
 ```sh

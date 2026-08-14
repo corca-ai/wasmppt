@@ -750,6 +750,17 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
     let slide_two = String::from_utf8(overlay.read_part("ppt/slides/slide2.xml").unwrap()).unwrap();
     assert_eq!(slide_two.matches("<a:t>Quarter</a:t>").count(), 1);
     assert_eq!(slide_two.matches("<a:t>Q2</a:t>").count(), 1);
+    assert_eq!(slide_two.matches("<a:tbl>").count(), 1);
+    assert!(slide_two.contains("algn=\"l\"") && slide_two.contains("algn=\"r\""));
+    let grid_widths = slide_two
+        .match_indices("<a:gridCol w=\"")
+        .filter_map(|(offset, marker)| {
+            let value = &slide_two[offset + marker.len()..];
+            value.split_once('\"')?.0.parse::<i64>().ok()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(grid_widths.len(), 2);
+    assert_ne!(grid_widths[0], grid_widths[1]);
     assert!(slide_two.contains("val=\"123456\"") && slide_two.contains("<c:chart"));
 
     let direct = PresentationDocument::open_source(Arc::new(overlay.clone())).unwrap();

@@ -545,6 +545,7 @@ fn validate_pages(
     let mut fragment_count = 0usize;
 
     for page in &plan.pages {
+        let mut fragment_frames = Vec::new();
         if previous_slide != Some(page.logical_slide_id) {
             observed_slide_order.push(page.logical_slide_id);
             previous_slide = Some(page.logical_slide_id);
@@ -663,7 +664,17 @@ fn validate_pages(
                     context.nodes,
                     report,
                 );
+                fragment_frames.push((fragment.source_node_id, fragment.frame));
             }
+        }
+        if let Some((left_id, right_id)) = first_overlapping_frames(&fragment_frames) {
+            plan_error(
+                report,
+                DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
+                Some(page.id),
+                Some(right_id),
+                &format!("source-owned fragment frames overlap ({left_id} and {right_id})"),
+            );
         }
     }
 
@@ -815,6 +826,78 @@ fn validate_fragment(
             "table continuation header metadata is inconsistent",
         );
     }
+    if !valid_type_choice(indexed.node, fragment) {
+        plan_error(
+            report,
+            DeckDiagnosticCode::PLAN_TARGET_DRIFT,
+            Some(target.page_id),
+            Some(fragment.source_node_id),
+            "fragment font and fit choices do not match their semantic content",
+        );
+    }
+}
+
+fn valid_type_choice(node: &SemanticNode, fragment: &PlannedFragment) -> bool {
+    match &node.content {
+        SemanticContent::Text(_)
+        | SemanticContent::List(_)
+        | SemanticContent::Table(_)
+        | SemanticContent::Code(_) => {
+            fragment.type_choice.font_size > 0
+                && fragment.type_choice.fit == crate::ContentFit::None
+        }
+        SemanticContent::Image(_) => {
+            fragment.type_choice.font_size == 0
+                && matches!(
+                    fragment.type_choice.fit,
+                    crate::ContentFit::Contain | crate::ContentFit::Cover
+                )
+        }
+        SemanticContent::Svg(_) | SemanticContent::Chart(_) => {
+            fragment.type_choice.font_size == 0
+                && fragment.type_choice.fit == crate::ContentFit::Contain
+        }
+        SemanticContent::Children(_) => false,
+    }
+}
+
+fn first_overlapping_frames(frames: &[(StableId, EmuRect)]) -> Option<(StableId, StableId)> {
+    let mut events = Vec::with_capacity(frames.len().saturating_mul(2));
+    for (index, (_, frame)) in frames.iter().enumerate() {
+        let right = frame.x.checked_add(frame.width)?;
+        if !frame.is_positive() {
+            continue;
+        }
+        // End events sort before starts, so touching edges remain legal.
+        events.push((frame.x, 1u8, index));
+        events.push((right, 0u8, index));
+    }
+    events.sort_unstable();
+
+    // Until a collision is found, every active x-overlapping rectangle has a disjoint y interval.
+    // Its immediate y neighbors are therefore sufficient for bounded O(n log n) detection.
+    let mut active = BTreeMap::<(i64, usize), (i64, StableId)>::new();
+    for (_, kind, index) in events {
+        let (id, frame) = frames[index];
+        let key = (frame.y, index);
+        if kind == 0 {
+            active.remove(&key);
+            continue;
+        }
+        let bottom = frame.y.checked_add(frame.height)?;
+        if let Some((_, (other_bottom, other_id))) = active.range(..key).next_back() {
+            if *other_bottom > frame.y {
+                return Some((*other_id, id));
+            }
+        }
+        if let Some(((other_y, _), (_, other_id))) = active.range(key..).next() {
+            if *other_y < bottom {
+                return Some((*other_id, id));
+            }
+        }
+        active.insert(key, (bottom, id));
+    }
+    None
 }
 
 fn validate_coverage(
@@ -1111,6 +1194,33 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.code == DeckDiagnosticCode::PLAN_SOURCE_LOSS)
+        );
+    }
+
+    #[test]
+    fn overlap_sweep_detects_nested_frames_but_allows_touching_edges() {
+        let id = |value| StableId::from_bytes([value; 16]);
+        let frame = |x, y, width, height| EmuRect {
+            x,
+            y,
+            width,
+            height,
+        };
+
+        assert_eq!(
+            first_overlapping_frames(&[
+                (id(1), frame(0, 0, 100, 100)),
+                (id(2), frame(100, 0, 100, 100)),
+                (id(3), frame(0, 100, 100, 100)),
+            ]),
+            None
+        );
+        assert_eq!(
+            first_overlapping_frames(&[
+                (id(1), frame(0, 0, 300, 300)),
+                (id(2), frame(50, 100, 100, 100)),
+            ]),
+            Some((id(1), id(2)))
         );
     }
 }

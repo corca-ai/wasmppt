@@ -936,7 +936,10 @@ impl DeckPlanner {
                     overflow = true;
                     break;
                 }
-                if fit == ContentFit::Contain && measured.height > measurement_frame.height {
+                if fit == ContentFit::Contain
+                    && intrinsic_size.is_none()
+                    && measured.height > measurement_frame.height
+                {
                     overflow = true;
                     break;
                 }
@@ -3988,6 +3991,61 @@ mod tests {
             assert!(fragment.frame.y >= template.regions[1].frame.y + 120_000);
             assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
         }
+    }
+
+    #[test]
+    fn compiled_envelope_uses_media_bleed_for_an_extreme_portrait() {
+        let mut spec = gallery_spec(&[(300, 1_200)]);
+        let gallery = spec.logical_slides[0].nodes.pop().unwrap();
+        let SemanticContent::Children(mut children) = gallery.content else {
+            unreachable!();
+        };
+        let figure = children.pop().unwrap();
+        let figure_id = figure.id;
+        spec.logical_slides[0].nodes.push(figure);
+        let mut template = template(4_526_280);
+        template.page_size = wasmppt_deck::EmuSize {
+            width: 12_192_000,
+            height: 6_858_000,
+        };
+        let safe = EmuRect {
+            x: 713_232,
+            y: 1_600_200,
+            width: 10_744_200,
+            height: 4_526_280,
+        };
+        let bleed = EmuRect {
+            x: 384_048,
+            y: 1_280_160,
+            width: 11_430_000,
+            height: 5_120_640,
+        };
+        template.regions[1].frame = safe;
+        template.regions[1].bleed_frame = Some(bleed);
+        template.regions[1].margins = TextMargins {
+            left: 91_440,
+            top: 45_720,
+            right: 91_440,
+            bottom: 45_720,
+        };
+
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        let fragment = plan
+            .pages
+            .iter()
+            .flat_map(fragments)
+            .find(|fragment| fragment.source_node_id == figure_id)
+            .unwrap();
+        let visible = fragment.media.unwrap().visible_frame;
+        let aspect_error =
+            (i128::from(visible.width) * 1_200 - i128::from(visible.height) * 300).abs();
+
+        assert!(visible.is_within(bleed));
+        assert!(!visible.is_within(safe));
+        assert!(aspect_error <= 1_200);
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
     }
 
     #[test]

@@ -1338,9 +1338,9 @@ try {
     `${JSON.stringify(result.deckEvidence.visualQuality)}\n`,
   )
   assert.equal(result.deckEvidence.cacheable, true)
-  assert.equal(result.deckEvidence.topology.slideCount, 16)
-  assert.equal(result.deckEvidence.topology.presentableSlides.length, 15)
-  assert.equal(result.deckEvidence.visualQuality.renderedSlides, 16)
+  assert.equal(result.deckEvidence.topology.slideCount, 18)
+  assert.equal(result.deckEvidence.topology.presentableSlides.length, 17)
+  assert.equal(result.deckEvidence.visualQuality.renderedSlides, 18)
   assert(result.deckEvidence.visualQuality.sourceElements >= 30)
   assert.equal(result.deckEvidence.topology.pages.at(-1).hidden, true)
   assert(

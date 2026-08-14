@@ -136,11 +136,12 @@ relation groups are hard constraints rather than soft cost terms.
 Text may shrink only to `PlannerPolicy::readable_floor`. An atomic group that cannot fit any legal
 candidate at that floor fails with `PLAN_ATOMIC_OVERFLOW`; it is not clipped or silently split.
 
-A textual child sequence containing display-math SVG leaves is an inline formula flow. The planner
-measures each text span at the selected template type size, scales each formula from its natural
-CSS-pixel extent at that same size, packs the atoms in source order, and wraps only between atoms.
-Atoms on one row are vertically centered against the row's maximum extent. This contextual rule
-does not change standalone display-math sizing or turn ordinary prose children into an inline row.
+A `Prose` or `Subtitle` child sequence whose same-role leaves contain both text and SVG formulas is
+an inline formula flow. The planner measures each text span at the selected template type size,
+scales each formula from its natural CSS-pixel extent at that same size, packs the atoms in source
+order, and wraps only between atoms. Atoms on one row are vertically centered against the row's
+maximum extent. The direct-container and same-role requirements keep sections that contain
+standalone display math, media-caption groups, and ordinary prose children in their block flows.
 
 ## Continuations
 

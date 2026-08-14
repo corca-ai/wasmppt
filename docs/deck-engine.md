@@ -35,8 +35,9 @@ package.
 - title, subtitle, prose, section, nested list, figure, caption, gallery, table,
   chart, code, diagram, display math, quote, credit, definition, and statement roles;
 - bold, italic, strikethrough, inline-code, and typed safe-hyperlink rich-text runs;
-- inline formula flow represented without another wire type: a textual `Children` node containing
-  editable text leaves and one or more `DisplayMath` SVG leaves in source order. A standalone
+- inline formula flow represented without another wire type: a `Prose` or `Subtitle` `Children`
+  node containing editable text leaves and one or more SVG formula leaves in source order. Every
+  leaf inherits the container role so the flow remains valid in that text region. A standalone
   `DisplayMath` remains a display formula;
 - explicit `Never`, `Text`, `ListItems`, `TableRows`, `CodeLines`, and `Children` split policy;
 - raster and SVG resources as binary bytes with media type and optional host-observed dimension

@@ -643,6 +643,16 @@ impl DeckPlanner {
         measurer: &mut Measurer<'_>,
         candidate_count: &mut usize,
     ) -> Result<Option<FittedCandidate>, PlanError> {
+        let bleed_region = if groups.iter().all(FlowGroup::is_media_only) {
+            region.bleed_frame.map(|frame| {
+                let mut region = region.clone();
+                region.frame = frame;
+                region
+            })
+        } else {
+            None
+        };
+        let region = bleed_region.as_ref().unwrap_or(region);
         let collapsed_table = (pattern == Pattern::TableWide).then(|| FlowGroup {
             units: groups
                 .iter()
@@ -2078,6 +2088,14 @@ impl FlowGroup<'_> {
         })
     }
 
+    fn is_media_only(&self) -> bool {
+        !self.units.is_empty()
+            && self
+                .units
+                .iter()
+                .all(|unit| semantic_node_is_media_only(unit.node))
+    }
+
     fn is_table(&self) -> bool {
         self.units
             .first()
@@ -2129,6 +2147,19 @@ impl FlowGroup<'_> {
         self.units
             .first()
             .is_some_and(|unit| unit.node.role == SemanticRole::Code)
+    }
+}
+
+fn semantic_node_is_media_only(node: &SemanticNode) -> bool {
+    match node.role {
+        SemanticRole::Figure | SemanticRole::Chart | SemanticRole::Diagram => true,
+        SemanticRole::Gallery => match &node.content {
+            SemanticContent::Children(children) => {
+                !children.is_empty() && children.iter().all(semantic_node_is_media_only)
+            }
+            _ => false,
+        },
+        _ => false,
     }
 }
 
@@ -2561,7 +2592,7 @@ fn select_layout<'a>(
     } else {
         match slide.kind {
             LogicalSlideKind::Title => TemplateLayoutCapability::Title,
-            LogicalSlideKind::Content => TemplateLayoutCapability::ContentFlow,
+            LogicalSlideKind::Content => TemplateLayoutCapability::ContentEnvelope,
         }
     };
     template
@@ -2593,13 +2624,7 @@ fn split_headers(
     let header_count = usize::from(nodes.first().is_some_and(|node| match layout {
         TemplateLayoutCapability::Title => node.role == SemanticRole::Title,
         TemplateLayoutCapability::Statement => false,
-        TemplateLayoutCapability::ContentFlow
-        | TemplateLayoutCapability::ContentSplit
-        | TemplateLayoutCapability::MediaStart
-        | TemplateLayoutCapability::MediaEnd
-        | TemplateLayoutCapability::Gallery
-        | TemplateLayoutCapability::Table
-        | TemplateLayoutCapability::Comparison => {
+        TemplateLayoutCapability::ContentEnvelope => {
             matches!(node.role, SemanticRole::Title | SemanticRole::Section)
         }
     }));
@@ -2615,15 +2640,8 @@ fn primary_region<'a>(
 ) -> Option<&'a TemplateRegion> {
     let preferred = match layout {
         TemplateLayoutCapability::Title => RegionRole::Subtitle,
-        TemplateLayoutCapability::ContentFlow => RegionRole::Body,
+        TemplateLayoutCapability::ContentEnvelope => RegionRole::Body,
         TemplateLayoutCapability::Statement => RegionRole::Statement,
-        TemplateLayoutCapability::ContentSplit | TemplateLayoutCapability::Comparison => {
-            RegionRole::Body
-        }
-        TemplateLayoutCapability::MediaStart
-        | TemplateLayoutCapability::MediaEnd
-        | TemplateLayoutCapability::Gallery => RegionRole::Media,
-        TemplateLayoutCapability::Table => RegionRole::Table,
     };
     regions
         .iter()
@@ -3009,7 +3027,20 @@ mod tests {
                 height: 20,
             }),
         });
-        let template = template_with_statement(5_500_000);
+        let mut template = template_with_statement(5_500_000);
+        let body = template
+            .regions
+            .iter_mut()
+            .find(|region| region.role == RegionRole::Body)
+            .unwrap();
+        let safe = body.frame;
+        let body_id = body.id;
+        body.bleed_frame = Some(EmuRect {
+            x: 100_000,
+            y: 1_000_000,
+            width: 9_800_000,
+            height: 6_000_000,
+        });
 
         let plan = DeckPlanner::default()
             .plan(&spec, &template, &FontCatalog::default(), &limits())
@@ -3017,6 +3048,13 @@ mod tests {
 
         assert_eq!(plan.pages[0].template_layout_id, id(100));
         assert_eq!(plan.pages[0].regions[0].fragments[0].source_node_id, id(3));
+        assert!(
+            plan.pages[0]
+                .regions
+                .iter()
+                .filter(|region| region.template_region_id == body_id)
+                .all(|region| region.frame.is_within(safe))
+        );
         assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
     }
 
@@ -3165,6 +3203,60 @@ mod tests {
     }
 
     #[test]
+    fn media_only_content_uses_bleed_but_mixed_content_stays_in_the_safe_envelope() {
+        let mut template = template(5_500_000);
+        let safe = template.regions[1].frame;
+        let bleed = EmuRect {
+            x: 100_000,
+            y: 1_000_000,
+            width: 9_800_000,
+            height: 6_000_000,
+        };
+        template.regions[1].bleed_frame = Some(bleed);
+        let body_id = template.regions[1].id;
+
+        let media_plan = DeckPlanner::default()
+            .plan(
+                &gallery_spec(&[(1_600, 900), (900, 1_600)]),
+                &template,
+                &FontCatalog::default(),
+                &limits(),
+            )
+            .unwrap();
+        let media_regions = media_plan.pages[0]
+            .regions
+            .iter()
+            .filter(|region| region.template_region_id == body_id)
+            .collect::<Vec<_>>();
+        assert!(
+            media_regions
+                .iter()
+                .all(|region| region.frame.is_within(bleed))
+        );
+        assert!(
+            media_regions
+                .iter()
+                .any(|region| !region.frame.is_within(safe))
+        );
+
+        let mixed_spec = single_media_spec(
+            (1_600, 900),
+            Some("A related paragraph keeps image and copy inside the conservative safe area."),
+        );
+        let mixed_plan = DeckPlanner::default()
+            .plan(&mixed_spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert!(
+            mixed_plan.pages[0]
+                .regions
+                .iter()
+                .filter(|region| region.template_region_id == body_id)
+                .all(|region| region.frame.is_within(safe))
+        );
+        assert!(validate_deck_plan(&mixed_spec, &template, &mixed_plan, &limits()).is_valid());
+    }
+
+    #[test]
     fn gallery_captions_stay_with_their_figures_without_overlap() {
         let mut spec = gallery_spec(&[(1_600, 900), (900, 1_600)]);
         let SemanticContent::Children(children) = &mut spec.logical_slides[0].nodes[1].content
@@ -3190,13 +3282,17 @@ mod tests {
             );
             children.insert(index + 1, caption);
         }
+        let mut template = template(5_500_000);
+        let safe = template.regions[1].frame;
+        template.regions[1].bleed_frame = Some(EmuRect {
+            x: 100_000,
+            y: 1_000_000,
+            width: 9_800_000,
+            height: 6_000_000,
+        });
+        let body_id = template.regions[1].id;
         let plan = DeckPlanner::default()
-            .plan(
-                &spec,
-                &template(5_500_000),
-                &FontCatalog::default(),
-                &limits(),
-            )
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
             .unwrap();
 
         for (figure, caption) in [(id(10), id(20)), (id(11), id(21))] {
@@ -3234,7 +3330,14 @@ mod tests {
                 caption_region.frame
             );
         }
-        assert!(validate_deck_plan(&spec, &template(5_500_000), &plan, &limits()).is_valid());
+        assert!(
+            plan.pages[0]
+                .regions
+                .iter()
+                .filter(|region| region.template_region_id == body_id)
+                .all(|region| region.frame.is_within(safe))
+        );
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
     }
 
     #[test]
@@ -4436,7 +4539,7 @@ mod tests {
             theme: TemplateTheme::default(),
             layouts: vec![TemplateLayout {
                 id: layout_id,
-                capability: TemplateLayoutCapability::ContentFlow,
+                capability: TemplateLayoutCapability::ContentEnvelope,
                 matching_name: "content".to_owned(),
                 source_part: "ppt/slideLayouts/slideLayout1.xml".to_owned(),
                 master_part: "ppt/slideMasters/slideMaster1.xml".to_owned(),
@@ -4459,6 +4562,7 @@ mod tests {
                         width: 9_000_000,
                         height: 700_000,
                     },
+                    bleed_frame: None,
                     margins: TextMargins::default(),
                     text_levels: vec![text_level(2_800)],
                     accepts: vec![SemanticRole::Title, SemanticRole::Section],
@@ -4478,6 +4582,7 @@ mod tests {
                         width: 9_000_000,
                         height: body_height,
                     },
+                    bleed_frame: None,
                     margins: TextMargins::default(),
                     text_levels: vec![text_level(2_000)],
                     accepts: vec![
@@ -4510,7 +4615,7 @@ mod tests {
     fn title_template(details_height: Emu) -> DeckTemplatePlan {
         let mut template = template(details_height);
         template.layouts[0].capability = TemplateLayoutCapability::Title;
-        template.layouts[0].matching_name = "wasmppt:title-v2".to_owned();
+        template.layouts[0].matching_name = "wasmppt:title-v3".to_owned();
         template.regions[1].role = RegionRole::Subtitle;
         template.regions[1].placeholder.kind = "subTitle".to_owned();
         template.regions[1].accepts = vec![
@@ -4547,6 +4652,7 @@ mod tests {
                 width: 9_000_000,
                 height: body_height.min(PAGE.height - 1_000_000),
             },
+            bleed_frame: None,
             margins: TextMargins::default(),
             text_levels: vec![text_level(2_800)],
             accepts: vec![

@@ -457,7 +457,7 @@ pub struct DeckTemplatePlan {
 }
 
 impl DeckTemplatePlan {
-    pub const SCHEMA_VERSION: u32 = 3;
+    pub const SCHEMA_VERSION: u32 = 4;
 
     pub fn encode(&self, limits: &DeckLimits) -> Result<Vec<u8>, WireError> {
         wire::encode_template_plan(self, limits)
@@ -508,29 +508,7 @@ pub struct TemplateLayout {
 pub enum TemplateLayoutCapability {
     Title,
     Statement,
-    ContentFlow,
-    ContentSplit,
-    MediaStart,
-    MediaEnd,
-    Gallery,
-    Table,
-    Comparison,
-}
-
-impl TemplateLayoutCapability {
-    /// Capability used when a specialized layout is absent from a valid v2 starter.
-    #[must_use]
-    pub const fn procedural_fallback(self) -> Self {
-        match self {
-            Self::Title | Self::Statement | Self::ContentFlow => self,
-            Self::ContentSplit
-            | Self::MediaStart
-            | Self::MediaEnd
-            | Self::Gallery
-            | Self::Table
-            | Self::Comparison => Self::ContentFlow,
-        }
-    }
+    ContentEnvelope,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -539,7 +517,10 @@ pub struct TemplateRegion {
     pub layout_id: StableId,
     pub role: RegionRole,
     pub placeholder: PlaceholderIdentity,
+    /// Conservative area used by text and mixed-content composition.
     pub frame: EmuRect,
+    /// Optional larger area available only to media-only composition.
+    pub bleed_frame: Option<EmuRect>,
     pub margins: TextMargins,
     pub text_levels: Vec<TemplateTextLevel>,
     pub accepts: Vec<SemanticRole>,

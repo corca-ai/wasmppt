@@ -101,24 +101,25 @@ fn starter() -> Vec<u8> {
         (
             "ppt/slideLayouts/title.xml",
             layout(
-                "wasmppt:title-v2",
+                "wasmppt:title-v3",
                 &[placeholder(11, "title", 1), placeholder(12, "subTitle", 2)],
             ),
         ),
         (
             "ppt/slideLayouts/content.xml",
             layout(
-                "wasmppt:content-flow-v2",
+                "wasmppt:content-envelope-v3",
                 &[
                     placeholder(21, "title", 3),
                     placeholder(22, "body", 4),
+                    placeholder(24, "pic", 5),
                     placeholder(23, "sldNum", 6),
                 ],
             ),
         ),
         (
             "ppt/slideLayouts/statement.xml",
-            layout("wasmppt:statement-v2", &[placeholder(31, "ctrTitle", 5)]),
+            layout("wasmppt:statement-v3", &[placeholder(31, "ctrTitle", 5)]),
         ),
         (
             "ppt/slideLayouts/_rels/title.xml.rels",
@@ -162,13 +163,14 @@ fn master_placeholders() -> String {
         ),
         master_placeholder(4, "title", 3, (600_000, 300_000, 10_992_000, 700_000)),
         master_placeholder(5, "body", 4, (700_000, 1_200_000, 10_792_000, 5_100_000)),
+        master_placeholder(8, "pic", 5, (300_000, 1_100_000, 11_592_000, 5_250_000)),
         master_placeholder(
             6,
             "ctrTitle",
             5,
             (1_000_000, 1_600_000, 10_192_000, 2_200_000),
         ),
-        master_placeholder(7, "sldNum", 6, (11_000_000, 6_300_000, 500_000, 200_000)),
+        master_placeholder(7, "sldNum", 6, (11_000_000, 6_400_000, 500_000, 200_000)),
     ]
     .join("")
 }

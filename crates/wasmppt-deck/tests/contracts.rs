@@ -223,6 +223,22 @@ fn reports_each_plan_integrity_failure_with_a_stable_code() {
         DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
     );
 
+    let mut bleed_template = template.clone();
+    bleed_template.regions[0].bleed_frame = Some(EmuRect {
+        x: 0,
+        y: 0,
+        width: PAGE.width,
+        height: PAGE.height,
+    });
+    let mut text_in_bleed = plan.clone();
+    text_in_bleed.pages[1].regions[0].frame = bleed_template.regions[0].bleed_frame.unwrap();
+    assert_code(
+        &spec,
+        &bleed_template,
+        &text_in_bleed,
+        DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
+    );
+
     let mut continuation = plan.clone();
     continuation.pages[1].continuation.total = 3;
     assert_code(
@@ -376,8 +392,8 @@ fn golden_payloads_are_stable() {
         template_plan_with_unknown_diagnostic()
             .encode(&limits)
             .unwrap(),
-        "fixtures/deck-contracts/template-plan-v3.hex",
-        include_str!("../../../fixtures/deck-contracts/template-plan-v3.hex"),
+        "fixtures/deck-contracts/template-plan-v4.hex",
+        include_str!("../../../fixtures/deck-contracts/template-plan-v4.hex"),
     );
     assert_golden(
         valid_plan(&simple_spec(), &template_plan_with_unknown_diagnostic())
@@ -731,8 +747,8 @@ fn template_plan() -> DeckTemplatePlan {
         theme: TemplateTheme::default(),
         layouts: vec![TemplateLayout {
             id: id(52),
-            capability: TemplateLayoutCapability::ContentFlow,
-            matching_name: "wasmppt:content-flow-v2".to_owned(),
+            capability: TemplateLayoutCapability::ContentEnvelope,
+            matching_name: "wasmppt:content-envelope-v3".to_owned(),
             source_part: "ppt/slideLayouts/slideLayout1.xml".to_owned(),
             master_part: "ppt/slideMasters/slideMaster1.xml".to_owned(),
             region_ids: vec![id(51)],
@@ -748,6 +764,7 @@ fn template_plan() -> DeckTemplatePlan {
                 index: 1,
             },
             frame: FRAME,
+            bleed_frame: None,
             margins: TextMargins::default(),
             text_levels: vec![],
             accepts: vec![SemanticRole::Title, SemanticRole::Prose, SemanticRole::List],

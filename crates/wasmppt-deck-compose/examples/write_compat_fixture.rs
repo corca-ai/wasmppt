@@ -148,8 +148,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         theme: TemplateTheme::default(),
         layouts: vec![TemplateLayout {
             id: layout_id,
-            capability: TemplateLayoutCapability::ContentFlow,
-            matching_name: "wasmppt:content-flow-v2".to_owned(),
+            capability: TemplateLayoutCapability::ContentEnvelope,
+            matching_name: "wasmppt:content-envelope-v3".to_owned(),
             source_part: "ppt/slideLayouts/slideLayout1.xml".to_owned(),
             master_part: "ppt/slideMasters/slideMaster1.xml".to_owned(),
             region_ids: vec![region_id],
@@ -165,6 +165,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 index: 1,
             },
             frame,
+            bleed_frame: None,
             margins: TextMargins::default(),
             text_levels: vec![TemplateTextLevel {
                 level: 0,

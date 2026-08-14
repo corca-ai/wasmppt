@@ -544,6 +544,10 @@ impl<'a> Writer<'a> {
         self.string(&region.placeholder.kind)?;
         self.u32(region.placeholder.index)?;
         self.rect(region.frame)?;
+        self.bool(region.bleed_frame.is_some())?;
+        if let Some(frame) = region.bleed_frame {
+            self.rect(frame)?;
+        }
         self.text_margins(region.margins)?;
         self.vec(&region.text_levels, |writer, level| {
             writer.template_text_level(level)
@@ -1160,6 +1164,11 @@ impl<'a> Reader<'a> {
                 index: self.u32()?,
             },
             frame: self.rect()?,
+            bleed_frame: if self.bool()? {
+                Some(self.rect()?)
+            } else {
+                None
+            },
             margins: self.text_margins()?,
             text_levels: self.vec("template text levels", Reader::template_text_level)?,
             accepts: self.vec("accepted semantic roles", |reader| {
@@ -1633,13 +1642,7 @@ const fn template_layout_capability_tag(value: TemplateLayoutCapability) -> u8 {
     match value {
         TemplateLayoutCapability::Title => 1,
         TemplateLayoutCapability::Statement => 3,
-        TemplateLayoutCapability::ContentFlow => 4,
-        TemplateLayoutCapability::ContentSplit => 5,
-        TemplateLayoutCapability::MediaStart => 6,
-        TemplateLayoutCapability::MediaEnd => 7,
-        TemplateLayoutCapability::Gallery => 8,
-        TemplateLayoutCapability::Table => 9,
-        TemplateLayoutCapability::Comparison => 10,
+        TemplateLayoutCapability::ContentEnvelope => 4,
     }
 }
 
@@ -1647,13 +1650,7 @@ fn template_layout_capability(value: u8) -> Result<TemplateLayoutCapability, Wir
     match value {
         1 => Ok(TemplateLayoutCapability::Title),
         3 => Ok(TemplateLayoutCapability::Statement),
-        4 => Ok(TemplateLayoutCapability::ContentFlow),
-        5 => Ok(TemplateLayoutCapability::ContentSplit),
-        6 => Ok(TemplateLayoutCapability::MediaStart),
-        7 => Ok(TemplateLayoutCapability::MediaEnd),
-        8 => Ok(TemplateLayoutCapability::Gallery),
-        9 => Ok(TemplateLayoutCapability::Table),
-        10 => Ok(TemplateLayoutCapability::Comparison),
+        4 => Ok(TemplateLayoutCapability::ContentEnvelope),
         _ => Err(invalid_tag("template layout role")),
     }
 }

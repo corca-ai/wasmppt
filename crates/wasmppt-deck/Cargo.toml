@@ -16,6 +16,7 @@ default = []
 sha2.workspace = true
 
 [dev-dependencies]
+png.workspace = true
 wasmppt-opc.workspace = true
 
 [lints]

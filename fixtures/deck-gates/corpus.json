@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "id": "autolayout-v2",
+  "cases": [
+    "title-variants", "long-prose", "long-list-with-live-empty-item",
+    "table-continuation", "long-code", "mixed-media",
+    "aspect-aware-gallery-10", "figure-caption", "quote-credit",
+    "section", "display-math", "definition", "statement", "hidden-page"
+  ],
+  "invariants": [
+    "exact-source-coverage", "no-overlap", "readable-type",
+    "balanced-flow", "no-singleton-final-orphan", "bounded-media",
+    "single-editable-table-per-slice", "canvas-pptx-geometry-parity",
+    "cross-host-byte-determinism", "single-slide-invalidation"
+  ]
+}

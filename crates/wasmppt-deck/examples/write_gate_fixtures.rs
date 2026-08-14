@@ -36,7 +36,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         output.join("atomic-overflow.wdsf"),
         atomic_overflow_spec().encode(&DeckLimits::default())?,
     )?;
+    fs::write(output.join("corpus.json"), corpus_manifest())?;
     Ok(())
+}
+
+fn corpus_manifest() -> &'static str {
+    concat!(
+        "{\n  \"schema\": 1,\n  \"id\": \"autolayout-v2\",\n  \"cases\": [\n",
+        "    \"title-variants\", \"long-prose\", \"long-list-with-live-empty-item\",\n",
+        "    \"table-continuation\", \"long-code\", \"mixed-media\",\n",
+        "    \"aspect-aware-gallery-10\", \"figure-caption\", \"quote-credit\",\n",
+        "    \"section\", \"display-math\", \"definition\", \"statement\", \"hidden-page\"\n",
+        "  ],\n  \"invariants\": [\n",
+        "    \"exact-source-coverage\", \"no-overlap\", \"readable-type\",\n",
+        "    \"balanced-flow\", \"no-singleton-final-orphan\", \"bounded-media\",\n",
+        "    \"single-editable-table-per-slice\", \"canvas-pptx-geometry-parity\",\n",
+        "    \"cross-host-byte-determinism\", \"single-slide-invalidation\"\n",
+        "  ]\n}\n",
+    )
 }
 
 fn starter() -> Vec<u8> {
@@ -182,10 +199,12 @@ fn layout_relationships() -> String {
 }
 
 fn deck_spec() -> DeckSpec {
-    let png = id(230);
+    let square = id(230);
     let gif = id(231);
     let svg = id(232);
     let math = id(233);
+    let portrait = id(234);
+    let wide = id(235);
     let slides = vec![
         slide(
             1,
@@ -232,14 +251,14 @@ fn deck_spec() -> DeckSpec {
                     "Raster, GIF, SVG, and gallery",
                     SplitPolicy::Never,
                 ),
-                image_node(42, SemanticRole::Figure, png, "one-pixel PNG"),
+                image_node(42, SemanticRole::Figure, square, "square PNG"),
                 text_node(
                     43,
                     SemanticRole::Caption,
                     "Loss-aware media caption",
                     SplitPolicy::Never,
                 ),
-                gallery_node(44, gif, svg),
+                gallery_node(44, [square, portrait, wide, gif]),
             ],
         ),
         slide(
@@ -337,16 +356,14 @@ fn deck_spec() -> DeckSpec {
         logical_slides: slides,
         resources: vec![
             DeckResource {
-                id: png,
+                id: square,
                 kind: ResourceKind::RasterImage,
                 media_type: "image/png".to_owned(),
-                bytes: vec![
-                    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0,
-                    0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13,
-                    73, 68, 65, 84, 8, 215, 99, 248, 207, 192, 240, 31, 0, 5, 0, 1, 255,
-                    137, 153, 61, 29, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
-                ],
-                intrinsic_size: Some(PixelSize { width: 1, height: 1 }),
+                bytes: png(64, 64, [37, 99, 235]),
+                intrinsic_size: Some(PixelSize {
+                    width: 64,
+                    height: 64,
+                }),
             },
             DeckResource {
                 id: gif,
@@ -369,8 +386,47 @@ fn deck_spec() -> DeckSpec {
                 bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><path d="M1 8L8 1l7 7"/></svg>"#.to_vec(),
                 intrinsic_size: Some(PixelSize { width: 16, height: 9 }),
             },
+            DeckResource {
+                id: portrait,
+                kind: ResourceKind::RasterImage,
+                media_type: "image/png".to_owned(),
+                bytes: png(48, 96, [15, 118, 110]),
+                intrinsic_size: Some(PixelSize {
+                    width: 48,
+                    height: 96,
+                }),
+            },
+            DeckResource {
+                id: wide,
+                kind: ResourceKind::RasterImage,
+                media_type: "image/png".to_owned(),
+                bytes: png(128, 48, [217, 119, 6]),
+                intrinsic_size: Some(PixelSize {
+                    width: 128,
+                    height: 48,
+                }),
+            },
         ],
     }
+}
+
+fn png(width: u32, height: u32, color: [u8; 3]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, width, height);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().expect("gate PNG header must encode");
+        let pixels = color
+            .into_iter()
+            .cycle()
+            .take(width as usize * height as usize * 3)
+            .collect::<Vec<_>>();
+        writer
+            .write_image_data(&pixels)
+            .expect("gate PNG pixels must encode");
+    }
+    bytes
 }
 
 fn atomic_overflow_spec() -> DeckSpec {
@@ -479,7 +535,13 @@ fn rich_node(value: u8) -> SemanticNode {
         content: SemanticContent::Text(RichText {
             runs: vec![
                 RichTextRun {
-                    text: "Bold 한국어, ".to_owned(),
+                    text: concat!(
+                        "Bold 한국어 introduces a measured paragraph. ",
+                        "A second sentence establishes a stable break opportunity. ",
+                        "A third sentence is long enough to exercise balanced continuation. ",
+                        "A fourth sentence keeps prose editable after pagination. ",
+                    )
+                    .to_owned(),
                     marks: TextMarks {
                         bold: true,
                         ..TextMarks::default()
@@ -490,7 +552,12 @@ fn rich_node(value: u8) -> SemanticNode {
                     }),
                 },
                 RichTextRun {
-                    text: "italic العربية and inline code".to_owned(),
+                    text: concat!(
+                        "Italic العربية and inline code continue the same source block. ",
+                        "The sixth sentence tests width demand. The seventh tests height demand. ",
+                        "The eighth sentence prevents a tiny final prose fragment."
+                    )
+                    .to_owned(),
                     marks: TextMarks {
                         italic: true,
                         inline_code: true,
@@ -504,22 +571,31 @@ fn rich_node(value: u8) -> SemanticNode {
 }
 
 fn list_node(value: u8) -> SemanticNode {
-    let item = |identity, text: &str| ListItem {
-        id: id(identity),
+    let item = |index: u32, text: &str| ListItem {
+        id: id(value).derive(b"gate-list-item", index),
         source: range(value, 0, 100),
-        blocks: vec![text_node(
-            identity + 1,
-            SemanticRole::ListItem,
-            text,
-            SplitPolicy::Never,
-        )],
+        blocks: vec![SemanticNode {
+            id: id(value).derive(b"gate-list-block", index),
+            source: range(value, 0, 100),
+            role: SemanticRole::ListItem,
+            split: SplitPolicy::Never,
+            content: SemanticContent::Text(plain(text)),
+        }],
         children: vec![],
     };
-    let mut first = item(value + 1, "First level");
+    let mut first = item(1, "First level with a nested explanation");
     first.children.push(ListContent {
         ordered: false,
         start: 1,
-        items: vec![item(value + 3, "Nested level")],
+        items: vec![item(20, "Nested level remains attached")],
+    });
+    let mut items = vec![first];
+    items.extend((2..=10).map(|index| item(index, &format!("Balanced list item {index}"))));
+    items.push(ListItem {
+        id: id(value).derive(b"gate-list-item", 11),
+        source: range(value, 99, 100),
+        blocks: vec![],
+        children: vec![],
     });
     SemanticNode {
         id: id(value),
@@ -529,7 +605,7 @@ fn list_node(value: u8) -> SemanticNode {
         content: SemanticContent::List(ListContent {
             ordered: true,
             start: 3,
-            items: vec![first, item(value + 5, "Second item")],
+            items,
         }),
     }
 }
@@ -547,21 +623,35 @@ fn image_node(value: u8, role: SemanticRole, resource_id: StableId, alt: &str) -
     }
 }
 
-fn gallery_node(value: u8, gif: StableId, svg: StableId) -> SemanticNode {
+fn gallery_node(value: u8, resources: [StableId; 4]) -> SemanticNode {
+    let mut children = Vec::new();
+    for index in 0..10u32 {
+        children.push(SemanticNode {
+            id: id(value).derive(b"gate-gallery-item", index),
+            source: range(value, index * 8, index * 8 + 4),
+            role: SemanticRole::Figure,
+            split: SplitPolicy::Never,
+            content: SemanticContent::Image(ImageContent {
+                resource_id: resources[index as usize % resources.len()],
+                alt_text: format!("gallery photo {}", index + 1),
+            }),
+        });
+        if matches!(index, 2 | 7) {
+            children.push(SemanticNode {
+                id: id(value).derive(b"gate-gallery-caption", index),
+                source: range(value, index * 8 + 4, index * 8 + 8),
+                role: SemanticRole::Caption,
+                split: SplitPolicy::Never,
+                content: SemanticContent::Text(plain(&format!("Caption {}", index + 1))),
+            });
+        }
+    }
     SemanticNode {
         id: id(value),
         source: range(value, 0, 100),
         role: SemanticRole::Gallery,
         split: SplitPolicy::Children,
-        content: SemanticContent::Children(vec![
-            image_node(
-                value + 1,
-                SemanticRole::Figure,
-                gif,
-                "animated GIF first frame",
-            ),
-            svg_node(value + 2, SemanticRole::Diagram, svg, Some("gallery SVG")),
-        ]),
+        content: SemanticContent::Children(children),
     }
 }
 
@@ -634,7 +724,10 @@ fn code_node(value: u8) -> SemanticNode {
         split: SplitPolicy::CodeLines,
         content: SemanticContent::Code(CodeContent {
             language: Some("rust".to_owned()),
-            code: "fn main() {\n    println!(\"안녕하세요\");\n}\n".to_owned(),
+            code: (1..=25)
+                .map(|line| format!("let value_{line} = {line}; // 안녕하세요"))
+                .collect::<Vec<_>>()
+                .join("\n"),
         }),
     }
 }

@@ -21,6 +21,9 @@ const nativeTopology = JSON.parse(await readFile(resolve(output, 'native-topolog
 const browserTopology = JSON.parse(await readFile(resolve(output, 'browser-topology.json'), 'utf8'))
 const nativeTimings = JSON.parse(await readFile(resolve(output, 'native-timings.json'), 'utf8'))
 const browserTimings = JSON.parse(await readFile(resolve(output, 'browser-timings.json'), 'utf8'))
+const nativeQuality = JSON.parse(await readFile(resolve(output, 'native-quality.json'), 'utf8'))
+const browserQuality = JSON.parse(await readFile(resolve(output, 'browser-quality.json'), 'utf8'))
+validateQuality(nativeQuality, browserQuality, nativeTopology)
 for (const [host, timings] of [
   ['native', nativeTimings],
   ['browser', browserTimings],
@@ -62,7 +65,10 @@ const report = {
     exactPptxBytes: true,
     exactTopology: true,
     mutationSensitive: true,
+    automaticLayoutQuality: true,
+    canvasVisualContinuity: true,
   },
+  quality: { native: nativeQuality, browser: browserQuality },
   topology: nativeTopology,
   hosts: Object.fromEntries(await Promise.all(['native', 'browser', 'workerd'].map(async (host) => [
     host,
@@ -123,6 +129,23 @@ function validateTimings(host, timings) {
   assert.equal(timings.summary.resolveAllP95Ms, percentile(timings.resolveAllSamplesMs, 0.95))
   assert.equal(timings.summary.exportP50Ms, percentile(timings.exportSamplesMs, 0.5))
   assert.equal(timings.summary.exportP95Ms, percentile(timings.exportSamplesMs, 0.95))
+}
+
+function validateQuality(native, browser, topology) {
+  assert.equal(native.schema, 1)
+  assert.equal(native.corpus, 'autolayout-v2')
+  assert.equal(native.counts.logicalSlides, 11)
+  assert.equal(native.counts.physicalPages, topology.slideCount)
+  assert(native.counts.flowPages >= 1, 'corpus did not produce a flow-column page')
+  assert(native.counts.galleryPages >= 1, 'corpus did not produce a gallery page')
+  assert(native.counts.mediaFragments >= 10, 'corpus did not retain its media set')
+  assert(native.counts.tableFragments >= 2, 'corpus did not paginate its table')
+  assert(Object.values(native.contracts).every((passed) => passed === true))
+  assert.equal(browser.schema, 1)
+  assert.equal(browser.renderedSlides, topology.slideCount)
+  assert(browser.sourceElements >= 30, 'rendered slides lost semantic source elements')
+  assert(browser.minimumChangedPixels >= 20, 'a rendered Canvas slide was blank')
+  assert(Object.values(browser.contracts).every((passed) => passed === true))
 }
 
 function percentile(samples, quantile) {

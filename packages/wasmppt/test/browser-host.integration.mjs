@@ -386,6 +386,8 @@ try {
         const renderer = new CanvasDisplayListRenderer(4 * 1024 * 1024)
         let sourceElements = 0
         let minimumChangedPixels = Number.POSITIVE_INFINITY
+        const decodedImageSizes = new Map()
+        const qualityImageCommands = []
         for (const [slideIndex, encoded] of measuredSlides.entries()) {
           const binary = atob(encoded)
           const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
@@ -404,6 +406,37 @@ try {
                 semantic.bounds.y + semantic.bounds.height > scene.height) {
               throw new Error(`deck slide ${slideIndex} has out-of-page semantic bounds`)
             }
+            if (semantic.alternativeText?.startsWith('gate-media|') === true) {
+              const [marker, mediaCase, item, expectedWidth, expectedHeight, extra] =
+                semantic.alternativeText.split('|')
+              if (marker !== 'gate-media' || extra !== undefined) {
+                throw new Error(`deck slide ${slideIndex} has malformed gate media metadata`)
+              }
+              const commands = scene.commands.slice(
+                semantic.firstCommand,
+                semantic.firstCommand + semantic.commandCount,
+              ).filter((command) => command.kind === 'draw-image')
+              if (commands.length !== 1) {
+                throw new Error(`deck slide ${slideIndex} gate media did not emit one image`)
+              }
+              const command = commands[0]
+              const partName = scene.images[command.resource]?.partName
+              if (partName === undefined) {
+                throw new Error(`deck slide ${slideIndex} gate media lost its resource part`)
+              }
+              qualityImageCommands.push({
+                semanticId: semantic.source.semanticId,
+                case: mediaCase,
+                item: Number(item),
+                pageIndex: slideIndex,
+                expectedWidth: Number(expectedWidth),
+                expectedHeight: Number(expectedHeight),
+                frameWidth: command.transform.bounds.width,
+                frameHeight: command.transform.bounds.height,
+                crop: command.crop,
+                partName,
+              })
+            }
           }
           const canvas = new OffscreenCanvas(320, 180)
           const context = canvas.getContext('2d', { alpha: false })
@@ -416,14 +449,26 @@ try {
             },
             imageResolver: async (image, signal) => {
               if (image.partName === undefined) throw new Error('deck image part is missing')
+              const partName = image.partName
               const resource = await client.deckSessionResource(
-                measuredSession.handle, measuredSession.revision, image.partName, { signal },
+                measuredSession.handle, measuredSession.revision, partName, { signal },
               )
               const resourceBytes = new Uint8Array(resource.bytes)
               const prefix = new TextDecoder().decode(resourceBytes.subarray(0, 100)).trimStart()
-              return prefix.startsWith('<svg')
+              const decoded = prefix.startsWith('<svg')
                 ? decodeSvgImage(resourceBytes, signal)
                 : decodeRasterImage(resourceBytes, {}, signal)
+              let decodedImage
+              try {
+                decodedImage = await decoded
+              } catch (error) {
+                throw new Error(`deck image ${partName} could not be decoded`, { cause: error })
+              }
+              decodedImageSizes.set(partName, {
+                width: decodedImage.source.width,
+                height: decodedImage.source.height,
+              })
+              return decodedImage
             },
           })
           const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
@@ -438,12 +483,61 @@ try {
           if (changedPixels < 20) throw new Error(`deck slide ${slideIndex} rendered blank`)
           minimumChangedPixels = Math.min(minimumChangedPixels, changedPixels)
         }
+        const qualityImages = qualityImageCommands.map((entry) => {
+          const source = decodedImageSizes.get(entry.partName)
+          if (source === undefined) throw new Error(`gate media ${entry.case} was not decoded`)
+          if (source.width !== entry.expectedWidth || source.height !== entry.expectedHeight) {
+            throw new Error(
+              `gate media ${entry.case} decoded ${source.width}x${source.height} instead of ` +
+              `${entry.expectedWidth}x${entry.expectedHeight}`,
+            )
+          }
+          const [left, top, right, bottom] = entry.crop
+          const remainingX = 100_000 - left - right
+          const remainingY = 100_000 - top - bottom
+          const aspectLeft = entry.frameWidth * source.height * remainingY
+          const aspectRight = entry.frameHeight * source.width * remainingX
+          const aspectErrorPerMillion = Math.floor(
+            Math.abs(aspectLeft - aspectRight) * 1_000_000 /
+              Math.max(aspectLeft, aspectRight, 1),
+          )
+          const cropLossPerMille = Math.floor(
+            (10_000_000_000 - remainingX * remainingY) * 1_000 / 10_000_000_000,
+          )
+          if (aspectErrorPerMillion > 25) {
+            throw new Error(`gate media ${entry.case} has ${aspectErrorPerMillion} ppm distortion`)
+          }
+          if (cropLossPerMille > 300) {
+            throw new Error(`gate media ${entry.case} loses ${cropLossPerMille} per mille to crop`)
+          }
+          return {
+            semanticId: entry.semanticId,
+            case: entry.case,
+            item: entry.item,
+            pageIndex: entry.pageIndex,
+            expectedWidth: entry.expectedWidth,
+            expectedHeight: entry.expectedHeight,
+            sourceWidth: source.width,
+            sourceHeight: source.height,
+            frameWidth: entry.frameWidth,
+            frameHeight: entry.frameHeight,
+            aspectErrorPerMillion,
+            cropLossPerMille,
+          }
+        }).toSorted((left, right) => left.semanticId.localeCompare(right.semanticId))
         deckVisualQuality = {
-          schema: 1,
+          schema: 2,
           renderedSlides: measuredSlides.length,
           sourceElements,
           minimumChangedPixels,
-          contracts: { canvasBounds: true, nonBlankSlides: true },
+          images: qualityImages,
+          contracts: {
+            canvasBounds: true,
+            nonBlankSlides: true,
+            aspectFidelity: true,
+            boundedCrop: true,
+            displayAxisFidelity: true,
+          },
         }
       } else {
         await client.releaseDeckSession(measuredSession.handle)
@@ -1338,11 +1432,11 @@ try {
     `${JSON.stringify(result.deckEvidence.visualQuality)}\n`,
   )
   assert.equal(result.deckEvidence.cacheable, true)
-  assert.equal(result.deckEvidence.topology.slideCount, 18)
-  assert.equal(result.deckEvidence.topology.presentableSlides.length, 17)
-  assert.equal(result.deckEvidence.visualQuality.renderedSlides, 18)
+  assert.equal(result.deckEvidence.topology.slideCount, 75)
+  assert.equal(result.deckEvidence.topology.presentableSlides.length, 74)
+  assert.equal(result.deckEvidence.visualQuality.renderedSlides, 75)
   assert(result.deckEvidence.visualQuality.sourceElements >= 30)
-  assert.equal(result.deckEvidence.topology.pages.at(-1).hidden, true)
+  assert(result.deckEvidence.topology.pages.some((deckPage) => deckPage.hidden))
   assert(
     result.deckEvidence.topology.diagnostics.some(
       (diagnostic) => diagnostic.code === 300 &&

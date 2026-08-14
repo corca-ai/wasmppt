@@ -553,8 +553,8 @@ describe('wasmppt workerd adapter', () => {
       invalidDeckSpec,
       atomicOverflow,
     }
-    expect(slideCount).toBe(18)
-    expect(presentableSlides).toHaveLength(17)
+    expect(slideCount).toBe(75)
+    expect(presentableSlides).toHaveLength(74)
     expect(
       pages.filter((page) => page.logicalSlideId === '46'.repeat(16)),
     ).toEqual([
@@ -562,7 +562,7 @@ describe('wasmppt workerd adapter', () => {
       expect.objectContaining({ continuationOrdinal: 2, continuationTotal: 3 }),
       expect.objectContaining({ continuationOrdinal: 3, continuationTotal: 3 }),
     ])
-    expect(pages.at(-1)).toMatchObject({ hidden: true })
+    expect(pages).toEqual(expect.arrayContaining([expect.objectContaining({ hidden: true })]))
     expect(diagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({
         code: 300,

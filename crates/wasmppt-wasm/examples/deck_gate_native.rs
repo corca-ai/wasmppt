@@ -6,11 +6,11 @@ use std::{
 };
 
 use wasmppt_deck::{
-    DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckResource, DeckSpec,
-    DiagnosticSeverity, FragmentSlice, LayoutTopology, RegionPlacement, SemanticContent,
+    ContentFit, DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckResource, DeckSpec,
+    DiagnosticSeverity, EmuRect, FragmentSlice, LayoutTopology, RegionPlacement, SemanticContent,
     SemanticNode, SemanticRole, StableId,
 };
-use wasmppt_deck_layout::{DeckPlanner, FontCatalog};
+use wasmppt_deck_layout::{DeckPlanner, FontCatalog, PlannerPolicy};
 use wasmppt_deck_template::ThemeTemplateCompiler;
 use wasmppt_wasm::WasmpptEngine;
 
@@ -26,6 +26,28 @@ struct Timings {
     plan_ms: f64,
     resolve_all_ms: f64,
     export_ms: f64,
+}
+
+#[derive(Clone)]
+struct SemanticMetadata {
+    role: SemanticRole,
+    alternative_text: Option<String>,
+}
+
+struct MediaEvidence {
+    semantic_id: String,
+    case: String,
+    item: u32,
+    page_index: usize,
+    expected_width: u32,
+    expected_height: u32,
+    source_width: u32,
+    source_height: u32,
+    frame_width: i64,
+    frame_height: i64,
+    fit: &'static str,
+    aspect_error_per_million: u64,
+    crop_loss_per_mille: u64,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -96,15 +118,18 @@ fn assert_layout_quality(
     spec: &DeckSpec,
     plan: &DeckPlan,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let roles = semantic_roles(spec);
-    let readable_floor = 1_400;
+    let semantics = semantic_metadata(spec);
+    let policy = PlannerPolicy::default();
     let mut media_fragments = 0usize;
     let mut table_fragments = 0usize;
     let mut flow_pages = 0usize;
     let mut gallery_pages = 0usize;
     let mut table_slices = BTreeMap::<StableId, Vec<(u32, u32)>>::new();
+    let mut fragment_ids = BTreeSet::new();
+    let mut locations = BTreeMap::<StableId, Vec<(usize, RegionPlacement, EmuRect)>>::new();
+    let mut media_evidence = Vec::new();
 
-    for page in &plan.pages {
+    for (page_index, page) in plan.pages.iter().enumerate() {
         if page.topology.kind == LayoutTopology::Gallery {
             gallery_pages += 1;
             if !(2..=6).contains(&page.topology.slot_count) {
@@ -114,24 +139,92 @@ fn assert_layout_quality(
 
         let mut slot_loads = BTreeMap::<u16, u32>::new();
         let mut tables_on_page = BTreeSet::new();
+        let mut page_frames = Vec::new();
         for region in &page.regions {
             for fragment in &region.fragments {
-                let role = roles
+                if !fragment_ids.insert(fragment.id) {
+                    return Err("planned fragment identity is not unique".into());
+                }
+                let metadata = semantics
                     .get(&fragment.source_node_id)
-                    .copied()
                     .ok_or("planned fragment lost its semantic source")?;
-                if is_text_role(role) && fragment.type_choice.font_size < readable_floor {
+                let role = metadata.role;
+                if is_text_role(role) && fragment.type_choice.font_size < policy.readable_floor {
                     return Err(
                         format!("{role:?} fragment fell below the readable type floor").into(),
                     );
                 }
+                locations.entry(fragment.source_node_id).or_default().push((
+                    page_index,
+                    region.placement,
+                    fragment.frame,
+                ));
+                page_frames.push((fragment.id, fragment.frame));
                 if role == SemanticRole::Figure {
                     media_fragments += 1;
                     if fragment.media.is_none()
-                        || fragment.frame.width < 900_000
-                        || fragment.frame.height < 700_000
+                        || fragment.frame.width.min(fragment.frame.height)
+                            < policy.readable_media_floor
                     {
                         return Err("media fragment is undersized or lacks an aspect fit".into());
+                    }
+                    if let Some(raw) = metadata
+                        .alternative_text
+                        .as_deref()
+                        .and_then(parse_gate_media_alternative_text)
+                    {
+                        let media = fragment.media.expect("checked media placement");
+                        if media.source_size.width != raw.expected_width
+                            || media.source_size.height != raw.expected_height
+                        {
+                            return Err(format!(
+                                "{} used source axes {}x{} instead of {}x{}",
+                                raw.case,
+                                media.source_size.width,
+                                media.source_size.height,
+                                raw.expected_width,
+                                raw.expected_height
+                            )
+                            .into());
+                        }
+                        let aspect_error = aspect_error_per_million(media);
+                        let crop_loss = crop_loss_per_mille(media);
+                        if aspect_error > 25 {
+                            return Err(format!(
+                                "{} distorted its source aspect by {aspect_error} ppm",
+                                raw.case
+                            )
+                            .into());
+                        }
+                        if crop_loss > u64::from(policy.max_cover_crop_per_mille) {
+                            return Err(format!(
+                                "{} cropped {crop_loss} per mille of its source",
+                                raw.case
+                            )
+                            .into());
+                        }
+                        if media.fit == ContentFit::Contain && crop_loss != 0 {
+                            return Err("contain placement unexpectedly cropped its source".into());
+                        }
+                        media_evidence.push(MediaEvidence {
+                            semantic_id: fragment.id.to_string(),
+                            case: raw.case,
+                            item: raw.item,
+                            page_index,
+                            expected_width: raw.expected_width,
+                            expected_height: raw.expected_height,
+                            source_width: media.source_size.width,
+                            source_height: media.source_size.height,
+                            frame_width: media.visible_frame.width,
+                            frame_height: media.visible_frame.height,
+                            fit: match media.fit {
+                                ContentFit::Contain => "contain",
+                                ContentFit::Cover => "cover",
+                                ContentFit::None => "none",
+                            },
+                            aspect_error_per_million: aspect_error,
+                            crop_loss_per_mille: crop_loss,
+                        });
                     }
                 }
                 if role == SemanticRole::Table {
@@ -151,6 +244,18 @@ fn assert_layout_quality(
                 }
                 if let RegionPlacement::Slot(slot) = region.placement {
                     *slot_loads.entry(slot).or_default() += fragment_units(fragment.slice);
+                }
+            }
+        }
+
+        for (index, (left_id, left)) in page_frames.iter().enumerate() {
+            for (right_id, right) in &page_frames[index + 1..] {
+                if rectangles_overlap(*left, *right) {
+                    return Err(format!(
+                        "source fragments {left_id} and {right_id} overlap on page {}",
+                        page.id
+                    )
+                    .into());
                 }
             }
         }
@@ -186,30 +291,100 @@ fn assert_layout_quality(
             .flat_map(|region| &region.fragments)
             .filter(|fragment| {
                 !matches!(
-                    roles.get(&fragment.source_node_id),
+                    semantics
+                        .get(&fragment.source_node_id)
+                        .map(|metadata| metadata.role),
                     Some(SemanticRole::Title | SemanticRole::Subtitle)
                 )
             })
             .map(|fragment| fragment_units(fragment.slice))
             .sum::<u32>();
         if final_units < 2 {
-            return Err("continuation produced a singleton final-page orphan".into());
+            return Err(format!(
+                "continuation for logical slide {} produced a singleton final-page orphan",
+                page.logical_slide_id
+            )
+            .into());
         }
     }
 
-    if flow_pages == 0 || gallery_pages == 0 || media_fragments < 10 || table_fragments < 2 {
+    for slide in &spec.logical_slides {
+        for relation in &slide.media_text_relations {
+            let media = locations
+                .get(&relation.media_node_id)
+                .ok_or("media/text relation lost its media")?;
+            let text = locations
+                .get(&relation.text_node_id)
+                .ok_or("media/text relation lost its text")?;
+            let shared = media.iter().find_map(|media_location| {
+                text.iter()
+                    .find(|text_location| text_location.0 == media_location.0)
+                    .map(|text_location| (media_location, text_location))
+            });
+            let Some((media_location, text_location)) = shared else {
+                return Err(format!(
+                    "related media {} and text {} never share a page",
+                    relation.media_node_id, relation.text_node_id
+                )
+                .into());
+            };
+            if relation.explicit_caption && media_location.1 != text_location.1 {
+                return Err("an explicit caption escaped its media topology slot".into());
+            }
+        }
+        let pair_media = slide
+            .media_text_relations
+            .iter()
+            .filter(|relation| relation.explicit_caption)
+            .map(|relation| relation.media_node_id)
+            .collect::<Vec<_>>();
+        if pair_media.len() >= 7 {
+            let mut loads = BTreeMap::<usize, usize>::new();
+            for media_id in pair_media {
+                let page_index = locations
+                    .get(&media_id)
+                    .and_then(|items| items.first())
+                    .map(|location| location.0)
+                    .ok_or("gallery pair lost its media page")?;
+                *loads.entry(page_index).or_default() += 1;
+            }
+            let minimum = loads.values().copied().min().unwrap_or_default();
+            let maximum = loads.values().copied().max().unwrap_or_default();
+            if minimum < 2 || maximum.saturating_sub(minimum) > 1 {
+                return Err(
+                    format!("media/text continuation is visibly unbalanced: {loads:?}").into(),
+                );
+            }
+        }
+    }
+
+    if flow_pages == 0
+        || gallery_pages == 0
+        || media_fragments < 127
+        || media_evidence.len() != 117
+        || table_fragments < 2
+    {
         return Err("canonical corpus did not exercise every required layout family".into());
     }
     assert_single_slide_invalidation(template, spec, plan)?;
 
+    media_evidence.sort_by(|left, right| left.semantic_id.cmp(&right.semantic_id));
+    let images = media_evidence
+        .iter()
+        .map(media_evidence_json)
+        .collect::<Vec<_>>()
+        .join(",");
     Ok(format!(
         concat!(
-            "{{\"schema\":1,\"corpus\":\"autolayout-v2\",\"counts\":{{",
+            "{{\"schema\":2,\"corpus\":\"autolayout-v3\",\"counts\":{{",
             "\"logicalSlides\":{},\"physicalPages\":{},\"flowPages\":{},",
-            "\"galleryPages\":{},\"mediaFragments\":{},\"tableFragments\":{}}},",
+            "\"galleryPages\":{},\"mediaFragments\":{},\"qualityImages\":{},",
+            "\"tableFragments\":{}}},\"images\":[{}],",
             "\"contracts\":{{\"exactSourceCoverage\":true,\"noOverlap\":true,",
             "\"readableType\":true,\"balancedFlow\":true,",
             "\"noSingletonFinalOrphan\":true,\"boundedMedia\":true,",
+            "\"aspectFidelity\":true,\"boundedCrop\":true,\"displayAxisFidelity\":true,",
+            "\"mediaTextCohesion\":true,\"balancedMediaPagination\":true,",
             "\"singleEditableTablePerSlice\":true,\"singleSlideInvalidation\":true}}}}\n"
         ),
         spec.logical_slides.len(),
@@ -217,8 +392,96 @@ fn assert_layout_quality(
         flow_pages,
         gallery_pages,
         media_fragments,
+        media_evidence.len(),
         table_fragments,
+        images,
     ))
+}
+
+struct ParsedGateMedia {
+    case: String,
+    item: u32,
+    expected_width: u32,
+    expected_height: u32,
+}
+
+fn parse_gate_media_alternative_text(value: &str) -> Option<ParsedGateMedia> {
+    let mut parts = value.split('|');
+    (parts.next()? == "gate-media").then_some(())?;
+    let case = parts.next()?.to_owned();
+    let item = parts.next()?.parse().ok()?;
+    let expected_width = parts.next()?.parse().ok()?;
+    let expected_height = parts.next()?.parse().ok()?;
+    parts.next().is_none().then_some(ParsedGateMedia {
+        case,
+        item,
+        expected_width,
+        expected_height,
+    })
+}
+
+fn aspect_error_per_million(media: wasmppt_deck::MediaPlacement) -> u64 {
+    let crop = media.crop.unwrap_or_default();
+    let remaining_x = 100_000u128.saturating_sub(u128::from(crop.left + crop.right));
+    let remaining_y = 100_000u128.saturating_sub(u128::from(crop.top + crop.bottom));
+    let left = u128::try_from(media.visible_frame.width.max(0))
+        .unwrap_or(u128::MAX)
+        .saturating_mul(u128::from(media.source_size.height))
+        .saturating_mul(remaining_y);
+    let right = u128::try_from(media.visible_frame.height.max(0))
+        .unwrap_or(u128::MAX)
+        .saturating_mul(u128::from(media.source_size.width))
+        .saturating_mul(remaining_x);
+    u64::try_from(
+        left.abs_diff(right)
+            .saturating_mul(1_000_000)
+            .checked_div(left.max(right).max(1))
+            .unwrap_or(u128::MAX),
+    )
+    .unwrap_or(u64::MAX)
+}
+
+fn crop_loss_per_mille(media: wasmppt_deck::MediaPlacement) -> u64 {
+    let crop = media.crop.unwrap_or_default();
+    let remaining_x = 100_000u64.saturating_sub(u64::from(crop.left + crop.right));
+    let remaining_y = 100_000u64.saturating_sub(u64::from(crop.top + crop.bottom));
+    let total = 100_000u64.saturating_mul(100_000);
+    total
+        .saturating_sub(remaining_x.saturating_mul(remaining_y))
+        .saturating_mul(1_000)
+        / total
+}
+
+fn rectangles_overlap(left: EmuRect, right: EmuRect) -> bool {
+    left.x < right.x.saturating_add(right.width)
+        && right.x < left.x.saturating_add(left.width)
+        && left.y < right.y.saturating_add(right.height)
+        && right.y < left.y.saturating_add(left.height)
+}
+
+fn media_evidence_json(evidence: &MediaEvidence) -> String {
+    format!(
+        concat!(
+            "{{\"semanticId\":\"{}\",\"case\":\"{}\",\"item\":{},",
+            "\"pageIndex\":{},\"expectedWidth\":{},\"expectedHeight\":{},",
+            "\"sourceWidth\":{},\"sourceHeight\":{},\"frameWidth\":{},",
+            "\"frameHeight\":{},\"fit\":\"{}\",\"aspectErrorPerMillion\":{},",
+            "\"cropLossPerMille\":{}}}"
+        ),
+        evidence.semantic_id,
+        evidence.case,
+        evidence.item,
+        evidence.page_index,
+        evidence.expected_width,
+        evidence.expected_height,
+        evidence.source_width,
+        evidence.source_height,
+        evidence.frame_width,
+        evidence.frame_height,
+        evidence.fit,
+        evidence.aspect_error_per_million,
+        evidence.crop_loss_per_mille,
+    )
 }
 
 fn assert_single_slide_invalidation(
@@ -260,18 +523,27 @@ fn assert_single_slide_invalidation(
     Ok(())
 }
 
-fn semantic_roles(spec: &DeckSpec) -> BTreeMap<StableId, SemanticRole> {
-    fn collect(nodes: &[SemanticNode], roles: &mut BTreeMap<StableId, SemanticRole>) {
+fn semantic_metadata(spec: &DeckSpec) -> BTreeMap<StableId, SemanticMetadata> {
+    fn collect(nodes: &[SemanticNode], metadata: &mut BTreeMap<StableId, SemanticMetadata>) {
         for node in nodes {
-            roles.insert(node.id, node.role);
+            metadata.insert(
+                node.id,
+                SemanticMetadata {
+                    role: node.role,
+                    alternative_text: match &node.content {
+                        SemanticContent::Image(image) => Some(image.alt_text.clone()),
+                        _ => None,
+                    },
+                },
+            );
             match &node.content {
-                SemanticContent::Children(children) => collect(children, roles),
+                SemanticContent::Children(children) => collect(children, metadata),
                 SemanticContent::List(list) => {
                     for item in &list.items {
-                        collect(&item.blocks, roles);
+                        collect(&item.blocks, metadata);
                         for child in &item.children {
                             for nested in &child.items {
-                                collect(&nested.blocks, roles);
+                                collect(&nested.blocks, metadata);
                             }
                         }
                     }
@@ -280,11 +552,11 @@ fn semantic_roles(spec: &DeckSpec) -> BTreeMap<StableId, SemanticRole> {
             }
         }
     }
-    let mut roles = BTreeMap::new();
+    let mut metadata = BTreeMap::new();
     for slide in &spec.logical_slides {
-        collect(&slide.nodes, &mut roles);
+        collect(&slide.nodes, &mut metadata);
     }
-    roles
+    metadata
 }
 
 const fn is_text_role(role: SemanticRole) -> bool {

@@ -35,8 +35,9 @@ deck or disappear from export. Source-anchor links stay non-active until an expl
 target contract exists.
 
 Each shape and relationship receives a deterministic source-order identifier. Hidden state is
-written on the physical slide. Derived continuation pages add only the planned repeated heading
-and minimal `n/total` marker; neither becomes another source-owned fragment.
+written on the physical slide. Derived continuation pages add only the planned repeated heading;
+ordinal, total, and label remain plan metadata for navigation and accessibility. The composer does
+not compete with template-owned slide-number fields by materializing another visible counter.
 
 Container nodes never become output shapes. The validated plan names only source-owning leaf
 nodes, and each coalesced fragment becomes exactly one editable text box, list, code box, table,

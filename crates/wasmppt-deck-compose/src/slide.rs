@@ -114,20 +114,6 @@ pub(crate) fn compose_slide(
             writer.fragment(fragment, region)?;
         }
     }
-    if let Some(label) = &page.continuation.label {
-        writer.text_shape(
-            EmuRect {
-                x: page_size.width / 5 * 4,
-                y: page_size.height / 20 * 19,
-                width: page_size.width / 20 * 3,
-                height: page_size.height / 25,
-            },
-            "Continuation marker",
-            &[Paragraph::plain(label.clone(), 0)],
-            None,
-            Some(900),
-        )?;
-    }
     writer
         .xml
         .push_str("</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>");
@@ -627,17 +613,6 @@ impl Paragraph {
             alignment: None,
         }
     }
-    fn plain(text: String, level: u8) -> Self {
-        Self::rich(
-            vec![RichTextRun {
-                text,
-                marks: Default::default(),
-                hyperlink: None,
-            }],
-            level,
-        )
-    }
-
     fn aligned(mut self, alignment: TableColumnAlignment) -> Self {
         self.alignment = Some(alignment);
         self

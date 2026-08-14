@@ -35,6 +35,10 @@ bounded resource bytes. A matching host hint is accepted; a stale hint is replac
 byte-derived value. Only an undecodable resource falls back to a positive validated hint. This
 includes the display-axis swap for JPEG EXIF orientations five through eight and makes portrait,
 square, and landscape demand identical on native and Wasm hosts.
+Display-math SVG dimensions represent their natural CSS-pixel extent at a 12-point authoring base.
+The planner scales that extent to the template region's type size, centers a lone formula in a
+statement region, and only scales down when the result exceeds its safe frame. It never enlarges a
+formula to the generic media slot or applies the raster-image readability floor.
 Contain-fit media may scale down to its candidate slot, but only while both rendered dimensions
 remain above `PlannerPolicy::readable_media_floor`. A figure in an indivisible figure/caption group
 reserves one quarter of its slot for the following caption before measurement. When that stacked
@@ -135,7 +139,9 @@ candidate at that floor fails with `PLAN_ATOMIC_OVERFLOW`; it is not clipped or 
 ## Continuations
 
 Derived physical pages retain the logical slide's hidden state and selected template layout. They
-carry the source H2/title identity for repeated heading chrome and the minimal `n/total` marker.
+carry the source H2/title identity for repeated heading chrome and structured continuation
+ordinal, total, and label metadata. The metadata does not prescribe visible page chrome; templates
+remain the sole owner of rendered slide numbering.
 The first continued fragment of a table on each page records its header-row repeat count. The
 planner coalesces every contiguous row range into exactly one native-table fragment per page, and
 the composer renders repeated-header metadata without creating additional source fragments.

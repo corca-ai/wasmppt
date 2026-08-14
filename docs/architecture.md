@@ -134,7 +134,8 @@ host source adapter
         |                                physical pages,
         |                                topology slots,
         |                                regions, fragments,
-        |                                type and fit choices
+        |                                font choices and resolved
+        |                                media slot/frame/crop
         v                                      v
 source diagnostics             wasmppt-deck-compose
                                           |

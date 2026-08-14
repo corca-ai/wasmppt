@@ -1,7 +1,7 @@
 use std::{io::Cursor, num::NonZeroU64, sync::Arc};
 
 use gif::{ColorOutput, DecodeOptions, MemoryLimit};
-use wasmppt_deck::{DeckResource, PixelSize, ResourceKind, inspect_jpeg_size};
+use wasmppt_deck::{DeckResource, PixelSize, ResourceKind, inspect_media_size};
 use wasmppt_xml::{TokenKind, XmlDocument};
 
 use crate::{ComposeError, ComposeErrorCode, ComposeLimits, stable_id_hex};
@@ -29,13 +29,13 @@ pub(crate) fn prepare_media(
             part_name: format!("ppt/media/deck-{stem}.png"),
             content_type: "image/png",
             bytes: resource.bytes.clone().into(),
-            size: resource.intrinsic_size,
+            size: inspect_media_size(resource),
         }),
         (ResourceKind::RasterImage, "image/jpeg" | "image/jpg") => Ok(PreparedMedia {
             part_name: format!("ppt/media/deck-{stem}.jpg"),
             content_type: "image/jpeg",
             bytes: resource.bytes.clone().into(),
-            size: inspect_jpeg_size(&resource.bytes).or(resource.intrinsic_size),
+            size: inspect_media_size(resource),
         }),
         (ResourceKind::RasterImage, "image/gif") => {
             let (bytes, size) = gif_first_frame(&resource.bytes, limits)?;
@@ -52,7 +52,7 @@ pub(crate) fn prepare_media(
                 part_name: format!("ppt/media/deck-{stem}.svg"),
                 content_type: "image/svg+xml",
                 bytes: resource.bytes.clone().into(),
-                size: resource.intrinsic_size,
+                size: inspect_media_size(resource),
             })
         }
         _ => Err(media_error("unsupported deck media kind or content type")),

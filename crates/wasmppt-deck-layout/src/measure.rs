@@ -1,12 +1,10 @@
 use std::collections::BTreeMap;
 
 use wasmppt_deck::{
-    DeckResource, Emu, EmuRect, FragmentSlice, PixelSize, RegionRole, ResourceKind,
-    SemanticContent, SemanticNode, SemanticRole, StableId, TableColumnAlignment, TemplateRegion,
-    inspect_jpeg_size,
+    Emu, EmuRect, FragmentSlice, PixelSize, RegionRole, SemanticContent, SemanticNode,
+    SemanticRole, StableId, TableColumnAlignment, TemplateRegion, inspect_media_size,
 };
 use wasmppt_shaper::{ShapeOptions, ShapedRun, shape};
-use wasmppt_xml::{TokenKind, XmlDocument};
 
 use crate::{FontCatalog, PlannerLimits, flow::code_line};
 
@@ -73,9 +71,7 @@ impl<'a> Measurer<'a> {
             resources: spec
                 .resources
                 .iter()
-                .filter_map(|resource| {
-                    canonical_intrinsic_size(resource).map(|size| (resource.id, size))
-                })
+                .filter_map(|resource| inspect_media_size(resource).map(|size| (resource.id, size)))
                 .collect(),
             cache: BTreeMap::new(),
             measurements: 0,
@@ -248,95 +244,6 @@ impl<'a> Measurer<'a> {
         }
         measured
     }
-}
-
-fn canonical_intrinsic_size(resource: &DeckResource) -> Option<PixelSize> {
-    let derived = match (resource.kind, resource.media_type.as_str()) {
-        (ResourceKind::RasterImage, "image/png") => png_size(&resource.bytes),
-        (ResourceKind::RasterImage, "image/jpeg" | "image/jpg") => {
-            inspect_jpeg_size(&resource.bytes)
-        }
-        (ResourceKind::RasterImage, "image/gif") => gif_size(&resource.bytes),
-        (ResourceKind::Svg, "image/svg+xml") => svg_size(&resource.bytes),
-        _ => None,
-    };
-    derived.or(resource.intrinsic_size)
-}
-
-fn png_size(bytes: &[u8]) -> Option<PixelSize> {
-    if bytes.get(..8)? != b"\x89PNG\r\n\x1a\n" || bytes.get(12..16)? != b"IHDR" {
-        return None;
-    }
-    pixel_size(
-        u32::from_be_bytes(bytes.get(16..20)?.try_into().ok()?),
-        u32::from_be_bytes(bytes.get(20..24)?.try_into().ok()?),
-    )
-}
-
-fn gif_size(bytes: &[u8]) -> Option<PixelSize> {
-    if !matches!(bytes.get(..6)?, b"GIF87a" | b"GIF89a") {
-        return None;
-    }
-    pixel_size(
-        u32::from(u16::from_le_bytes(bytes.get(6..8)?.try_into().ok()?)),
-        u32::from(u16::from_le_bytes(bytes.get(8..10)?.try_into().ok()?)),
-    )
-}
-
-fn svg_size(bytes: &[u8]) -> Option<PixelSize> {
-    let document = XmlDocument::parse(bytes.to_vec()).ok()?;
-    let (width, height, view_box) = document.tokens().iter().find_map(|token| {
-        let TokenKind::Start {
-            name, attributes, ..
-        } = &token.kind
-        else {
-            return None;
-        };
-        (name.local == "svg").then(|| {
-            let attribute = |name: &str| {
-                attributes
-                    .iter()
-                    .find(|attribute| attribute.name.local == name)
-                    .map(|attribute| attribute.value.as_str())
-            };
-            (
-                attribute("width"),
-                attribute("height"),
-                attribute("viewBox"),
-            )
-        })
-    })?;
-    if let (Some(width), Some(height)) = (width.and_then(svg_length), height.and_then(svg_length)) {
-        return pixel_size(width, height);
-    }
-    let values = view_box?
-        .split(|character: char| character.is_ascii_whitespace() || character == ',')
-        .filter(|value| !value.is_empty())
-        .map(str::parse::<f64>)
-        .collect::<Result<Vec<_>, _>>()
-        .ok()?;
-    if values.len() != 4 {
-        return None;
-    }
-    pixel_size(f64_to_dimension(values[2])?, f64_to_dimension(values[3])?)
-}
-
-fn svg_length(value: &str) -> Option<u32> {
-    let number = value
-        .trim()
-        .strip_suffix("px")
-        .unwrap_or(value.trim())
-        .parse::<f64>()
-        .ok()?;
-    f64_to_dimension(number)
-}
-
-fn f64_to_dimension(value: f64) -> Option<u32> {
-    (value.is_finite() && value > 0.0 && value <= f64::from(u32::MAX)).then(|| value.ceil() as u32)
-}
-
-fn pixel_size(width: u32, height: u32) -> Option<PixelSize> {
-    (width > 0 && height > 0).then_some(PixelSize { width, height })
 }
 
 fn measure_table_rows(
@@ -747,8 +654,8 @@ fn default_font_size(role: SemanticRole) -> u32 {
 #[cfg(test)]
 mod tests {
     use wasmppt_deck::{
-        ListContent, ListItem, RichText, RichTextRun, SourceRange, TableCell, TableColumn,
-        TableContent, TableRow, TextMarks,
+        DeckResource, ListContent, ListItem, ResourceKind, RichText, RichTextRun, SourceRange,
+        TableCell, TableColumn, TableContent, TableRow, TextMarks,
     };
 
     use super::*;
@@ -794,7 +701,7 @@ mod tests {
         png[16..20].copy_from_slice(&600u32.to_be_bytes());
         png[20..24].copy_from_slice(&900u32.to_be_bytes());
         assert_eq!(
-            canonical_intrinsic_size(&resource(
+            inspect_media_size(&resource(
                 ResourceKind::RasterImage,
                 "image/png",
                 png,
@@ -813,7 +720,7 @@ mod tests {
         gif.extend_from_slice(&512u16.to_le_bytes());
         gif.extend_from_slice(&512u16.to_le_bytes());
         assert_eq!(
-            canonical_intrinsic_size(&resource(ResourceKind::RasterImage, "image/gif", gif, None,)),
+            inspect_media_size(&resource(ResourceKind::RasterImage, "image/gif", gif, None,)),
             Some(PixelSize {
                 width: 512,
                 height: 512,
@@ -824,7 +731,7 @@ mod tests {
             0xff, 0xd8, 0xff, 0xc0, 0x00, 0x07, 0x08, 0x01, 0x2c, 0x03, 0x20,
         ];
         assert_eq!(
-            canonical_intrinsic_size(&resource(
+            inspect_media_size(&resource(
                 ResourceKind::RasterImage,
                 "image/jpeg",
                 jpeg,
@@ -837,7 +744,7 @@ mod tests {
         );
 
         assert_eq!(
-            canonical_intrinsic_size(&resource(
+            inspect_media_size(&resource(
                 ResourceKind::Svg,
                 "image/svg+xml",
                 br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900"/>"#.to_vec(),

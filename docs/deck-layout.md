@@ -89,9 +89,11 @@ Seven to ten items are balanced across continuation pages by the same global pag
 
 Gallery ancestry remains explicit on internal flow units after the semantic `Gallery` container is
 expanded. Only raster images authored in that gallery context may select `ContentFit::Cover`.
-Standalone figures use `Contain`, as do SVG, charts, diagrams, and display math in every topology;
-data-bearing media is therefore never cropped by a heuristic. The selected fit is serialized in
-the plan and consumed unchanged by Canvas and editable PPTX composition.
+Standalone raster figures and SVG use `Contain` in every topology; data-bearing media is therefore
+never cropped by a heuristic. Charts remain atomic planned graphic frames rather than picture
+placements. A selected picture fit is serialized together with the allocation slot, canonical
+source dimensions, exact visible frame, and optional centered source crop. Canvas/WPDL and editable
+PPTX composition consume that placement unchanged and never repeat the aspect or crop calculation.
 
 Standard prose and list flow uses at most eight semantic units per column. It remains a readable
 stack through eight units, balances 9--16 units across two columns, then creates balanced

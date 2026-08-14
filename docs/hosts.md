@@ -81,7 +81,7 @@ content-fingerprinted resource reads, and EMF/WMF-to-SVG requests; the latter fa
 when a host chooses not to install the optional converter.
 
 The v8 `deck-*` operations compile or restore a POTX plan, create and update complete WDSF
-revisions, and return the current WDPL, hidden-filtered presentable page indices, and an ordered
+revisions, and return the current WDPL v4, hidden-filtered presentable page indices, and an ordered
 page inventory with stable page, logical-slide, hidden, and continuation metadata. Reading that
 inventory does not resolve or copy any WPDL. Creation and every successful update also return the
 complete diagnostic inventory owned by that exact revision. Numeric codes remain lossless across
@@ -91,6 +91,8 @@ as `plan-atomic-overflow`, as the stable layout error-envelope code. A separate 
 one physical page, streams resources, and exports the exact preview overlay. Changed logical slides,
 physical pages, and package parts are explicit. WDSF, WDPL, WPDL, and resource buffers transfer
 ownership across the Worker boundary; bounded content-addressed caches retain only reusable data.
+WDPL v4 carries each picture's resolved slot, visible frame, fit, canonical source dimensions, and
+source crop, so native, browser, and workerd consumers do not independently fit media.
 Hidden pages remain addressable by authoring index and carry PresentationML `show="0"`; the
 presentable/export page-index set omits them without constructing a second preview revision.
 

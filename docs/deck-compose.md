@@ -62,15 +62,16 @@ diagnosed by the resolver and are never mislabeled as editable.
 
 ## Media policy
 
-PNG and JPEG payloads pass through unchanged. `cover` computes a centered DrawingML source crop;
-`contain` centers an uncropped, aspect-preserving picture inside its planned frame. The composer
-also derives bounded JPEG display orientation so stale host hints cannot reintroduce a different
-shape. Alt text is written to the picture's non-visual properties. Composition never guesses
-between those modes: the planner records the choice after semantic-safety and aspect-loss
-evaluation, and the same visible geometry feeds browser display-list lowering and PPTX output.
+PNG and JPEG payloads pass through unchanged. The accepted plan already contains the allocation
+slot, visible shape frame, contain/cover mode, canonical source size, and optional centered
+DrawingML crop. The composer verifies prepared media dimensions against that source size, then
+writes the visible frame and crop verbatim; it performs no aspect-fit calculation. Alt text is
+written to the picture's non-visual properties. The same planned bounds and crop survive reopened
+PPTX resolution and WPDL lowering.
 
-Plan validation rejects overlapping source-owned fragment frames and font/fit choices that do not
-match the semantic content. After the overlay is resolved, the browser adapter also requires every
+Plan validation rejects overlapping source-owned fragment frames, non-canonical media placement,
+and font/media choices that do not match the semantic content. After the overlay is resolved, the
+browser adapter also requires every
 source-owned display-list element to have the exact planned bounds before it attaches source
 semantics; geometry drift is a hard error rather than a missing hit-test annotation.
 

@@ -1,4 +1,25 @@
-use crate::PixelSize;
+use crate::{DeckResource, PixelSize, ResourceKind};
+use wasmppt_xml::{TokenKind, XmlDocument};
+
+/// Derives canonical display-axis dimensions from bounded resource bytes, falling back to a
+/// positive host hint only when the supported byte format has no usable dimensions.
+#[must_use]
+pub fn inspect_media_size(resource: &DeckResource) -> Option<PixelSize> {
+    let derived = match (resource.kind, resource.media_type.as_str()) {
+        (ResourceKind::RasterImage, "image/png") => png_size(&resource.bytes),
+        (ResourceKind::RasterImage, "image/jpeg" | "image/jpg") => {
+            inspect_jpeg_size(&resource.bytes)
+        }
+        (ResourceKind::RasterImage, "image/gif") => gif_size(&resource.bytes),
+        (ResourceKind::Svg, "image/svg+xml") => svg_size(&resource.bytes),
+        _ => None,
+    };
+    derived.or_else(|| {
+        resource
+            .intrinsic_size
+            .filter(|size| size.width > 0 && size.height > 0)
+    })
+}
 
 /// Reads bounded JPEG frame dimensions and applies the display aspect implied by EXIF orientation.
 #[must_use]
@@ -132,6 +153,76 @@ const fn pixel_size(width: u32, height: u32) -> Option<PixelSize> {
     } else {
         None
     }
+}
+
+fn png_size(bytes: &[u8]) -> Option<PixelSize> {
+    if bytes.get(..8)? != b"\x89PNG\r\n\x1a\n" || bytes.get(12..16)? != b"IHDR" {
+        return None;
+    }
+    pixel_size(
+        u32::from_be_bytes(bytes.get(16..20)?.try_into().ok()?),
+        u32::from_be_bytes(bytes.get(20..24)?.try_into().ok()?),
+    )
+}
+
+fn gif_size(bytes: &[u8]) -> Option<PixelSize> {
+    if !matches!(bytes.get(..6)?, b"GIF87a" | b"GIF89a") {
+        return None;
+    }
+    pixel_size(
+        u32::from(u16::from_le_bytes(bytes.get(6..8)?.try_into().ok()?)),
+        u32::from(u16::from_le_bytes(bytes.get(8..10)?.try_into().ok()?)),
+    )
+}
+
+fn svg_size(bytes: &[u8]) -> Option<PixelSize> {
+    let document = XmlDocument::parse(bytes.to_vec()).ok()?;
+    let (width, height, view_box) = document.tokens().iter().find_map(|token| {
+        let TokenKind::Start {
+            name, attributes, ..
+        } = &token.kind
+        else {
+            return None;
+        };
+        (name.local == "svg").then(|| {
+            let attribute = |name: &str| {
+                attributes
+                    .iter()
+                    .find(|attribute| attribute.name.local == name)
+                    .map(|attribute| attribute.value.as_str())
+            };
+            (
+                attribute("width"),
+                attribute("height"),
+                attribute("viewBox"),
+            )
+        })
+    })?;
+    if let (Some(width), Some(height)) = (width.and_then(svg_length), height.and_then(svg_length)) {
+        return pixel_size(width, height);
+    }
+    let values = view_box?
+        .split(|character: char| character.is_ascii_whitespace() || character == ',')
+        .filter(|value| !value.is_empty())
+        .map(str::parse::<f64>)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    (values.len() == 4).then_some(())?;
+    pixel_size(f64_to_dimension(values[2])?, f64_to_dimension(values[3])?)
+}
+
+fn svg_length(value: &str) -> Option<u32> {
+    let number = value
+        .trim()
+        .strip_suffix("px")
+        .unwrap_or(value.trim())
+        .parse::<f64>()
+        .ok()?;
+    f64_to_dimension(number)
+}
+
+fn f64_to_dimension(value: f64) -> Option<u32> {
+    (value.is_finite() && value > 0.0 && value <= f64::from(u32::MAX)).then(|| value.ceil() as u32)
 }
 
 #[cfg(test)]

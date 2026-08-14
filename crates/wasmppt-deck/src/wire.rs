@@ -688,7 +688,21 @@ impl<'a> Writer<'a> {
             writer.fragment_slice(fragment.slice)?;
             writer.rect(fragment.frame)?;
             writer.u32(fragment.type_choice.font_size)?;
-            writer.byte(content_fit_tag(fragment.type_choice.fit))?;
+            writer.bool(fragment.media.is_some())?;
+            if let Some(media) = fragment.media {
+                writer.rect(media.slot)?;
+                writer.rect(media.visible_frame)?;
+                writer.byte(content_fit_tag(media.fit))?;
+                writer.u32(media.source_size.width)?;
+                writer.u32(media.source_size.height)?;
+                writer.bool(media.crop.is_some())?;
+                if let Some(crop) = media.crop {
+                    writer.u32(crop.left)?;
+                    writer.u32(crop.top)?;
+                    writer.u32(crop.right)?;
+                    writer.u32(crop.bottom)?;
+                }
+            }
             writer.u32(fragment.repeat_table_header_rows)
         })
     }
@@ -1302,7 +1316,34 @@ impl<'a> Reader<'a> {
                 frame: self.rect()?,
                 type_choice: TypeChoice {
                     font_size: self.u32()?,
-                    fit: content_fit(self.byte()?)?,
+                },
+                media: if self.bool()? {
+                    let slot = self.rect()?;
+                    let visible_frame = self.rect()?;
+                    let fit = content_fit(self.byte()?)?;
+                    let source_size = PixelSize {
+                        width: self.u32()?,
+                        height: self.u32()?,
+                    };
+                    let crop = if self.bool()? {
+                        Some(SourceCrop {
+                            left: self.u32()?,
+                            top: self.u32()?,
+                            right: self.u32()?,
+                            bottom: self.u32()?,
+                        })
+                    } else {
+                        None
+                    };
+                    Some(MediaPlacement {
+                        slot,
+                        visible_frame,
+                        fit,
+                        source_size,
+                        crop,
+                    })
+                } else {
+                    None
                 },
                 repeat_table_header_rows: self.u32()?,
             });

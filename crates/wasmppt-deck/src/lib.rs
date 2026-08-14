@@ -12,7 +12,7 @@ mod wire;
 use sha2::{Digest, Sha256};
 use std::fmt;
 
-pub use media::inspect_jpeg_size;
+pub use media::{inspect_jpeg_size, inspect_media_size};
 pub use validate::{validate_deck_plan, validate_deck_spec};
 pub use wire::{WireError, WireErrorKind};
 
@@ -603,7 +603,7 @@ pub struct DeckPlan {
 }
 
 impl DeckPlan {
-    pub const SCHEMA_VERSION: u32 = 3;
+    pub const SCHEMA_VERSION: u32 = 4;
 
     pub fn encode(&self, limits: &DeckLimits) -> Result<Vec<u8>, WireError> {
         wire::encode_plan(self, limits)
@@ -704,6 +704,8 @@ pub struct PlannedFragment {
     pub slice: FragmentSlice,
     pub frame: EmuRect,
     pub type_choice: TypeChoice,
+    /// Fully resolved picture geometry. Present only for raster-image and SVG fragments.
+    pub media: Option<MediaPlacement>,
     /// Header rows repeated before this table continuation fragment.
     pub repeat_table_header_rows: u32,
 }
@@ -754,7 +756,6 @@ pub enum FragmentSlice {
 pub struct TypeChoice {
     /// DrawingML font size in hundredths of a point, or zero for non-text content.
     pub font_size: u32,
-    pub fit: ContentFit,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -762,6 +763,147 @@ pub enum ContentFit {
     None,
     Contain,
     Cover,
+}
+
+/// Host-neutral picture geometry settled by the planner and consumed verbatim by renderers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MediaPlacement {
+    /// Space allocated by the selected topology before aspect fitting.
+    pub slot: EmuRect,
+    /// Bounds of the emitted picture shape after aspect fitting.
+    pub visible_frame: EmuRect,
+    /// Semantic fit policy selected by the planner.
+    pub fit: ContentFit,
+    /// Canonical display-axis dimensions derived from the source resource.
+    pub source_size: PixelSize,
+    /// DrawingML source crop in 1/1000 percent units; absent means the complete source is visible.
+    pub crop: Option<SourceCrop>,
+}
+
+impl MediaPlacement {
+    /// Resolve centered contain geometry. Returns `None` for invalid source or slot dimensions.
+    #[must_use]
+    pub fn contain(slot: EmuRect, source_size: PixelSize) -> Option<Self> {
+        valid_media_inputs(slot, source_size).then(|| Self {
+            slot,
+            visible_frame: contain_media_frame(slot, source_size),
+            fit: ContentFit::Contain,
+            source_size,
+            crop: None,
+        })
+    }
+
+    /// Resolve centered cover geometry and its exact normalized source crop.
+    #[must_use]
+    pub fn cover(slot: EmuRect, source_size: PixelSize) -> Option<Self> {
+        valid_media_inputs(slot, source_size).then(|| Self {
+            slot,
+            visible_frame: slot,
+            fit: ContentFit::Cover,
+            source_size,
+            crop: centered_cover_crop(slot, source_size),
+        })
+    }
+
+    /// Whether every derived value is the canonical result for the recorded inputs.
+    #[must_use]
+    pub fn is_canonical(self) -> bool {
+        let expected = match self.fit {
+            ContentFit::Contain => Self::contain(self.slot, self.source_size),
+            ContentFit::Cover => Self::cover(self.slot, self.source_size),
+            ContentFit::None => None,
+        };
+        expected == Some(self)
+    }
+}
+
+/// Centered source crop using DrawingML's 0..100000 coordinate space.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SourceCrop {
+    pub left: u32,
+    pub top: u32,
+    pub right: u32,
+    pub bottom: u32,
+}
+
+fn valid_media_inputs(slot: EmuRect, source_size: PixelSize) -> bool {
+    slot.is_positive() && source_size.width > 0 && source_size.height > 0
+}
+
+fn contain_media_frame(slot: EmuRect, source_size: PixelSize) -> EmuRect {
+    let slot_width = i128::from(slot.width);
+    let slot_height = i128::from(slot.height);
+    let source_width = i128::from(source_size.width);
+    let source_height = i128::from(source_size.height);
+    let (width, height) =
+        if source_width.saturating_mul(slot_height) > slot_width.saturating_mul(source_height) {
+            (
+                slot.width,
+                i64::try_from(
+                    slot_width
+                        .saturating_mul(source_height)
+                        .checked_div(source_width)
+                        .unwrap_or(1),
+                )
+                .unwrap_or(1)
+                .max(1),
+            )
+        } else {
+            (
+                i64::try_from(
+                    slot_height
+                        .saturating_mul(source_width)
+                        .checked_div(source_height)
+                        .unwrap_or(1),
+                )
+                .unwrap_or(1)
+                .max(1),
+                slot.height,
+            )
+        };
+    EmuRect {
+        x: slot.x.saturating_add(slot.width.saturating_sub(width) / 2),
+        y: slot
+            .y
+            .saturating_add(slot.height.saturating_sub(height) / 2),
+        width,
+        height,
+    }
+}
+
+fn centered_cover_crop(slot: EmuRect, source_size: PixelSize) -> Option<SourceCrop> {
+    let source_width = u128::from(source_size.width);
+    let source_height = u128::from(source_size.height);
+    let slot_width = u128::try_from(slot.width).ok()?;
+    let slot_height = u128::try_from(slot.height).ok()?;
+    let source_cross = source_width.saturating_mul(slot_height);
+    let slot_cross = slot_width.saturating_mul(source_height);
+    if source_cross == slot_cross {
+        return None;
+    }
+    let normalized_side = |lost: u128, total: u128| {
+        let rounded = lost
+            .saturating_mul(100_000)
+            .saturating_add(total)
+            .checked_div(total.saturating_mul(2))
+            .unwrap_or(0);
+        u32::try_from(rounded.min(49_999)).unwrap_or(49_999)
+    };
+    if source_cross > slot_cross {
+        let side = normalized_side(source_cross.saturating_sub(slot_cross), source_cross);
+        Some(SourceCrop {
+            left: side,
+            right: side,
+            ..SourceCrop::default()
+        })
+    } else {
+        let side = normalized_side(slot_cross.saturating_sub(source_cross), slot_cross);
+        Some(SourceCrop {
+            top: side,
+            bottom: side,
+            ..SourceCrop::default()
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

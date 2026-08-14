@@ -843,22 +843,22 @@ fn validate_fragment(
             Some(fragment.source_node_id),
             "fragment font or resolved media choices do not match their semantic content",
         );
-    } else if let Some((resource_id, allow_cover)) = media_resource(indexed.node)
-        && !valid_media_geometry(
+    } else if let Some((resource_id, allow_cover)) = media_resource(indexed.node) {
+        if !valid_media_geometry(
             fragment,
             target.region_frame,
             resource_id,
             resources,
             allow_cover,
-        )
-    {
-        plan_error(
-            report,
-            DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
-            Some(target.page_id),
-            Some(fragment.source_node_id),
-            "resolved media placement is not canonical for its source and allocated slot",
-        );
+        ) {
+            plan_error(
+                report,
+                DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
+                Some(target.page_id),
+                Some(fragment.source_node_id),
+                "resolved media placement is not canonical for its source and allocated slot",
+            );
+        }
     }
 }
 

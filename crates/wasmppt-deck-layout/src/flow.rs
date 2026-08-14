@@ -104,14 +104,7 @@ impl<'a> FlowBuilder<'a> {
         let SemanticContent::Children(children) = &node.content else {
             return self.leaf(node, forced_group, gallery_item);
         };
-        if children.iter().any(|child| {
-            child.role == SemanticRole::DisplayMath
-                && matches!(child.content, SemanticContent::Svg(_))
-        }) && children.iter().all(|child| {
-            matches!(child.content, SemanticContent::Text(_))
-                || (child.role == SemanticRole::DisplayMath
-                    && matches!(child.content, SemanticContent::Svg(_)))
-        }) {
+        if is_inline_math_container(node, children) {
             let group = forced_group.unwrap_or_else(|| self.group());
             for child in children {
                 self.node(child, Some(group), gallery_item)?;
@@ -228,6 +221,23 @@ impl<'a> FlowBuilder<'a> {
     }
 }
 
+fn is_inline_math_container(node: &SemanticNode, children: &[SemanticNode]) -> bool {
+    matches!(node.role, SemanticRole::Prose | SemanticRole::Subtitle)
+        && children
+            .iter()
+            .any(|child| matches!(child.content, SemanticContent::Svg(_)))
+        && children
+            .iter()
+            .any(|child| matches!(child.content, SemanticContent::Text(_)))
+        && children.iter().all(|child| {
+            child.role == node.role
+                && matches!(
+                    child.content,
+                    SemanticContent::Text(_) | SemanticContent::Svg(_)
+                )
+        })
+}
+
 fn text_ranges(text: &str) -> Vec<FragmentSlice> {
     const MAX_GROUP_BYTES: usize = 512;
     let mut preferred = Vec::new();
@@ -301,6 +311,42 @@ pub(crate) fn code_line(text: &str, index: u32) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wasmppt_deck::{RichText, RichTextRun, SourceRange, StableId, SvgContent, TextMarks};
+
+    fn test_node(id: u8, role: SemanticRole, content: SemanticContent) -> SemanticNode {
+        SemanticNode {
+            id: StableId::from_bytes([id; 16]),
+            source: SourceRange::new("deck.md", u32::from(id), u32::from(id) + 1),
+            role,
+            split: SplitPolicy::Never,
+            content,
+        }
+    }
+
+    fn test_text(id: u8, role: SemanticRole, text: &str) -> SemanticNode {
+        test_node(
+            id,
+            role,
+            SemanticContent::Text(RichText {
+                runs: vec![RichTextRun {
+                    text: text.to_owned(),
+                    marks: TextMarks::default(),
+                    hyperlink: None,
+                }],
+            }),
+        )
+    }
+
+    fn test_svg(id: u8, role: SemanticRole) -> SemanticNode {
+        test_node(
+            id,
+            role,
+            SemanticContent::Svg(SvgContent {
+                resource_id: StableId::from_bytes([90; 16]),
+                source_text: Some("$E=mc^2$".to_owned()),
+            }),
+        )
+    }
 
     #[test]
     fn text_ranges_cover_utf8_once_at_semantic_boundaries() {
@@ -316,5 +362,36 @@ mod tests {
             cursor = end;
         }
         assert_eq!(cursor as usize, text.len());
+    }
+
+    #[test]
+    fn inline_math_is_only_a_direct_text_container_contract() {
+        let prose = test_node(
+            1,
+            SemanticRole::Prose,
+            SemanticContent::Children(vec![
+                test_text(2, SemanticRole::Prose, "Energy "),
+                test_svg(3, SemanticRole::Prose),
+                test_text(4, SemanticRole::Prose, " remains inline."),
+            ]),
+        );
+        let section = test_node(
+            5,
+            SemanticRole::Section,
+            SemanticContent::Children(vec![
+                test_text(6, SemanticRole::Section, "Results"),
+                test_text(7, SemanticRole::Prose, "Energy follows"),
+                test_svg(8, SemanticRole::DisplayMath),
+            ]),
+        );
+
+        let SemanticContent::Children(prose_children) = &prose.content else {
+            unreachable!();
+        };
+        let SemanticContent::Children(section_children) = &section.content else {
+            unreachable!();
+        };
+        assert!(is_inline_math_container(&prose, prose_children));
+        assert!(!is_inline_math_container(&section, section_children));
     }
 }

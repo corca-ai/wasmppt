@@ -44,10 +44,12 @@ nodes, and each coalesced fragment becomes exactly one editable text box, list, 
 picture, or chart. Composition does not re-split a planned slice or perform output-specific
 column fitting.
 
-For inline formula flow, surrounding prose leaves remain editable text boxes and formula leaves
-remain SVG pictures. The composer suppresses per-placeholder body margins on those planned text
-spans because the planner has already applied the parent region margins once; it consumes the
-planned horizontal frames without repeating baseline, wrapping, or formula-size decisions.
+For inline formula flow, surrounding text leaves remain editable text boxes and formula leaves
+remain SVG pictures. All leaves inherit the `Prose` or `Subtitle` container role, including in a
+template region that accepts only subtitles. The composer suppresses per-placeholder body margins
+on those planned text spans because the planner has already applied the parent region margins
+once; it consumes the planned horizontal frames without repeating baseline, wrapping, or
+formula-size decisions.
 
 Tables remain native DrawingML tables. Planned row slices retain source order, continuation pages
 prepend exactly the planned source header rows, and every cell uses the same editable rich-run and

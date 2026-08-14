@@ -113,7 +113,7 @@ impl SpecValidator<'_> {
             "logical slide node count exceeds the configured collection limit",
         );
         for node in &slide.nodes {
-            self.node(node, Some(&slide.source), 1);
+            self.node(node, Some(&slide.source), None, 1);
         }
         self.count(
             slide.media_text_relations.len(),
@@ -169,7 +169,13 @@ impl SpecValidator<'_> {
         }
     }
 
-    fn node(&mut self, node: &SemanticNode, parent: Option<&crate::SourceRange>, depth: usize) {
+    fn node(
+        &mut self,
+        node: &SemanticNode,
+        parent: Option<&crate::SourceRange>,
+        parent_node: Option<&SemanticNode>,
+        depth: usize,
+    ) {
         self.semantic_nodes = self.semantic_nodes.saturating_add(1);
         self.id(node.id, Some(&node.source), "semantic node");
         self.source(&node.source, Some(node.id));
@@ -200,7 +206,7 @@ impl SpecValidator<'_> {
                 );
             }
         }
-        if !split_matches(node) || !role_matches(node) {
+        if !split_matches(node) || !role_matches(node, parent_node) {
             self.error(
                 DeckDiagnosticCode::INVALID_SEMANTIC_CONTENT,
                 Some(&node.source),
@@ -254,7 +260,7 @@ impl SpecValidator<'_> {
                     "semantic child count exceeds the configured collection limit",
                 );
                 for child in children {
-                    self.node(child, Some(&node.source), depth + 1);
+                    self.node(child, Some(&node.source), Some(node), depth + 1);
                 }
             }
             SemanticContent::Image(image) => {
@@ -368,7 +374,7 @@ impl SpecValidator<'_> {
                 );
             }
             for block in &item.blocks {
-                self.node(block, Some(&item.source), depth + 1);
+                self.node(block, Some(&item.source), None, depth + 1);
             }
             for child in &item.children {
                 self.list(child, &item.source, depth + 1);
@@ -1279,7 +1285,20 @@ fn is_text_relation_node(node: &SemanticNode) -> bool {
     matches!(node.content, SemanticContent::Text(_))
 }
 
-fn role_matches(node: &SemanticNode) -> bool {
+fn role_matches(node: &SemanticNode, parent: Option<&SemanticNode>) -> bool {
+    if matches!(node.content, SemanticContent::Svg(_))
+        && matches!(node.role, SemanticRole::Prose | SemanticRole::Subtitle)
+    {
+        return parent.is_some_and(|parent| {
+            parent.role == node.role
+                && matches!(parent.role, SemanticRole::Prose | SemanticRole::Subtitle)
+                && matches!(&parent.content, SemanticContent::Children(children) if
+                    children.iter().any(|child| matches!(child.content, SemanticContent::Text(_)))
+                    && children.iter().any(|child| matches!(child.content, SemanticContent::Svg(_)))
+                    && children.iter().all(|child| child.role == parent.role
+                        && matches!(child.content, SemanticContent::Text(_) | SemanticContent::Svg(_))))
+        });
+    }
     match node.role {
         SemanticRole::List => matches!(node.content, SemanticContent::List(_)),
         SemanticRole::Table => matches!(node.content, SemanticContent::Table(_)),

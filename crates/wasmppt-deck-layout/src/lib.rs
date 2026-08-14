@@ -1044,15 +1044,20 @@ impl DeckPlanner {
         target: &FitTarget<'_>,
         measurer: &mut Measurer<'_>,
     ) -> Result<Option<FittedGroup<'a>>, PlanError> {
+        let inline_role = group.units.first().map(|unit| unit.node.role);
         let inline = group.units.len() > 1
+            && inline_role
+                .is_some_and(|role| matches!(role, SemanticRole::Prose | SemanticRole::Subtitle))
             && group
                 .units
                 .iter()
-                .any(|unit| unit.node.role == SemanticRole::DisplayMath)
+                .any(|unit| matches!(unit.node.content, SemanticContent::Svg(_)))
             && group.units.iter().all(|unit| {
-                matches!(unit.node.content, SemanticContent::Text(_))
-                    || (unit.node.role == SemanticRole::DisplayMath
-                        && matches!(unit.node.content, SemanticContent::Svg(_)))
+                Some(unit.node.role) == inline_role
+                    && matches!(
+                        unit.node.content,
+                        SemanticContent::Text(_) | SemanticContent::Svg(_)
+                    )
             });
         if !inline {
             return Ok(None);
@@ -3426,7 +3431,7 @@ mod tests {
                 SemanticNode {
                     id: id(6),
                     source: range(42),
-                    role: SemanticRole::DisplayMath,
+                    role: SemanticRole::Prose,
                     split: SplitPolicy::Never,
                     content: SemanticContent::Svg(wasmppt_deck::SvgContent {
                         resource_id: id(90),

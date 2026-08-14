@@ -636,14 +636,22 @@ fn inline_text_node_ids(nodes: &BTreeMap<StableId, &SemanticNode>) -> BTreeSet<S
         .values()
         .filter_map(|node| match &node.content {
             SemanticContent::Children(children)
-                if children.iter().any(|child| {
-                    child.role == wasmppt_deck::SemanticRole::DisplayMath
-                        && matches!(child.content, SemanticContent::Svg(_))
-                }) && children.iter().all(|child| {
-                    matches!(child.content, SemanticContent::Text(_))
-                        || (child.role == wasmppt_deck::SemanticRole::DisplayMath
-                            && matches!(child.content, SemanticContent::Svg(_)))
-                }) =>
+                if matches!(
+                    node.role,
+                    wasmppt_deck::SemanticRole::Prose | wasmppt_deck::SemanticRole::Subtitle
+                ) && children
+                    .iter()
+                    .any(|child| matches!(child.content, SemanticContent::Svg(_)))
+                    && children
+                        .iter()
+                        .any(|child| matches!(child.content, SemanticContent::Text(_)))
+                    && children.iter().all(|child| {
+                        child.role == node.role
+                            && matches!(
+                                child.content,
+                                SemanticContent::Text(_) | SemanticContent::Svg(_)
+                            )
+                    }) =>
             {
                 Some(children)
             }

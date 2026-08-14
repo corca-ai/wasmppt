@@ -616,6 +616,7 @@ dependencies = [
 name = "wasmppt-deck"
 version = "0.0.0"
 dependencies = [
+ "png",
  "sha2",
  "wasmppt-opc",
 ]

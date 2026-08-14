@@ -341,6 +341,7 @@ try {
     let deckSlides
     let deckPages
     let deckPptx
+    let deckVisualQuality
     for (let iteration = 0; iteration < 7; iteration += 1) {
       const deckStarted = performance.now()
       const measuredTemplate = await client.prepareDeckTemplate(deckTemplateSource.slice(0))
@@ -382,6 +383,68 @@ try {
         deckSlides = measuredSlides
         deckPages = measuredPages
         deckPptx = measuredPptx
+        const renderer = new CanvasDisplayListRenderer(4 * 1024 * 1024)
+        let sourceElements = 0
+        let minimumChangedPixels = Number.POSITIVE_INFINITY
+        for (const [slideIndex, encoded] of measuredSlides.entries()) {
+          const binary = atob(encoded)
+          const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
+          const scene = decodeDisplayList(bytes)
+          const sourceSemantics = scene.semantics.filter((semantic) => semantic.source !== undefined)
+          sourceElements += sourceSemantics.length
+          if (sourceSemantics.length === 0) {
+            throw new Error(`deck slide ${slideIndex} lost semantic source elements`)
+          }
+          for (const semantic of sourceSemantics) {
+            if (semantic.bounds.width <= 0 || semantic.bounds.height <= 0) {
+              throw new Error(`deck slide ${slideIndex} has empty semantic bounds`)
+            }
+            if (semantic.bounds.x < 0 || semantic.bounds.y < 0 ||
+                semantic.bounds.x + semantic.bounds.width > scene.width ||
+                semantic.bounds.y + semantic.bounds.height > scene.height) {
+              throw new Error(`deck slide ${slideIndex} has out-of-page semantic bounds`)
+            }
+          }
+          const canvas = new OffscreenCanvas(320, 180)
+          const context = canvas.getContext('2d', { alpha: false })
+          await renderer.render(scene, context, {
+            imageCacheKey: async (image, signal) => {
+              if (image.partName === undefined) throw new Error('deck image part is missing')
+              return client.deckSessionResourceFingerprint(
+                measuredSession.handle, measuredSession.revision, image.partName, { signal },
+              )
+            },
+            imageResolver: async (image, signal) => {
+              if (image.partName === undefined) throw new Error('deck image part is missing')
+              const resource = await client.deckSessionResource(
+                measuredSession.handle, measuredSession.revision, image.partName, { signal },
+              )
+              const resourceBytes = new Uint8Array(resource.bytes)
+              const prefix = new TextDecoder().decode(resourceBytes.subarray(0, 100)).trimStart()
+              return prefix.startsWith('<svg')
+                ? decodeSvgImage(resourceBytes, signal)
+                : decodeRasterImage(resourceBytes, {}, signal)
+            },
+          })
+          const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+          const background = pixels.slice(0, 4)
+          let changedPixels = 0
+          for (let offset = 4; offset < pixels.length; offset += 4) {
+            if (
+              pixels[offset] !== background[0] || pixels[offset + 1] !== background[1] ||
+              pixels[offset + 2] !== background[2] || pixels[offset + 3] !== background[3]
+            ) changedPixels += 1
+          }
+          if (changedPixels < 20) throw new Error(`deck slide ${slideIndex} rendered blank`)
+          minimumChangedPixels = Math.min(minimumChangedPixels, changedPixels)
+        }
+        deckVisualQuality = {
+          schema: 1,
+          renderedSlides: measuredSlides.length,
+          sourceElements,
+          minimumChangedPixels,
+          contracts: { canvasBounds: true, nonBlankSlides: true },
+        }
       } else {
         await client.releaseDeckSession(measuredSession.handle)
         await client.releaseDeckTemplate(measuredTemplate.handle)
@@ -438,6 +501,7 @@ try {
           exportP95Ms: percentile(deckExportSamplesMs, 0.95),
         },
       },
+      visualQuality: deckVisualQuality,
       invalidDeckSpecError,
       atomicOverflowError,
     }
@@ -1269,9 +1333,15 @@ try {
     join(deckGateDirectory, 'browser-timings.json'),
     `${JSON.stringify(result.deckEvidence.timings)}\n`,
   )
+  await writeFile(
+    join(deckGateDirectory, 'browser-quality.json'),
+    `${JSON.stringify(result.deckEvidence.visualQuality)}\n`,
+  )
   assert.equal(result.deckEvidence.cacheable, true)
-  assert.equal(result.deckEvidence.topology.slideCount, 13)
-  assert.equal(result.deckEvidence.topology.presentableSlides.length, 12)
+  assert.equal(result.deckEvidence.topology.slideCount, 16)
+  assert.equal(result.deckEvidence.topology.presentableSlides.length, 15)
+  assert.equal(result.deckEvidence.visualQuality.renderedSlides, 16)
+  assert(result.deckEvidence.visualQuality.sourceElements >= 30)
   assert.equal(result.deckEvidence.topology.pages.at(-1).hidden, true)
   assert(
     result.deckEvidence.topology.diagnostics.some(

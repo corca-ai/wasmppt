@@ -138,6 +138,24 @@ contiguous columns, readability-first ordering, aspect-aware 2--10 item gallerie
 contain/cover policy, incremental slide reuse, fallback-font diagnostics, and property-generated
 bounded termination.
 
+## Canonical quality corpus
+
+`fixtures/deck-gates/corpus.json` pins the end-to-end `autolayout-v2` corpus beside its generated
+Starter POTX and WDSF input. The corpus includes variable title details, long prose, a long list
+with an intentionally empty in-progress item, multi-page tables and code, mixed aspect-ratio media,
+ten-item galleries with captions, quotes, sections, display math, definitions, statements, and a
+hidden page. The fixture generator is the source of truth; CI regenerates all four files and fails
+on byte drift.
+
+The native gate rejects lost or duplicate source coverage, overlapping geometry, type below the
+readable floor, empty or badly imbalanced selected columns, singleton final-page orphans,
+undersized media, fragmented table row slices, and invalidation beyond one edited logical slide.
+It emits `native-quality.json` with the exercised topology counts and contract results. Chrome then
+decodes and renders every resulting WPDL scene through the public Canvas renderer, checks that all
+source-backed bounds remain inside the page, and rejects visually blank slides in
+`browser-quality.json`. The final gate requires exact template-plan, deck-plan, WPDL, PPTX, and
+topology parity across native, browser, and workerd hosts before accepting the quality evidence.
+
 ## Verification
 
 ```sh

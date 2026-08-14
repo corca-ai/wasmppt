@@ -227,6 +227,7 @@ jobs:
           cmp fixtures/deck-gates/starter.potx "$fixture_dir/starter.potx"
           cmp fixtures/deck-gates/deck-spec.wdsf "$fixture_dir/deck-spec.wdsf"
           cmp fixtures/deck-gates/atomic-overflow.wdsf "$fixture_dir/atomic-overflow.wdsf"
+          cmp fixtures/deck-gates/corpus.json "$fixture_dir/corpus.json"
           cargo run --locked -p wasmppt-wasm --example deck_gate_native -- \
             fixtures/deck-gates target/deck-gates
       - name: Execute the shared workerd fixture

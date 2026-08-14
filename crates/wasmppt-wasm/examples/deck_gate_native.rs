@@ -1,8 +1,14 @@
-use std::{env, fs, io, path::PathBuf, time::Instant};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    env, fs, io,
+    path::PathBuf,
+    time::Instant,
+};
 
 use wasmppt_deck::{
-    DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckResource, DeckSpec,
-    DiagnosticSeverity, SemanticContent, SemanticNode, SemanticRole,
+    ContentFit, DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckResource, DeckSpec,
+    DiagnosticSeverity, FragmentSlice, LayoutTopology, RegionPlacement, SemanticContent,
+    SemanticNode, SemanticRole, StableId,
 };
 use wasmppt_deck_layout::{DeckPlanner, FontCatalog};
 use wasmppt_deck_template::ThemeTemplateCompiler;
@@ -67,6 +73,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
     }
     let plan = DeckPlan::decode(&first.plan, &DeckLimits::default())?;
+    let decoded_spec = DeckSpec::decode(&spec, &DeckLimits::default())?;
+    let quality = assert_layout_quality(&template, &decoded_spec, &plan)?;
     fs::write(
         output_directory.join("native-topology.json"),
         topology_json(&plan),
@@ -79,7 +87,225 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &export_samples_ms,
         ),
     )?;
+    fs::write(output_directory.join("native-quality.json"), quality)?;
     Ok(())
+}
+
+fn assert_layout_quality(
+    template: &[u8],
+    spec: &DeckSpec,
+    plan: &DeckPlan,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let roles = semantic_roles(spec);
+    let readable_floor = 1_400;
+    let mut media_fragments = 0usize;
+    let mut table_fragments = 0usize;
+    let mut flow_pages = 0usize;
+    let mut gallery_pages = 0usize;
+    let mut table_slices = BTreeMap::<StableId, Vec<(u32, u32)>>::new();
+
+    for page in &plan.pages {
+        if page.topology.kind == LayoutTopology::Gallery {
+            gallery_pages += 1;
+            if !(2..=6).contains(&page.topology.slot_count) {
+                return Err("gallery topology has an invalid slot count".into());
+            }
+        }
+
+        let mut slot_loads = BTreeMap::<u16, u32>::new();
+        let mut tables_on_page = BTreeSet::new();
+        for region in &page.regions {
+            for fragment in &region.fragments {
+                let role = roles
+                    .get(&fragment.source_node_id)
+                    .copied()
+                    .ok_or("planned fragment lost its semantic source")?;
+                if is_text_role(role) && fragment.type_choice.font_size < readable_floor {
+                    return Err(
+                        format!("{role:?} fragment fell below the readable type floor").into(),
+                    );
+                }
+                if role == SemanticRole::Figure {
+                    media_fragments += 1;
+                    if fragment.type_choice.fit == ContentFit::None
+                        || fragment.frame.width < 900_000
+                        || fragment.frame.height < 700_000
+                    {
+                        return Err("media fragment is undersized or lacks an aspect fit".into());
+                    }
+                }
+                if role == SemanticRole::Table {
+                    table_fragments += 1;
+                    if !tables_on_page.insert(fragment.source_node_id) {
+                        return Err(
+                            "one table produced multiple editable fragments on one page".into()
+                        );
+                    }
+                    let FragmentSlice::TableRows { start, end } = fragment.slice else {
+                        return Err("table fragment does not retain an editable row slice".into());
+                    };
+                    table_slices
+                        .entry(fragment.source_node_id)
+                        .or_default()
+                        .push((start, end));
+                }
+                if let RegionPlacement::Slot(slot) = region.placement {
+                    *slot_loads.entry(slot).or_default() += fragment_units(fragment.slice);
+                }
+            }
+        }
+
+        if page.topology.kind == LayoutTopology::FlowColumns {
+            flow_pages += 1;
+            if slot_loads.len() != usize::from(page.topology.slot_count) {
+                return Err("flow-column page left a selected column empty".into());
+            }
+            let minimum = slot_loads.values().copied().min().unwrap_or_default();
+            let maximum = slot_loads.values().copied().max().unwrap_or_default();
+            if minimum == 0 || maximum > minimum.saturating_mul(2).saturating_add(1) {
+                return Err(format!("flow columns are visibly unbalanced: {slot_loads:?}").into());
+            }
+        }
+    }
+
+    for slices in table_slices.values_mut() {
+        slices.sort_unstable();
+        if slices.first().is_none_or(|slice| slice.0 != 0)
+            || slices.windows(2).any(|pair| pair[0].1 != pair[1].0)
+        {
+            return Err(format!("table continuation slices are fragmented: {slices:?}").into());
+        }
+    }
+
+    for page in plan.pages.iter().filter(|page| {
+        page.continuation.total > 1 && page.continuation.ordinal == page.continuation.total
+    }) {
+        let final_units = page
+            .regions
+            .iter()
+            .flat_map(|region| &region.fragments)
+            .filter(|fragment| {
+                !matches!(
+                    roles.get(&fragment.source_node_id),
+                    Some(SemanticRole::Title | SemanticRole::Subtitle)
+                )
+            })
+            .map(|fragment| fragment_units(fragment.slice))
+            .sum::<u32>();
+        if final_units < 2 {
+            return Err("continuation produced a singleton final-page orphan".into());
+        }
+    }
+
+    if flow_pages == 0 || gallery_pages == 0 || media_fragments < 10 || table_fragments < 2 {
+        return Err("canonical corpus did not exercise every required layout family".into());
+    }
+    assert_single_slide_invalidation(template, spec, plan)?;
+
+    Ok(format!(
+        concat!(
+            "{{\"schema\":1,\"corpus\":\"autolayout-v2\",\"counts\":{{",
+            "\"logicalSlides\":{},\"physicalPages\":{},\"flowPages\":{},",
+            "\"galleryPages\":{},\"mediaFragments\":{},\"tableFragments\":{}}},",
+            "\"contracts\":{{\"exactSourceCoverage\":true,\"noOverlap\":true,",
+            "\"readableType\":true,\"balancedFlow\":true,",
+            "\"noSingletonFinalOrphan\":true,\"boundedMedia\":true,",
+            "\"singleEditableTablePerSlice\":true,\"singleSlideInvalidation\":true}}}}\n"
+        ),
+        spec.logical_slides.len(),
+        plan.pages.len(),
+        flow_pages,
+        gallery_pages,
+        media_fragments,
+        table_fragments,
+    ))
+}
+
+fn assert_single_slide_invalidation(
+    template: &[u8],
+    previous_spec: &DeckSpec,
+    previous_plan: &DeckPlan,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut next_spec = previous_spec.clone();
+    let target = next_spec.logical_slides[1].id;
+    let node = next_spec.logical_slides[1]
+        .nodes
+        .iter_mut()
+        .find(|node| node.role == SemanticRole::Prose)
+        .ok_or("invalidation fixture lost its prose node")?;
+    mutate_content(&mut node.content, &mut next_spec.resources);
+    let compiled = ThemeTemplateCompiler::default().compile(template.to_vec())?;
+    let update = DeckPlanner::default().replan(
+        previous_spec,
+        previous_plan,
+        &next_spec,
+        &compiled.plan,
+        &FontCatalog::default(),
+        &DeckLimits::default(),
+    )?;
+    let previous_target_pages = previous_plan
+        .pages
+        .iter()
+        .filter(|page| page.logical_slide_id == target)
+        .count();
+    if update.invalidated_logical_slides != vec![target]
+        || update.reused_pages != previous_plan.pages.len() - previous_target_pages
+    {
+        return Err(format!(
+            "incremental replan escaped one logical slide: invalidated={:?}, reused={}",
+            update.invalidated_logical_slides, update.reused_pages
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn semantic_roles(spec: &DeckSpec) -> BTreeMap<StableId, SemanticRole> {
+    fn collect(nodes: &[SemanticNode], roles: &mut BTreeMap<StableId, SemanticRole>) {
+        for node in nodes {
+            roles.insert(node.id, node.role);
+            match &node.content {
+                SemanticContent::Children(children) => collect(children, roles),
+                SemanticContent::List(list) => {
+                    for item in &list.items {
+                        collect(&item.blocks, roles);
+                        for child in &item.children {
+                            for nested in &child.items {
+                                collect(&nested.blocks, roles);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut roles = BTreeMap::new();
+    for slide in &spec.logical_slides {
+        collect(&slide.nodes, &mut roles);
+    }
+    roles
+}
+
+const fn is_text_role(role: SemanticRole) -> bool {
+    !matches!(
+        role,
+        SemanticRole::Figure
+            | SemanticRole::Gallery
+            | SemanticRole::Chart
+            | SemanticRole::Diagram
+            | SemanticRole::DisplayMath
+    )
+}
+
+const fn fragment_units(slice: FragmentSlice) -> u32 {
+    match slice {
+        FragmentSlice::Whole => 1,
+        FragmentSlice::Text { start, end }
+        | FragmentSlice::ListItems { start, end }
+        | FragmentSlice::TableRows { start, end }
+        | FragmentSlice::CodeLines { start, end } => end.saturating_sub(start),
+    }
 }
 
 fn assert_role_mutations(

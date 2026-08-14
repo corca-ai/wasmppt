@@ -223,6 +223,12 @@ PowerPoint, LibreOffice, and Keynote workflow described in [compatibility gates]
 The performance-contract job publishes native, browser, and workerd raw samples and enforces the
 budgets and correctness rules in the [performance contract](performance.md).
 
+The host-adapter job also regenerates the canonical automatic-layout fixture, executes it seven
+times per host, and publishes `target/deck-gates/report.json`. That report combines exact
+native/browser/workerd byte parity with plan-quality invariants and a real Chrome Canvas render of
+every physical page. Update the fixture generator, checked-in corpus files, and the semantic-layout
+contract together whenever automatic layout or pagination behavior changes.
+
 `npm run build:pages` assembles the static dogfood application under `target/pages` from the
 checked-in Wasm host bindings, browser package, and two dogfood POTX templates. `npm run test:pages`
 serves that directory and uses real Chrome to apply one editor delta to both templates, render both

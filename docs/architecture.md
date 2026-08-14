@@ -143,6 +143,13 @@ source diagnostics             wasmppt-deck-compose
                               PresentationOverlay / PPTX
 ```
 
+The source contract records factual media/text evidence rather than layout hints: the media and
+text node identities, whether they share a paragraph, are adjacent, or have a blank-block
+separation, which side the text occupies in source order, and whether an explicit caption
+convention authored the relation. The planner alone converts that evidence into hard caption
+cohesion or scored affinity. Hosts do not supply column ratios, crop thresholds, or pagination
+decisions.
+
 `DeckTemplatePlan` is the template-side input to the planner. It owns the exact page
 geometry, stable template and cache identity, capability-specific layouts, resolved placeholder
 regions and text hierarchy, theme fonts and colors, preserved template assets, and template

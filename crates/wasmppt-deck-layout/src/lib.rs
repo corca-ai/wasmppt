@@ -19,10 +19,11 @@ use sha2::{Digest, Sha256};
 use wasmppt_deck::{
     ContentFit, DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckResource, DeckSpec,
     DeckTemplatePlan, DiagnosticSeverity, Emu, EmuRect, FragmentSlice, LayoutTopology,
-    LogicalSlide, LogicalSlideKind, MediaPlacement, PhysicalPage, PixelSize, PlannedFragment,
-    PlannedRegion, RegionPlacement, RegionRole, SemanticContent, SemanticNode, SemanticRole,
-    StableId, TemplateLayout, TemplateLayoutCapability, TemplateRegion, TopologyChoice, TypeChoice,
-    validate_deck_plan, validate_deck_spec,
+    LogicalSlide, LogicalSlideKind, MediaPlacement, MediaTextProximity, MediaTextRelation,
+    MediaTextSide, PhysicalPage, PixelSize, PlannedFragment, PlannedRegion, RegionPlacement,
+    RegionRole, SemanticContent, SemanticNode, SemanticRole, StableId, TemplateLayout,
+    TemplateLayoutCapability, TemplateRegion, TopologyChoice, TypeChoice, validate_deck_plan,
+    validate_deck_spec,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -76,6 +77,7 @@ impl Default for PlannerLimits {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlannerPolicy {
     pub readable_floor: u32,
+    pub readable_media_floor: Emu,
     pub font_step: u32,
     pub gap: Emu,
     pub limits: PlannerLimits,
@@ -85,6 +87,7 @@ impl Default for PlannerPolicy {
     fn default() -> Self {
         Self {
             readable_floor: 1_400,
+            readable_media_floor: 1_200_000,
             font_step: 100,
             gap: 114_300,
             limits: PlannerLimits::default(),
@@ -415,16 +418,18 @@ impl DeckPlanner {
             .map(|node| node.id);
         let header_placements =
             self.place_headers(&header_nodes, &regions, measurer, diagnostics)?;
-        let units =
-            build_flow(body_nodes, self.policy.limits.max_flow_units).map_err(|failure| {
-                match failure {
-                    FlowError::UnitLimit => error(
-                        DeckDiagnosticCode::PLAN_WORK_LIMIT,
-                        "semantic flow unit count exceeds the configured planning bound",
-                        Some(slide.id),
-                    ),
-                }
-            })?;
+        let units = build_flow(
+            body_nodes,
+            &slide.media_text_relations,
+            self.policy.limits.max_flow_units,
+        )
+        .map_err(|failure| match failure {
+            FlowError::UnitLimit => error(
+                DeckDiagnosticCode::PLAN_WORK_LIMIT,
+                "semantic flow unit count exceeds the configured planning bound",
+                Some(slide.id),
+            ),
+        })?;
         let groups = group_units(&units);
         let primary = primary_region(layout.capability, &regions).ok_or_else(|| {
             error(
@@ -442,6 +447,7 @@ impl DeckPlanner {
                     groups: &groups,
                     region: primary,
                     slide_id: slide.id,
+                    relations: &slide.media_text_relations,
                 },
                 measurer,
                 diagnostics,
@@ -541,14 +547,8 @@ impl DeckPlanner {
         let mut best = vec![None::<Solution>; request.groups.len() + 1];
         best[request.groups.len()] = Some(Solution::default());
         for start in (0..request.groups.len()).rev() {
-            let pages = self.candidate_pages(
-                request.groups,
-                start,
-                request.region,
-                measurer,
-                diagnostics,
-                candidate_count,
-            )?;
+            let pages =
+                self.candidate_pages(request, start, measurer, diagnostics, candidate_count)?;
             let mut selected = None::<Solution>;
             for page in pages {
                 let Some(tail) = best[page.end].as_ref() else {
@@ -578,23 +578,23 @@ impl DeckPlanner {
 
     fn candidate_pages(
         &self,
-        groups: &[FlowGroup<'_>],
+        request: PaginationRequest<'_, '_>,
         start: usize,
-        region: &TemplateRegion,
         measurer: &mut Measurer<'_>,
         diagnostics: &mut Vec<DeckDiagnostic>,
         candidate_count: &mut usize,
     ) -> Result<Vec<CandidatePage>, PlanError> {
         let mut pages = Vec::new();
         for pattern in Pattern::ALL {
-            if !pattern.accepts_first(&groups[start]) {
+            if !pattern.accepts_first(&request.groups[start]) {
                 continue;
             }
-            for end in start + 1..=groups.len() {
+            for end in start + 1..=request.groups.len() {
                 let Some(candidate) = self.fit_candidate(
                     pattern,
-                    &groups[start..end],
-                    region,
+                    &request.groups[start..end],
+                    request.region,
+                    request.relations,
                     measurer,
                     candidate_count,
                 )?
@@ -608,7 +608,7 @@ impl DeckPlanner {
                 pages.push(CandidatePage {
                     end,
                     score: candidate.score,
-                    flow_units: groups[start..end]
+                    flow_units: request.groups[start..end]
                         .iter()
                         .map(|group| u64::try_from(group.units.len()).unwrap_or(u64::MAX))
                         .sum(),
@@ -636,6 +636,7 @@ impl DeckPlanner {
         pattern: Pattern,
         groups: &[FlowGroup<'a>],
         region: &TemplateRegion,
+        relations: &[MediaTextRelation],
         measurer: &mut Measurer<'_>,
         candidate_count: &mut usize,
     ) -> Result<Option<FittedCandidate>, PlanError> {
@@ -649,7 +650,7 @@ impl DeckPlanner {
             .as_ref()
             .map_or(groups, std::slice::from_ref);
         let mut selected = None::<FittedCandidate>;
-        for frames in pattern.frame_variants(region.frame, self.policy.gap, search_groups.len()) {
+        for frames in self.frame_variants(pattern, region, search_groups, measurer)? {
             for assignment in pattern.assignments(search_groups, frames.len()) {
                 *candidate_count = candidate_count.saturating_add(1);
                 if *candidate_count > self.policy.limits.max_candidate_assignments {
@@ -660,11 +661,14 @@ impl DeckPlanner {
                     ));
                 }
                 let Some(mut candidate) = self.fit_assignment(
-                    pattern,
-                    search_groups,
-                    region,
-                    &frames,
-                    &assignment,
+                    AssignmentRequest {
+                        pattern,
+                        groups: search_groups,
+                        region,
+                        frames: &frames,
+                        assignment: &assignment,
+                        relations,
+                    },
                     measurer,
                 )?
                 else {
@@ -682,15 +686,42 @@ impl DeckPlanner {
         Ok(selected)
     }
 
-    fn fit_assignment<'a>(
+    fn frame_variants(
         &self,
         pattern: Pattern,
-        groups: &[FlowGroup<'a>],
         region: &TemplateRegion,
-        frames: &[EmuRect],
-        assignment: &[usize],
+        groups: &[FlowGroup<'_>],
+        measurer: &mut Measurer<'_>,
+    ) -> Result<Vec<Vec<EmuRect>>, PlanError> {
+        if !matches!(pattern, Pattern::MediaStart | Pattern::MediaEnd) {
+            return Ok(pattern.frame_variants(region.frame, self.policy.gap, groups.len()));
+        }
+        let Some(demand) = media_text_demand(groups, region, measurer)? else {
+            return Ok(pattern.frame_variants(region.frame, self.policy.gap, groups.len()));
+        };
+        Ok(media_text_frame_variants(
+            pattern,
+            region.frame,
+            region.margins,
+            self.policy.gap,
+            self.policy.readable_media_floor,
+            demand,
+        ))
+    }
+
+    fn fit_assignment<'a>(
+        &self,
+        request: AssignmentRequest<'_, 'a>,
         measurer: &mut Measurer<'_>,
     ) -> Result<Option<FittedCandidate>, PlanError> {
+        let AssignmentRequest {
+            pattern,
+            groups,
+            region,
+            frames,
+            assignment,
+            relations,
+        } = request;
         if assignment.len() != groups.len() || assignment.iter().any(|slot| *slot >= frames.len()) {
             return Ok(None);
         }
@@ -743,15 +774,16 @@ impl DeckPlanner {
             }
             cursors[slot] = fitted.bottom.saturating_add(self.policy.gap);
         }
-        let score = candidate_score(
+        let score = candidate_score(CandidateScoreInput {
             pattern,
             groups,
             frames,
-            &cursors,
-            &reductions,
+            cursors: &cursors,
+            reductions: &reductions,
             width_loss,
-            self.policy.font_step,
-        );
+            relation_loss: relation_penalty(relations, &placements, region.frame),
+            font_step: self.policy.font_step,
+        });
         let demand = placements
             .iter()
             .flat_map(|region| &region.fragments)
@@ -863,6 +895,16 @@ impl DeckPlanner {
                     ),
                     ContentFit::None => None,
                 });
+                if media.is_some_and(|placement| {
+                    placement
+                        .visible_frame
+                        .width
+                        .min(placement.visible_frame.height)
+                        < self.policy.readable_media_floor
+                }) {
+                    overflow = true;
+                    break;
+                }
                 let fragment_frame = media.map_or_else(
                     || EmuRect {
                         height: measured.height,
@@ -888,7 +930,8 @@ impl DeckPlanner {
                         intrinsic_size
                             .filter(|_| fit == ContentFit::Cover)
                             .map_or(0, |size| cover_crop_penalty(size, fragment_frame)),
-                    ),
+                    )
+                    .saturating_add(media.map_or(0, contain_whitespace_penalty)),
                     font_risk: measured.font_risk,
                     media,
                     repeat_table_header_rows: target.repeat_table_header_rows,
@@ -1605,10 +1648,199 @@ struct FlowGroup<'a> {
     units: Vec<&'a FlowUnit<'a>>,
 }
 
+#[derive(Clone, Copy)]
 struct PaginationRequest<'groups, 'nodes> {
     groups: &'groups [FlowGroup<'nodes>],
     region: &'groups TemplateRegion,
     slide_id: StableId,
+    relations: &'groups [MediaTextRelation],
+}
+
+struct AssignmentRequest<'request, 'nodes> {
+    pattern: Pattern,
+    groups: &'request [FlowGroup<'nodes>],
+    region: &'request TemplateRegion,
+    frames: &'request [EmuRect],
+    assignment: &'request [usize],
+    relations: &'request [MediaTextRelation],
+}
+
+#[derive(Clone, Copy)]
+struct MediaTextDemand {
+    media_size: PixelSize,
+    text_min_width: Emu,
+    text_preferred_width: Emu,
+    text_height: Emu,
+}
+
+fn media_text_demand(
+    groups: &[FlowGroup<'_>],
+    region: &TemplateRegion,
+    measurer: &mut Measurer<'_>,
+) -> Result<Option<MediaTextDemand>, PlanError> {
+    let mut media_size = None;
+    let mut media_count = 0usize;
+    let mut text_min_width = 0;
+    let mut text_preferred_width = 0;
+    let mut text_height: Emu = 0;
+    let mut text_count = 0usize;
+    for unit in groups.iter().flat_map(|group| &group.units) {
+        if let Some(size) = measurer.intrinsic_size(unit.node) {
+            media_size = Some(size);
+            media_count = media_count.saturating_add(1);
+            continue;
+        }
+        if !matches!(unit.node.content, SemanticContent::Text(_)) {
+            continue;
+        }
+        let measured = measurer
+            .measure(unit.node, unit.slice, region, region.frame, 0, 0)
+            .map_err(|failure| measure_error(failure, unit.node.id))?;
+        text_min_width = text_min_width.max(measured.width.min);
+        text_preferred_width = text_preferred_width.max(measured.width.preferred);
+        text_height = text_height.saturating_add(measured.height);
+        text_count = text_count.saturating_add(1);
+    }
+    if media_count != 1 || text_count == 0 {
+        return Ok(None);
+    }
+    Ok(media_size.map(|media_size| MediaTextDemand {
+        media_size,
+        text_min_width,
+        text_preferred_width,
+        text_height,
+    }))
+}
+
+fn media_text_frame_variants(
+    pattern: Pattern,
+    frame: EmuRect,
+    margins: wasmppt_deck::TextMargins,
+    gap: Emu,
+    media_floor: Emu,
+    demand: MediaTextDemand,
+) -> Vec<Vec<EmuRect>> {
+    let horizontal_margins = margins.left.saturating_add(margins.right);
+    let vertical_margins = margins.top.saturating_add(margins.bottom);
+    let available_width = frame.width.saturating_sub(gap).max(1);
+    let available_height = frame.height.saturating_sub(gap).max(1);
+    let usable_height = frame
+        .height
+        .saturating_sub(vertical_margins)
+        .max(media_floor);
+    let ideal_media_width = usable_height
+        .saturating_mul(i64::from(demand.media_size.width))
+        .checked_div(i64::from(demand.media_size.height).max(1))
+        .unwrap_or(available_width)
+        .saturating_add(horizontal_margins);
+    let media_min_width = media_floor.saturating_add(horizontal_margins);
+    let text_min_width = demand.text_min_width.saturating_add(horizontal_margins);
+    let text_preferred_width = demand
+        .text_preferred_width
+        .saturating_add(horizontal_margins);
+    let mut media_widths = BTreeSet::new();
+    media_widths.extend([
+        media_min_width,
+        ideal_media_width,
+        available_width / 2,
+        available_width.saturating_sub(text_preferred_width),
+        available_width.saturating_sub(text_min_width),
+    ]);
+
+    let mut variants = Vec::new();
+    for media_width in media_widths {
+        if media_width < media_min_width
+            || available_width.saturating_sub(media_width) < text_min_width
+        {
+            continue;
+        }
+        let first_width = if pattern == Pattern::MediaStart {
+            media_width
+        } else {
+            available_width.saturating_sub(media_width)
+        };
+        variants.push(split_pair(frame, gap, first_width, true));
+    }
+
+    let usable_width = frame
+        .width
+        .saturating_sub(horizontal_margins)
+        .max(media_floor);
+    let ideal_media_height = usable_width
+        .saturating_mul(i64::from(demand.media_size.height))
+        .checked_div(i64::from(demand.media_size.width).max(1))
+        .unwrap_or(available_height)
+        .saturating_add(vertical_margins);
+    let media_min_height = media_floor.saturating_add(vertical_margins);
+    let text_min_height = demand
+        .text_height
+        .min(available_height / 2)
+        .max(vertical_margins.saturating_add(1));
+    let mut media_heights = BTreeSet::new();
+    media_heights.extend([
+        media_min_height,
+        ideal_media_height,
+        available_height / 2,
+        available_height.saturating_sub(demand.text_height),
+    ]);
+    for media_height in media_heights {
+        if media_height < media_min_height
+            || available_height.saturating_sub(media_height) < text_min_height
+        {
+            continue;
+        }
+        let first_height = if pattern == Pattern::MediaStart {
+            media_height
+        } else {
+            available_height.saturating_sub(media_height)
+        };
+        variants.push(split_pair(frame, gap, first_height, false));
+    }
+    variants.sort_by_key(|frames| {
+        frames
+            .iter()
+            .map(|frame| (frame.x, frame.y, frame.width, frame.height))
+            .collect::<Vec<_>>()
+    });
+    variants.dedup();
+    variants
+}
+
+fn split_pair(frame: EmuRect, gap: Emu, first_extent: Emu, horizontal: bool) -> Vec<EmuRect> {
+    let available = if horizontal {
+        frame.width
+    } else {
+        frame.height
+    }
+    .saturating_sub(gap)
+    .max(1);
+    let first_extent = first_extent.clamp(1, available.saturating_sub(1).max(1));
+    let second_extent = available.saturating_sub(first_extent).max(1);
+    if horizontal {
+        vec![
+            EmuRect {
+                width: first_extent,
+                ..frame
+            },
+            EmuRect {
+                x: frame.x.saturating_add(first_extent).saturating_add(gap),
+                width: second_extent,
+                ..frame
+            },
+        ]
+    } else {
+        vec![
+            EmuRect {
+                height: first_extent,
+                ..frame
+            },
+            EmuRect {
+                y: frame.y.saturating_add(first_extent).saturating_add(gap),
+                height: second_extent,
+                ..frame
+            },
+        ]
+    }
 }
 
 struct FitTarget<'a> {
@@ -1744,6 +1976,7 @@ impl Default for PagePlacement {
 struct CandidateScore {
     readability_band: u32,
     crop_loss: u64,
+    relation_loss: u64,
     imbalance: u64,
     orphaning: u64,
     whitespace: u64,
@@ -1760,6 +1993,7 @@ struct Score {
     page_demand_imbalance: u64,
     page_order_balance: u64,
     crop_loss: u64,
+    relation_loss: u64,
     imbalance: u64,
     orphaning: u64,
     whitespace: u64,
@@ -1772,30 +2006,36 @@ impl Ord for Score {
         (
             self.readability_band,
             self.pages,
-            self.page_flow_imbalance,
-            self.page_flow_order,
-            self.page_demand_imbalance,
-            self.page_order_balance,
-            self.crop_loss,
-            self.imbalance,
-            self.orphaning,
-            self.whitespace,
-            self.complexity,
-            self.tie_break,
+            (
+                self.page_flow_imbalance,
+                self.page_flow_order,
+                self.page_demand_imbalance,
+                self.page_order_balance,
+                self.crop_loss,
+                self.relation_loss,
+                self.imbalance,
+                self.orphaning,
+                self.whitespace,
+                self.complexity,
+                self.tie_break,
+            ),
         )
             .cmp(&(
                 other.readability_band,
                 other.pages,
-                other.page_flow_imbalance,
-                other.page_flow_order,
-                other.page_demand_imbalance,
-                other.page_order_balance,
-                other.crop_loss,
-                other.imbalance,
-                other.orphaning,
-                other.whitespace,
-                other.complexity,
-                other.tie_break,
+                (
+                    other.page_flow_imbalance,
+                    other.page_flow_order,
+                    other.page_demand_imbalance,
+                    other.page_order_balance,
+                    other.crop_loss,
+                    other.relation_loss,
+                    other.imbalance,
+                    other.orphaning,
+                    other.whitespace,
+                    other.complexity,
+                    other.tie_break,
+                ),
             ))
     }
 }
@@ -1857,6 +2097,10 @@ impl Solution {
                 page_demand_imbalance,
                 page_order_balance,
                 crop_loss: self.score.crop_loss.saturating_add(page.score.crop_loss),
+                relation_loss: self
+                    .score
+                    .relation_loss
+                    .saturating_add(page.score.relation_loss),
                 imbalance: self.score.imbalance.saturating_add(page.score.imbalance),
                 orphaning: self.score.orphaning.saturating_add(page.score.orphaning),
                 whitespace: self.score.whitespace.saturating_add(page.score.whitespace),
@@ -1870,15 +2114,28 @@ impl Solution {
     }
 }
 
-fn candidate_score(
+struct CandidateScoreInput<'a, 'nodes> {
     pattern: Pattern,
-    groups: &[FlowGroup<'_>],
-    frames: &[EmuRect],
-    cursors: &[Emu],
-    reductions: &[u32],
+    groups: &'a [FlowGroup<'nodes>],
+    frames: &'a [EmuRect],
+    cursors: &'a [Emu],
+    reductions: &'a [u32],
     width_loss: u64,
+    relation_loss: u64,
     font_step: u32,
-) -> CandidateScore {
+}
+
+fn candidate_score(input: CandidateScoreInput<'_, '_>) -> CandidateScore {
+    let CandidateScoreInput {
+        pattern,
+        groups,
+        frames,
+        cursors,
+        reductions,
+        width_loss,
+        relation_loss,
+        font_step,
+    } = input;
     let used_heights = frames
         .iter()
         .zip(cursors)
@@ -1908,6 +2165,7 @@ fn candidate_score(
     CandidateScore {
         readability_band,
         crop_loss: width_loss,
+        relation_loss,
         imbalance,
         orphaning,
         whitespace,
@@ -1965,6 +2223,79 @@ fn cover_crop_penalty(size: PixelSize, frame: EmuRect) -> u64 {
         };
     let loss = complete.saturating_sub(visible).saturating_mul(1_000) / complete.max(1);
     u64::try_from(loss).unwrap_or(u64::MAX)
+}
+
+fn contain_whitespace_penalty(media: MediaPlacement) -> u64 {
+    if media.fit != ContentFit::Contain {
+        return 0;
+    }
+    let slot_area = u128::try_from(media.slot.width.max(1))
+        .unwrap_or(u128::MAX)
+        .saturating_mul(u128::try_from(media.slot.height.max(1)).unwrap_or(u128::MAX));
+    let visible_area = u128::try_from(media.visible_frame.width.max(1))
+        .unwrap_or(u128::MAX)
+        .saturating_mul(u128::try_from(media.visible_frame.height.max(1)).unwrap_or(u128::MAX));
+    let unused = slot_area.saturating_sub(visible_area).saturating_mul(1_000) / slot_area.max(1);
+    u64::try_from(unused).unwrap_or(u64::MAX)
+}
+
+fn relation_penalty(
+    relations: &[MediaTextRelation],
+    placements: &[PlannedRegion],
+    page_frame: EmuRect,
+) -> u64 {
+    relations.iter().fold(0u64, |penalty, relation| {
+        let media = fragment_frame(placements, relation.media_node_id);
+        let text = fragment_frame(placements, relation.text_node_id);
+        let (Some(media), Some(text)) = (media, text) else {
+            return penalty;
+        };
+        let media_center = (
+            media.x.saturating_add(media.width / 2),
+            media.y.saturating_add(media.height / 2),
+        );
+        let text_center = (
+            text.x.saturating_add(text.width / 2),
+            text.y.saturating_add(text.height / 2),
+        );
+        let dx = media_center.0.abs_diff(text_center.0);
+        let dy = media_center.1.abs_diff(text_center.1);
+        let distance = dx.saturating_add(dy).saturating_mul(1_000)
+            / page_frame
+                .width
+                .abs_diff(0)
+                .saturating_add(page_frame.height.abs_diff(0))
+                .max(1);
+        let text_is_before = if dx >= dy {
+            text_center.0 <= media_center.0
+        } else {
+            text_center.1 <= media_center.1
+        };
+        let expected_before = relation.text_side == MediaTextSide::BeforeMedia;
+        let side_loss = if text_is_before == expected_before {
+            0
+        } else {
+            250
+        };
+        let strength = if relation.explicit_caption {
+            8
+        } else {
+            match relation.proximity {
+                MediaTextProximity::SameParagraph => 4,
+                MediaTextProximity::AdjacentBlocks => 2,
+                MediaTextProximity::BlankSeparatedBlocks => 1,
+            }
+        };
+        penalty.saturating_add(distance.saturating_add(side_loss).saturating_mul(strength))
+    })
+}
+
+fn fragment_frame(placements: &[PlannedRegion], node_id: StableId) -> Option<EmuRect> {
+    placements
+        .iter()
+        .flat_map(|region| &region.fragments)
+        .find(|fragment| fragment.source_node_id == node_id)
+        .map(|fragment| fragment.frame)
 }
 
 fn repeated_table_header_rows(group: &FlowGroup<'_>, placements: &[PlannedRegion]) -> u32 {
@@ -2314,7 +2645,7 @@ fn plan_id(
     limits: &DeckLimits,
 ) -> StableId {
     let mut digest = Sha256::new();
-    digest.update(b"wasmppt/deck-layout/plan/v1\0");
+    digest.update(b"wasmppt/deck-layout/plan/v2\0");
     match spec.encode(limits) {
         Ok(encoded) => digest.update(Sha256::digest(encoded)),
         Err(_) => digest.update(spec.id.as_bytes()),
@@ -2323,6 +2654,7 @@ fn plan_id(
     digest.update(template.cache_key);
     digest.update(fonts.identity);
     digest.update(policy.readable_floor.to_le_bytes());
+    digest.update(policy.readable_media_floor.to_le_bytes());
     digest.update(policy.font_step.to_le_bytes());
     digest.update(policy.gap.to_le_bytes());
     digest.update((policy.limits.max_font_faces as u64).to_le_bytes());
@@ -2555,7 +2887,7 @@ mod tests {
             vec![prose.clone(), figure.clone()],
             vec![figure.clone(), prose.clone()],
         ] {
-            let units = build_flow(&nodes, 16).unwrap();
+            let units = build_flow(&nodes, &[], 16).unwrap();
             let groups = group_units(&units);
             let start = Pattern::MediaStart.assignments(&groups, 2);
             let end = Pattern::MediaEnd.assignments(&groups, 2);
@@ -2824,6 +3156,53 @@ mod tests {
     }
 
     #[test]
+    fn one_image_uses_context_responsive_measured_geometry() {
+        let long_copy = std::iter::repeat_n(
+            "Measured copy must retain readable type while the image keeps a useful visual floor",
+            18,
+        )
+        .collect::<Vec<_>>()
+        .join(" ");
+        for aspect in [(1_600, 900), (1_000, 1_000), (900, 1_600)] {
+            let variants =
+                [None, Some("Short explanation."), Some(long_copy.as_str())].map(|copy| {
+                    let spec = single_media_spec(aspect, copy);
+                    let plan = DeckPlanner::default()
+                        .plan(
+                            &spec,
+                            &template(5_500_000),
+                            &FontCatalog::default(),
+                            &limits(),
+                        )
+                        .unwrap();
+                    assert!(
+                        validate_deck_plan(&spec, &template(5_500_000), &plan, &limits())
+                            .is_valid()
+                    );
+                    let media = plan
+                        .pages
+                        .iter()
+                        .flat_map(fragments)
+                        .find(|fragment| fragment.source_node_id == id(4))
+                        .and_then(|fragment| fragment.media)
+                        .unwrap();
+                    assert_eq!(media.fit, ContentFit::Contain);
+                    assert!(
+                        media.visible_frame.width.min(media.visible_frame.height)
+                            >= PlannerPolicy::default().readable_media_floor
+                    );
+                    (plan, media)
+                });
+
+            assert_ne!(variants[0].1.slot, variants[1].1.slot);
+            assert!(
+                variants[1].1.slot != variants[2].1.slot || variants[2].0.pages.len() > 1,
+                "long measured demand must change geometry or continue"
+            );
+        }
+    }
+
+    #[test]
     fn long_flow_uses_balanced_contiguous_columns() {
         let spec = spec(vec![
             text_node(3, SemanticRole::Title, SplitPolicy::Never, "Agenda"),
@@ -2942,14 +3321,17 @@ mod tests {
                 }),
             }],
         );
-        let plan = DeckPlanner::default()
-            .plan(
-                &spec,
-                &template(1_000_000),
-                &FontCatalog::default(),
-                &limits(),
-            )
-            .unwrap();
+        let plan = DeckPlanner::new(PlannerPolicy {
+            readable_media_floor: 40_000,
+            ..PlannerPolicy::default()
+        })
+        .plan(
+            &spec,
+            &template(1_000_000),
+            &FontCatalog::default(),
+            &limits(),
+        )
+        .unwrap();
 
         let figure_page = page_containing(&plan, id(4));
         let caption_page = page_containing(&plan, id(5));
@@ -3220,6 +3602,7 @@ mod tests {
                 text_node(3, SemanticRole::Title, SplitPolicy::Never, "First"),
                 text_node(4, SemanticRole::Prose, SplitPolicy::Text, "Unchanged."),
             ],
+            media_text_relations: Vec::new(),
         };
         let second_slide = LogicalSlide {
             id: id(12),
@@ -3230,6 +3613,7 @@ mod tests {
                 text_node(13, SemanticRole::Title, SplitPolicy::Never, "Second"),
                 text_node(14, SemanticRole::Prose, SplitPolicy::Text, "Before."),
             ],
+            media_text_relations: Vec::new(),
         };
         let previous_spec = DeckSpec {
             id: id(1),
@@ -3322,6 +3706,7 @@ mod tests {
                 kind: LogicalSlideKind::Content,
                 hidden: false,
                 nodes,
+                media_text_relations: Vec::new(),
             }],
             resources,
         }
@@ -3411,6 +3796,43 @@ mod tests {
             ],
             resources,
         )
+    }
+
+    fn single_media_spec(aspect: (u32, u32), copy: Option<&str>) -> DeckSpec {
+        let mut spec = spec_with_resources(
+            vec![
+                text_node(3, SemanticRole::Title, SplitPolicy::Never, "Media"),
+                figure_node(4, 90, "measured media"),
+            ],
+            vec![DeckResource {
+                id: id(90),
+                kind: ResourceKind::RasterImage,
+                media_type: "image/png".to_owned(),
+                bytes: vec![1],
+                intrinsic_size: Some(PixelSize {
+                    width: aspect.0,
+                    height: aspect.1,
+                }),
+            }],
+        );
+        if let Some(copy) = copy {
+            spec.logical_slides[0].nodes.push(text_node(
+                5,
+                SemanticRole::Prose,
+                SplitPolicy::Text,
+                copy,
+            ));
+            spec.logical_slides[0]
+                .media_text_relations
+                .push(MediaTextRelation {
+                    media_node_id: id(4),
+                    text_node_id: id(5),
+                    proximity: MediaTextProximity::AdjacentBlocks,
+                    text_side: MediaTextSide::AfterMedia,
+                    explicit_caption: false,
+                });
+        }
+        spec
     }
 
     fn list_node(identity: u8, items: u8) -> SemanticNode {

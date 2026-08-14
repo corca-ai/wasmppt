@@ -246,7 +246,7 @@ fn fixture() -> (Vec<u8>, DeckSpec, DeckTemplatePlan, DeckPlan) {
     };
     let spec = DeckSpec {
         id: id(1),
-        logical_slides: vec![LogicalSlide { id: id(2), source: range(0, 100), kind: LogicalSlideKind::Content, hidden: false, nodes: vec![text, list, image, svg] }],
+        logical_slides: vec![LogicalSlide { id: id(2), source: range(0, 100), kind: LogicalSlideKind::Content, hidden: false, nodes: vec![text, list, image, svg], media_text_relations: Vec::new() }],
         resources: vec![
             DeckResource { id: id(40), kind: ResourceKind::RasterImage, media_type: "image/gif".to_owned(), bytes: gif(), intrinsic_size: Some(PixelSize { width: 2, height: 1 }) },
             DeckResource { id: id(41), kind: ResourceKind::Svg, media_type: "image/svg+xml".to_owned(), bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0L10 10"/></svg>"#.to_vec(), intrinsic_size: Some(PixelSize { width: 10, height: 10 }) },

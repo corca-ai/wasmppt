@@ -33,6 +33,69 @@ fn source_ids_do_not_depend_on_deck_position() {
 }
 
 #[test]
+fn factual_media_text_relations_round_trip_and_validate() {
+    let relation = MediaTextRelation {
+        media_node_id: id(3),
+        text_node_id: id(4),
+        proximity: MediaTextProximity::SameParagraph,
+        text_side: MediaTextSide::AfterMedia,
+        explicit_caption: true,
+    };
+    let spec = DeckSpec {
+        id: id(1),
+        logical_slides: vec![LogicalSlide {
+            id: id(2),
+            source: SourceRange::new("deck.md", 0, 100),
+            kind: LogicalSlideKind::Content,
+            hidden: false,
+            nodes: vec![
+                SemanticNode {
+                    id: id(3),
+                    source: SourceRange::new("deck.md", 10, 20),
+                    role: SemanticRole::Figure,
+                    split: SplitPolicy::Never,
+                    content: SemanticContent::Image(ImageContent {
+                        resource_id: id(5),
+                        alt_text: "Evidence".to_owned(),
+                    }),
+                },
+                text_node(
+                    4,
+                    "deck.md",
+                    21,
+                    40,
+                    SemanticRole::Caption,
+                    "Explicit caption",
+                    SplitPolicy::Text,
+                ),
+            ],
+            media_text_relations: vec![relation.clone()],
+        }],
+        resources: vec![DeckResource {
+            id: id(5),
+            kind: ResourceKind::RasterImage,
+            media_type: "image/png".to_owned(),
+            bytes: vec![1],
+            intrinsic_size: Some(PixelSize {
+                width: 1_600,
+                height: 900,
+            }),
+        }],
+    };
+
+    assert!(validate_deck_spec(&spec, &DeckLimits::default()).is_valid());
+    let decoded = DeckSpec::decode(
+        &spec.encode(&DeckLimits::default()).unwrap(),
+        &DeckLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        decoded.logical_slides[0].media_text_relations,
+        vec![relation]
+    );
+}
+
+#[test]
 fn validates_a_complete_source_ordered_plan() {
     let spec = simple_spec();
     let template = template_plan();
@@ -306,8 +369,8 @@ fn golden_payloads_are_stable() {
     let limits = DeckLimits::default();
     assert_golden(
         rich_spec().encode(&limits).unwrap(),
-        "fixtures/deck-contracts/deck-spec-v3.hex",
-        include_str!("../../../fixtures/deck-contracts/deck-spec-v3.hex"),
+        "fixtures/deck-contracts/deck-spec-v4.hex",
+        include_str!("../../../fixtures/deck-contracts/deck-spec-v4.hex"),
     );
     assert_golden(
         template_plan_with_unknown_diagnostic()
@@ -347,7 +410,7 @@ fn decoding_is_bounded_and_fails_closed() {
     );
 
     let mut future = bytes;
-    future[4..8].copy_from_slice(&4u32.to_le_bytes());
+    future[4..8].copy_from_slice(&5u32.to_le_bytes());
     assert_eq!(
         DeckSpec::decode(&future, &DeckLimits::default())
             .unwrap_err()
@@ -417,6 +480,7 @@ fn simple_spec() -> DeckSpec {
             "Hello",
             SplitPolicy::Never,
         )],
+        media_text_relations: Vec::new(),
     };
     let content_slide = LogicalSlide {
         id: id(4),
@@ -448,6 +512,7 @@ fn simple_spec() -> DeckSpec {
                 }),
             },
         ],
+        media_text_relations: Vec::new(),
     };
     DeckSpec {
         id: id(1),
@@ -573,6 +638,13 @@ fn rich_spec() -> DeckSpec {
             kind: LogicalSlideKind::Content,
             hidden: false,
             nodes,
+            media_text_relations: vec![MediaTextRelation {
+                media_node_id: id(12),
+                text_node_id: id(11),
+                proximity: MediaTextProximity::AdjacentBlocks,
+                text_side: MediaTextSide::BeforeMedia,
+                explicit_caption: false,
+            }],
         }],
         resources: vec![
             DeckResource {

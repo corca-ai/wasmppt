@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckSpec, DeckTemplatePlan,
-    DiagnosticSeverity, EmuRect, FragmentSlice, HyperlinkKind, LogicalSlide, PlannedFragment,
-    RegionPlacement, SemanticContent, SemanticNode, SemanticRole, SplitPolicy, StableId,
-    ValidationReport,
+    DiagnosticSeverity, EmuRect, FragmentSlice, HyperlinkKind, LogicalSlide, MediaTextSide,
+    PlannedFragment, RegionPlacement, SemanticContent, SemanticNode, SemanticRole, SplitPolicy,
+    StableId, ValidationReport,
 };
 
 #[derive(Clone, Copy)]
@@ -114,6 +114,58 @@ impl SpecValidator<'_> {
         );
         for node in &slide.nodes {
             self.node(node, Some(&slide.source), 1);
+        }
+        self.count(
+            slide.media_text_relations.len(),
+            self.limits.max_collection_items,
+            Some(&slide.source),
+            "media-text relation count exceeds the configured collection limit",
+        );
+        let mut nodes = BTreeMap::new();
+        index_semantic_nodes(&slide.nodes, &mut nodes);
+        let mut relations = BTreeSet::new();
+        for relation in &slide.media_text_relations {
+            let media = nodes.get(&relation.media_node_id).copied();
+            let text = nodes.get(&relation.text_node_id).copied();
+            if media.is_none_or(|node| !is_media_relation_node(node))
+                || text.is_none_or(|node| !is_text_relation_node(node))
+                || relation.media_node_id == relation.text_node_id
+                || !relations.insert((relation.media_node_id, relation.text_node_id))
+            {
+                self.error(
+                    DeckDiagnosticCode::INVALID_SEMANTIC_CONTENT,
+                    Some(&slide.source),
+                    Some(slide.id),
+                    "media-text relation endpoints must be unique compatible nodes on one slide",
+                );
+                continue;
+            }
+            let (Some(media), Some(text)) = (media, text) else {
+                continue;
+            };
+            if media.source.source == text.source.source {
+                let observed_side = if text.source.start <= media.source.start {
+                    MediaTextSide::BeforeMedia
+                } else {
+                    MediaTextSide::AfterMedia
+                };
+                if observed_side != relation.text_side {
+                    self.error(
+                        DeckDiagnosticCode::INVALID_SEMANTIC_CONTENT,
+                        Some(&text.source),
+                        Some(text.id),
+                        "media-text relation side disagrees with source order",
+                    );
+                }
+            }
+            if relation.explicit_caption && text.role != SemanticRole::Caption {
+                self.error(
+                    DeckDiagnosticCode::INVALID_SEMANTIC_CONTENT,
+                    Some(&text.source),
+                    Some(text.id),
+                    "an explicit media caption relation must target a caption node",
+                );
+            }
         }
     }
 
@@ -1154,6 +1206,50 @@ fn split_matches(node: &SemanticNode) -> bool {
 
 fn logical_line_count(text: &str) -> u32 {
     u32::try_from(text.split_inclusive('\n').count().max(1)).unwrap_or(u32::MAX)
+}
+
+fn index_semantic_nodes<'a>(
+    nodes: &'a [SemanticNode],
+    output: &mut BTreeMap<StableId, &'a SemanticNode>,
+) {
+    for node in nodes {
+        output.insert(node.id, node);
+        match &node.content {
+            SemanticContent::Children(children) => index_semantic_nodes(children, output),
+            SemanticContent::List(list) => {
+                for item in &list.items {
+                    index_semantic_nodes(&item.blocks, output);
+                    for children in &item.children {
+                        index_list_nodes(children, output);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn index_list_nodes<'a>(
+    list: &'a crate::ListContent,
+    output: &mut BTreeMap<StableId, &'a SemanticNode>,
+) {
+    for item in &list.items {
+        index_semantic_nodes(&item.blocks, output);
+        for children in &item.children {
+            index_list_nodes(children, output);
+        }
+    }
+}
+
+fn is_media_relation_node(node: &SemanticNode) -> bool {
+    matches!(
+        node.content,
+        SemanticContent::Image(_) | SemanticContent::Svg(_)
+    )
+}
+
+fn is_text_relation_node(node: &SemanticNode) -> bool {
+    matches!(node.content, SemanticContent::Text(_))
 }
 
 fn role_matches(node: &SemanticNode) -> bool {

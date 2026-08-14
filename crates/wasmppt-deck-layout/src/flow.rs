@@ -1,4 +1,6 @@
-use wasmppt_deck::{FragmentSlice, SemanticContent, SemanticNode, SemanticRole, SplitPolicy};
+use wasmppt_deck::{
+    FragmentSlice, MediaTextRelation, SemanticContent, SemanticNode, SemanticRole, SplitPolicy,
+};
 use wasmppt_shaper::line_breaks;
 
 #[derive(Clone, Debug)]
@@ -16,6 +18,7 @@ pub(crate) enum FlowError {
 
 pub(crate) fn build_flow<'a>(
     nodes: &'a [SemanticNode],
+    relations: &[MediaTextRelation],
     max_units: usize,
 ) -> Result<Vec<FlowUnit<'a>>, FlowError> {
     let mut builder = FlowBuilder {
@@ -27,7 +30,31 @@ pub(crate) fn build_flow<'a>(
         builder.node(node, None, false)?;
     }
     link_adjacent_relations(&mut builder.units);
+    link_explicit_media_captions(&mut builder.units, relations);
     Ok(builder.units)
+}
+
+fn link_explicit_media_captions(units: &mut [FlowUnit<'_>], relations: &[MediaTextRelation]) {
+    for relation in relations
+        .iter()
+        .filter(|relation| relation.explicit_caption)
+    {
+        let media = units
+            .iter()
+            .position(|unit| unit.node.id == relation.media_node_id);
+        let text = units
+            .iter()
+            .rposition(|unit| unit.node.id == relation.text_node_id);
+        let (Some(media), Some(text)) = (media, text) else {
+            continue;
+        };
+        let start = media.min(text);
+        let end = media.max(text);
+        let group = units[start].group;
+        for unit in &mut units[start..=end] {
+            unit.group = group;
+        }
+    }
 }
 
 fn link_adjacent_relations(units: &mut [FlowUnit<'_>]) {

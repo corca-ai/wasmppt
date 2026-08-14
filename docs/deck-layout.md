@@ -36,8 +36,8 @@ byte-derived value. Only an undecodable resource falls back to a positive valida
 includes the display-axis swap for JPEG EXIF orientations five through eight and makes portrait,
 square, and landscape demand identical on native and Wasm hosts.
 Contain-fit media may scale down to its candidate slot, but only while both rendered dimensions
-remain above the readable media floor. A figure in an indivisible figure/caption group reserves
-one quarter of its slot for the following caption before measurement; an extreme aspect ratio that
+remain above `PlannerPolicy::readable_media_floor`. A figure in an indivisible figure/caption group
+reserves one quarter of its slot for the following caption before measurement; an extreme aspect ratio that
 would collapse below the floor remains an atomic overflow. The selected visible frame is centered
 inside the template margins and has the canonical resource aspect within integer EMU tolerance.
 
@@ -79,8 +79,14 @@ slides or visible shape names. The selected topology and slot count are encoded 
 page, while fixed template content and topology-slot regions remain distinguishable through
 composition.
 
-Media/text candidates evaluate narrow, equal, and wide mirrored columns plus a top/bottom variant;
-measured fit selects among them without depending on Markdown source order. Gallery candidates use
+Media/text candidates derive a bounded set of mirrored column and top/bottom split positions from
+the canonical media aspect, readable media floor, measured text minimum/preferred width, measured
+text height, and template margins. Fixed narrow/equal/wide ratios are only a safe fallback when a
+resource cannot be profiled. Measured fit selects among the derived breakpoints without depending
+on Markdown source order. Same-paragraph, adjacent-block, and blank-separated source relations
+become decreasing affinity costs; source side penalizes a contrary visual order, while an explicit
+caption remains an indivisible hard relation. Contain whitespace, relation distance, visual
+imbalance, and complexity are scored after readability. Gallery candidates use
 exact two-, three-, four-, five-, and six-item frame sets. Two items compare rows with columns,
 three compare a lead/supporting arrangement with three columns, and five or six compare 3-by-2 with
 2-by-3 grids. Cover-crop loss is measured from the byte-derived source aspect and candidate frame,

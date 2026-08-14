@@ -166,7 +166,7 @@ pub struct DeckSpec {
 }
 
 impl DeckSpec {
-    pub const SCHEMA_VERSION: u32 = 3;
+    pub const SCHEMA_VERSION: u32 = 4;
 
     pub fn encode(&self, limits: &DeckLimits) -> Result<Vec<u8>, WireError> {
         wire::encode_spec(self, limits)
@@ -184,6 +184,34 @@ pub struct LogicalSlide {
     pub kind: LogicalSlideKind,
     pub hidden: bool,
     pub nodes: Vec<SemanticNode>,
+    /// Factual host-observed relations. Layout policy, geometry, and thresholds stay in wasmppt.
+    pub media_text_relations: Vec<MediaTextRelation>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MediaTextProximity {
+    SameParagraph,
+    AdjacentBlocks,
+    BlankSeparatedBlocks,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MediaTextSide {
+    BeforeMedia,
+    AfterMedia,
+}
+
+/// Source-structure evidence connecting one media node with one editable text node.
+///
+/// `explicit_caption` is an authored convention and therefore a hard cohesion constraint.
+/// Proximity and side are evidence scored by the planner, not host layout decisions.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MediaTextRelation {
+    pub media_node_id: StableId,
+    pub text_node_id: StableId,
+    pub proximity: MediaTextProximity,
+    pub text_side: MediaTextSide,
+    pub explicit_caption: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -1894,6 +1894,7 @@ mod tests {
                     }],
                 }),
             }],
+            media_text_relations: Vec::new(),
         }
     }
 

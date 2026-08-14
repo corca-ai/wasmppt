@@ -2,10 +2,11 @@ use std::{collections::BTreeSet, env, fs, path::PathBuf};
 
 use wasmppt_deck::{
     ChartContent, ChartKind, ChartSeries, CodeContent, DeckLimits, DeckResource, DeckSpec,
-    HyperlinkKind, ImageContent, ListContent, ListItem, LogicalSlide, LogicalSlideKind, PixelSize,
-    ResourceKind, RichText, RichTextRun, SafeHyperlink, SemanticContent, SemanticNode,
-    SemanticRole, SourceRange, SplitPolicy, StableId, SvgContent, TableCell, TableColumn,
-    TableContent, TableRow, TextMarks, validate_deck_spec,
+    HyperlinkKind, ImageContent, ListContent, ListItem, LogicalSlide, LogicalSlideKind,
+    MediaTextProximity, MediaTextRelation, MediaTextSide, PixelSize, ResourceKind, RichText,
+    RichTextRun, SafeHyperlink, SemanticContent, SemanticNode, SemanticRole, SourceRange,
+    SplitPolicy, StableId, SvgContent, TableCell, TableColumn, TableContent, TableRow, TextMarks,
+    validate_deck_spec,
 };
 use wasmppt_opc::{CompressionMethod, EntryOptions, VecSink, ZipWriter};
 
@@ -205,7 +206,7 @@ fn deck_spec() -> DeckSpec {
     let math = id(233);
     let portrait = id(234);
     let wide = id(235);
-    let slides = vec![
+    let mut slides = vec![
         slide(
             1,
             LogicalSlideKind::Title,
@@ -252,12 +253,16 @@ fn deck_spec() -> DeckSpec {
                     SplitPolicy::Never,
                 ),
                 image_node(42, SemanticRole::Figure, square, "square PNG"),
-                text_node(
-                    43,
-                    SemanticRole::Caption,
-                    "Loss-aware media caption",
-                    SplitPolicy::Never,
-                ),
+                {
+                    let mut caption = text_node(
+                        43,
+                        SemanticRole::Caption,
+                        "Loss-aware media caption",
+                        SplitPolicy::Never,
+                    );
+                    caption.source = range(43, 21, 40);
+                    caption
+                },
                 gallery_node(44, [square, portrait, wide, gif]),
             ],
         ),
@@ -351,6 +356,13 @@ fn deck_spec() -> DeckSpec {
             ],
         ),
     ];
+    slides[2].media_text_relations.push(MediaTextRelation {
+        media_node_id: id(42),
+        text_node_id: id(43),
+        proximity: MediaTextProximity::AdjacentBlocks,
+        text_side: MediaTextSide::AfterMedia,
+        explicit_caption: true,
+    });
     DeckSpec {
         id: id(255),
         logical_slides: slides,
@@ -513,6 +525,7 @@ fn slide(
         kind,
         hidden,
         nodes,
+        media_text_relations: Vec::new(),
     }
 }
 

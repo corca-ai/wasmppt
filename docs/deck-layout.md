@@ -24,6 +24,17 @@ If the requested template font bytes are available, measurement uses `wasmppt-sh
 the planner uses deterministic conservative metrics and emits `PLAN_FONT_RISK` for each affected
 source node. Fallback is observable; it is never presented as exact font fidelity.
 
+The content profiler records minimum, preferred, and maximum width demand alongside measured
+height. Text demand uses shaped advances when exact bytes exist. List demand includes complete
+nested item subtrees. Table demand derives per-column weights from cell text and start, center, or
+end alignment instead of assigning every column the same width. Candidate scoring penalizes a
+frame below preferred demand, while a frame below minimum demand is not a legal fit.
+
+Raster PNG, JPEG, and GIF dimensions and SVG width/height or viewBox dimensions are decoded from
+bounded resource bytes. A matching host hint is accepted; a stale hint is replaced by the
+byte-derived value. Only an undecodable resource falls back to a positive validated hint. This
+makes portrait, square, and landscape demand identical on native and Wasm hosts.
+
 ## Semantic flow
 
 Splittable content becomes source-owned units before candidate search:
@@ -40,6 +51,11 @@ Splittable content becomes source-owned units before candidate search:
 Every fragment retains its exact source slice. Repeated table headers and repeated continuation
 headings are page chrome metadata rather than duplicate source fragments, so exact-ownership
 validation still proves complete, ordered, single coverage.
+
+Adjacent prose ranges, list items, table rows, and code lines assigned to the same page lane are
+coalesced back into one contiguous source slice. The planner keeps legal break opportunities
+between these ranges during search, but the composer receives one editable text box, list, table,
+or code block for each final contiguous run.
 
 On a title layout only the title is a fixed header. Every following subtitle, prose, or credit
 block flows through the subtitle region in source order. The same bounded candidate search places
@@ -73,14 +89,16 @@ composer renders this metadata without creating additional source fragments.
 
 `PlannerLimits` independently bounds exact font faces and bytes, flow units, candidate pages,
 candidates per source position, font measurements, and dynamic-programming states. Measurement
-results are cached by node, slice, region role, frame width, and font size. Exceeding a work bound
-fails with `PLAN_WORK_LIMIT`.
+results are cached only within one immutable spec/font planning pass and keyed by node, slice,
+exact template region, region role, frame width and height, font size, and repeated table-header
+state. Exceeding a work bound fails with `PLAN_WORK_LIMIT`.
 
 These are denial-of-service and resource contracts, not a UX slide cap. The caller's `DeckLimits`
 still bounds decoded collections and final physical pages for its host environment. Tests cover
 determinism, exact coverage, relation preservation, readable type, atomic overflow, repeated table
-headers, incremental slide reuse, fallback-font diagnostics, and property-generated bounded
-termination.
+headers, byte-derived media dimensions, alignment-aware table demand, nested-list preservation,
+contiguous editable slices, incremental slide reuse, fallback-font diagnostics, and
+property-generated bounded termination.
 
 ## Verification
 

@@ -642,6 +642,7 @@ dependencies = [
  "sha2",
  "wasmppt-deck",
  "wasmppt-shaper",
+ "wasmppt-xml",
 ]
 
 [[package]]

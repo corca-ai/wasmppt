@@ -448,6 +448,11 @@ pub fn validate_deck_plan(
         .iter()
         .map(|layout| layout.id)
         .collect::<BTreeSet<_>>();
+    let resources = spec
+        .resources
+        .iter()
+        .map(|resource| (resource.id, resource))
+        .collect::<BTreeMap<_, _>>();
     for region in &template.regions {
         if !region.frame.is_within(page_bounds) || region.accepts.is_empty() {
             plan_error(
@@ -467,6 +472,7 @@ pub fn validate_deck_plan(
             nodes: &nodes,
             regions: &regions,
             layouts: &layouts,
+            resources: &resources,
             page_bounds,
             limits,
         },
@@ -524,6 +530,7 @@ struct PlanValidationContext<'a> {
     nodes: &'a BTreeMap<StableId, IndexedNode<'a>>,
     regions: &'a BTreeMap<StableId, &'a crate::TemplateRegion>,
     layouts: &'a BTreeSet<StableId>,
+    resources: &'a BTreeMap<StableId, &'a crate::DeckResource>,
     page_bounds: EmuRect,
     limits: &'a DeckLimits,
 }
@@ -662,6 +669,7 @@ fn validate_pages(
                         expected_repeated_header_rows,
                     },
                     context.nodes,
+                    context.resources,
                     report,
                 );
                 fragment_frames.push((fragment.source_node_id, fragment.frame));
@@ -776,6 +784,7 @@ fn validate_fragment(
     fragment: &PlannedFragment,
     target: &FragmentTarget<'_>,
     nodes: &BTreeMap<StableId, IndexedNode<'_>>,
+    resources: &BTreeMap<StableId, &crate::DeckResource>,
     report: &mut ValidationReport,
 ) {
     let Some(indexed) = nodes.get(&fragment.source_node_id) else {
@@ -826,39 +835,81 @@ fn validate_fragment(
             "table continuation header metadata is inconsistent",
         );
     }
-    if !valid_type_choice(indexed.node, fragment) {
+    if !valid_fragment_choice_kind(indexed.node, fragment) {
         plan_error(
             report,
             DeckDiagnosticCode::PLAN_TARGET_DRIFT,
             Some(target.page_id),
             Some(fragment.source_node_id),
-            "fragment font and fit choices do not match their semantic content",
+            "fragment font or resolved media choices do not match their semantic content",
+        );
+    } else if let Some((resource_id, allow_cover)) = media_resource(indexed.node)
+        && !valid_media_geometry(
+            fragment,
+            target.region_frame,
+            resource_id,
+            resources,
+            allow_cover,
+        )
+    {
+        plan_error(
+            report,
+            DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
+            Some(target.page_id),
+            Some(fragment.source_node_id),
+            "resolved media placement is not canonical for its source and allocated slot",
         );
     }
 }
 
-fn valid_type_choice(node: &SemanticNode, fragment: &PlannedFragment) -> bool {
+fn valid_fragment_choice_kind(node: &SemanticNode, fragment: &PlannedFragment) -> bool {
     match &node.content {
         SemanticContent::Text(_)
         | SemanticContent::List(_)
         | SemanticContent::Table(_)
         | SemanticContent::Code(_) => {
-            fragment.type_choice.font_size > 0
-                && fragment.type_choice.fit == crate::ContentFit::None
+            fragment.type_choice.font_size > 0 && fragment.media.is_none()
         }
-        SemanticContent::Image(_) => {
-            fragment.type_choice.font_size == 0
-                && matches!(
-                    fragment.type_choice.fit,
-                    crate::ContentFit::Contain | crate::ContentFit::Cover
-                )
+        SemanticContent::Image(_) | SemanticContent::Svg(_) => {
+            fragment.type_choice.font_size == 0 && fragment.media.is_some()
         }
-        SemanticContent::Svg(_) | SemanticContent::Chart(_) => {
-            fragment.type_choice.font_size == 0
-                && fragment.type_choice.fit == crate::ContentFit::Contain
+        SemanticContent::Chart(_) => {
+            fragment.type_choice.font_size == 0 && fragment.media.is_none()
         }
         SemanticContent::Children(_) => false,
     }
+}
+
+fn media_resource(node: &SemanticNode) -> Option<(StableId, bool)> {
+    match &node.content {
+        SemanticContent::Image(image) => Some((image.resource_id, true)),
+        SemanticContent::Svg(svg) => Some((svg.resource_id, false)),
+        _ => None,
+    }
+}
+
+fn valid_media_geometry(
+    fragment: &PlannedFragment,
+    region_frame: EmuRect,
+    resource_id: StableId,
+    resources: &BTreeMap<StableId, &crate::DeckResource>,
+    allow_cover: bool,
+) -> bool {
+    let Some(media) = fragment.media else {
+        return false;
+    };
+    let Some(source_size) = resources
+        .get(&resource_id)
+        .and_then(|resource| crate::inspect_media_size(resource))
+    else {
+        return false;
+    };
+    media.source_size == source_size
+        && media.visible_frame == fragment.frame
+        && media.slot.is_within(region_frame)
+        && media.visible_frame.is_within(media.slot)
+        && media.is_canonical()
+        && (allow_cover || media.fit == crate::ContentFit::Contain)
 }
 
 fn first_overlapping_frames(frames: &[(StableId, EmuRect)]) -> Option<(StableId, StableId)> {

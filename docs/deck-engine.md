@@ -71,14 +71,17 @@ and shape names are not part of this contract.
 selected template-layout ID, explicit topology kind and slot count, hidden state, one-based
 continuation ordinal and total, repeated heading identity, minimal `n/total` label, and planned
 regions. A planned region is either fixed template furniture/content or assigned to one indexed
-topology slot. Each
+topology slot. For pictures its frame is the complete allocated slot, while the fragment frame is
+the actual visible picture bounds. Each
 `PlannedFragment` owns:
 
 - one source node;
 - a whole, UTF-8 text, list-item, table-row, or code-line slice;
-- an exact visible frame inside its planned and template regions; contain-fit media uses a frame
-  with the canonical resource aspect rather than an uncropped stretched slot;
-- explicit font size and content-fit choice;
+- an exact visible frame inside its planned and template regions;
+- an explicit font size for editable text content;
+- for raster images and SVG, one resolved `MediaPlacement` containing the allocated slot, exact
+  visible frame, contain/cover fit, canonical display-axis source size, and optional normalized
+  centered source crop. The placement is the only picture geometry consumed downstream;
 - repeated table-header row count for the first continued table fragment on a page.
 
 The plan names its `DeckSpec` and `DeckTemplatePlan` identities and repeats the exact page
@@ -98,6 +101,8 @@ shape, finite chart values, and configured safety limits.
 - every page and fragment stays on its logical slide and an accepting template region;
 - topology kinds have a legal slot count and every slotted region references an existing slot;
 - template, planned-region, and fragment geometry is positive and contained;
+- picture source dimensions match bounded resource-byte inspection, contain frames and cover crops
+  exactly match their recorded slot/source inputs, and SVG never selects cover;
 - physical page groups preserve logical-slide order;
 - continuation ordinals, totals, hidden state, page IDs, and fragment IDs are stable.
 - selected layouts, repeated headings, continuation labels, and repeated table headers agree
@@ -115,7 +120,7 @@ The little-endian envelopes are:
 | --- | ---: | --- |
 | `WDSF` | 3 | `DeckSpec` and binary resources |
 | `WDTP` | 3 | `DeckTemplatePlan` |
-| `WDPL` | 3 | `DeckPlan` |
+| `WDPL` | 4 | `DeckPlan` |
 
 Vectors and strings are length-prefixed. Media remains raw bytes rather than JSON or
 base64. Encoding order follows source and plan vector order, so equal values produce
@@ -125,7 +130,7 @@ and fragment limits before allocating the declared content.
 
 `DeckLimitCode` values are append-only and identify each bounded dimension. Callers may
 tighten `DeckLimits` for a host but MUST NOT turn a limit failure into partial content.
-Checked-in hexadecimal fixtures pin WDSF v3, WDTP v3, and WDPL v3. Older semantic-plan
+Checked-in hexadecimal fixtures pin WDSF v3, WDTP v3, and WDPL v4. Older semantic-plan
 payloads are intentionally unsupported because the planner boundary is replaced atomically.
 
 ## Verification

@@ -14,6 +14,7 @@ default = []
 
 [dependencies]
 sha2.workspace = true
+wasmppt-xml.workspace = true
 
 [dev-dependencies]
 png.workspace = true

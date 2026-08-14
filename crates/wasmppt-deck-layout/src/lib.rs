@@ -19,9 +19,9 @@ use sha2::{Digest, Sha256};
 use wasmppt_deck::{
     ContentFit, DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckResource, DeckSpec,
     DeckTemplatePlan, DiagnosticSeverity, Emu, EmuRect, FragmentSlice, LayoutTopology,
-    LogicalSlide, LogicalSlideKind, PhysicalPage, PixelSize, PlannedFragment, PlannedRegion,
-    RegionPlacement, RegionRole, SemanticContent, SemanticNode, SemanticRole, StableId,
-    TemplateLayout, TemplateLayoutCapability, TemplateRegion, TopologyChoice, TypeChoice,
+    LogicalSlide, LogicalSlideKind, MediaPlacement, PhysicalPage, PixelSize, PlannedFragment,
+    PlannedRegion, RegionPlacement, RegionRole, SemanticContent, SemanticNode, SemanticRole,
+    StableId, TemplateLayout, TemplateLayoutCapability, TemplateRegion, TopologyChoice, TypeChoice,
     validate_deck_plan, validate_deck_spec,
 };
 
@@ -516,7 +516,7 @@ impl DeckPlanner {
                         ..region.frame
                     },
                     font_size: measured.font_size,
-                    fit: ContentFit::None,
+                    media: None,
                     repeat_table_header_rows: 0,
                 },
             ));
@@ -735,7 +735,7 @@ impl DeckPlanner {
                         FragmentPlacement {
                             frame: placement.frame,
                             font_size: placement.font_size,
-                            fit: placement.fit,
+                            media: placement.media,
                             repeat_table_header_rows: placement.repeat_table_header_rows,
                         },
                     ),
@@ -821,6 +821,14 @@ impl DeckPlanner {
                 };
                 let fit = content_fit(target.pattern, unit.node, unit.gallery_item);
                 let intrinsic_size = measurer.intrinsic_size(unit.node);
+                if matches!(
+                    unit.node.content,
+                    SemanticContent::Image(_) | SemanticContent::Svg(_)
+                ) && intrinsic_size.is_none()
+                {
+                    overflow = true;
+                    break;
+                }
                 let measured = measurer
                     .measure(
                         unit.node,
@@ -844,16 +852,24 @@ impl DeckPlanner {
                     overflow = true;
                     break;
                 }
-                let fragment_frame = match (fit, intrinsic_size) {
-                    (ContentFit::Contain, Some(size)) => {
-                        contain_frame(inset_frame(measurement_frame, target.region.margins), size)
-                    }
-                    (ContentFit::Cover, _) => inset_frame(measurement_frame, target.region.margins),
-                    _ => EmuRect {
+                let media = intrinsic_size.and_then(|size| match fit {
+                    ContentFit::Contain => MediaPlacement::contain(
+                        inset_frame(measurement_frame, target.region.margins),
+                        size,
+                    ),
+                    ContentFit::Cover => MediaPlacement::cover(
+                        inset_frame(measurement_frame, target.region.margins),
+                        size,
+                    ),
+                    ContentFit::None => None,
+                });
+                let fragment_frame = media.map_or_else(
+                    || EmuRect {
                         height: measured.height,
                         ..frame
                     },
-                };
+                    |media| media.visible_frame,
+                );
                 if !fragment_frame.is_within(lane_frame) {
                     overflow = true;
                     break;
@@ -874,7 +890,7 @@ impl DeckPlanner {
                             .map_or(0, |size| cover_crop_penalty(size, fragment_frame)),
                     ),
                     font_risk: measured.font_risk,
-                    fit,
+                    media,
                     repeat_table_header_rows: target.repeat_table_header_rows,
                 });
                 cursor = fragment_frame
@@ -953,7 +969,7 @@ impl DeckPlanner {
                             usable_width,
                         ),
                         font_risk: measured.font_risk,
-                        fit: ContentFit::None,
+                        media: None,
                         repeat_table_header_rows: target.repeat_table_header_rows,
                     }],
                     bottom: fragment_frame.y.saturating_add(fragment_frame.height),
@@ -1682,7 +1698,7 @@ struct FittedPlacement<'a> {
     reduction: u32,
     width_penalty: u64,
     font_risk: bool,
-    fit: ContentFit,
+    media: Option<MediaPlacement>,
     repeat_table_header_rows: u32,
 }
 
@@ -1930,47 +1946,6 @@ fn inset_frame(frame: EmuRect, margins: wasmppt_deck::TextMargins) -> EmuRect {
     }
 }
 
-fn contain_frame(slot: EmuRect, size: PixelSize) -> EmuRect {
-    let slot_width = i128::from(slot.width.max(1));
-    let slot_height = i128::from(slot.height.max(1));
-    let image_width = i128::from(size.width.max(1));
-    let image_height = i128::from(size.height.max(1));
-    let (width, height) =
-        if image_width.saturating_mul(slot_height) > slot_width.saturating_mul(image_height) {
-            (
-                slot.width.max(1),
-                i64::try_from(
-                    slot_width
-                        .saturating_mul(image_height)
-                        .checked_div(image_width)
-                        .unwrap_or(1),
-                )
-                .unwrap_or(1)
-                .max(1),
-            )
-        } else {
-            (
-                i64::try_from(
-                    slot_height
-                        .saturating_mul(image_width)
-                        .checked_div(image_height)
-                        .unwrap_or(1),
-                )
-                .unwrap_or(1)
-                .max(1),
-                slot.height.max(1),
-            )
-        };
-    EmuRect {
-        x: slot.x.saturating_add(slot.width.saturating_sub(width) / 2),
-        y: slot
-            .y
-            .saturating_add(slot.height.saturating_sub(height) / 2),
-        width,
-        height,
-    }
-}
-
 fn cover_crop_penalty(size: PixelSize, frame: EmuRect) -> u64 {
     let image_width = u128::from(size.width);
     let image_height = u128::from(size.height);
@@ -2146,13 +2121,14 @@ fn planned_region(
     let FragmentPlacement {
         frame,
         font_size,
-        fit,
+        media,
         repeat_table_header_rows,
     } = choice;
+    let planned_region_frame = media.map_or(frame, |media| media.slot);
     PlannedRegion {
         template_region_id: region.id,
         placement,
-        frame,
+        frame: planned_region_frame,
         fragments: vec![PlannedFragment {
             id: PlannedFragment::expected_id(node.id, slice),
             source_node_id: node.id,
@@ -2160,8 +2136,8 @@ fn planned_region(
             frame,
             type_choice: TypeChoice {
                 font_size: if is_text(node) { font_size } else { 0 },
-                fit,
             },
+            media,
             repeat_table_header_rows,
         }],
     }
@@ -2171,7 +2147,7 @@ fn planned_region(
 struct FragmentPlacement {
     frame: EmuRect,
     font_size: u32,
-    fit: ContentFit,
+    media: Option<MediaPlacement>,
     repeat_table_header_rows: u32,
 }
 
@@ -2214,6 +2190,7 @@ fn push_coalesced_region(regions: &mut Vec<PlannedRegion>, next: PlannedRegion) 
     };
     if previous_fragment.source_node_id != next_fragment.source_node_id
         || previous_fragment.type_choice != next_fragment.type_choice
+        || previous_fragment.media != next_fragment.media
         || previous_fragment.frame.x != next_fragment.frame.x
         || previous_fragment.frame.width != next_fragment.frame.width
         || (previous_fragment.repeat_table_header_rows != next_fragment.repeat_table_header_rows
@@ -2608,7 +2585,11 @@ mod tests {
                 )
                 .unwrap();
             let media = fragments(&plan.pages[0])
-                .filter(|fragment| fragment.type_choice.fit == ContentFit::Cover)
+                .filter(|fragment| {
+                    fragment
+                        .media
+                        .is_some_and(|media| media.fit == ContentFit::Cover)
+                })
                 .collect::<Vec<_>>();
 
             assert_eq!(plan.pages[0].topology.kind, LayoutTopology::Gallery);
@@ -2715,7 +2696,11 @@ mod tests {
                 .map(|page| {
                     assert_eq!(page.topology.kind, LayoutTopology::Gallery);
                     fragments(page)
-                        .filter(|fragment| fragment.type_choice.fit == ContentFit::Cover)
+                        .filter(|fragment| {
+                            fragment
+                                .media
+                                .is_some_and(|media| media.fit == ContentFit::Cover)
+                        })
                         .count()
                 })
                 .collect::<Vec<_>>();
@@ -2783,13 +2768,17 @@ mod tests {
                     .flat_map(fragments)
                     .find(|fragment| fragment.source_node_id == node)
                     .unwrap()
-                    .type_choice
+                    .media
+                    .unwrap()
                     .fit,
                 ContentFit::Contain
             );
         }
         assert!(plan.pages.iter().flat_map(fragments).any(|fragment| {
-            fragment.source_node_id == id(10) && fragment.type_choice.fit == ContentFit::Cover
+            fragment.source_node_id == id(10)
+                && fragment
+                    .media
+                    .is_some_and(|media| media.fit == ContentFit::Cover)
         }));
         assert!(validate_deck_plan(&spec, &template(5_500_000), &plan, &limits()).is_valid());
     }
@@ -2826,7 +2815,7 @@ mod tests {
                 - i128::from(fragment.frame.height) * i128::from(width))
             .abs();
 
-            assert_eq!(fragment.type_choice.fit, ContentFit::Contain);
+            assert_eq!(fragment.media.unwrap().fit, ContentFit::Contain);
             assert!(error <= i128::from(width.max(height)));
             assert!(fragment.frame.x >= template.regions[1].frame.x + 110_000);
             assert!(fragment.frame.y >= template.regions[1].frame.y + 120_000);

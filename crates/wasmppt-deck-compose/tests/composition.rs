@@ -3,16 +3,18 @@ use std::{borrow::Cow, sync::Arc};
 use gif::{Encoder, Frame};
 use sha2::{Digest, Sha256};
 use wasmppt_deck::{
-    ChartContent, ChartKind, ChartSeries, ContentFit, Continuation, DeckLimits, DeckPlan,
+    ChartContent, ChartKind, ChartSeries, Continuation, DeckDiagnosticCode, DeckLimits, DeckPlan,
     DeckResource, DeckSpec, DeckTemplatePlan, EmuRect, EmuSize, FragmentSlice, HyperlinkKind,
-    ImageContent, ListContent, ListItem, LogicalSlide, LogicalSlideKind, PhysicalPage, PixelSize,
-    PlaceholderIdentity, PlannedFragment, PlannedRegion, RegionRole, ResourceKind, RichText,
-    RichTextRun, SafeHyperlink, SemanticContent, SemanticNode, SemanticRole, SourceRange,
-    SplitPolicy, StableId, SvgContent, TableCell, TableColumn, TableContent, TableRow,
-    TemplateLayout, TemplateLayoutCapability, TemplateRegion, TemplateTextColor, TemplateTextLevel,
-    TemplateTheme, TextMargins, TextMarks, TypeChoice, validate_deck_plan,
+    ImageContent, ListContent, ListItem, LogicalSlide, LogicalSlideKind, MediaPlacement,
+    PhysicalPage, PixelSize, PlaceholderIdentity, PlannedFragment, PlannedRegion, RegionRole,
+    ResourceKind, RichText, RichTextRun, SafeHyperlink, SemanticContent, SemanticNode,
+    SemanticRole, SourceRange, SplitPolicy, StableId, SvgContent, TableCell, TableColumn,
+    TableContent, TableRow, TemplateLayout, TemplateLayoutCapability, TemplateRegion,
+    TemplateTextColor, TemplateTextLevel, TemplateTheme, TextMargins, TextMarks, TypeChoice,
+    validate_deck_plan,
 };
 use wasmppt_deck_compose::{ComposeErrorCode, ComposeLimits, DeckComposer};
+use wasmppt_display::{DisplayCommand, DisplayList};
 use wasmppt_layout::{
     ChartKind as ResolvedChartKind, ElementKind, PresentationDocument, SourceLevel,
 };
@@ -346,7 +348,23 @@ fn fixture() -> (Vec<u8>, DeckSpec, DeckTemplatePlan, DeckPlan) {
         .into_iter()
         .zip(slices)
         .zip(frames)
-        .map(|((source_node_id, slice), frame)| PlannedFragment {
+        .map(|((source_node_id, slice), frame)| {
+            let media = if source_node_id == id(20) {
+                MediaPlacement::cover(frame, PixelSize { width: 2, height: 1 })
+            } else if source_node_id == id(21) {
+                MediaPlacement::contain(
+                    EmuRect {
+                        x: 6_700_000,
+                        y: 300_000,
+                        width: 2_000_000,
+                        height: 1_500_000,
+                    },
+                    PixelSize { width: 10, height: 10 },
+                )
+            } else {
+                None
+            };
+            PlannedFragment {
             id: PlannedFragment::expected_id(source_node_id, slice),
             source_node_id,
             slice,
@@ -358,16 +376,10 @@ fn fixture() -> (Vec<u8>, DeckSpec, DeckTemplatePlan, DeckPlan) {
                 } else {
                     0
                 },
-                fit: if source_node_id == id(20) {
-                    ContentFit::Cover
-                } else if source_node_id == id(21) {
-                    ContentFit::Contain
-                } else {
-                    ContentFit::None
-                },
             },
+            media,
             repeat_table_header_rows: 0,
-        })
+        }})
         .collect();
     let plan = DeckPlan {
         id: id(4),
@@ -428,6 +440,12 @@ fn composes_editable_vector_and_first_frame_media_into_a_live_overlay() {
             && slide.contains("lvl=\"1\"")
     );
     assert!(slide.contains("asvg:svgBlip") && slide.contains("descr=\"Animated chart\""));
+    let covered_gif = slide
+        .split("<p:pic>")
+        .nth(1)
+        .and_then(|tail| tail.split("</p:pic>").next())
+        .expect("covered GIF picture");
+    assert!(covered_gif.contains("<a:srcRect l=\"16667\" t=\"0\" r=\"16667\" b=\"0\"/>"));
     let contained_svg = slide
         .rsplit("<p:pic>")
         .next()
@@ -488,6 +506,28 @@ fn composes_editable_vector_and_first_frame_media_into_a_live_overlay() {
     let direct_slide = direct.resolve_slide(0).unwrap();
     let reopened_slide = reopened.resolve_slide(0).unwrap();
     assert_eq!(direct_slide.slide, reopened_slide.slide);
+    let crops = direct_slide
+        .slide
+        .elements
+        .iter()
+        .filter_map(|element| match element.kind {
+            ElementKind::Image { crop, .. } => Some(crop),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(crops[0].left, 16_667);
+    assert_eq!(crops[0].right, 16_667);
+    assert_eq!(crops[1], wasmppt_layout::ImageCrop::default());
+    let display = DisplayList::from_slide(&direct_slide.slide);
+    let display_crops = display
+        .commands
+        .iter()
+        .filter_map(|command| match command {
+            DisplayCommand::DrawImage { crop, .. } => Some(*crop),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(display_crops, crops);
     assert_eq!(direct_slide.diagnostics, reopened_slide.diagnostics);
     assert_eq!(
         direct.slide_dependency_fingerprint(0).unwrap(),
@@ -500,6 +540,44 @@ fn composes_editable_vector_and_first_frame_media_into_a_live_overlay() {
         wasmppt_opc::DiagnosticCode::MissingRelationshipTarget
             | wasmppt_opc::DiagnosticCode::InvalidRelationshipsXml
     )));
+}
+
+#[test]
+fn validation_rejects_drifted_resolved_media_geometry() {
+    let (_, spec, template, plan) = fixture();
+
+    let mut contain_drift = plan.clone();
+    contain_drift.pages[0].regions[0].fragments[3]
+        .media
+        .as_mut()
+        .unwrap()
+        .visible_frame
+        .width += 1;
+    let contain_report =
+        validate_deck_plan(&spec, &template, &contain_drift, &DeckLimits::default());
+    assert!(
+        contain_report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == DeckDiagnosticCode::PLAN_INVALID_GEOMETRY)
+    );
+
+    let mut cover_drift = plan;
+    cover_drift.pages[0].regions[0].fragments[2]
+        .media
+        .as_mut()
+        .unwrap()
+        .crop
+        .as_mut()
+        .unwrap()
+        .left += 1;
+    let cover_report = validate_deck_plan(&spec, &template, &cover_drift, &DeckLimits::default());
+    assert!(
+        cover_report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == DeckDiagnosticCode::PLAN_INVALID_GEOMETRY)
+    );
 }
 
 #[test]
@@ -670,10 +748,8 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
             width: 9_000_000,
             height: 2_000_000,
         },
-        type_choice: TypeChoice {
-            font_size: 1_600,
-            fit: ContentFit::None,
-        },
+        type_choice: TypeChoice { font_size: 1_600 },
+        media: None,
         repeat_table_header_rows: 0,
     };
     let table_second = PlannedFragment {
@@ -686,10 +762,8 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
             width: 9_000_000,
             height: 1_500_000,
         },
-        type_choice: TypeChoice {
-            font_size: 1_600,
-            fit: ContentFit::None,
-        },
+        type_choice: TypeChoice { font_size: 1_600 },
+        media: None,
         repeat_table_header_rows: 1,
     };
     let chart_fragment = PlannedFragment {
@@ -702,10 +776,8 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
             width: 9_000_000,
             height: 3_000_000,
         },
-        type_choice: TypeChoice {
-            font_size: 0,
-            fit: ContentFit::Contain,
-        },
+        type_choice: TypeChoice { font_size: 0 },
+        media: None,
         repeat_table_header_rows: 0,
     };
     let slide_id = spec.logical_slides[0].id;

@@ -5,7 +5,7 @@ mod dogfood_package;
 
 use sha2::{Digest, Sha256};
 use wasmppt_deck::{
-    ChartContent, ChartKind, ChartSeries, ContentFit, Continuation, DeckLimits, DeckPlan, DeckSpec,
+    ChartContent, ChartKind, ChartSeries, Continuation, DeckLimits, DeckPlan, DeckSpec,
     DeckTemplatePlan, EmuRect, EmuSize, FragmentSlice, HyperlinkKind, LogicalSlide,
     LogicalSlideKind, PhysicalPage, PlaceholderIdentity, PlannedFragment, PlannedRegion,
     RegionRole, RichText, RichTextRun, SafeHyperlink, SemanticContent, SemanticNode, SemanticRole,
@@ -218,10 +218,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             width: 10_800_000,
                             height: 800_000,
                         },
-                        type_choice: TypeChoice {
-                            font_size: 3_200,
-                            fit: ContentFit::None,
-                        },
+                        type_choice: TypeChoice { font_size: 3_200 },
+                        media: None,
                         repeat_table_header_rows: 0,
                     },
                     PlannedFragment {
@@ -237,10 +235,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             width: 5_000_000,
                             height: 2_000_000,
                         },
-                        type_choice: TypeChoice {
-                            font_size: 1_600,
-                            fit: ContentFit::None,
-                        },
+                        type_choice: TypeChoice { font_size: 1_600 },
+                        media: None,
                         repeat_table_header_rows: 0,
                     },
                     PlannedFragment {
@@ -253,10 +249,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             width: 5_000_000,
                             height: 4_000_000,
                         },
-                        type_choice: TypeChoice {
-                            font_size: 0,
-                            fit: ContentFit::Contain,
-                        },
+                        type_choice: TypeChoice { font_size: 0 },
+                        media: None,
                         repeat_table_header_rows: 0,
                     },
                 ],

@@ -143,7 +143,7 @@ fn reports_each_plan_integrity_failure_with_a_stable_code() {
     let mut invalid_type_choice = plan.clone();
     invalid_type_choice.pages[1].regions[0].fragments[0]
         .type_choice
-        .fit = ContentFit::Cover;
+        .font_size = 0;
     assert_code(
         &spec,
         &template,
@@ -272,6 +272,36 @@ fn all_contract_payloads_round_trip_deterministically() {
 }
 
 #[test]
+fn plan_codec_round_trips_resolved_media_placement() {
+    let spec = simple_spec();
+    let template = template_plan();
+    let mut plan = valid_plan(&spec, &template);
+    let slot = EmuRect {
+        x: 700_000,
+        y: 700_000,
+        width: 3_000_000,
+        height: 2_000_000,
+    };
+    let media = MediaPlacement::cover(
+        slot,
+        PixelSize {
+            width: 2_000,
+            height: 1_000,
+        },
+    )
+    .unwrap();
+    let fragment = &mut plan.pages[0].regions[0].fragments[0];
+    fragment.frame = media.visible_frame;
+    fragment.media = Some(media);
+
+    let bytes = plan.encode(&DeckLimits::default()).unwrap();
+    assert_eq!(
+        DeckPlan::decode(&bytes, &DeckLimits::default()).unwrap(),
+        plan
+    );
+}
+
+#[test]
 fn golden_payloads_are_stable() {
     let limits = DeckLimits::default();
     assert_golden(
@@ -290,8 +320,8 @@ fn golden_payloads_are_stable() {
         valid_plan(&simple_spec(), &template_plan_with_unknown_diagnostic())
             .encode(&limits)
             .unwrap(),
-        "fixtures/deck-contracts/deck-plan-v3.hex",
-        include_str!("../../../fixtures/deck-contracts/deck-plan-v3.hex"),
+        "fixtures/deck-contracts/deck-plan-v4.hex",
+        include_str!("../../../fixtures/deck-contracts/deck-plan-v4.hex"),
     );
 }
 
@@ -753,10 +783,8 @@ fn fragment(source_node_id: StableId, slice: FragmentSlice, y: Emu) -> PlannedFr
             width: 10_000_000,
             height: 800_000,
         },
-        type_choice: TypeChoice {
-            font_size: 2_400,
-            fit: ContentFit::None,
-        },
+        type_choice: TypeChoice { font_size: 2_400 },
+        media: None,
         repeat_table_header_rows: 0,
     }
 }

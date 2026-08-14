@@ -22,6 +22,7 @@ wasmppt-template.workspace = true
 wasmppt-xml.workspace = true
 
 [dev-dependencies]
+wasmppt-display.workspace = true
 wasmppt-layout.workspace = true
 
 [lints]

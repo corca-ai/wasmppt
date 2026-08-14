@@ -6,7 +6,7 @@ use std::{
 };
 
 use wasmppt_deck::{
-    ContentFit, DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckResource, DeckSpec,
+    DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckResource, DeckSpec,
     DiagnosticSeverity, FragmentSlice, LayoutTopology, RegionPlacement, SemanticContent,
     SemanticNode, SemanticRole, StableId,
 };
@@ -127,7 +127,7 @@ fn assert_layout_quality(
                 }
                 if role == SemanticRole::Figure {
                     media_fragments += 1;
-                    if fragment.type_choice.fit == ContentFit::None
+                    if fragment.media.is_none()
                         || fragment.frame.width < 900_000
                         || fragment.frame.height < 700_000
                     {

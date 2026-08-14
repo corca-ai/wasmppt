@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use wasmppt_deck::{
-    ChartContent, ChartKind, ContentFit, EmuRect, EmuSize, FragmentSlice, HyperlinkKind,
-    ListContent, PhysicalPage, PlannedFragment, RegionRole, RichText, RichTextRun, SemanticContent,
+    ChartContent, ChartKind, EmuRect, EmuSize, FragmentSlice, HyperlinkKind, ListContent,
+    PhysicalPage, PlannedFragment, RegionRole, RichText, RichTextRun, SemanticContent,
     SemanticNode, StableId, TableColumnAlignment, TableContent, TemplateLayout, TemplateRegion,
     TemplateTextLevel, TemplateTheme,
 };
@@ -212,23 +212,28 @@ impl SlideWriter<'_> {
                         "prepared image is missing",
                     )
                 })?;
-                self.picture(
-                    fragment.frame,
-                    &image.alt_text,
-                    media,
-                    fragment.type_choice.fit,
-                    false,
-                )
+                let placement = fragment.media.ok_or_else(|| {
+                    ComposeError::new(
+                        ComposeErrorCode::InvalidContract,
+                        "planned image placement is missing",
+                    )
+                })?;
+                self.picture(&image.alt_text, media, placement, false)
             }
             SemanticContent::Svg(svg) => {
                 let media = self.media.get(&svg.resource_id).ok_or_else(|| {
                     ComposeError::new(ComposeErrorCode::InvalidContract, "prepared SVG is missing")
                 })?;
+                let placement = fragment.media.ok_or_else(|| {
+                    ComposeError::new(
+                        ComposeErrorCode::InvalidContract,
+                        "planned SVG placement is missing",
+                    )
+                })?;
                 self.picture(
-                    fragment.frame,
                     svg.source_text.as_deref().unwrap_or("Vector graphic"),
                     media,
-                    fragment.type_choice.fit,
+                    placement,
                     true,
                 )
             }
@@ -541,12 +546,17 @@ impl SlideWriter<'_> {
 
     fn picture(
         &mut self,
-        frame: EmuRect,
         alt: &str,
         media: &PreparedMedia,
-        fit: ContentFit,
+        placement: wasmppt_deck::MediaPlacement,
         svg: bool,
     ) -> Result<(), ComposeError> {
+        if media.size != Some(placement.source_size) || !placement.is_canonical() {
+            return Err(ComposeError::new(
+                ComposeErrorCode::InvalidContract,
+                "prepared media dimensions differ from the resolved plan",
+            ));
+        }
         let shape_id = self.take_shape_id()?;
         let relationship_id = self.take_relationship_id()?;
         let target = media
@@ -558,8 +568,8 @@ impl SlideWriter<'_> {
             xml_attr(&relationship_id),
             xml_attr(target)
         ));
-        let crop = crop(media, frame, fit);
-        let visible_frame = picture_frame(media, frame, fit);
+        let crop = crop_xml(placement.crop);
+        let visible_frame = placement.visible_frame;
         let svg_extension = if svg {
             format!(
                 "<a:extLst><a:ext uri=\"{{96DAC541-7B7A-43D3-8B79-37D633B846F1}}\"><asvg:svgBlip xmlns:asvg=\"http://schemas.microsoft.com/office/drawing/2016/SVG/main\" r:embed=\"{}\"/></a:ext></a:extLst>",
@@ -798,86 +808,16 @@ fn append_list(
     }
 }
 
-fn picture_frame(media: &PreparedMedia, slot: EmuRect, fit: ContentFit) -> EmuRect {
-    let Some(size) = media.size else {
-        return slot;
-    };
-    if fit != ContentFit::Contain
-        || slot.width <= 0
-        || slot.height <= 0
-        || size.width == 0
-        || size.height == 0
-    {
-        return slot;
-    }
-    let slot_width = i128::from(slot.width);
-    let slot_height = i128::from(slot.height);
-    let image_width = i128::from(size.width);
-    let image_height = i128::from(size.height);
-    let aspect_error = slot_width
-        .saturating_mul(image_height)
-        .saturating_sub(slot_height.saturating_mul(image_width))
-        .abs();
-    if aspect_error <= image_width.max(image_height) {
-        return slot;
-    }
-    let (width, height) =
-        if image_width.saturating_mul(slot_height) > slot_width.saturating_mul(image_height) {
-            (
-                slot.width,
-                i64::try_from(
-                    slot_width
-                        .saturating_mul(image_height)
-                        .checked_div(image_width)
-                        .unwrap_or(1),
-                )
-                .unwrap_or(1)
-                .max(1),
+fn crop_xml(crop: Option<wasmppt_deck::SourceCrop>) -> String {
+    crop.map_or_else(
+        || "<a:srcRect/>".to_owned(),
+        |crop| {
+            format!(
+                "<a:srcRect l=\"{}\" t=\"{}\" r=\"{}\" b=\"{}\"/>",
+                crop.left, crop.top, crop.right, crop.bottom
             )
-        } else {
-            (
-                i64::try_from(
-                    slot_height
-                        .saturating_mul(image_width)
-                        .checked_div(image_height)
-                        .unwrap_or(1),
-                )
-                .unwrap_or(1)
-                .max(1),
-                slot.height,
-            )
-        };
-    EmuRect {
-        x: slot.x.saturating_add(slot.width.saturating_sub(width) / 2),
-        y: slot
-            .y
-            .saturating_add(slot.height.saturating_sub(height) / 2),
-        width,
-        height,
-    }
-}
-
-fn crop(media: &PreparedMedia, frame: EmuRect, fit: ContentFit) -> String {
-    let Some(size) = media.size else {
-        return "<a:srcRect/>".to_owned();
-    };
-    if fit != ContentFit::Cover
-        || frame.width <= 0
-        || frame.height <= 0
-        || size.width == 0
-        || size.height == 0
-    {
-        return "<a:srcRect/>".to_owned();
-    }
-    let image_ratio = f64::from(size.width) / f64::from(size.height);
-    let frame_ratio = frame.width as f64 / frame.height as f64;
-    if image_ratio > frame_ratio {
-        let side = (((1.0 - frame_ratio / image_ratio) / 2.0) * 100_000.0).round() as u32;
-        format!("<a:srcRect l=\"{side}\" r=\"{side}\"/>")
-    } else {
-        let side = (((1.0 - image_ratio / frame_ratio) / 2.0) * 100_000.0).round() as u32;
-        format!("<a:srcRect t=\"{side}\" b=\"{side}\"/>")
-    }
+        },
+    )
 }
 
 fn margins(region: Option<&TemplateRegion>) -> String {

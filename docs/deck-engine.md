@@ -37,7 +37,8 @@ package.
 - bold, italic, strikethrough, inline-code, and typed safe-hyperlink rich-text runs;
 - explicit `Never`, `Text`, `ListItems`, `TableRows`, `CodeLines`, and `Children` split policy;
 - raster and SVG resources as binary bytes with media type and optional host-observed dimension
-  hints, which the core validates or replaces with dimensions derived from bounded bytes;
+  hints, which the core validates or replaces with dimensions derived from bounded bytes; JPEG
+  display dimensions include bounded EXIF orientation rather than only its stored sample matrix;
 - table columns with explicit start, center, or end alignment.
 
 The model intentionally has no speaker-notes field. Markdown parsing, URL authorization,
@@ -75,7 +76,8 @@ topology slot. Each
 
 - one source node;
 - a whole, UTF-8 text, list-item, table-row, or code-line slice;
-- an exact frame inside its planned and template regions;
+- an exact visible frame inside its planned and template regions; contain-fit media uses a frame
+  with the canonical resource aspect rather than an uncropped stretched slot;
 - explicit font size and content-fit choice;
 - repeated table-header row count for the first continued table fragment on a page.
 

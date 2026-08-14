@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use wasmppt_deck::{
     DeckResource, Emu, EmuRect, FragmentSlice, PixelSize, RegionRole, ResourceKind,
     SemanticContent, SemanticNode, SemanticRole, StableId, TableColumnAlignment, TemplateRegion,
+    inspect_jpeg_size,
 };
 use wasmppt_shaper::{ShapeOptions, ShapedRun, shape};
 use wasmppt_xml::{TokenKind, XmlDocument};
@@ -252,7 +253,9 @@ impl<'a> Measurer<'a> {
 fn canonical_intrinsic_size(resource: &DeckResource) -> Option<PixelSize> {
     let derived = match (resource.kind, resource.media_type.as_str()) {
         (ResourceKind::RasterImage, "image/png") => png_size(&resource.bytes),
-        (ResourceKind::RasterImage, "image/jpeg" | "image/jpg") => jpeg_size(&resource.bytes),
+        (ResourceKind::RasterImage, "image/jpeg" | "image/jpg") => {
+            inspect_jpeg_size(&resource.bytes)
+        }
         (ResourceKind::RasterImage, "image/gif") => gif_size(&resource.bytes),
         (ResourceKind::Svg, "image/svg+xml") => svg_size(&resource.bytes),
         _ => None,
@@ -278,63 +281,6 @@ fn gif_size(bytes: &[u8]) -> Option<PixelSize> {
         u32::from(u16::from_le_bytes(bytes.get(6..8)?.try_into().ok()?)),
         u32::from(u16::from_le_bytes(bytes.get(8..10)?.try_into().ok()?)),
     )
-}
-
-fn jpeg_size(bytes: &[u8]) -> Option<PixelSize> {
-    if bytes.get(..2)? != [0xff, 0xd8] {
-        return None;
-    }
-    let mut offset = 2usize;
-    while offset.saturating_add(4) <= bytes.len() {
-        while bytes.get(offset) == Some(&0xff) {
-            offset = offset.saturating_add(1);
-        }
-        let marker = *bytes.get(offset)?;
-        offset = offset.saturating_add(1);
-        if matches!(marker, 0x01 | 0xd8 | 0xd9) || (0xd0..=0xd7).contains(&marker) {
-            continue;
-        }
-        let length = usize::from(u16::from_be_bytes(
-            bytes
-                .get(offset..offset.saturating_add(2))?
-                .try_into()
-                .ok()?,
-        ));
-        if length < 2 || offset.saturating_add(length) > bytes.len() {
-            return None;
-        }
-        if matches!(
-            marker,
-            0xc0 | 0xc1
-                | 0xc2
-                | 0xc3
-                | 0xc5
-                | 0xc6
-                | 0xc7
-                | 0xc9
-                | 0xca
-                | 0xcb
-                | 0xcd
-                | 0xce
-                | 0xcf
-        ) {
-            let height = u32::from(u16::from_be_bytes(
-                bytes
-                    .get(offset.saturating_add(3)..offset.saturating_add(5))?
-                    .try_into()
-                    .ok()?,
-            ));
-            let width = u32::from(u16::from_be_bytes(
-                bytes
-                    .get(offset.saturating_add(5)..offset.saturating_add(7))?
-                    .try_into()
-                    .ok()?,
-            ));
-            return pixel_size(width, height);
-        }
-        offset = offset.saturating_add(length);
-    }
-    None
 }
 
 fn svg_size(bytes: &[u8]) -> Option<PixelSize> {

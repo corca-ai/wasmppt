@@ -5,12 +5,14 @@
 //! physical pages. The contracts contain no host APIs and use bounded, versioned binary
 //! encodings for native, Wasm, browser Worker, and workerd boundaries.
 
+mod media;
 mod validate;
 mod wire;
 
 use sha2::{Digest, Sha256};
 use std::fmt;
 
+pub use media::inspect_jpeg_size;
 pub use validate::{validate_deck_plan, validate_deck_spec};
 pub use wire::{WireError, WireErrorKind};
 

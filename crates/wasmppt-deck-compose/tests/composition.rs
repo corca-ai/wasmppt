@@ -329,9 +329,9 @@ fn fixture() -> (Vec<u8>, DeckSpec, DeckTemplatePlan, DeckPlan) {
             height: 1_500_000,
         },
         EmuRect {
-            x: 6_700_000,
+            x: 6_950_000,
             y: 300_000,
-            width: 2_000_000,
+            width: 1_500_000,
             height: 1_500_000,
         },
     ];
@@ -428,6 +428,16 @@ fn composes_editable_vector_and_first_frame_media_into_a_live_overlay() {
             && slide.contains("lvl=\"1\"")
     );
     assert!(slide.contains("asvg:svgBlip") && slide.contains("descr=\"Animated chart\""));
+    let contained_svg = slide
+        .rsplit("<p:pic>")
+        .next()
+        .and_then(|tail| tail.split("</p:pic>").next())
+        .expect("contained SVG picture");
+    assert!(
+        contained_svg.contains("<a:off x=\"6950000\" y=\"300000\"/>")
+            && contained_svg.contains("<a:ext cx=\"1500000\" cy=\"1500000\"/>")
+            && contained_svg.contains("<a:srcRect/>")
+    );
     assert!(rels.contains("https://example.com/deck") && rels.contains("TargetMode=\"External\""));
     let gif_still_name = overlay
         .part_names()

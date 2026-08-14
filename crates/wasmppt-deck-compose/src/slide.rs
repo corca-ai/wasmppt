@@ -559,6 +559,7 @@ impl SlideWriter<'_> {
             xml_attr(target)
         ));
         let crop = crop(media, frame, fit);
+        let visible_frame = picture_frame(media, frame, fit);
         let svg_extension = if svg {
             format!(
                 "<a:extLst><a:ext uri=\"{{96DAC541-7B7A-43D3-8B79-37D633B846F1}}\"><asvg:svgBlip xmlns:asvg=\"http://schemas.microsoft.com/office/drawing/2016/SVG/main\" r:embed=\"{}\"/></a:ext></a:extLst>",
@@ -569,7 +570,12 @@ impl SlideWriter<'_> {
         };
         self.xml.push_str(&format!(
             "<p:pic><p:nvPicPr><p:cNvPr id=\"{shape_id}\" name=\"Media {shape_id}\" descr=\"{}\"/><p:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed=\"{}\">{svg_extension}</a:blip>{crop}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x=\"{}\" y=\"{}\"/><a:ext cx=\"{}\" cy=\"{}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr></p:pic>",
-            xml_attr(alt), xml_attr(&relationship_id), frame.x, frame.y, frame.width, frame.height
+            xml_attr(alt),
+            xml_attr(&relationship_id),
+            visible_frame.x,
+            visible_frame.y,
+            visible_frame.width,
+            visible_frame.height
         ));
         Ok(())
     }
@@ -789,6 +795,58 @@ fn append_list(
                 output,
             );
         }
+    }
+}
+
+fn picture_frame(media: &PreparedMedia, slot: EmuRect, fit: ContentFit) -> EmuRect {
+    let Some(size) = media.size else {
+        return slot;
+    };
+    if fit != ContentFit::Contain
+        || slot.width <= 0
+        || slot.height <= 0
+        || size.width == 0
+        || size.height == 0
+    {
+        return slot;
+    }
+    let slot_width = i128::from(slot.width);
+    let slot_height = i128::from(slot.height);
+    let image_width = i128::from(size.width);
+    let image_height = i128::from(size.height);
+    let (width, height) =
+        if image_width.saturating_mul(slot_height) > slot_width.saturating_mul(image_height) {
+            (
+                slot.width,
+                i64::try_from(
+                    slot_width
+                        .saturating_mul(image_height)
+                        .checked_div(image_width)
+                        .unwrap_or(1),
+                )
+                .unwrap_or(1)
+                .max(1),
+            )
+        } else {
+            (
+                i64::try_from(
+                    slot_height
+                        .saturating_mul(image_width)
+                        .checked_div(image_height)
+                        .unwrap_or(1),
+                )
+                .unwrap_or(1)
+                .max(1),
+                slot.height,
+            )
+        };
+    EmuRect {
+        x: slot.x.saturating_add(slot.width.saturating_sub(width) / 2),
+        y: slot
+            .y
+            .saturating_add(slot.height.saturating_sub(height) / 2),
+        width,
+        height,
     }
 }
 

@@ -50,6 +50,8 @@ those cover details without overlapping independently positioned header and body
 For each source position the planner evaluates a fixed generic family over the selected template
 body or statement frame: stack, balanced columns, weighted split, peer grid, lead/supporting, and
 dominant-content split. Candidates never infer layout from example slides or visible shape names.
+The selected candidate is encoded on each physical page as a topology kind and legal slot count;
+fixed template content and topology-slot regions remain distinguishable through composition.
 
 Dynamic programming first minimizes physical page count, then a deterministic cost combining font
 reduction, squared unused-frame area, narrow text measure, single-text orphaning, and candidate

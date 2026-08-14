@@ -36,7 +36,9 @@ package.
   chart, code, diagram, display math, quote, credit, definition, and statement roles;
 - bold, italic, strikethrough, inline-code, and typed safe-hyperlink rich-text runs;
 - explicit `Never`, `Text`, `ListItems`, `TableRows`, `CodeLines`, and `Children` split policy;
-- raster and SVG resources as binary bytes with media type and optional dimensions.
+- raster and SVG resources as binary bytes with media type and optional host-observed dimension
+  hints, which the core validates or replaces with dimensions derived from bounded bytes;
+- table columns with explicit start, center, or end alignment.
 
 The model intentionally has no speaker-notes field. Markdown parsing, URL authorization,
 project-file access and SVG production belong to the host adapter. The core validates that
@@ -65,14 +67,16 @@ copy unknown markup from the hash-matched POTX rather than reconstructing it. Vi
 and shape names are not part of this contract.
 
 `DeckPlan` contains physical pages grouped by logical slide. A page carries its stable ID,
-selected template-layout ID, hidden state, one-based continuation ordinal and total, repeated
-heading identity, minimal `n/total` label, and planned regions. Each
+selected template-layout ID, explicit topology kind and slot count, hidden state, one-based
+continuation ordinal and total, repeated heading identity, minimal `n/total` label, and planned
+regions. A planned region is either fixed template furniture/content or assigned to one indexed
+topology slot. Each
 `PlannedFragment` owns:
 
 - one source node;
 - a whole, UTF-8 text, list-item, table-row, or code-line slice;
 - an exact frame inside its planned and template regions;
-- explicit font size, column count, and content-fit choice;
+- explicit font size and content-fit choice;
 - repeated table-header row count for the first continued table fragment on a page.
 
 The plan names its `DeckSpec` and `DeckTemplatePlan` identities and repeats the exact page
@@ -90,6 +94,7 @@ shape, finite chart values, and configured safety limits.
 - text slices are contiguous UTF-8 boundaries and list/table slices are contiguous;
 - physical fragment order matches semantic source order;
 - every page and fragment stays on its logical slide and an accepting template region;
+- topology kinds have a legal slot count and every slotted region references an existing slot;
 - template, planned-region, and fragment geometry is positive and contained;
 - physical page groups preserve logical-slide order;
 - continuation ordinals, totals, hidden state, page IDs, and fragment IDs are stable.
@@ -106,9 +111,9 @@ The little-endian envelopes are:
 
 | Magic | Version | Value |
 | --- | ---: | --- |
-| `WDSF` | 2 | `DeckSpec` and binary resources |
+| `WDSF` | 3 | `DeckSpec` and binary resources |
 | `WDTP` | 2 | `DeckTemplatePlan` |
-| `WDPL` | 2 | `DeckPlan` |
+| `WDPL` | 3 | `DeckPlan` |
 
 Vectors and strings are length-prefixed. Media remains raw bytes rather than JSON or
 base64. Encoding order follows source and plan vector order, so equal values produce
@@ -118,7 +123,7 @@ and fragment limits before allocating the declared content.
 
 `DeckLimitCode` values are append-only and identify each bounded dimension. Callers may
 tighten `DeckLimits` for a host but MUST NOT turn a limit failure into partial content.
-Checked-in hexadecimal fixtures pin WDSF v2, WDTP v2, and WDPL v2. Older semantic-plan
+Checked-in hexadecimal fixtures pin WDSF v3, WDTP v2, and WDPL v3. Older semantic-plan
 payloads are intentionally unsupported because the planner boundary is replaced atomically.
 
 ## Verification

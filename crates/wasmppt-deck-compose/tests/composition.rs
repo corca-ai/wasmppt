@@ -356,7 +356,6 @@ fn fixture() -> (Vec<u8>, DeckSpec, DeckTemplatePlan, DeckPlan) {
                 } else {
                     0
                 },
-                columns: 1,
                 fit: if source_node_id == id(20) {
                     ContentFit::Cover
                 } else {
@@ -375,6 +374,7 @@ fn fixture() -> (Vec<u8>, DeckSpec, DeckTemplatePlan, DeckPlan) {
             id: id(2).derive(b"physical-page", 1),
             logical_slide_id: id(2),
             template_layout_id: layout_id,
+            topology: wasmppt_deck::TopologyChoice::stack(),
             hidden: false,
             continuation: Continuation {
                 ordinal: 1,
@@ -384,6 +384,7 @@ fn fixture() -> (Vec<u8>, DeckSpec, DeckTemplatePlan, DeckPlan) {
             },
             regions: vec![PlannedRegion {
                 template_region_id: region_id,
+                placement: wasmppt_deck::RegionPlacement::Slot(0),
                 frame: template.regions[0].frame,
                 fragments,
             }],
@@ -579,10 +580,12 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
                 TableColumn {
                     id: id(71),
                     source: range(101, 102),
+                    alignment: wasmppt_deck::TableColumnAlignment::Start,
                 },
                 TableColumn {
                     id: id(72),
                     source: range(102, 103),
+                    alignment: wasmppt_deck::TableColumnAlignment::End,
                 },
             ],
             header_rows: 1,
@@ -653,7 +656,6 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
         },
         type_choice: TypeChoice {
             font_size: 1_600,
-            columns: 1,
             fit: ContentFit::None,
         },
         repeat_table_header_rows: 0,
@@ -670,7 +672,6 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
         },
         type_choice: TypeChoice {
             font_size: 1_600,
-            columns: 1,
             fit: ContentFit::None,
         },
         repeat_table_header_rows: 1,
@@ -687,7 +688,6 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
         },
         type_choice: TypeChoice {
             font_size: 0,
-            columns: 1,
             fit: ContentFit::Contain,
         },
         repeat_table_header_rows: 0,
@@ -700,6 +700,7 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
             id: slide_id.derive(b"physical-page", 1),
             logical_slide_id: slide_id,
             template_layout_id: layout_id,
+            topology: wasmppt_deck::TopologyChoice::stack(),
             hidden: false,
             continuation: Continuation {
                 ordinal: 1,
@@ -709,6 +710,7 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
             },
             regions: vec![PlannedRegion {
                 template_region_id: region_id,
+                placement: wasmppt_deck::RegionPlacement::Slot(0),
                 frame: template.regions[0].frame,
                 fragments: vec![table_first],
             }],
@@ -717,6 +719,7 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
             id: slide_id.derive(b"physical-page", 2),
             logical_slide_id: slide_id,
             template_layout_id: layout_id,
+            topology: wasmppt_deck::TopologyChoice::stack(),
             hidden: false,
             continuation: Continuation {
                 ordinal: 2,
@@ -726,6 +729,7 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
             },
             regions: vec![PlannedRegion {
                 template_region_id: region_id,
+                placement: wasmppt_deck::RegionPlacement::Slot(0),
                 frame: template.regions[0].frame,
                 fragments: vec![table_second, chart_fragment],
             }],

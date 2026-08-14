@@ -164,7 +164,7 @@ pub struct DeckSpec {
 }
 
 impl DeckSpec {
-    pub const SCHEMA_VERSION: u32 = 2;
+    pub const SCHEMA_VERSION: u32 = 3;
 
     pub fn encode(&self, limits: &DeckLimits) -> Result<Vec<u8>, WireError> {
         wire::encode_spec(self, limits)
@@ -278,6 +278,15 @@ pub struct TableContent {
 pub struct TableColumn {
     pub id: StableId,
     pub source: SourceRange,
+    pub alignment: TableColumnAlignment,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TableColumnAlignment {
+    #[default]
+    Start,
+    Center,
+    End,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -337,6 +346,7 @@ pub struct DeckResource {
     pub kind: ResourceKind,
     pub media_type: String,
     pub bytes: Vec<u8>,
+    /// Optional host-observed hint. Layout validates or derives canonical dimensions from bytes.
     pub intrinsic_size: Option<PixelSize>,
 }
 
@@ -568,7 +578,7 @@ pub struct DeckPlan {
 }
 
 impl DeckPlan {
-    pub const SCHEMA_VERSION: u32 = 2;
+    pub const SCHEMA_VERSION: u32 = 3;
 
     pub fn encode(&self, limits: &DeckLimits) -> Result<Vec<u8>, WireError> {
         wire::encode_plan(self, limits)
@@ -584,9 +594,56 @@ pub struct PhysicalPage {
     pub id: StableId,
     pub logical_slide_id: StableId,
     pub template_layout_id: StableId,
+    pub topology: TopologyChoice,
     pub hidden: bool,
     pub continuation: Continuation,
     pub regions: Vec<PlannedRegion>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TopologyChoice {
+    pub kind: LayoutTopology,
+    pub slot_count: u16,
+}
+
+impl TopologyChoice {
+    #[must_use]
+    pub const fn stack() -> Self {
+        Self {
+            kind: LayoutTopology::Stack,
+            slot_count: 1,
+        }
+    }
+
+    #[must_use]
+    pub const fn is_valid(self) -> bool {
+        match self.kind {
+            LayoutTopology::Stack | LayoutTopology::TableWide => self.slot_count == 1,
+            LayoutTopology::FlowColumns => self.slot_count >= 2 && self.slot_count <= 3,
+            LayoutTopology::WeightedSplit
+            | LayoutTopology::MediaStart
+            | LayoutTopology::MediaEnd
+            | LayoutTopology::Comparison => self.slot_count == 2,
+            LayoutTopology::PeerGrid | LayoutTopology::Gallery => {
+                self.slot_count >= 2 && self.slot_count <= 6
+            }
+            LayoutTopology::LeadSupporting => self.slot_count == 3,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LayoutTopology {
+    Stack,
+    FlowColumns,
+    WeightedSplit,
+    PeerGrid,
+    LeadSupporting,
+    MediaStart,
+    MediaEnd,
+    Gallery,
+    TableWide,
+    Comparison,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -604,8 +661,15 @@ pub struct Continuation {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlannedRegion {
     pub template_region_id: StableId,
+    pub placement: RegionPlacement,
     pub frame: EmuRect,
     pub fragments: Vec<PlannedFragment>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RegionPlacement {
+    Fixed,
+    Slot(u16),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -665,7 +729,6 @@ pub enum FragmentSlice {
 pub struct TypeChoice {
     /// DrawingML font size in hundredths of a point, or zero for non-text content.
     pub font_size: u32,
-    pub columns: u16,
     pub fit: ContentFit,
 }
 

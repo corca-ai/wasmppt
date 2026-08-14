@@ -121,8 +121,9 @@ shared-fixture contract.
 
 Host authoring adapters convert their source language and authorized resources into a
 source-backed `DeckSpec`. The core contract represents logical slides, semantic content,
-rich-text runs, stable source ranges, split policies, hidden slides, and binary resources;
-it does not parse Markdown or call a host resource API.
+rich-text runs, stable source ranges, split policies, table-column alignment, hidden slides, and
+binary resources. Resource dimensions supplied by a host are hints that the core validates or
+derives from bounded bytes; the contract does not parse Markdown or call a host resource API.
 
 ```text
 host source adapter
@@ -131,8 +132,9 @@ host source adapter
     DeckSpec -----> wasmppt-deck-layout -----> DeckPlan
         |                                      |
         |                                physical pages,
+        |                                topology slots,
         |                                regions, fragments,
-        |                                type choices
+        |                                type and fit choices
         v                                      v
 source diagnostics             wasmppt-deck-compose
                                           |
@@ -152,7 +154,8 @@ cannot accidentally compose against a different revision or POTX profile.
 `wasmppt-deck-layout` implements host-neutral semantic candidate generation, exact-font or
 observable fallback measurement, and automatic pagination. The validators prove that renderable
 source fragments appear once and in source order, remain on their logical slide and compatible
-template region, use finite in-page geometry, and have stable continuation metadata.
+template region, use a valid topology/slot assignment and finite in-page geometry, and have stable
+continuation metadata.
 `wasmppt-deck-compose` projects the validated tuple into editable slide XML, native tables and
 supported 2D charts with coordinated embedded workbooks, and an immutable
 `PresentationOverlay`. Only changed package parts are materialized; untouched template entries

@@ -1,7 +1,7 @@
 use std::{io::Cursor, num::NonZeroU64, sync::Arc};
 
 use gif::{ColorOutput, DecodeOptions, MemoryLimit};
-use wasmppt_deck::{DeckResource, PixelSize, ResourceKind};
+use wasmppt_deck::{DeckResource, PixelSize, ResourceKind, inspect_jpeg_size};
 use wasmppt_xml::{TokenKind, XmlDocument};
 
 use crate::{ComposeError, ComposeErrorCode, ComposeLimits, stable_id_hex};
@@ -35,7 +35,7 @@ pub(crate) fn prepare_media(
             part_name: format!("ppt/media/deck-{stem}.jpg"),
             content_type: "image/jpeg",
             bytes: resource.bytes.clone().into(),
-            size: resource.intrinsic_size,
+            size: inspect_jpeg_size(&resource.bytes).or(resource.intrinsic_size),
         }),
         (ResourceKind::RasterImage, "image/gif") => {
             let (bytes, size) = gif_first_frame(&resource.bytes, limits)?;
@@ -247,6 +247,42 @@ mod tests {
         assert_eq!(
             prepare_media(&svg(b"<svg/>"), &limits).unwrap_err().code(),
             ComposeErrorCode::InvalidMedia
+        );
+    }
+
+    #[test]
+    fn jpeg_preparation_replaces_a_raw_hint_with_oriented_dimensions() {
+        let mut bytes = vec![0xff, 0xd8, 0xff, 0xe1, 0x00, 0x22];
+        bytes.extend_from_slice(b"Exif\0\0II");
+        bytes.extend_from_slice(&42u16.to_le_bytes());
+        bytes.extend_from_slice(&8u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&0x0112u16.to_le_bytes());
+        bytes.extend_from_slice(&3u16.to_le_bytes());
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&6u16.to_le_bytes());
+        bytes.extend_from_slice(&0u16.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&[0xff, 0xc0, 0x00, 0x07, 0x08, 0x01, 0x2c, 0x03, 0x20]);
+        let resource = DeckResource {
+            id: StableId::from_bytes([2; 16]),
+            kind: ResourceKind::RasterImage,
+            media_type: "image/jpeg".to_owned(),
+            bytes,
+            intrinsic_size: Some(PixelSize {
+                width: 800,
+                height: 300,
+            }),
+        };
+
+        assert_eq!(
+            prepare_media(&resource, &ComposeLimits::default())
+                .unwrap()
+                .size,
+            Some(PixelSize {
+                width: 300,
+                height: 800,
+            })
         );
     }
 }

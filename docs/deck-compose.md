@@ -63,10 +63,11 @@ diagnosed by the resolver and are never mislabeled as editable.
 ## Media policy
 
 PNG and JPEG payloads pass through unchanged. `cover` computes a centered DrawingML source crop;
-`contain` retains the complete resource in its planned frame. Alt text is written to the picture's
-non-visual properties. Composition never guesses between those modes: the planner records the
-choice after semantic-safety and aspect-loss evaluation, and the same frame and fit feed browser
-display-list lowering and PPTX output.
+`contain` centers an uncropped, aspect-preserving picture inside its planned frame. The composer
+also derives bounded JPEG display orientation so stale host hints cannot reintroduce a different
+shape. Alt text is written to the picture's non-visual properties. Composition never guesses
+between those modes: the planner records the choice after semantic-safety and aspect-loss
+evaluation, and the same visible geometry feeds browser display-list lowering and PPTX output.
 
 Plan validation rejects overlapping source-owned fragment frames and font/fit choices that do not
 match the semantic content. After the overlay is resolved, the browser adapter also requires every

@@ -33,11 +33,13 @@ frame below preferred demand, while a frame below minimum demand is not a legal 
 Raster PNG, JPEG, and GIF dimensions and SVG width/height or viewBox dimensions are decoded from
 bounded resource bytes. A matching host hint is accepted; a stale hint is replaced by the
 byte-derived value. Only an undecodable resource falls back to a positive validated hint. This
-makes portrait, square, and landscape demand identical on native and Wasm hosts.
+includes the display-axis swap for JPEG EXIF orientations five through eight and makes portrait,
+square, and landscape demand identical on native and Wasm hosts.
 Contain-fit media may scale down to its candidate slot, but only while both rendered dimensions
 remain above the readable media floor. A figure in an indivisible figure/caption group reserves
 one quarter of its slot for the following caption before measurement; an extreme aspect ratio that
-would collapse below the floor remains an atomic overflow.
+would collapse below the floor remains an atomic overflow. The selected visible frame is centered
+inside the template margins and has the canonical resource aspect within integer EMU tolerance.
 
 ## Semantic flow
 

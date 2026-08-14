@@ -840,13 +840,19 @@ impl DeckPlanner {
                     overflow = true;
                     break;
                 }
-                let fragment_frame = EmuRect {
-                    height: if fit == ContentFit::Cover {
-                        measurement_frame.height
-                    } else {
-                        measured.height
+                if fit == ContentFit::Contain && measured.height > measurement_frame.height {
+                    overflow = true;
+                    break;
+                }
+                let fragment_frame = match (fit, intrinsic_size) {
+                    (ContentFit::Contain, Some(size)) => {
+                        contain_frame(inset_frame(measurement_frame, target.region.margins), size)
+                    }
+                    (ContentFit::Cover, _) => inset_frame(measurement_frame, target.region.margins),
+                    _ => EmuRect {
+                        height: measured.height,
+                        ..frame
                     },
-                    ..frame
                 };
                 if !fragment_frame.is_within(lane_frame) {
                     overflow = true;
@@ -871,8 +877,14 @@ impl DeckPlanner {
                     fit,
                     repeat_table_header_rows: target.repeat_table_header_rows,
                 });
-                cursor = cursor
+                cursor = fragment_frame
+                    .y
                     .saturating_add(fragment_frame.height)
+                    .saturating_add(if fit == ContentFit::None {
+                        0
+                    } else {
+                        target.region.margins.bottom
+                    })
                     .saturating_add(self.policy.gap);
             }
             if !overflow {
@@ -1901,6 +1913,64 @@ fn width_penalty(preferred: Emu, available: Emu) -> u64 {
         / u64::try_from(preferred).unwrap_or(u64::MAX).max(1)
 }
 
+fn inset_frame(frame: EmuRect, margins: wasmppt_deck::TextMargins) -> EmuRect {
+    EmuRect {
+        x: frame.x.saturating_add(margins.left),
+        y: frame.y.saturating_add(margins.top),
+        width: frame
+            .width
+            .saturating_sub(margins.left)
+            .saturating_sub(margins.right)
+            .max(1),
+        height: frame
+            .height
+            .saturating_sub(margins.top)
+            .saturating_sub(margins.bottom)
+            .max(1),
+    }
+}
+
+fn contain_frame(slot: EmuRect, size: PixelSize) -> EmuRect {
+    let slot_width = i128::from(slot.width.max(1));
+    let slot_height = i128::from(slot.height.max(1));
+    let image_width = i128::from(size.width.max(1));
+    let image_height = i128::from(size.height.max(1));
+    let (width, height) =
+        if image_width.saturating_mul(slot_height) > slot_width.saturating_mul(image_height) {
+            (
+                slot.width.max(1),
+                i64::try_from(
+                    slot_width
+                        .saturating_mul(image_height)
+                        .checked_div(image_width)
+                        .unwrap_or(1),
+                )
+                .unwrap_or(1)
+                .max(1),
+            )
+        } else {
+            (
+                i64::try_from(
+                    slot_height
+                        .saturating_mul(image_width)
+                        .checked_div(image_height)
+                        .unwrap_or(1),
+                )
+                .unwrap_or(1)
+                .max(1),
+                slot.height.max(1),
+            )
+        };
+    EmuRect {
+        x: slot.x.saturating_add(slot.width.saturating_sub(width) / 2),
+        y: slot
+            .y
+            .saturating_add(slot.height.saturating_sub(height) / 2),
+        width,
+        height,
+    }
+}
+
 fn cover_crop_penalty(size: PixelSize, frame: EmuRect) -> u64 {
     let image_width = u128::from(size.width);
     let image_height = u128::from(size.height);
@@ -2722,6 +2792,46 @@ mod tests {
             fragment.source_node_id == id(10) && fragment.type_choice.fit == ContentFit::Cover
         }));
         assert!(validate_deck_plan(&spec, &template(5_500_000), &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn contained_media_uses_an_aspect_preserving_frame_inside_template_margins() {
+        for (width, height) in [(4_000, 1_000), (1_000, 1_000), (1_000, 4_000)] {
+            let mut spec = gallery_spec(&[(width, height)]);
+            let gallery = spec.logical_slides[0].nodes.pop().unwrap();
+            let SemanticContent::Children(mut children) = gallery.content else {
+                unreachable!();
+            };
+            let figure = children.pop().unwrap();
+            let figure_id = figure.id;
+            spec.logical_slides[0].nodes.push(figure);
+            let mut template = template(5_500_000);
+            template.regions[1].margins = TextMargins {
+                left: 110_000,
+                top: 120_000,
+                right: 130_000,
+                bottom: 140_000,
+            };
+
+            let plan = DeckPlanner::default()
+                .plan(&spec, &template, &FontCatalog::default(), &limits())
+                .unwrap();
+            let fragment = plan
+                .pages
+                .iter()
+                .flat_map(fragments)
+                .find(|fragment| fragment.source_node_id == figure_id)
+                .unwrap();
+            let error = (i128::from(fragment.frame.width) * i128::from(height)
+                - i128::from(fragment.frame.height) * i128::from(width))
+            .abs();
+
+            assert_eq!(fragment.type_choice.fit, ContentFit::Contain);
+            assert!(error <= i128::from(width.max(height)));
+            assert!(fragment.frame.x >= template.regions[1].frame.x + 110_000);
+            assert!(fragment.frame.y >= template.regions[1].frame.y + 120_000);
+            assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+        }
     }
 
     #[test]

@@ -10,7 +10,7 @@ use wasmppt_deck::{
     LogicalSlideKind, PhysicalPage, PlaceholderIdentity, PlannedFragment, PlannedRegion,
     RegionRole, RichText, RichTextRun, SafeHyperlink, SemanticContent, SemanticNode, SemanticRole,
     SourceRange, SplitPolicy, StableId, TableCell, TableColumn, TableContent, TableRow,
-    TemplateLayout, TemplateLayoutRole, TemplateRegion, TemplateTextColor, TemplateTextLevel,
+    TemplateLayout, TemplateLayoutCapability, TemplateRegion, TemplateTextColor, TemplateTextLevel,
     TemplateTheme, TextMargins, TextMarks, TypeChoice,
 };
 use wasmppt_deck_compose::{ComposeLimits, DeckComposer};
@@ -147,8 +147,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         theme: TemplateTheme::default(),
         layouts: vec![TemplateLayout {
             id: layout_id,
-            role: TemplateLayoutRole::Content,
-            matching_name: "wasmppt:content-v1".to_owned(),
+            capability: TemplateLayoutCapability::ContentFlow,
+            matching_name: "wasmppt:content-flow-v2".to_owned(),
             source_part: "ppt/slideLayouts/slideLayout1.xml".to_owned(),
             master_part: "ppt/slideMasters/slideMaster1.xml".to_owned(),
             region_ids: vec![region_id],

@@ -143,7 +143,7 @@ source diagnostics             wasmppt-deck-compose
 ```
 
 `DeckTemplatePlan` is the template-side input to the planner. It owns the exact page
-geometry, stable template and cache identity, role-specific layouts, resolved placeholder
+geometry, stable template and cache identity, capability-specific layouts, resolved placeholder
 regions and text hierarchy, theme fonts and colors, preserved template assets, and template
 diagnostics. `wasmppt-deck-template` compiles that value from the explicit Cortex Theme
 Starter POTX profile without inspecting example slides or visible names. A `DeckPlan` names

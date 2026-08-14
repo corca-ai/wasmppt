@@ -21,7 +21,7 @@ use wasmppt_deck::{
     DeckTemplatePlan, DiagnosticSeverity, Emu, EmuRect, FragmentSlice, LayoutTopology,
     LogicalSlide, LogicalSlideKind, PhysicalPage, PlannedFragment, PlannedRegion, RegionPlacement,
     RegionRole, SemanticContent, SemanticNode, SemanticRole, StableId, TemplateLayout,
-    TemplateLayoutRole, TemplateRegion, TopologyChoice, TypeChoice, validate_deck_plan,
+    TemplateLayoutCapability, TemplateRegion, TopologyChoice, TypeChoice, validate_deck_plan,
     validate_deck_spec,
 };
 
@@ -408,7 +408,7 @@ impl DeckPlanner {
         diagnostics: &mut Vec<DeckDiagnostic>,
     ) -> Result<Vec<PhysicalPage>, PlanError> {
         let regions = layout_regions(layout, template);
-        let (header_nodes, body_nodes) = split_headers(&slide.nodes, layout.role);
+        let (header_nodes, body_nodes) = split_headers(&slide.nodes, layout.capability);
         let heading = header_nodes
             .iter()
             .find(|node| matches!(node.role, SemanticRole::Title | SemanticRole::Section))
@@ -426,7 +426,7 @@ impl DeckPlanner {
                 }
             })?;
         let groups = group_units(&units);
-        let primary = primary_region(layout.role, &regions).ok_or_else(|| {
+        let primary = primary_region(layout.capability, &regions).ok_or_else(|| {
             error(
                 DeckDiagnosticCode::PLAN_MISSING_LAYOUT,
                 "selected template layout has no usable primary region",
@@ -1183,14 +1183,17 @@ fn select_layout<'a>(
                 SemanticRole::Statement | SemanticRole::Quote | SemanticRole::DisplayMath
             )
         }) {
-        TemplateLayoutRole::Statement
+        TemplateLayoutCapability::Statement
     } else {
         match slide.kind {
-            LogicalSlideKind::Title => TemplateLayoutRole::Title,
-            LogicalSlideKind::Content => TemplateLayoutRole::Content,
+            LogicalSlideKind::Title => TemplateLayoutCapability::Title,
+            LogicalSlideKind::Content => TemplateLayoutCapability::ContentFlow,
         }
     };
-    template.layouts.iter().find(|layout| layout.role == role)
+    template
+        .layouts
+        .iter()
+        .find(|layout| layout.capability == role)
 }
 
 fn layout_regions<'a>(
@@ -1211,16 +1214,24 @@ fn layout_regions<'a>(
 
 fn split_headers(
     nodes: &[SemanticNode],
-    layout: TemplateLayoutRole,
+    layout: TemplateLayoutCapability,
 ) -> (Vec<&SemanticNode>, &[SemanticNode]) {
     let header_count = nodes
         .iter()
         .take_while(|node| match layout {
-            TemplateLayoutRole::Title => matches!(node.role, SemanticRole::Title),
-            TemplateLayoutRole::Content => {
+            TemplateLayoutCapability::Title => matches!(node.role, SemanticRole::Title),
+            TemplateLayoutCapability::ContentFlow => {
                 matches!(node.role, SemanticRole::Title | SemanticRole::Section)
             }
-            TemplateLayoutRole::Statement => false,
+            TemplateLayoutCapability::Statement => false,
+            TemplateLayoutCapability::ContentSplit
+            | TemplateLayoutCapability::MediaStart
+            | TemplateLayoutCapability::MediaEnd
+            | TemplateLayoutCapability::Gallery
+            | TemplateLayoutCapability::Table
+            | TemplateLayoutCapability::Comparison => {
+                matches!(node.role, SemanticRole::Title | SemanticRole::Section)
+            }
         })
         .count();
     (
@@ -1230,13 +1241,20 @@ fn split_headers(
 }
 
 fn primary_region<'a>(
-    layout: TemplateLayoutRole,
+    layout: TemplateLayoutCapability,
     regions: &[&'a TemplateRegion],
 ) -> Option<&'a TemplateRegion> {
     let preferred = match layout {
-        TemplateLayoutRole::Title => RegionRole::Subtitle,
-        TemplateLayoutRole::Content => RegionRole::Body,
-        TemplateLayoutRole::Statement => RegionRole::Statement,
+        TemplateLayoutCapability::Title => RegionRole::Subtitle,
+        TemplateLayoutCapability::ContentFlow => RegionRole::Body,
+        TemplateLayoutCapability::Statement => RegionRole::Statement,
+        TemplateLayoutCapability::ContentSplit | TemplateLayoutCapability::Comparison => {
+            RegionRole::Body
+        }
+        TemplateLayoutCapability::MediaStart
+        | TemplateLayoutCapability::MediaEnd
+        | TemplateLayoutCapability::Gallery => RegionRole::Media,
+        TemplateLayoutCapability::Table => RegionRole::Table,
     };
     regions
         .iter()
@@ -1933,7 +1951,7 @@ mod tests {
             theme: TemplateTheme::default(),
             layouts: vec![TemplateLayout {
                 id: layout_id,
-                role: TemplateLayoutRole::Content,
+                capability: TemplateLayoutCapability::ContentFlow,
                 matching_name: "content".to_owned(),
                 source_part: "ppt/slideLayouts/slideLayout1.xml".to_owned(),
                 master_part: "ppt/slideMasters/slideMaster1.xml".to_owned(),
@@ -2006,8 +2024,8 @@ mod tests {
 
     fn title_template(details_height: Emu) -> DeckTemplatePlan {
         let mut template = template(details_height);
-        template.layouts[0].role = TemplateLayoutRole::Title;
-        template.layouts[0].matching_name = "wasmppt:title-v1".to_owned();
+        template.layouts[0].capability = TemplateLayoutCapability::Title;
+        template.layouts[0].matching_name = "wasmppt:title-v2".to_owned();
         template.regions[1].role = RegionRole::Subtitle;
         template.regions[1].placeholder.kind = "subTitle".to_owned();
         template.regions[1].accepts = vec![
@@ -2022,7 +2040,7 @@ mod tests {
         let mut template = template(body_height);
         template.layouts.push(TemplateLayout {
             id: id(110),
-            role: TemplateLayoutRole::Statement,
+            capability: TemplateLayoutCapability::Statement,
             matching_name: "statement".to_owned(),
             source_part: "ppt/slideLayouts/statement.xml".to_owned(),
             master_part: "ppt/slideMasters/slideMaster1.xml".to_owned(),

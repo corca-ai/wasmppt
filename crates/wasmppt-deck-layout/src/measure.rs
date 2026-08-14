@@ -222,6 +222,15 @@ impl<'a> Measurer<'a> {
         Ok(measured)
     }
 
+    pub(crate) fn intrinsic_size(&self, node: &SemanticNode) -> Option<PixelSize> {
+        let resource_id = match &node.content {
+            SemanticContent::Image(image) => image.resource_id,
+            SemanticContent::Svg(svg) => svg.resource_id,
+            _ => return None,
+        };
+        self.resources.get(&resource_id).copied()
+    }
+
     fn measure_content(
         &self,
         node: &SemanticNode,

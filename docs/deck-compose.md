@@ -59,7 +59,9 @@ diagnosed by the resolver and are never mislabeled as editable.
 
 PNG and JPEG payloads pass through unchanged. `cover` computes a centered DrawingML source crop;
 `contain` retains the complete resource in its planned frame. Alt text is written to the picture's
-non-visual properties.
+non-visual properties. Composition never guesses between those modes: the planner records the
+choice after semantic-safety and aspect-loss evaluation, and the same frame and fit feed browser
+display-list lowering and PPTX output.
 
 SVG is retained as vector media and referenced through the Office SVG extension. XML parsing
 rejects scripts, foreign objects, event handlers, JavaScript URLs, imports, and external references.

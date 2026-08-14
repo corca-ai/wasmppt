@@ -36,8 +36,8 @@ byte-derived value. Only an undecodable resource falls back to a positive valida
 makes portrait, square, and landscape demand identical on native and Wasm hosts.
 Contain-fit media may scale down to its candidate slot, but only while both rendered dimensions
 remain above the readable media floor. A figure in an indivisible figure/caption group reserves
-slot height for its following caption before measurement; an extreme aspect ratio that would
-collapse below the floor remains an atomic overflow.
+one quarter of its slot for the following caption before measurement; an extreme aspect ratio that
+would collapse below the floor remains an atomic overflow.
 
 ## Semantic flow
 
@@ -76,6 +76,20 @@ rather than assuming source order is visual order. Candidates never infer layout
 slides or visible shape names. The selected topology and slot count are encoded on each physical
 page, while fixed template content and topology-slot regions remain distinguishable through
 composition.
+
+Media/text candidates evaluate narrow, equal, and wide mirrored columns plus a top/bottom variant;
+measured fit selects among them without depending on Markdown source order. Gallery candidates use
+exact two-, three-, four-, five-, and six-item frame sets. Two items compare rows with columns,
+three compare a lead/supporting arrangement with three columns, and five or six compare 3-by-2 with
+2-by-3 grids. Cover-crop loss is measured from the byte-derived source aspect and candidate frame,
+so portrait, square, wide, and mixed collections select deterministic aspect-aware geometry.
+Seven to ten items are balanced across continuation pages by the same global page-load score.
+
+Gallery ancestry remains explicit on internal flow units after the semantic `Gallery` container is
+expanded. Only raster images authored in that gallery context may select `ContentFit::Cover`.
+Standalone figures use `Contain`, as do SVG, charts, diagrams, and display math in every topology;
+data-bearing media is therefore never cropped by a heuristic. The selected fit is serialized in
+the plan and consumed unchanged by Canvas and editable PPTX composition.
 
 Standard prose and list flow uses at most eight semantic units per column. It remains a readable
 stack through eight units, balances 9--16 units across two columns, then creates balanced
@@ -120,8 +134,9 @@ still bounds decoded collections and final physical pages for its host environme
 determinism, exact coverage, relation preservation, readable type, atomic overflow, repeated table
 headers, byte-derived media dimensions, alignment-aware table demand, nested-list preservation,
 contiguous editable slices, peer-slot assignment, mirrored media/text assignment, balanced
-contiguous columns, readability-first ordering, incremental slide reuse, fallback-font diagnostics,
-and property-generated bounded termination.
+contiguous columns, readability-first ordering, aspect-aware 2--10 item galleries, explicit
+contain/cover policy, incremental slide reuse, fallback-font diagnostics, and property-generated
+bounded termination.
 
 ## Verification
 

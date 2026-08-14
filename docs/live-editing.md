@@ -98,6 +98,13 @@ offscreen canvases are unmounted, and a slide is resolved again only when its de
 fingerprint changed or it becomes visible without a mounted canvas. Existing canvases survive
 unrelated edits. Resource reads and display lists cross the Worker boundary as transferables.
 
+Resolving a display list and fetching every lazy image or SVG resource for that display list is one
+exact-revision read transaction. Browser hosts use `withDeckSessionRevision` around that complete
+render operation. A deck update takes the corresponding exclusive transaction, so it cannot remove
+or replace a logical package part between scene resolution and resource decoding. Reads already
+queued behind the update re-check their requested revision and end as `runtime/stale-revision`
+instead of painting mixed-revision pixels. Release uses the same exclusive boundary.
+
 The current implementation redraws an invalidated slide as one Canvas unit. Shape-level dirty
 rectangles are intentionally gated: the 10/50/200-slide browser benchmark shows that exact
 slide-level invalidation is within the release budget, while partial clearing would need new proof

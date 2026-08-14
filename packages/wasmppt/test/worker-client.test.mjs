@@ -199,6 +199,75 @@ test('deck sessions transfer contracts, expose presentable pages, and discard st
   client.terminate()
 })
 
+test('a deck revision read transaction fences updates through lazy resource reads', async () => {
+  const worker = new FakeWorker()
+  const client = new WasmpptWorkerClient(worker)
+  const creating = client.createDeckSession(31, new ArrayBuffer(32))
+  const createRequest = worker.messages.at(-1)
+  worker.respond({
+    version: WORKER_PROTOCOL_VERSION,
+    id: createRequest.id,
+    type: 'deck-session-created',
+    sessionHandle: 32,
+    revision: 0,
+    slideCount: 1,
+    presentableSlides: [0],
+    pages: [],
+    diagnostics: [],
+    plan: new ArrayBuffer(8),
+  })
+  await creating
+
+  let finishRead
+  const reading = client.withDeckSessionRevision(32, 0, () => new Promise((resolve) => {
+    finishRead = resolve
+  }))
+  await Promise.resolve()
+  const updating = client.updateDeckSession(32, 0, new ArrayBuffer(36))
+  const staleRead = client.withDeckSessionRevision(32, 0, async () => 'stale')
+  await Promise.resolve()
+  assert.equal(worker.messages.some((message) => message.type === 'update-deck-session'), false)
+
+  finishRead('rendered')
+  assert.equal(await reading, 'rendered')
+  await Promise.resolve()
+  const updateRequest = worker.messages.at(-1)
+  assert.equal(updateRequest.type, 'update-deck-session')
+  worker.respond({
+    version: WORKER_PROTOCOL_VERSION,
+    id: updateRequest.id,
+    type: 'deck-session-updated',
+    sessionHandle: 32,
+    revision: 1,
+    slideCount: 1,
+    presentableSlides: [0],
+    pages: [],
+    diagnostics: [],
+    invalidatedSlides: [0],
+    invalidatedLogicalSlideIds: ['01'.repeat(16)],
+    removedPageIds: ['02'.repeat(16)],
+    changedParts: ['ppt/slides/slide1.xml'],
+    reusedPages: 0,
+    fullFallback: false,
+    overlay: {
+      logicalParts: 20,
+      materializedParts: 4,
+      materializedBytes: 512,
+      reusedSourceBytes: 2048,
+      removedParts: 1,
+    },
+  })
+  assert.equal((await updating).revision, 1)
+  await assert.rejects(staleRead, (error) => {
+    assert.equal(error instanceof WasmpptError, true)
+    assert.equal(error.name, 'WasmpptRevisionError')
+    assert.equal(error.domain, 'runtime')
+    assert.equal(error.code, 'stale-revision')
+    return true
+  })
+  client.terminate()
+})
+
 test('an unknown Worker response cannot consume a live request ID', async () => {
   const worker = new FakeWorker()
   const client = new WasmpptWorkerClient(worker)

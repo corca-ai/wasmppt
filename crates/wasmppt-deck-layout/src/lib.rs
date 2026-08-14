@@ -1177,9 +1177,7 @@ fn split_headers(
     let header_count = nodes
         .iter()
         .take_while(|node| match layout {
-            TemplateLayoutRole::Title => {
-                matches!(node.role, SemanticRole::Title | SemanticRole::Subtitle)
-            }
+            TemplateLayoutRole::Title => matches!(node.role, SemanticRole::Title),
             TemplateLayoutRole::Content => {
                 matches!(node.role, SemanticRole::Title | SemanticRole::Section)
             }
@@ -1415,6 +1413,30 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.code == DeckDiagnosticCode::PLAN_FONT_RISK)
         );
+    }
+
+    #[test]
+    fn title_details_share_one_non_overlapping_cover_flow() {
+        let mut spec = spec(vec![
+            text_node(3, SemanticRole::Title, SplitPolicy::Never, "Title"),
+            text_node(4, SemanticRole::Subtitle, SplitPolicy::Text, "Alan Kang"),
+            text_node(5, SemanticRole::Prose, SplitPolicy::Text, "2025-08-01"),
+        ]);
+        spec.logical_slides[0].kind = LogicalSlideKind::Title;
+        let template = title_template(2_500_000);
+
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        let details = fragments(&plan.pages[0])
+            .filter(|fragment| {
+                matches!(fragment.source_node_id, value if value == id(4) || value == id(5))
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(details.len(), 2);
+        assert!(details[0].frame.y.saturating_add(details[0].frame.height) <= details[1].frame.y);
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
     }
 
     #[test]
@@ -1939,6 +1961,20 @@ mod tests {
             assets: vec![],
             diagnostics: vec![],
         }
+    }
+
+    fn title_template(details_height: Emu) -> DeckTemplatePlan {
+        let mut template = template(details_height);
+        template.layouts[0].role = TemplateLayoutRole::Title;
+        template.layouts[0].matching_name = "wasmppt:title-v1".to_owned();
+        template.regions[1].role = RegionRole::Subtitle;
+        template.regions[1].placeholder.kind = "subTitle".to_owned();
+        template.regions[1].accepts = vec![
+            SemanticRole::Subtitle,
+            SemanticRole::Prose,
+            SemanticRole::Credit,
+        ];
+        template
     }
 
     fn template_with_statement(body_height: Emu) -> DeckTemplatePlan {

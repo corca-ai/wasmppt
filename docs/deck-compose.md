@@ -29,8 +29,10 @@ operate on the same logical revision that export later serializes.
 Text is emitted as DrawingML paragraphs and runs rather than flattened pictures. Bold, italic,
 strikethrough, inline-code typeface, explicit template-derived font size/typeface/color, and safe
 external web, mail, and telephone hyperlinks remain editable. Nested lists preserve source order,
-hierarchy level, ordered start value, and deterministic indentation. Source-anchor links stay
-non-active until an explicit internal-slide target contract exists.
+hierarchy level, ordered start value, and deterministic indentation. An empty list item remains one
+editable bullet or numbered paragraph, so an in-progress authoring line does not invalidate the
+deck or disappear from export. Source-anchor links stay non-active until an explicit internal-slide
+target contract exists.
 
 Each shape and relationship receives a deterministic source-order identifier. Hidden state is
 written on the physical slide. Derived continuation pages add only the planned repeated heading

@@ -24,11 +24,13 @@ fixed slide numbers, or an out-of-package manifest to infer a role. An arbitrary
 gets stable missing-layout diagnostics instead of a guessed profile. PowerPoint preserves
 `matchingName` and placeholder identities when a Starter is edited and saved normally.
 
-Title layouts require title and subtitle regions. Content layouts require title and body
-regions. Statement layouts require a centered-title or title region mapped to the statement
-role. Optional picture, footer, date, slide-number, and other supported placeholders remain
-available without becoming role identifiers. Footer, date, and slide-number placeholders are
-compiled as preserved page-furniture assets rather than semantic regions.
+Title layouts require title and subtitle regions. The subtitle region is the ordered cover-details
+flow and accepts subtitle, prose, and credit text without guessing whether a block is an author,
+date, or description. Content layouts require title and body regions. Statement layouts require a
+centered-title or title region mapped to the statement role. Optional picture, footer, date,
+slide-number, and other supported placeholders remain available without becoming role identifiers.
+Footer, date, and slide-number placeholders are compiled as preserved page-furniture assets rather
+than semantic regions.
 
 ## Resolved profile
 

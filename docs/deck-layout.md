@@ -41,6 +41,10 @@ Every fragment retains its exact source slice. Repeated table headers and repeat
 headings are page chrome metadata rather than duplicate source fragments, so exact-ownership
 validation still proves complete, ordered, single coverage.
 
+On a title layout only the title is a fixed header. Every following subtitle, prose, or credit
+block flows through the subtitle region in source order. The same bounded candidate search places
+those cover details without overlapping independently positioned header and body fragments.
+
 ## Candidate search and cost
 
 For each source position the planner evaluates a fixed generic family over the selected template

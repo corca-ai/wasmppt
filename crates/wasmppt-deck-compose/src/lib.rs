@@ -373,11 +373,10 @@ fn validate_contracts(
 
 fn ensure_editable_list(list: &wasmppt_deck::ListContent) -> Result<(), ComposeError> {
     for item in &list.items {
-        if item.blocks.is_empty()
-            || item
-                .blocks
-                .iter()
-                .any(|block| !matches!(block.content, SemanticContent::Text(_)))
+        if item
+            .blocks
+            .iter()
+            .any(|block| !matches!(block.content, SemanticContent::Text(_)))
         {
             return Err(ComposeError::new(
                 ComposeErrorCode::UnsupportedContent,

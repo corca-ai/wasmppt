@@ -74,6 +74,8 @@ jobs:
       - name: Install matching wasm-bindgen generator
         if: steps.wasm-bindgen-cache.outputs.cache-hit != 'true'
         run: cargo install wasm-bindgen-cli --version 0.2.127 --locked
+      - name: Check checked-in Wasm artifact provenance
+        run: node scripts/check-wasm-artifact-manifest.mjs
       - name: Build the shared scalar Wasm host artifacts
         run: npm run build:wasm-hosts
       - name: Check generated Wasm bindings

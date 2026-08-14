@@ -22,3 +22,4 @@ wasm-bindgen \
   target/wasm32-unknown-unknown/wasm-release/wasmppt_shaper_wasm.wasm
 cp tools/wasm-module.d.ts \
   packages/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm_bg.wasm.d.ts
+node scripts/check-wasm-artifact-manifest.mjs --write

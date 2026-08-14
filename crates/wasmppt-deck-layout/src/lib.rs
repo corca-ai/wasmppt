@@ -630,16 +630,21 @@ impl DeckPlanner {
                     if placement.font_risk {
                         diagnostics.push(font_risk(placement.node.id));
                     }
-                    font_cost = font_cost.saturating_add(u64::from(placement.reduction));
-                    placements.push(planned_region(
-                        region,
-                        RegionPlacement::Slot(lane as u16),
-                        placement.node,
-                        placement.slice,
-                        placement.frame,
-                        placement.font_size,
-                        placement.repeat_table_header_rows,
-                    ));
+                    font_cost = font_cost
+                        .saturating_add(u64::from(placement.reduction))
+                        .saturating_add(placement.width_penalty);
+                    push_coalesced_region(
+                        &mut placements,
+                        planned_region(
+                            region,
+                            RegionPlacement::Slot(lane as u16),
+                            placement.node,
+                            placement.slice,
+                            placement.frame,
+                            placement.font_size,
+                            placement.repeat_table_header_rows,
+                        ),
+                    );
                 }
                 y = fitted.bottom.saturating_add(self.policy.gap);
                 let end = start + offset + 1;
@@ -712,6 +717,15 @@ impl DeckPlanner {
                         target.repeat_table_header_rows,
                     )
                     .map_err(|failure| measure_error(failure, unit.node.id))?;
+                let usable_width = frame
+                    .width
+                    .saturating_sub(target.region.margins.left)
+                    .saturating_sub(target.region.margins.right)
+                    .max(1);
+                if measured.width.min > usable_width {
+                    overflow = true;
+                    break;
+                }
                 let fragment_frame = EmuRect {
                     height: measured.height,
                     ..frame
@@ -726,6 +740,10 @@ impl DeckPlanner {
                     frame: fragment_frame,
                     font_size: measured.font_size,
                     reduction: initial_size.saturating_sub(measured.font_size),
+                    width_penalty: width_penalty(
+                        measured.width.preferred.min(measured.width.max),
+                        usable_width,
+                    ),
                     font_risk: measured.font_risk,
                     repeat_table_header_rows: target.repeat_table_header_rows,
                 });
@@ -1037,6 +1055,7 @@ struct FittedPlacement<'a> {
     frame: EmuRect,
     font_size: u32,
     reduction: u32,
+    width_penalty: u64,
     font_risk: bool,
     repeat_table_header_rows: u32,
 }
@@ -1146,6 +1165,16 @@ fn page_cost(
         .saturating_add(narrow)
         .saturating_add(orphaning)
         .saturating_add(pattern.complexity())
+}
+
+fn width_penalty(preferred: Emu, available: Emu) -> u64 {
+    if preferred <= available || preferred <= 0 {
+        return 0;
+    }
+    u64::try_from(preferred.saturating_sub(available))
+        .unwrap_or(u64::MAX)
+        .saturating_mul(100)
+        / u64::try_from(preferred).unwrap_or(u64::MAX).max(1)
 }
 
 fn repeated_table_header_rows(group: &FlowGroup<'_>, placements: &[PlannedRegion]) -> u32 {
@@ -1331,6 +1360,96 @@ fn planned_region(
     }
 }
 
+fn push_coalesced_region(regions: &mut Vec<PlannedRegion>, next: PlannedRegion) {
+    let Some(previous) = regions.last_mut() else {
+        regions.push(next);
+        return;
+    };
+    if previous.template_region_id != next.template_region_id
+        || previous.placement != next.placement
+        || previous.fragments.len() != 1
+        || next.fragments.len() != 1
+    {
+        regions.push(next);
+        return;
+    }
+    let previous_fragment = &mut previous.fragments[0];
+    let next_fragment = &next.fragments[0];
+    let Some(slice) = contiguous_slice(previous_fragment.slice, next_fragment.slice) else {
+        regions.push(next);
+        return;
+    };
+    if previous_fragment.source_node_id != next_fragment.source_node_id
+        || previous_fragment.type_choice != next_fragment.type_choice
+        || previous_fragment.frame.x != next_fragment.frame.x
+        || previous_fragment.frame.width != next_fragment.frame.width
+        || (previous_fragment.repeat_table_header_rows != next_fragment.repeat_table_header_rows
+            && next_fragment.repeat_table_header_rows != 0)
+    {
+        regions.push(next);
+        return;
+    }
+    let Some(bottom) = next_fragment
+        .frame
+        .y
+        .checked_add(next_fragment.frame.height)
+    else {
+        regions.push(next);
+        return;
+    };
+    let height = bottom.saturating_sub(previous_fragment.frame.y);
+    previous_fragment.slice = slice;
+    previous_fragment.id = PlannedFragment::expected_id(previous_fragment.source_node_id, slice);
+    previous_fragment.frame.height = height;
+    previous.frame.height = height;
+}
+
+fn contiguous_slice(left: FragmentSlice, right: FragmentSlice) -> Option<FragmentSlice> {
+    match (left, right) {
+        (
+            FragmentSlice::Text { start, end },
+            FragmentSlice::Text {
+                start: right_start,
+                end: right_end,
+            },
+        ) if end == right_start => Some(FragmentSlice::Text {
+            start,
+            end: right_end,
+        }),
+        (
+            FragmentSlice::ListItems { start, end },
+            FragmentSlice::ListItems {
+                start: right_start,
+                end: right_end,
+            },
+        ) if end == right_start => Some(FragmentSlice::ListItems {
+            start,
+            end: right_end,
+        }),
+        (
+            FragmentSlice::TableRows { start, end },
+            FragmentSlice::TableRows {
+                start: right_start,
+                end: right_end,
+            },
+        ) if end == right_start => Some(FragmentSlice::TableRows {
+            start,
+            end: right_end,
+        }),
+        (
+            FragmentSlice::CodeLines { start, end },
+            FragmentSlice::CodeLines {
+                start: right_start,
+                end: right_end,
+            },
+        ) if end == right_start => Some(FragmentSlice::CodeLines {
+            start,
+            end: right_end,
+        }),
+        _ => None,
+    }
+}
+
 fn is_text(node: &SemanticNode) -> bool {
     matches!(
         node.content,
@@ -1413,9 +1532,9 @@ fn plan_id(
 mod tests {
     use proptest::prelude::*;
     use wasmppt_deck::{
-        DeckResource, ImageContent, PixelSize, PlaceholderIdentity, ResourceKind, RichText,
-        RichTextRun, SourceRange, SplitPolicy, TableCell, TableColumn, TableContent, TableRow,
-        TemplateTextLevel, TemplateTheme, TextMargins, TextMarks,
+        DeckResource, ImageContent, ListContent, ListItem, PixelSize, PlaceholderIdentity,
+        ResourceKind, RichText, RichTextRun, SourceRange, SplitPolicy, TableCell, TableColumn,
+        TableContent, TableRow, TemplateTextLevel, TemplateTheme, TextMargins, TextMarks,
     };
 
     use super::*;
@@ -1638,6 +1757,73 @@ mod tests {
                 .any(|fragment| fragment.repeat_table_header_rows == 1)
         );
         assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn contiguous_table_rows_coalesce_into_one_editable_page_slice() {
+        let spec = spec(vec![
+            text_node(3, SemanticRole::Title, SplitPolicy::Never, "Heading"),
+            table_node(4, 6, 1),
+        ]);
+        let template = template(5_500_000);
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+
+        let table_fragments = plan
+            .pages
+            .iter()
+            .flat_map(fragments)
+            .filter(|fragment| fragment.source_node_id == id(4))
+            .collect::<Vec<_>>();
+        assert_eq!(table_fragments.len(), 1);
+        assert_eq!(
+            table_fragments[0].slice,
+            FragmentSlice::TableRows { start: 0, end: 6 }
+        );
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn contiguous_prose_list_and_code_ranges_coalesce_per_page_lane() {
+        let cases = [
+            (
+                text_node(
+                    4,
+                    SemanticRole::Prose,
+                    SplitPolicy::Text,
+                    "One. Two. Three. Four.",
+                ),
+                FragmentSlice::Text { start: 0, end: 22 },
+            ),
+            (
+                list_node(4, 4),
+                FragmentSlice::ListItems { start: 0, end: 4 },
+            ),
+            (
+                code_node(4, "one\ntwo\nthree\nfour\n"),
+                FragmentSlice::CodeLines { start: 0, end: 4 },
+            ),
+        ];
+        for (node, expected) in cases {
+            let spec = spec(vec![
+                text_node(3, SemanticRole::Title, SplitPolicy::Never, "Heading"),
+                node,
+            ]);
+            let template = template(5_500_000);
+            let plan = DeckPlanner::default()
+                .plan(&spec, &template, &FontCatalog::default(), &limits())
+                .unwrap();
+            let content = plan
+                .pages
+                .iter()
+                .flat_map(fragments)
+                .filter(|fragment| fragment.source_node_id == id(4))
+                .collect::<Vec<_>>();
+            assert_eq!(content.len(), 1);
+            assert_eq!(content[0].slice, expected);
+            assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+        }
     }
 
     #[test]
@@ -1898,6 +2084,40 @@ mod tests {
             content: SemanticContent::Code(wasmppt_deck::CodeContent {
                 language: None,
                 code: code.to_owned(),
+            }),
+        }
+    }
+
+    fn list_node(identity: u8, items: u8) -> SemanticNode {
+        let source = range(u32::from(identity) * 10);
+        SemanticNode {
+            id: id(identity),
+            source: source.clone(),
+            role: SemanticRole::List,
+            split: SplitPolicy::ListItems,
+            content: SemanticContent::List(ListContent {
+                ordered: false,
+                start: 1,
+                items: (0..items)
+                    .map(|item| ListItem {
+                        id: id(100 + item),
+                        source: source.clone(),
+                        blocks: vec![SemanticNode {
+                            id: id(120 + item),
+                            source: source.clone(),
+                            role: SemanticRole::Prose,
+                            split: SplitPolicy::Never,
+                            content: SemanticContent::Text(RichText {
+                                runs: vec![RichTextRun {
+                                    text: format!("item {item}"),
+                                    marks: TextMarks::default(),
+                                    hyperlink: None,
+                                }],
+                            }),
+                        }],
+                        children: vec![],
+                    })
+                    .collect(),
             }),
         }
     }

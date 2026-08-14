@@ -553,8 +553,8 @@ describe('wasmppt workerd adapter', () => {
       invalidDeckSpec,
       atomicOverflow,
     }
-    expect(slideCount).toBe(75)
-    expect(presentableSlides).toHaveLength(74)
+    expect(slideCount).toBe(73)
+    expect(presentableSlides).toHaveLength(72)
     expect(
       pages.filter((page) => page.logicalSlideId === '46'.repeat(16)),
     ).toEqual([

@@ -42,7 +42,10 @@ reservation would collapse an extreme portrait below the floor, a bounded side-b
 the portrait and its caption or short related copy in one topology slot. If neither orientation
 fits at the media and type floors, the candidate remains unavailable. The selected visible frame
 is centered inside the template margins and has the canonical resource aspect within integer EMU
-tolerance.
+tolerance. For an image with validated intrinsic dimensions, that resolved contain placement and
+the media floor are the fit authority; a provisional text-line-height media estimate cannot reject
+it first. Content without intrinsic resource dimensions, such as a chart, retains the conservative
+measured-height check.
 
 ## Semantic flow
 

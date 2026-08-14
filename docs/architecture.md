@@ -156,9 +156,9 @@ and owns the readable-media and maximum-cover-loss policies. Downstream hosts co
 slot, visible frame, fit, and exact crop without recomputing image geometry.
 
 `DeckTemplatePlan` is the template-side input to the planner. It owns the exact page
-geometry, stable template and cache identity, capability-specific layouts, resolved placeholder
-regions and text hierarchy, theme fonts and colors, preserved template assets, and template
-diagnostics. `wasmppt-deck-template` compiles that value from the explicit Cortex Theme
+geometry, stable template and cache identity, three semantic layout envelopes, resolved safe and
+media-only placeholder geometry and text hierarchy, theme fonts and colors, preserved template
+assets, and template diagnostics. `wasmppt-deck-template` compiles that value from the explicit Cortex Theme
 Starter POTX profile without inspecting example slides or visible names. A `DeckPlan` names
 both its source spec and template plan so a consumer
 cannot accidentally compose against a different revision or POTX profile.

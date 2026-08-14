@@ -1769,7 +1769,7 @@ mod tests {
         template_plan.diagnostics.clear();
         template_plan.layouts = vec![TemplateLayout {
             id: id(100),
-            capability: TemplateLayoutCapability::ContentFlow,
+            capability: TemplateLayoutCapability::ContentEnvelope,
             matching_name: "test-content".to_owned(),
             source_part: "ppt/slideLayouts/slideLayout1.xml".to_owned(),
             master_part: "ppt/slideMasters/slideMaster1.xml".to_owned(),
@@ -1791,6 +1791,7 @@ mod tests {
                 width: template_plan.page_size.width - 1_000_000,
                 height: template_plan.page_size.height - 1_000_000,
             },
+            bleed_frame: None,
             margins: TextMargins::default(),
             text_levels: vec![],
             accepts: vec![SemanticRole::Prose],

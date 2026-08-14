@@ -506,13 +506,16 @@ pub fn validate_deck_plan(
         .map(|resource| (resource.id, resource))
         .collect::<BTreeMap<_, _>>();
     for region in &template.regions {
-        if !region.frame.is_within(page_bounds) || region.accepts.is_empty() {
+        let valid_bleed = region
+            .bleed_frame
+            .is_none_or(|bleed| bleed.is_within(page_bounds) && region.frame.is_within(bleed));
+        if !region.frame.is_within(page_bounds) || !valid_bleed || region.accepts.is_empty() {
             plan_error(
                 &mut report,
                 DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
                 None,
                 None,
-                "template region is outside the page or accepts no semantic roles",
+                "template region or bleed is outside the page, the bleed does not contain the safe frame, or the region accepts no semantic roles",
             );
         }
     }
@@ -669,7 +672,8 @@ fn validate_pages(
                     "planned region belongs to a different template layout",
                 );
             }
-            if !planned_region.frame.is_within(template_region.frame)
+            let composition_frame = template_region.bleed_frame.unwrap_or(template_region.frame);
+            if !planned_region.frame.is_within(composition_frame)
                 || !planned_region.frame.is_within(context.page_bounds)
             {
                 plan_error(
@@ -677,7 +681,23 @@ fn validate_pages(
                     DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
                     Some(page.id),
                     None,
-                    "planned region is outside its template frame or page",
+                    "planned region is outside its template composition frame or page",
+                );
+            }
+            if !planned_region.frame.is_within(template_region.frame)
+                && planned_region.fragments.iter().any(|fragment| {
+                    context
+                        .nodes
+                        .get(&fragment.source_node_id)
+                        .is_none_or(|indexed| !is_media_role(indexed.node.role))
+                })
+            {
+                plan_error(
+                    report,
+                    DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
+                    Some(page.id),
+                    None,
+                    "only media fragments may use space outside the template safe frame",
                 );
             }
             if let RegionPlacement::Slot(index) = planned_region.placement {
@@ -822,6 +842,13 @@ fn validate_pages(
             }
         }
     }
+}
+
+const fn is_media_role(role: SemanticRole) -> bool {
+    matches!(
+        role,
+        SemanticRole::Figure | SemanticRole::Gallery | SemanticRole::Chart | SemanticRole::Diagram
+    )
 }
 
 struct FragmentTarget<'a> {

@@ -32,61 +32,27 @@ const LAYOUT_TYPE: &str =
     "application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml";
 const PML_NS: &str = "http://schemas.openxmlformats.org/presentationml/2006/main";
 const STRICT_PML_NS: &str = "http://purl.oclc.org/ooxml/presentationml/main";
-const POLICY: &str = "cortex-theme-starter-v2";
-const VALIDATOR_VERSION: u32 = 3;
+const POLICY: &str = "cortex-theme-starter-v3";
+const VALIDATOR_VERSION: u32 = 4;
 
 #[derive(Clone, Copy)]
 struct CapabilityContract {
     matching_name: &'static str,
     capability: TemplateLayoutCapability,
-    required: bool,
 }
 
-const CAPABILITIES: [CapabilityContract; 9] = [
+const CAPABILITIES: [CapabilityContract; 3] = [
     CapabilityContract {
-        matching_name: "wasmppt:title-v2",
+        matching_name: "wasmppt:title-v3",
         capability: TemplateLayoutCapability::Title,
-        required: true,
     },
     CapabilityContract {
-        matching_name: "wasmppt:statement-v2",
+        matching_name: "wasmppt:statement-v3",
         capability: TemplateLayoutCapability::Statement,
-        required: true,
     },
     CapabilityContract {
-        matching_name: "wasmppt:content-flow-v2",
-        capability: TemplateLayoutCapability::ContentFlow,
-        required: true,
-    },
-    CapabilityContract {
-        matching_name: "wasmppt:content-split-v2",
-        capability: TemplateLayoutCapability::ContentSplit,
-        required: false,
-    },
-    CapabilityContract {
-        matching_name: "wasmppt:media-start-v2",
-        capability: TemplateLayoutCapability::MediaStart,
-        required: false,
-    },
-    CapabilityContract {
-        matching_name: "wasmppt:media-end-v2",
-        capability: TemplateLayoutCapability::MediaEnd,
-        required: false,
-    },
-    CapabilityContract {
-        matching_name: "wasmppt:gallery-v2",
-        capability: TemplateLayoutCapability::Gallery,
-        required: false,
-    },
-    CapabilityContract {
-        matching_name: "wasmppt:table-v2",
-        capability: TemplateLayoutCapability::Table,
-        required: false,
-    },
-    CapabilityContract {
-        matching_name: "wasmppt:comparison-v2",
-        capability: TemplateLayoutCapability::Comparison,
-        required: false,
+        matching_name: "wasmppt:content-envelope-v3",
+        capability: TemplateLayoutCapability::ContentEnvelope,
     },
 ];
 
@@ -228,7 +194,7 @@ fn compile_archive(
             .map(Vec::len)
             .unwrap_or(0)
         {
-            0 if contract.required => diagnostics.push(diagnostic(
+            0 => diagnostics.push(diagnostic(
                 DeckDiagnosticCode::TEMPLATE_MISSING_LAYOUT,
                 format!(
                     "missing required {:?} capability layout {}",
@@ -236,7 +202,6 @@ fn compile_archive(
                 ),
                 None,
             )),
-            0 => {}
             1 => {}
             count => diagnostics.push(diagnostic(
                 DeckDiagnosticCode::TEMPLATE_DUPLICATE_LAYOUT,
@@ -296,7 +261,7 @@ fn compile_archive(
         }
     }
 
-    report_layout_geometry(page_size, &layouts, &regions, &mut diagnostics);
+    report_layout_geometry(page_size, &layouts, &regions, &assets, &mut diagnostics);
 
     diagnostics.sort_by(|left, right| {
         (
@@ -334,6 +299,7 @@ fn report_layout_geometry(
     page_size: EmuSize,
     layouts: &[TemplateLayout],
     regions: &[wasmppt_deck::TemplateRegion],
+    assets: &[TemplateAsset],
     diagnostics: &mut Vec<DeckDiagnostic>,
 ) {
     for layout in layouts {
@@ -352,10 +318,27 @@ fn report_layout_geometry(
                     None,
                 ));
             }
+            if let Some(bleed) = region.bleed_frame {
+                if !rect_within_page(bleed, page_size) || !region.frame.is_within(bleed) {
+                    diagnostics.push(diagnostic(
+                        DeckDiagnosticCode::TEMPLATE_INVALID_PLACEHOLDER,
+                        format!(
+                            "{} optional media bleed must stay on the slide and contain placeholder {}:{}",
+                            layout.matching_name,
+                            region.placeholder.kind,
+                            region.placeholder.index
+                        ),
+                        None,
+                    ));
+                }
+            }
         }
         for (index, left) in layout_regions.iter().enumerate() {
             for right in &layout_regions[index + 1..] {
-                if rects_overlap(left.frame, right.frame) {
+                if rects_overlap(
+                    left.bleed_frame.unwrap_or(left.frame),
+                    right.bleed_frame.unwrap_or(right.frame),
+                ) {
                     diagnostics.push(diagnostic(
                         DeckDiagnosticCode::TEMPLATE_INVALID_PLACEHOLDER,
                         format!(
@@ -367,6 +350,27 @@ fn report_layout_geometry(
                             right.placeholder.index
                         ),
                         None,
+                    ));
+                }
+            }
+        }
+        for asset in assets.iter().filter(|asset| asset.layout_id == layout.id) {
+            let Some(asset_frame) = asset.frame else {
+                continue;
+            };
+            for region in &layout_regions {
+                let envelope = region.bleed_frame.unwrap_or(region.frame);
+                if rects_overlap(asset_frame, envelope) {
+                    diagnostics.push(diagnostic(
+                        DeckDiagnosticCode::TEMPLATE_INVALID_PLACEHOLDER,
+                        format!(
+                            "{} preserved {:?} asset overlaps generated-content placeholder {}:{}",
+                            layout.matching_name,
+                            asset.kind,
+                            region.placeholder.kind,
+                            region.placeholder.index
+                        ),
+                        Some(asset.source_xml.clone()),
                     ));
                 }
             }
@@ -450,9 +454,45 @@ impl LayoutCompiler<'_> {
         let master_styles = master_text_styles(&master_xml, self.theme);
         let mut region_ids = Vec::new();
         let mut role_counts = BTreeMap::<RegionRole, usize>::new();
+        let bleed_frame = layout_placeholders
+            .iter()
+            .find(|placeholder| is_content_bleed(capability, &placeholder.identity))
+            .and_then(|placeholder| {
+                let inherited = master_placeholders
+                    .iter()
+                    .find(|master| master.identity == placeholder.identity);
+                let frame = placeholder
+                    .frame
+                    .or_else(|| inherited.and_then(|master| master.frame));
+                match frame {
+                    Some(frame) if frame.is_positive() => Some(frame),
+                    Some(_) => {
+                        self.diagnostics.push(diagnostic(
+                            DeckDiagnosticCode::TEMPLATE_INVALID_PLACEHOLDER,
+                            format!(
+                                "{matching_name} optional media bleed {}:{} has non-positive bounds",
+                                placeholder.identity.kind, placeholder.identity.index
+                            ),
+                            Some(placeholder.source.clone()),
+                        ));
+                        None
+                    }
+                    None => {
+                        self.diagnostics.push(diagnostic(
+                            DeckDiagnosticCode::TEMPLATE_INVALID_PLACEHOLDER,
+                            format!(
+                                "{matching_name} optional media bleed {}:{} has no resolvable bounds",
+                                placeholder.identity.kind, placeholder.identity.index
+                            ),
+                            Some(placeholder.source.clone()),
+                        ));
+                        None
+                    }
+                }
+            });
 
         for placeholder in layout_placeholders {
-            let region_role = placeholder_role(capability, &placeholder.identity.kind);
+            let region_role = placeholder_role(capability, &placeholder.identity);
             let Some(region_role) = region_role else {
                 continue;
             };
@@ -512,10 +552,15 @@ impl LayoutCompiler<'_> {
                 role: region_role,
                 placeholder: placeholder.identity,
                 frame,
+                bleed_frame: if region_role == RegionRole::Body {
+                    bleed_frame
+                } else {
+                    None
+                },
                 margins,
                 text_levels,
                 accepts: accepted_roles(region_role),
-                required: required_region(capability, region_role),
+                required: true,
             });
         }
         report_required_regions(matching_name, capability, &role_counts, self.diagnostics);
@@ -1000,31 +1045,24 @@ fn report_duplicate_placeholders(
     }
 }
 
-fn placeholder_role(capability: TemplateLayoutCapability, kind: &str) -> Option<RegionRole> {
-    match kind {
-        "title" | "ctrTitle" if capability == TemplateLayoutCapability::Statement => {
-            Some(RegionRole::Statement)
-        }
-        "title" | "ctrTitle" => Some(RegionRole::Title),
-        "subTitle" if capability == TemplateLayoutCapability::Statement => {
-            Some(RegionRole::Caption)
-        }
-        "subTitle" => Some(RegionRole::Subtitle),
-        "body" | "obj" => Some(RegionRole::Body),
-        "pic" | "media" | "clipArt" | "dgm" => Some(RegionRole::Media),
-        "tbl" => Some(RegionRole::Table),
-        "chart" => Some(RegionRole::Chart),
-        // Page furniture is preserved by `collect_assets`; it is not a
-        // semantic insertion target and therefore must not become a region.
-        "ftr" | "dt" | "sldNum" => None,
+fn placeholder_role(
+    capability: TemplateLayoutCapability,
+    identity: &PlaceholderIdentity,
+) -> Option<RegionRole> {
+    match (capability, identity.kind.as_str(), identity.index) {
+        (TemplateLayoutCapability::Title, "title", 1) => Some(RegionRole::Title),
+        (TemplateLayoutCapability::Title, "subTitle", 2) => Some(RegionRole::Subtitle),
+        (TemplateLayoutCapability::Statement, "ctrTitle", 5) => Some(RegionRole::Statement),
+        (TemplateLayoutCapability::ContentEnvelope, "title", 3) => Some(RegionRole::Title),
+        (TemplateLayoutCapability::ContentEnvelope, "body", 4) => Some(RegionRole::Body),
         _ => None,
     }
 }
 
-fn required_region(capability: TemplateLayoutCapability, role: RegionRole) -> bool {
-    required_region_counts(capability)
-        .iter()
-        .any(|(required, _)| *required == role)
+fn is_content_bleed(capability: TemplateLayoutCapability, identity: &PlaceholderIdentity) -> bool {
+    capability == TemplateLayoutCapability::ContentEnvelope
+        && identity.kind == "pic"
+        && identity.index == 5
 }
 
 fn report_required_regions(
@@ -1054,17 +1092,9 @@ fn required_region_counts(capability: TemplateLayoutCapability) -> &'static [(Re
     match capability {
         TemplateLayoutCapability::Title => &[(RegionRole::Title, 1), (RegionRole::Subtitle, 1)],
         TemplateLayoutCapability::Statement => &[(RegionRole::Statement, 1)],
-        TemplateLayoutCapability::ContentFlow => &[(RegionRole::Title, 1), (RegionRole::Body, 1)],
-        TemplateLayoutCapability::ContentSplit | TemplateLayoutCapability::Comparison => {
-            &[(RegionRole::Title, 1), (RegionRole::Body, 2)]
+        TemplateLayoutCapability::ContentEnvelope => {
+            &[(RegionRole::Title, 1), (RegionRole::Body, 1)]
         }
-        TemplateLayoutCapability::MediaStart | TemplateLayoutCapability::MediaEnd => &[
-            (RegionRole::Title, 1),
-            (RegionRole::Body, 1),
-            (RegionRole::Media, 1),
-        ],
-        TemplateLayoutCapability::Gallery => &[(RegionRole::Title, 1), (RegionRole::Media, 2)],
-        TemplateLayoutCapability::Table => &[(RegionRole::Title, 1), (RegionRole::Table, 1)],
     }
 }
 
@@ -1311,8 +1341,8 @@ mod tests {
     fn visible_names_are_not_part_of_identity() {
         let template = [7; 32];
         assert_eq!(
-            derive_id(&template, b"layout", &[b"wasmppt:title-v2"]),
-            derive_id(&template, b"layout", &[b"wasmppt:title-v2"])
+            derive_id(&template, b"layout", &[b"wasmppt:title-v3"]),
+            derive_id(&template, b"layout", &[b"wasmppt:title-v3"])
         );
     }
 }

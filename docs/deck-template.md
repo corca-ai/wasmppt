@@ -1,60 +1,62 @@
 # Cortex Theme Starter compiler
 
-Status: explicit Starter v2 discovery, capability compilation, validation, and deterministic
-cache identity implemented; automatic layout and PresentationML composition are implemented by
-the downstream deck-layout and deck-compose crates
+Status: explicit Starter v3 envelope discovery, validation, and deterministic cache identity
+implemented; automatic topology selection and PresentationML composition are implemented by the
+downstream deck-layout and deck-compose crates
 
 `wasmppt-deck-template` converts a bounded POTX package into the host-neutral
-`DeckTemplatePlan` consumed by semantic layout. It is separate from
-`wasmppt-template`: the latter compiles author-inserted binding tokens for repeated data
-injection, while this crate compiles layout affordances for generated semantic decks.
+`DeckTemplatePlan` consumed by semantic layout. It is separate from `wasmppt-template`: the latter
+compiles author-inserted binding tokens for repeated data injection, while this crate compiles safe
+layout envelopes for generated semantic decks.
 
 ## Discovery contract
 
-A minimal Cortex Theme Starter v2 contains exactly one preserved slide layout for each
-required `p:sldLayout/@matchingName` value:
+A Cortex Theme Starter v3 contains exactly one preserved slide layout for each required
+`p:sldLayout/@matchingName` value:
 
-- `wasmppt:title-v2`
-- `wasmppt:content-flow-v2`
-- `wasmppt:statement-v2`
+- `wasmppt:title-v3`
+- `wasmppt:statement-v3`
+- `wasmppt:content-envelope-v3`
 
-A Starter may also expose these optional capabilities:
+There are no capability-specific split, media, gallery, table, or comparison layouts. The template
+owns visual identity and safe outer geometry; the planner constructs columns, media/text splits,
+galleries, tables, comparisons, and continuation pages procedurally inside the content envelope.
+Removing the optional media bleed therefore degrades to the same safe envelope instead of selecting
+a different fallback layout.
 
-- `wasmppt:content-split-v2`
-- `wasmppt:media-start-v2`
-- `wasmppt:media-end-v2`
-- `wasmppt:gallery-v2`
-- `wasmppt:table-v2`
-- `wasmppt:comparison-v2`
+Regions use these exact standard `p:ph/@type` and `p:ph/@idx` identities:
 
-Each optional name may occur at most once. If an optional capability is absent, the planner may
-construct the topology procedurally inside `content-flow`; it never guesses a layout from its
-visible name or an example slide.
+| Layout | Identity | Meaning |
+| --- | --- | --- |
+| `wasmppt:title-v3` | `title:1` | cover title |
+| `wasmppt:title-v3` | `subTitle:2` | ordered cover-details flow |
+| `wasmppt:statement-v3` | `ctrTitle:5` | centered statement |
+| `wasmppt:content-envelope-v3` | `title:3` | content heading |
+| `wasmppt:content-envelope-v3` | `body:4` | safe text and mixed-content envelope |
+| `wasmppt:content-envelope-v3` | `pic:5` | optional media-only bleed envelope |
 
-Regions use standard `p:ph/@type` and `p:ph/@idx` identities. The compiler never uses
-example slides, slide order, visible `p:cSld/@name` values, `p:cNvPr/@name` values, Alt Text,
-fixed slide numbers, or an out-of-package manifest to infer a role. An arbitrary POTX therefore
-gets stable missing-layout diagnostics instead of a guessed profile. PowerPoint preserves
-`matchingName` and placeholder identities when a Starter is edited and saved normally.
+The optional `pic:5` frame must contain `body:4`. A pure-media composition may use the larger
+frame; text and mixed media/text composition always stays within `body:4`. The bleed placeholder is
+geometry metadata and does not become an insertion region in the compiled plan.
 
-Title layouts require title and subtitle regions. The subtitle region is the ordered cover-details
-flow and accepts subtitle, prose, and credit text without guessing whether a block is an author,
-date, or description. Content-flow requires title and body. Content-split and comparison require a
-title and two independently identified body placeholders. Media-start and media-end require title,
-body, and media; gallery requires title and at least two media placeholders; table requires title
-and a table placeholder. Statement requires a centered-title or title region mapped to the
-statement role. Optional footer, date, slide-number, and other supported placeholders remain
-available without becoming role identifiers.
-Footer, date, and slide-number placeholders are compiled as preserved page-furniture assets rather
-than semantic regions.
+The compiler never uses example slides, slide order, visible `p:cSld/@name` values,
+`p:cNvPr/@name` values, Alt Text, fixed slide numbers, or an out-of-package manifest to infer a
+role. An arbitrary POTX therefore gets stable missing-layout diagnostics instead of a guessed
+profile. PowerPoint preserves `matchingName` and placeholder identities when a Starter is edited
+and saved normally.
+
+The title subtitle region accepts subtitle, prose, and credit text without guessing whether a block
+is an author, date, or description. The content body accepts all supported semantic body roles.
+Footer, date, and slide-number placeholders are preserved page-furniture assets rather than
+semantic regions.
 
 ## Resolved profile
 
-The compiler retains the exact positive `p:sldSz` EMU values without replacing unusual but
-valid page sizes. It resolves layout placeholders against matching master placeholder type/index
-pairs and then resolves:
+The compiler retains the exact positive `p:sldSz` EMU values without replacing unusual but valid
+page sizes. It resolves layout placeholders against matching master placeholder type/index pairs
+and then resolves:
 
-- frame geometry and DrawingML text insets;
+- safe and optional bleed frame geometry plus DrawingML text insets;
 - nine-level layout, master-placeholder, and master title/body/other text styles;
 - font size, Latin/East Asian/complex-script typeface, emphasis, indentation, and color;
 - theme major/minor fonts and the resolved sRGB color scheme;
@@ -73,9 +75,10 @@ overlap checks fail before profile allocation. Compilation additionally validate
 - exactly one non-macro POTX main content type and its package relationship;
 - bounded, namespace-correct PresentationML XML;
 - resolvable master, layout, theme, and internal relationship targets;
-- unique required matching names and placeholder identities;
-- capability-specific placeholder counts, positive inherited geometry, non-overlapping regions
-  contained by the slide, and a positive page size;
+- unique required matching names and exact placeholder identities;
+- positive inherited geometry, safe frames and bleed contained by the slide, bleed containing its
+  safe body frame, and non-overlapping effective generated-content envelopes;
+- preserved layout or master assets not overlapping any effective generated-content envelope;
 - absence of VBA, ActiveX, OLE/package embeddings, custom UI, digital signatures, and macro or
   program actions.
 
@@ -91,8 +94,8 @@ diagnostics and `cacheable = false`. Active-content-bearing input is never cache
 The cache key hashes the POTX bytes, Starter validator version, WDTP schema version, compiler and
 OPC engine versions, and policy identifier. Plan and child identities derive from that key or the
 template hash plus semantic identifiers, never collection positions or visible names. The same
-Rust implementation and WDTP v3 encoder compile for native and `wasm32-unknown-unknown`, giving
-both hosts one deterministic cache boundary.
+Rust implementation and WDTP v4 encoder compile for native and `wasm32-unknown-unknown`, giving
+both hosts one deterministic cache boundary. Starter v2 is intentionally not decoded as v3.
 
 ## Verification
 
@@ -103,14 +106,16 @@ cargo check -p wasmppt-deck-template --target wasm32-unknown-unknown
 npm run check:core-boundary
 ```
 
-Integration tests build real OPC ZIP fixtures and cover minimal-valid and capability-complete v2
-Starters, capability discovery independence, inherited geometry and styles, asset source ranges,
-exact page size, accumulated missing/duplicate errors, active-content rejection, deterministic
-cache identity, and deterministic WDTP bytes.
+Integration tests build real OPC ZIP fixtures and cover the exact v3 contract, optional bleed
+presence and absence, planner bleed selection, inherited geometry and styles, preserved-asset
+exclusion, exact page size, accumulated errors, active-content rejection, deterministic cache
+identity, and deterministic WDTP bytes.
 
 ## Related documents
 
 - [Semantic deck contracts](deck-engine.md) defines the output plan and wire format.
+- [Automatic slide layout](deck-layout.md) defines procedural topology selection within the
+  template envelope.
 - [OPC and ZIP substrate](opc.md) defines package limits and graph safety.
 - [Loss-aware OOXML graph](ooxml.md) defines relationship and exact-source-range behavior.
 - [Template bindings](bindings.md) defines the separate repeated binding-injection workload.

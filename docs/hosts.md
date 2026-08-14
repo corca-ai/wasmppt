@@ -96,6 +96,14 @@ source crop, so native, browser, and workerd consumers do not independently fit 
 Hidden pages remain addressable by authoring index and carry PresentationML `show="0"`; the
 presentable/export page-index set omits them without constructing a second preview revision.
 
+A browser host that resolves a page and then fetches its lazy resources must wrap the complete
+sequence in `WasmpptWorkerClient.withDeckSessionRevision(handle, revision, operation)`. The read
+transaction keeps that exact revision current until `operation` settles. Session updates and
+release wait behind it; a read queued behind an accepted update fails with the stable
+`runtime/stale-revision` envelope before it can combine an old display list with new package parts.
+The callback must remain bounded to one render or export and must not nest another revision
+transaction for the same session.
+
 `serializeDeckSessionToHtml` consumes only those presentable indices, exact-revision WPDL results,
 and `deckSessionResource` bytes. The Cortex host does not provide a URL loader or HTML fragment:
 it authorizes package-part reads, and the serializer owns sanitization, deterministic data-URL

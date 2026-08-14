@@ -134,6 +134,81 @@ export interface LiveSessionCacheTelemetry {
   readonly evictions: number
 }
 
+type RevisionFenceWaiter = {
+  readonly kind: 'read' | 'write'
+  readonly run: () => void
+}
+
+class RevisionFence {
+  #activeReaders = 0
+  #writerActive = false
+  readonly #queue: RevisionFenceWaiter[] = []
+
+  read<T>(operation: () => T | PromiseLike<T>): Promise<T> {
+    return this.#run('read', operation)
+  }
+
+  write<T>(operation: () => T | PromiseLike<T>): Promise<T> {
+    return this.#run('write', operation)
+  }
+
+  #run<T>(kind: RevisionFenceWaiter['kind'], operation: () => T | PromiseLike<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.#queue.push({
+        kind,
+        run: () => {
+          let result: T | PromiseLike<T>
+          try {
+            result = operation()
+          } catch (error) {
+            this.#release(kind)
+            reject(error)
+            return
+          }
+          Promise.resolve(result).then(
+            (value) => {
+              this.#release(kind)
+              resolve(value)
+            },
+            (error: unknown) => {
+              this.#release(kind)
+              reject(error)
+            },
+          )
+        },
+      })
+      this.#drain()
+    })
+  }
+
+  #drain(): void {
+    if (this.#writerActive) return
+    const next = this.#queue[0]
+    if (next?.kind === 'write') {
+      if (this.#activeReaders > 0) return
+      this.#queue.shift()
+      this.#writerActive = true
+      next.run()
+      return
+    }
+    while (this.#queue[0]?.kind === 'read' && !this.#writerActive) {
+      const reader = this.#queue.shift()
+      if (reader === undefined) break
+      this.#activeReaders += 1
+      reader.run()
+    }
+  }
+
+  #release(kind: RevisionFenceWaiter['kind']): void {
+    if (kind === 'read') {
+      this.#activeReaders -= 1
+    } else {
+      this.#writerActive = false
+    }
+    this.#drain()
+  }
+}
+
 type Pending =
   | {
       readonly kind: 'prepare' | 'release' | 'open' | 'resolve' | 'resource' | 'metafile' |
@@ -166,6 +241,7 @@ export class WasmpptWorkerClient {
   readonly #releasedLiveSessions = new Set<number>()
   readonly #releasedDeckSessions = new Set<number>()
   readonly #deckRevisions = new Map<number, number>()
+  readonly #deckRevisionFences = new Map<number, RevisionFence>()
   readonly #liveResourceFingerprints = new Map<string, string>()
   readonly #resourceCacheLimit: number
   #resourceCacheBytes = 0
@@ -290,31 +366,61 @@ export class WasmpptWorkerClient {
     if (this.#deckRevisions.get(sessionHandle) !== expectedRevision) {
       throw new Error('deck session update does not target the current client revision')
     }
-    const id = this.#allocateId()
-    const result = this.#unaryRequest(id, 'delta', options.signal, options.onProgress)
-    this.#worker.postMessage({
-      version: WORKER_PROTOCOL_VERSION,
-      id,
-      type: 'update-deck-session',
-      sessionHandle,
-      expectedRevision,
-      nextRevision,
-      spec,
-    }, [spec])
-    const response = await result
-    if (response.type !== 'deck-session-updated') throw new Error('invalid deck update response')
-    this.#deckRevisions.set(sessionHandle, response.revision)
-    const prefix = `${sessionHandle}\0`
-    if (response.fullFallback) {
-      for (const key of this.#liveResourceFingerprints.keys()) {
-        if (key.startsWith(prefix)) this.#liveResourceFingerprints.delete(key)
+    if (options.signal?.aborted === true) throw abortError()
+    const ownedSpec = structuredClone(spec, { transfer: [spec] })
+    return this.#deckRevisionFence(sessionHandle).write(async () => {
+      this.#assertOpen()
+      if (this.#deckRevisions.get(sessionHandle) !== expectedRevision) {
+        throw new Error('deck session update does not target the current client revision')
       }
-    } else {
-      for (const partName of response.changedParts) {
-        this.#liveResourceFingerprints.delete(`${prefix}${partName}`)
+      if (options.signal?.aborted === true) throw abortError()
+      const id = this.#allocateId()
+      const result = this.#unaryRequest(id, 'delta', options.signal, options.onProgress)
+      this.#worker.postMessage({
+        version: WORKER_PROTOCOL_VERSION,
+        id,
+        type: 'update-deck-session',
+        sessionHandle,
+        expectedRevision,
+        nextRevision,
+        spec: ownedSpec,
+      }, [ownedSpec])
+      const response = await result
+      if (response.type !== 'deck-session-updated') throw new Error('invalid deck update response')
+      this.#deckRevisions.set(sessionHandle, response.revision)
+      const prefix = `${sessionHandle}\0`
+      if (response.fullFallback) {
+        for (const key of this.#liveResourceFingerprints.keys()) {
+          if (key.startsWith(prefix)) this.#liveResourceFingerprints.delete(key)
+        }
+      } else {
+        for (const partName of response.changedParts) {
+          this.#liveResourceFingerprints.delete(`${prefix}${partName}`)
+        }
       }
-    }
-    return response
+      return response
+    })
+  }
+
+  /**
+   * Keep one exact deck revision current while a host resolves its display list and lazy resources.
+   * Updates and release wait for the callback; reads requested behind an update re-check revision
+   * before they run.
+   */
+  withDeckSessionRevision<T>(
+    sessionHandle: number,
+    revision: number,
+    operation: () => T | PromiseLike<T>,
+  ): Promise<T> {
+    this.#assertOpen()
+    assertRevision(revision)
+    return this.#deckRevisionFence(sessionHandle).read(() => {
+      this.#assertOpen()
+      if (this.#deckRevisions.get(sessionHandle) !== revision) {
+        throw staleDeckRevisionError()
+      }
+      return operation()
+    })
   }
 
   async resolveDeckSlide(
@@ -448,22 +554,29 @@ export class WasmpptWorkerClient {
 
   async releaseDeckSession(sessionHandle: number): Promise<void> {
     this.#assertOpen()
-    this.#releasedDeckSessions.add(sessionHandle)
-    this.#deckRevisions.delete(sessionHandle)
-    const prefix = `${sessionHandle}\0`
-    for (const key of this.#liveResourceFingerprints.keys()) {
-      if (key.startsWith(prefix)) this.#liveResourceFingerprints.delete(key)
-    }
-    const id = this.#allocateId()
-    const result = this.#unaryRequest(id, 'release-session')
-    this.#worker.postMessage({
-      version: WORKER_PROTOCOL_VERSION,
-      id,
-      type: 'release-deck-session',
-      sessionHandle,
+    const fence = this.#deckRevisionFence(sessionHandle)
+    await fence.write(async () => {
+      this.#assertOpen()
+      this.#releasedDeckSessions.add(sessionHandle)
+      this.#deckRevisions.delete(sessionHandle)
+      const prefix = `${sessionHandle}\0`
+      for (const key of this.#liveResourceFingerprints.keys()) {
+        if (key.startsWith(prefix)) this.#liveResourceFingerprints.delete(key)
+      }
+      const id = this.#allocateId()
+      const result = this.#unaryRequest(id, 'release-session')
+      this.#worker.postMessage({
+        version: WORKER_PROTOCOL_VERSION,
+        id,
+        type: 'release-deck-session',
+        sessionHandle,
+      })
+      const response = await result
+      if (response.type !== 'deck-session-released') {
+        throw new Error('invalid deck release response')
+      }
     })
-    const response = await result
-    if (response.type !== 'deck-session-released') throw new Error('invalid deck release response')
+    this.#deckRevisionFences.delete(sessionHandle)
   }
 
   async releaseDeckTemplate(templateHandle: number): Promise<void> {
@@ -1160,9 +1273,19 @@ export class WasmpptWorkerClient {
     this.#releasedLiveSessions.clear()
     this.#releasedDeckSessions.clear()
     this.#deckRevisions.clear()
+    this.#deckRevisionFences.clear()
     this.#liveResourceFingerprints.clear()
     this.#resourceCacheBytes = 0
     this.#failAll(new Error('wasmppt Worker was terminated'))
+  }
+
+  #deckRevisionFence(sessionHandle: number): RevisionFence {
+    let fence = this.#deckRevisionFences.get(sessionHandle)
+    if (fence === undefined) {
+      fence = new RevisionFence()
+      this.#deckRevisionFences.set(sessionHandle, fence)
+    }
+    return fence
   }
 
   #receive(value: unknown): void {
@@ -1350,6 +1473,15 @@ function abortError(): WasmpptError {
     cancellationEnvelope('wasmppt generation was cancelled'),
     'AbortError',
   )
+}
+
+function staleDeckRevisionError(): WasmpptError {
+  return new WasmpptError({
+    version: ERROR_ENVELOPE_VERSION,
+    domain: 'runtime',
+    code: 'stale-revision',
+    message: 'deck revision read targets a stale revision',
+  }, 'WasmpptRevisionError')
 }
 
 function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {

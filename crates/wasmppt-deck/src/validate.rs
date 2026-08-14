@@ -620,16 +620,16 @@ fn validate_pages(
                     "planned region is outside its template frame or page",
                 );
             }
-            if let RegionPlacement::Slot(index) = planned_region.placement
-                && index >= page.topology.slot_count
-            {
-                plan_error(
-                    report,
-                    DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
-                    Some(page.id),
-                    None,
-                    "planned region references a slot outside its page topology",
-                );
+            if let RegionPlacement::Slot(index) = planned_region.placement {
+                if index >= page.topology.slot_count {
+                    plan_error(
+                        report,
+                        DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
+                        Some(page.id),
+                        None,
+                        "planned region references a slot outside its page topology",
+                    );
+                }
             }
             for fragment in &planned_region.fragments {
                 fragment_count = fragment_count.saturating_add(1);

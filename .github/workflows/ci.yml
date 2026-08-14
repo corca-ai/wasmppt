@@ -74,6 +74,8 @@ jobs:
       - name: Install matching wasm-bindgen generator
         if: steps.wasm-bindgen-cache.outputs.cache-hit != 'true'
         run: cargo install wasm-bindgen-cli --version 0.2.127 --locked
+      - name: Check checked-in Wasm artifact provenance
+        run: node scripts/check-wasm-artifact-manifest.mjs
       - name: Build the shared scalar Wasm host artifacts
         run: npm run build:wasm-hosts
       - name: Check generated Wasm bindings
@@ -81,15 +83,12 @@ jobs:
           git diff --exit-code -- \
             packages/wasmppt-worker/src/generated/wasmppt_wasm.js \
             packages/wasmppt-worker/src/generated/wasmppt_wasm.d.ts \
-            packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm \
             packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm.d.ts \
             packages/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm.js \
             packages/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm.d.ts \
-            packages/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm_bg.wasm \
             packages/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm_bg.wasm.d.ts \
             packages/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm.js \
             packages/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm.d.ts \
-            packages/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm_bg.wasm \
             packages/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm_bg.wasm.d.ts
       - name: Report Wasm artifact size
         run: |

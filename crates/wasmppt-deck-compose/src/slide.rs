@@ -814,6 +814,13 @@ fn picture_frame(media: &PreparedMedia, slot: EmuRect, fit: ContentFit) -> EmuRe
     let slot_height = i128::from(slot.height);
     let image_width = i128::from(size.width);
     let image_height = i128::from(size.height);
+    let aspect_error = slot_width
+        .saturating_mul(image_height)
+        .saturating_sub(slot_height.saturating_mul(image_width))
+        .abs();
+    if aspect_error <= image_width.max(image_height) {
+        return slot;
+    }
     let (width, height) =
         if image_width.saturating_mul(slot_height) > slot_width.saturating_mul(image_height) {
             (

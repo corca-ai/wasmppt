@@ -570,10 +570,12 @@ fn table_node(value: u8) -> SemanticNode {
         TableColumn {
             id: id(value + 1),
             source: range(value, 1, 2),
+            alignment: wasmppt_deck::TableColumnAlignment::Start,
         },
         TableColumn {
             id: id(value + 2),
             source: range(value, 2, 3),
+            alignment: wasmppt_deck::TableColumnAlignment::End,
         },
     ];
     let rows = (0..18u8)

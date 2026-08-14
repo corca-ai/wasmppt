@@ -130,6 +130,15 @@ fn reports_each_plan_integrity_failure_with_a_stable_code() {
         DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
     );
 
+    let mut invalid_slot = plan.clone();
+    invalid_slot.pages[0].regions[0].placement = RegionPlacement::Slot(1);
+    assert_code(
+        &spec,
+        &template,
+        &invalid_slot,
+        DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
+    );
+
     let mut continuation = plan.clone();
     continuation.pages[1].continuation.total = 3;
     assert_code(
@@ -212,7 +221,12 @@ fn validates_source_resource_link_and_chart_contracts() {
 fn all_contract_payloads_round_trip_deterministically() {
     let spec = rich_spec();
     let template = template_plan_with_unknown_diagnostic();
-    let plan = valid_plan(&simple_spec(), &template_plan_with_unknown_diagnostic());
+    let mut plan = valid_plan(&simple_spec(), &template_plan_with_unknown_diagnostic());
+    plan.pages[1].topology = TopologyChoice {
+        kind: LayoutTopology::FlowColumns,
+        slot_count: 2,
+    };
+    plan.pages[1].regions[0].placement = RegionPlacement::Slot(1);
     let limits = DeckLimits::default();
 
     let validation = validate_deck_spec(&spec, &limits);
@@ -241,19 +255,22 @@ fn golden_payloads_are_stable() {
     let limits = DeckLimits::default();
     assert_golden(
         rich_spec().encode(&limits).unwrap(),
-        include_str!("../../../fixtures/deck-contracts/deck-spec-v2.hex"),
+        "fixtures/deck-contracts/deck-spec-v3.hex",
+        include_str!("../../../fixtures/deck-contracts/deck-spec-v3.hex"),
     );
     assert_golden(
         template_plan_with_unknown_diagnostic()
             .encode(&limits)
             .unwrap(),
+        "fixtures/deck-contracts/template-plan-v2.hex",
         include_str!("../../../fixtures/deck-contracts/template-plan-v2.hex"),
     );
     assert_golden(
         valid_plan(&simple_spec(), &template_plan_with_unknown_diagnostic())
             .encode(&limits)
             .unwrap(),
-        include_str!("../../../fixtures/deck-contracts/deck-plan-v2.hex"),
+        "fixtures/deck-contracts/deck-plan-v3.hex",
+        include_str!("../../../fixtures/deck-contracts/deck-plan-v3.hex"),
     );
 }
 
@@ -279,7 +296,7 @@ fn decoding_is_bounded_and_fails_closed() {
     );
 
     let mut future = bytes;
-    future[4..8].copy_from_slice(&3u32.to_le_bytes());
+    future[4..8].copy_from_slice(&4u32.to_le_bytes());
     assert_eq!(
         DeckSpec::decode(&future, &DeckLimits::default())
             .unwrap_err()
@@ -305,8 +322,18 @@ fn assert_code(
     );
 }
 
-fn assert_golden(actual: Vec<u8>, expected: &str) {
+fn assert_golden(actual: Vec<u8>, relative_path: &str, expected: &str) {
     let actual = hex(&actual);
+    if std::env::var_os("WASMPPT_UPDATE_GOLDENS").is_some() {
+        std::fs::write(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join(relative_path),
+            format!("{actual}\n"),
+        )
+        .unwrap();
+        return;
+    }
     let expected = expected.trim();
     let first_difference = actual
         .bytes()
@@ -523,10 +550,12 @@ fn table_node() -> SemanticNode {
         TableColumn {
             id: id(18),
             source: SourceRange::new("deck.md", 81, 90),
+            alignment: wasmppt_deck::TableColumnAlignment::Start,
         },
         TableColumn {
             id: id(19),
             source: SourceRange::new("deck.md", 91, 100),
+            alignment: wasmppt_deck::TableColumnAlignment::End,
         },
     ];
     let rows = (0..2)
@@ -675,6 +704,7 @@ fn page(
         id: slide.id.derive(b"physical-page", ordinal),
         logical_slide_id: slide.id,
         template_layout_id: id(52),
+        topology: wasmppt_deck::TopologyChoice::stack(),
         hidden: slide.hidden,
         continuation: Continuation {
             ordinal,
@@ -684,6 +714,7 @@ fn page(
         },
         regions: vec![PlannedRegion {
             template_region_id: id(51),
+            placement: wasmppt_deck::RegionPlacement::Slot(0),
             frame: FRAME,
             fragments,
         }],
@@ -703,7 +734,6 @@ fn fragment(source_node_id: StableId, slice: FragmentSlice, y: Emu) -> PlannedFr
         },
         type_choice: TypeChoice {
             font_size: 2_400,
-            columns: 1,
             fit: ContentFit::None,
         },
         repeat_table_header_rows: 0,

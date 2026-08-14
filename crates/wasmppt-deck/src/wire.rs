@@ -458,7 +458,8 @@ impl<'a> Writer<'a> {
     fn table(&mut self, table: &TableContent) -> Result<(), WireError> {
         self.vec(&table.columns, |writer, column| {
             writer.id(column.id)?;
-            writer.source(&column.source)
+            writer.source(&column.source)?;
+            writer.byte(table_column_alignment_tag(column.alignment))
         })?;
         self.u32(table.header_rows)?;
         self.vec(&table.rows, |writer, row| {
@@ -656,6 +657,8 @@ impl<'a> Writer<'a> {
         self.id(page.id)?;
         self.id(page.logical_slide_id)?;
         self.id(page.template_layout_id)?;
+        self.byte(layout_topology_tag(page.topology.kind))?;
+        self.u16(page.topology.slot_count)?;
         self.bool(page.hidden)?;
         self.u32(page.continuation.ordinal)?;
         self.u32(page.continuation.total)?;
@@ -668,6 +671,7 @@ impl<'a> Writer<'a> {
 
     fn planned_region(&mut self, region: &PlannedRegion) -> Result<(), WireError> {
         self.id(region.template_region_id)?;
+        self.region_placement(region.placement)?;
         self.rect(region.frame)?;
         self.vec(&region.fragments, |writer, fragment| {
             writer.fragments = writer.fragments.saturating_add(1);
@@ -684,10 +688,19 @@ impl<'a> Writer<'a> {
             writer.fragment_slice(fragment.slice)?;
             writer.rect(fragment.frame)?;
             writer.u32(fragment.type_choice.font_size)?;
-            writer.u16(fragment.type_choice.columns)?;
             writer.byte(content_fit_tag(fragment.type_choice.fit))?;
             writer.u32(fragment.repeat_table_header_rows)
         })
+    }
+
+    fn region_placement(&mut self, placement: RegionPlacement) -> Result<(), WireError> {
+        match placement {
+            RegionPlacement::Fixed => self.byte(0),
+            RegionPlacement::Slot(index) => {
+                self.byte(1)?;
+                self.u16(index)
+            }
+        }
     }
 
     fn fragment_slice(&mut self, slice: FragmentSlice) -> Result<(), WireError> {
@@ -1014,6 +1027,7 @@ impl<'a> Reader<'a> {
             Ok(TableColumn {
                 id: reader.id()?,
                 source: reader.source()?,
+                alignment: table_column_alignment(reader.byte()?)?,
             })
         })?;
         let header_rows = self.u32()?;
@@ -1247,6 +1261,10 @@ impl<'a> Reader<'a> {
             id: self.id()?,
             logical_slide_id: self.id()?,
             template_layout_id: self.id()?,
+            topology: TopologyChoice {
+                kind: layout_topology(self.byte()?)?,
+                slot_count: self.u16()?,
+            },
             hidden: self.bool()?,
             continuation: Continuation {
                 ordinal: self.u32()?,
@@ -1260,6 +1278,7 @@ impl<'a> Reader<'a> {
 
     fn planned_region(&mut self) -> Result<PlannedRegion, WireError> {
         let template_region_id = self.id()?;
+        let placement = self.region_placement()?;
         let frame = self.rect()?;
         let fragment_count = self.count("planned fragments")?;
         self.fragments = self.fragments.saturating_add(fragment_count);
@@ -1283,7 +1302,6 @@ impl<'a> Reader<'a> {
                 frame: self.rect()?,
                 type_choice: TypeChoice {
                     font_size: self.u32()?,
-                    columns: self.u16()?,
                     fit: content_fit(self.byte()?)?,
                 },
                 repeat_table_header_rows: self.u32()?,
@@ -1291,9 +1309,18 @@ impl<'a> Reader<'a> {
         }
         Ok(PlannedRegion {
             template_region_id,
+            placement,
             frame,
             fragments,
         })
+    }
+
+    fn region_placement(&mut self) -> Result<RegionPlacement, WireError> {
+        match self.byte()? {
+            0 => Ok(RegionPlacement::Fixed),
+            1 => Ok(RegionPlacement::Slot(self.u16()?)),
+            _ => Err(invalid_tag("region placement")),
+        }
     }
 
     fn fragment_slice(&mut self) -> Result<FragmentSlice, WireError> {
@@ -1444,6 +1471,23 @@ fn chart_kind(value: u8) -> Result<ChartKind, WireError> {
     }
 }
 
+const fn table_column_alignment_tag(value: TableColumnAlignment) -> u8 {
+    match value {
+        TableColumnAlignment::Start => 0,
+        TableColumnAlignment::Center => 1,
+        TableColumnAlignment::End => 2,
+    }
+}
+
+fn table_column_alignment(value: u8) -> Result<TableColumnAlignment, WireError> {
+    match value {
+        0 => Ok(TableColumnAlignment::Start),
+        1 => Ok(TableColumnAlignment::Center),
+        2 => Ok(TableColumnAlignment::End),
+        _ => Err(invalid_tag("table column alignment")),
+    }
+}
+
 const fn resource_kind_tag(value: ResourceKind) -> u8 {
     match value {
         ResourceKind::RasterImage => 1,
@@ -1504,6 +1548,37 @@ fn template_layout_role(value: u8) -> Result<TemplateLayoutRole, WireError> {
         2 => Ok(TemplateLayoutRole::Content),
         3 => Ok(TemplateLayoutRole::Statement),
         _ => Err(invalid_tag("template layout role")),
+    }
+}
+
+const fn layout_topology_tag(value: LayoutTopology) -> u8 {
+    match value {
+        LayoutTopology::Stack => 0,
+        LayoutTopology::FlowColumns => 1,
+        LayoutTopology::WeightedSplit => 2,
+        LayoutTopology::PeerGrid => 3,
+        LayoutTopology::LeadSupporting => 4,
+        LayoutTopology::MediaStart => 5,
+        LayoutTopology::MediaEnd => 6,
+        LayoutTopology::Gallery => 7,
+        LayoutTopology::TableWide => 8,
+        LayoutTopology::Comparison => 9,
+    }
+}
+
+fn layout_topology(value: u8) -> Result<LayoutTopology, WireError> {
+    match value {
+        0 => Ok(LayoutTopology::Stack),
+        1 => Ok(LayoutTopology::FlowColumns),
+        2 => Ok(LayoutTopology::WeightedSplit),
+        3 => Ok(LayoutTopology::PeerGrid),
+        4 => Ok(LayoutTopology::LeadSupporting),
+        5 => Ok(LayoutTopology::MediaStart),
+        6 => Ok(LayoutTopology::MediaEnd),
+        7 => Ok(LayoutTopology::Gallery),
+        8 => Ok(LayoutTopology::TableWide),
+        9 => Ok(LayoutTopology::Comparison),
+        _ => Err(invalid_tag("layout topology")),
     }
 }
 

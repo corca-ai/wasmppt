@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckSpec, DeckTemplatePlan,
     DiagnosticSeverity, EmuRect, FragmentSlice, HyperlinkKind, LogicalSlide, PlannedFragment,
-    SemanticContent, SemanticNode, SemanticRole, SplitPolicy, StableId, ValidationReport,
+    RegionPlacement, SemanticContent, SemanticNode, SemanticRole, SplitPolicy, StableId,
+    ValidationReport,
 };
 
 #[derive(Clone, Copy)]
@@ -578,6 +579,15 @@ fn validate_pages(
             );
         }
         let mut tables_seen_on_page = BTreeSet::new();
+        if !page.topology.is_valid() {
+            plan_error(
+                report,
+                DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
+                Some(page.id),
+                None,
+                "page topology kind and slot count are inconsistent",
+            );
+        }
         for planned_region in &page.regions {
             let Some(template_region) = context.regions.get(&planned_region.template_region_id)
             else {
@@ -608,6 +618,17 @@ fn validate_pages(
                     Some(page.id),
                     None,
                     "planned region is outside its template frame or page",
+                );
+            }
+            if let RegionPlacement::Slot(index) = planned_region.placement
+                && index >= page.topology.slot_count
+            {
+                plan_error(
+                    report,
+                    DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
+                    Some(page.id),
+                    None,
+                    "planned region references a slot outside its page topology",
                 );
             }
             for fragment in &planned_region.fragments {
@@ -767,13 +788,13 @@ fn validate_fragment(
             "planned fragment moved to another logical slide or incompatible template region",
         );
     }
-    if !fragment.frame.is_within(target.region_frame) || fragment.type_choice.columns == 0 {
+    if !fragment.frame.is_within(target.region_frame) {
         plan_error(
             report,
             DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
             Some(target.page_id),
             Some(fragment.source_node_id),
-            "fragment frame is outside its planned region or has invalid type geometry",
+            "fragment frame is outside its planned region",
         );
     }
     if fragment.id != PlannedFragment::expected_id(fragment.source_node_id, fragment.slice) {

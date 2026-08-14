@@ -93,10 +93,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             TableColumn {
                                 id: id(10),
                                 source: SourceRange::new("compat.md", 34, 35),
+                                alignment: wasmppt_deck::TableColumnAlignment::Start,
                             },
                             TableColumn {
                                 id: id(11),
                                 source: SourceRange::new("compat.md", 35, 36),
+                                alignment: wasmppt_deck::TableColumnAlignment::End,
                             },
                         ],
                         header_rows: 1,
@@ -193,6 +195,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             id: slide_id.derive(b"physical-page", 1),
             logical_slide_id: slide_id,
             template_layout_id: layout_id,
+            topology: wasmppt_deck::TopologyChoice::stack(),
             hidden: false,
             continuation: Continuation {
                 ordinal: 1,
@@ -202,6 +205,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
             regions: vec![PlannedRegion {
                 template_region_id: region_id,
+                placement: wasmppt_deck::RegionPlacement::Slot(0),
                 frame,
                 fragments: vec![
                     PlannedFragment {
@@ -216,7 +220,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         },
                         type_choice: TypeChoice {
                             font_size: 3_200,
-                            columns: 1,
                             fit: ContentFit::None,
                         },
                         repeat_table_header_rows: 0,
@@ -236,7 +239,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         },
                         type_choice: TypeChoice {
                             font_size: 1_600,
-                            columns: 1,
                             fit: ContentFit::None,
                         },
                         repeat_table_header_rows: 0,
@@ -253,7 +255,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         },
                         type_choice: TypeChoice {
                             font_size: 0,
-                            columns: 1,
                             fit: ContentFit::Contain,
                         },
                         repeat_table_header_rows: 0,

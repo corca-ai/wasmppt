@@ -18,10 +18,11 @@ use measure::{MeasureError, Measurer};
 use sha2::{Digest, Sha256};
 use wasmppt_deck::{
     ContentFit, DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckResource, DeckSpec,
-    DeckTemplatePlan, DiagnosticSeverity, Emu, EmuRect, FragmentSlice, LogicalSlide,
-    LogicalSlideKind, PhysicalPage, PlannedFragment, PlannedRegion, RegionRole, SemanticContent,
-    SemanticNode, SemanticRole, StableId, TemplateLayout, TemplateLayoutRole, TemplateRegion,
-    TypeChoice, validate_deck_plan, validate_deck_spec,
+    DeckTemplatePlan, DiagnosticSeverity, Emu, EmuRect, FragmentSlice, LayoutTopology,
+    LogicalSlide, LogicalSlideKind, PhysicalPage, PlannedFragment, PlannedRegion, RegionPlacement,
+    RegionRole, SemanticContent, SemanticNode, SemanticRole, StableId, TemplateLayout,
+    TemplateLayoutRole, TemplateRegion, TopologyChoice, TypeChoice, validate_deck_plan,
+    validate_deck_spec,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -456,11 +457,12 @@ impl DeckPlanner {
             } else {
                 Vec::new()
             };
-            placements.extend(body);
+            placements.extend(body.regions);
             pages.push(PhysicalPage {
                 id: slide.id.derive(b"physical-page", ordinal as u32),
                 logical_slide_id: slide.id,
                 template_layout_id: layout.id,
+                topology: body.topology,
                 hidden: slide.hidden,
                 continuation: wasmppt_deck::Continuation {
                     ordinal: ordinal as u32,
@@ -505,6 +507,7 @@ impl DeckPlanner {
             }
             placements.push(planned_region(
                 region,
+                RegionPlacement::Fixed,
                 node,
                 FragmentSlice::Whole,
                 EmuRect {
@@ -524,7 +527,7 @@ impl DeckPlanner {
         measurer: &mut Measurer<'_>,
         diagnostics: &mut Vec<DeckDiagnostic>,
         candidate_count: &mut usize,
-    ) -> Result<Vec<Vec<PlannedRegion>>, PlanError> {
+    ) -> Result<Vec<PagePlacement>, PlanError> {
         if request.groups.len() > self.policy.limits.max_dynamic_states {
             return Err(error(
                 DeckDiagnosticCode::PLAN_WORK_LIMIT,
@@ -630,6 +633,7 @@ impl DeckPlanner {
                     font_cost = font_cost.saturating_add(u64::from(placement.reduction));
                     placements.push(planned_region(
                         region,
+                        RegionPlacement::Slot(lane as u16),
                         placement.node,
                         placement.slice,
                         placement.frame,
@@ -642,6 +646,7 @@ impl DeckPlanner {
                 let page = CandidatePage {
                     end,
                     cost: page_cost(pattern, &frames, &placements, font_cost),
+                    topology: pattern.topology(frames.len()),
                     placements: placements.clone(),
                 };
                 pages.push(page);
@@ -897,6 +902,21 @@ impl Pattern {
         }
     }
 
+    fn topology(self, slot_count: usize) -> TopologyChoice {
+        let kind = match self {
+            Self::Stack => LayoutTopology::Stack,
+            Self::BalancedColumns => LayoutTopology::FlowColumns,
+            Self::WeightedSplit => LayoutTopology::WeightedSplit,
+            Self::PeerGrid => LayoutTopology::PeerGrid,
+            Self::LeadSupporting => LayoutTopology::LeadSupporting,
+            Self::Dominant => LayoutTopology::MediaStart,
+        };
+        TopologyChoice {
+            kind,
+            slot_count: u16::try_from(slot_count).unwrap_or(u16::MAX),
+        }
+    }
+
     const fn complexity(self) -> u64 {
         match self {
             Self::Stack => 0,
@@ -1030,7 +1050,23 @@ struct FittedGroup<'a> {
 struct CandidatePage {
     end: usize,
     cost: u64,
+    topology: TopologyChoice,
     placements: Vec<PlannedRegion>,
+}
+
+#[derive(Clone)]
+struct PagePlacement {
+    topology: TopologyChoice,
+    regions: Vec<PlannedRegion>,
+}
+
+impl Default for PagePlacement {
+    fn default() -> Self {
+        Self {
+            topology: TopologyChoice::stack(),
+            regions: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1054,13 +1090,16 @@ impl PartialOrd for Score {
 #[derive(Clone, Default)]
 struct Solution {
     score: Score,
-    pages: Vec<Vec<PlannedRegion>>,
+    pages: Vec<PagePlacement>,
 }
 
 impl Solution {
     fn prepend(&self, page: CandidatePage) -> Self {
         let mut pages = Vec::with_capacity(self.pages.len() + 1);
-        pages.push(page.placements);
+        pages.push(PagePlacement {
+            topology: page.topology,
+            regions: page.placements,
+        });
         pages.extend(self.pages.clone());
         Self {
             score: Score {
@@ -1242,6 +1281,7 @@ fn compatible_region<'a>(
 
 fn planned_region(
     region: &TemplateRegion,
+    placement: RegionPlacement,
     node: &SemanticNode,
     slice: FragmentSlice,
     frame: EmuRect,
@@ -1250,6 +1290,7 @@ fn planned_region(
 ) -> PlannedRegion {
     PlannedRegion {
         template_region_id: region.id,
+        placement,
         frame,
         fragments: vec![PlannedFragment {
             id: PlannedFragment::expected_id(node.id, slice),
@@ -1258,7 +1299,6 @@ fn planned_region(
             frame,
             type_choice: TypeChoice {
                 font_size: if is_text(node) { font_size } else { 0 },
-                columns: 1,
                 fit: if matches!(
                     node.content,
                     SemanticContent::Image(_) | SemanticContent::Svg(_) | SemanticContent::Chart(_)
@@ -1855,6 +1895,7 @@ mod tests {
                 columns: vec![TableColumn {
                     id: id(40),
                     source: source.clone(),
+                    alignment: wasmppt_deck::TableColumnAlignment::Start,
                 }],
                 header_rows,
                 rows: (0..rows)

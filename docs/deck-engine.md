@@ -40,6 +40,9 @@ package.
   hints, which the core validates or replaces with dimensions derived from bounded bytes; JPEG
   display dimensions include bounded EXIF orientation rather than only its stored sample matrix;
 - table columns with explicit start, center, or end alignment.
+- factual image/text relations with same-paragraph, adjacent-block, or blank-separated proximity,
+  source-order side, and an explicit-caption flag. These values carry authoring evidence, not
+  geometry or a host-selected layout strength.
 
 The model intentionally has no speaker-notes field. Markdown parsing, URL authorization,
 project-file access and SVG production belong to the host adapter. The core validates that
@@ -118,7 +121,7 @@ The little-endian envelopes are:
 
 | Magic | Version | Value |
 | --- | ---: | --- |
-| `WDSF` | 3 | `DeckSpec` and binary resources |
+| `WDSF` | 4 | `DeckSpec`, source relations, and binary resources |
 | `WDTP` | 3 | `DeckTemplatePlan` |
 | `WDPL` | 4 | `DeckPlan` |
 
@@ -130,7 +133,7 @@ and fragment limits before allocating the declared content.
 
 `DeckLimitCode` values are append-only and identify each bounded dimension. Callers may
 tighten `DeckLimits` for a host but MUST NOT turn a limit failure into partial content.
-Checked-in hexadecimal fixtures pin WDSF v3, WDTP v3, and WDPL v4. Older semantic-plan
+Checked-in hexadecimal fixtures pin WDSF v4, WDTP v3, and WDPL v4. Older semantic-plan
 payloads are intentionally unsupported because the planner boundary is replaced atomically.
 
 ## Verification

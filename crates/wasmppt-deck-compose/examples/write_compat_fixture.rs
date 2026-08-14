@@ -131,6 +131,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }),
                 },
             ],
+            media_text_relations: Vec::new(),
         }],
         resources: vec![],
     };

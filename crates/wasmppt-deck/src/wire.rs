@@ -341,7 +341,18 @@ impl<'a> Writer<'a> {
         self.source(&slide.source)?;
         self.byte(logical_slide_kind_tag(slide.kind))?;
         self.bool(slide.hidden)?;
-        self.vec(&slide.nodes, |writer, node| writer.semantic_node(node, 1))
+        self.vec(&slide.nodes, |writer, node| writer.semantic_node(node, 1))?;
+        self.vec(&slide.media_text_relations, |writer, relation| {
+            writer.media_text_relation(relation)
+        })
+    }
+
+    fn media_text_relation(&mut self, relation: &MediaTextRelation) -> Result<(), WireError> {
+        self.id(relation.media_node_id)?;
+        self.id(relation.text_node_id)?;
+        self.byte(media_text_proximity_tag(relation.proximity))?;
+        self.byte(media_text_side_tag(relation.text_side))?;
+        self.bool(relation.explicit_caption)
     }
 
     fn semantic_node(&mut self, node: &SemanticNode, depth: usize) -> Result<(), WireError> {
@@ -925,6 +936,17 @@ impl<'a> Reader<'a> {
             kind: logical_slide_kind(self.byte()?)?,
             hidden: self.bool()?,
             nodes: self.vec("semantic nodes", |reader| reader.semantic_node(depth))?,
+            media_text_relations: self.vec("media-text relations", Reader::media_text_relation)?,
+        })
+    }
+
+    fn media_text_relation(&mut self) -> Result<MediaTextRelation, WireError> {
+        Ok(MediaTextRelation {
+            media_node_id: self.id()?,
+            text_node_id: self.id()?,
+            proximity: media_text_proximity(self.byte()?)?,
+            text_side: media_text_side(self.byte()?)?,
+            explicit_caption: self.bool()?,
         })
     }
 
@@ -1413,6 +1435,38 @@ fn logical_slide_kind(value: u8) -> Result<LogicalSlideKind, WireError> {
         1 => Ok(LogicalSlideKind::Title),
         2 => Ok(LogicalSlideKind::Content),
         _ => Err(invalid_tag("logical slide kind")),
+    }
+}
+
+const fn media_text_proximity_tag(value: MediaTextProximity) -> u8 {
+    match value {
+        MediaTextProximity::SameParagraph => 1,
+        MediaTextProximity::AdjacentBlocks => 2,
+        MediaTextProximity::BlankSeparatedBlocks => 3,
+    }
+}
+
+fn media_text_proximity(value: u8) -> Result<MediaTextProximity, WireError> {
+    match value {
+        1 => Ok(MediaTextProximity::SameParagraph),
+        2 => Ok(MediaTextProximity::AdjacentBlocks),
+        3 => Ok(MediaTextProximity::BlankSeparatedBlocks),
+        _ => Err(invalid_tag("media-text proximity")),
+    }
+}
+
+const fn media_text_side_tag(value: MediaTextSide) -> u8 {
+    match value {
+        MediaTextSide::BeforeMedia => 1,
+        MediaTextSide::AfterMedia => 2,
+    }
+}
+
+fn media_text_side(value: u8) -> Result<MediaTextSide, WireError> {
+    match value {
+        1 => Ok(MediaTextSide::BeforeMedia),
+        2 => Ok(MediaTextSide::AfterMedia),
+        _ => Err(invalid_tag("media-text side")),
     }
 }
 

@@ -41,9 +41,11 @@ and minimal `n/total` marker; neither becomes another source-owned fragment.
 Tables remain native DrawingML tables. Planned row slices retain source order, continuation pages
 prepend exactly the planned source header rows, and every cell uses the same editable rich-run and
 hyperlink writer as ordinary text. The template plan's region text style and theme color slots
-drive cell text, header fill, banding, and borders. Because `DeckSpec` does not invent column or
-row measurements, the planned frame is divided deterministically across its declared columns and
-visible rows.
+drive cell text, header fill, banding, and borders. Column widths are deterministic content-demand
+weights derived from visible cell text and declared start/center/end alignment; a wide table keeps
+extra width for its leading key column. Row heights likewise follow the maximum wrapped-cell demand
+for each visible row. The weighted geometry consumes the exact planned frame, retains declared cell
+alignment, and never turns a continued page into multiple independently editable tables.
 
 Bar, column, line, area, pie, doughnut, and scatter nodes become native chart graphic frames.
 Each chart cache and its embedded `Sheet1` workbook are built by the same projection primitives
@@ -81,8 +83,9 @@ cargo clippy -p wasmppt-deck-compose --all-targets --all-features -- -D warnings
 cargo check -p wasmppt-deck-compose --all-features --target wasm32-unknown-unknown
 ```
 
-Tests verify editable run properties and hyperlinks, nested numbering, split-table header
-repetition, theme-derived table styling, coordinated chart caches/workbooks, SVG retention,
+Tests verify editable run properties and hyperlinks, nested numbering, trailing empty items,
+single-table continuation slices, split-table header repetition, content-weighted table geometry,
+cell alignment, theme-derived table styling, coordinated chart caches/workbooks, SVG retention,
 deterministic GIF stills, unknown-part preservation, raw compressed reuse, one-byte overlay pulls,
 configured bounds, and structural equality between direct live-overlay resolution and a
 streamed/reopened PPTX. The Open XML SDK fixture includes editable text, a table, and a chart with

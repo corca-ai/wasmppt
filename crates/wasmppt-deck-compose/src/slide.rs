@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use wasmppt_deck::{
     ChartContent, ChartKind, ContentFit, EmuRect, EmuSize, FragmentSlice, HyperlinkKind,
     ListContent, PhysicalPage, PlannedFragment, RegionRole, RichText, RichTextRun, SemanticContent,
-    SemanticNode, StableId, TableContent, TemplateLayout, TemplateRegion, TemplateTextLevel,
-    TemplateTheme,
+    SemanticNode, StableId, TableColumnAlignment, TableContent, TemplateLayout, TemplateRegion,
+    TemplateTextLevel, TemplateTheme,
 };
 use wasmppt_template::{ChartData, ChartSeriesData, EditableChartKind, build_editable_chart};
 
@@ -184,6 +184,7 @@ impl SlideWriter<'_> {
                         }],
                         level: 0,
                         bullet: Bullet::None,
+                        alignment: None,
                     })
                     .collect::<Vec<_>>();
                 self.text_shape(
@@ -321,11 +322,12 @@ impl SlideWriter<'_> {
             frame.height,
             u8::from(header_count > 0)
         ));
-        for width in distributed_lengths(frame.width, column_count)? {
+        let column_widths = table_column_lengths(table, &rows, frame.width)?;
+        for width in &column_widths {
             self.xml.push_str(&format!("<a:gridCol w=\"{width}\"/>"));
         }
         self.xml.push_str("</a:tblGrid>");
-        let row_heights = distributed_lengths(frame.height, rows.len())?;
+        let row_heights = table_row_lengths(&rows, &column_widths, frame.height)?;
         let style = region.text_levels.first();
         for (rendered_index, (row, height)) in rows.iter().zip(row_heights).enumerate() {
             let source_index = if rendered_index < repeated {
@@ -335,14 +337,12 @@ impl SlideWriter<'_> {
             };
             let header = source_index < header_count;
             self.xml.push_str(&format!("<a:tr h=\"{height}\">"));
-            for cell in &row.cells {
+            for (column_index, cell) in row.cells.iter().enumerate() {
                 self.xml.push_str("<a:tc><a:txBody><a:bodyPr/><a:lstStyle>");
                 self.xml.push_str("</a:lstStyle>");
-                self.paragraph(
-                    &Paragraph::rich(cell.content.runs.clone(), 0),
-                    style,
-                    Some(fragment.type_choice.font_size),
-                )?;
+                let paragraph = Paragraph::rich(cell.content.runs.clone(), 0)
+                    .aligned(table.columns[column_index].alignment);
+                self.paragraph(&paragraph, style, Some(fragment.type_choice.font_size))?;
                 self.xml.push_str("</a:txBody><a:tcPr marL=\"91440\" marR=\"91440\" marT=\"45720\" marB=\"45720\">");
                 let fill = if header {
                     theme_rgb(self.theme, "accent1", 0x0044_72c4)
@@ -467,8 +467,13 @@ impl SlideWriter<'_> {
             .and_then(|level| level.margin_left)
             .unwrap_or(342_900 + i64::from(level) * 342_900);
         let indent = style.and_then(|level| level.indent).unwrap_or(-285_750);
+        let alignment = paragraph.alignment.map_or("", |alignment| match alignment {
+            TableColumnAlignment::Start => " algn=\"l\"",
+            TableColumnAlignment::Center => " algn=\"ctr\"",
+            TableColumnAlignment::End => " algn=\"r\"",
+        });
         self.xml.push_str(&format!(
-            "<a:p><a:pPr lvl=\"{level}\" marL=\"{margin}\" indent=\"{indent}\">"
+            "<a:p><a:pPr lvl=\"{level}\" marL=\"{margin}\" indent=\"{indent}\"{alignment}>"
         ));
         match paragraph.bullet {
             Bullet::None => self.xml.push_str("<a:buNone/>"),
@@ -613,6 +618,7 @@ struct Paragraph {
     runs: Vec<RichTextRun>,
     level: u8,
     bullet: Bullet,
+    alignment: Option<TableColumnAlignment>,
 }
 
 impl Paragraph {
@@ -621,6 +627,7 @@ impl Paragraph {
             runs,
             level,
             bullet: Bullet::None,
+            alignment: None,
         }
     }
     fn plain(text: String, level: u8) -> Self {
@@ -632,6 +639,11 @@ impl Paragraph {
             }],
             level,
         )
+    }
+
+    fn aligned(mut self, alignment: TableColumnAlignment) -> Self {
+        self.alignment = Some(alignment);
+        self
     }
 }
 
@@ -765,6 +777,7 @@ fn append_list(
                 } else {
                     Bullet::Unordered
                 },
+                alignment: None,
             });
         }
         for block in &item.blocks {
@@ -781,6 +794,7 @@ fn append_list(
                     } else {
                         Bullet::None
                     },
+                    alignment: None,
                 });
                 first = false;
             }
@@ -848,28 +862,110 @@ fn role_name(node: &SemanticNode) -> &'static str {
     }
 }
 
-fn distributed_lengths(total: i64, count: usize) -> Result<Vec<i64>, ComposeError> {
-    if count == 0 || total <= 0 {
+fn table_column_lengths(
+    table: &TableContent,
+    rows: &[&wasmppt_deck::TableRow],
+    total: i64,
+) -> Result<Vec<i64>, ComposeError> {
+    let mut weights = vec![4u64; table.columns.len()];
+    for row in rows {
+        for (index, cell) in row.cells.iter().enumerate() {
+            let text = cell.content.plain_text();
+            let longest_word = text
+                .split_whitespace()
+                .map(|word| word.chars().count())
+                .max()
+                .unwrap_or(1);
+            let preferred = u64::try_from(text.chars().count().clamp(longest_word, 48).max(4))
+                .unwrap_or(u64::MAX);
+            let alignment_weight = match table.columns[index].alignment {
+                TableColumnAlignment::Start => 10,
+                TableColumnAlignment::Center => 11,
+                TableColumnAlignment::End => 12,
+            };
+            weights[index] = weights[index].max(preferred.saturating_mul(alignment_weight) / 10);
+        }
+    }
+    // A wide table keeps its leading key column comfortably identifiable while all columns remain
+    // part of the same native table rather than becoming horizontally duplicated fragments.
+    if weights.len() >= 6 {
+        let other_count = u64::try_from(weights.len() - 1).unwrap_or(u64::MAX);
+        let other_average = weights.iter().skip(1).sum::<u64>() / other_count;
+        weights[0] = weights[0].max(other_average.saturating_mul(3) / 2);
+    }
+    weighted_lengths(total, &weights)
+}
+
+fn table_row_lengths(
+    rows: &[&wasmppt_deck::TableRow],
+    column_widths: &[i64],
+    total: i64,
+) -> Result<Vec<i64>, ComposeError> {
+    let weights = rows
+        .iter()
+        .map(|row| {
+            row.cells
+                .iter()
+                .zip(column_widths)
+                .map(|(cell, width)| {
+                    let capacity = u64::try_from(*width / 110_000).unwrap_or(1).max(1);
+                    let characters =
+                        u64::try_from(cell.content.plain_text().chars().count().max(1))
+                            .unwrap_or(u64::MAX);
+                    characters.div_ceil(capacity).max(1)
+                })
+                .max()
+                .unwrap_or(1)
+        })
+        .collect::<Vec<_>>();
+    weighted_lengths(total, &weights)
+}
+
+fn weighted_lengths(total: i64, weights: &[u64]) -> Result<Vec<i64>, ComposeError> {
+    if weights.is_empty() || total <= 0 || weights.contains(&0) {
         return Err(ComposeError::new(
             ComposeErrorCode::InvalidContract,
             "table geometry must have positive dimensions and members",
         ));
     }
-    let count_i64 = i64::try_from(count)
+    let count_i64 = i64::try_from(weights.len())
         .map_err(|_| ComposeError::new(ComposeErrorCode::WorkLimit, "table size overflow"))?;
-    let base = total / count_i64;
-    if base <= 0 {
+    if total < count_i64 {
         return Err(ComposeError::new(
             ComposeErrorCode::InvalidContract,
             "table frame is too small for its rows or columns",
         ));
     }
-    let remainder = total % count_i64;
-    let remainder = usize::try_from(remainder)
-        .map_err(|_| ComposeError::new(ComposeErrorCode::WorkLimit, "table size overflow"))?;
-    Ok((0..count)
-        .map(|index| base + if index < remainder { 1 } else { 0 })
-        .collect())
+    let total_weight = weights
+        .iter()
+        .try_fold(0u64, |sum, weight| sum.checked_add(*weight))
+        .filter(|sum| *sum > 0)
+        .ok_or_else(|| ComposeError::new(ComposeErrorCode::WorkLimit, "table weight overflow"))?;
+    let distributable = total.saturating_sub(count_i64);
+    let mut output = Vec::with_capacity(weights.len());
+    let mut assigned = 0i64;
+    for (index, weight) in weights.iter().enumerate() {
+        let length = if index + 1 == weights.len() {
+            total.saturating_sub(assigned)
+        } else {
+            let weighted = u128::try_from(distributable)
+                .unwrap_or_default()
+                .saturating_mul(u128::from(*weight))
+                / u128::from(total_weight);
+            i64::try_from(weighted)
+                .unwrap_or(i64::MAX)
+                .saturating_add(1)
+        };
+        if length <= 0 {
+            return Err(ComposeError::new(
+                ComposeErrorCode::InvalidContract,
+                "table weighted geometry collapsed a member",
+            ));
+        }
+        assigned = assigned.saturating_add(length);
+        output.push(length);
+    }
+    Ok(output)
 }
 
 fn theme_rgb(theme: &TemplateTheme, slot: &str, fallback: u32) -> u32 {

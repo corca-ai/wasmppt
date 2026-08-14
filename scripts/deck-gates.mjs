@@ -53,7 +53,7 @@ assert.throws(
 )
 
 const report = {
-  schema: 1,
+  schema: 2,
   fixture: {
     starterSha256: sha256(await readFile(resolve(root, 'fixtures/deck-gates/starter.potx'))),
     deckSpecSha256: sha256(await readFile(resolve(root, 'fixtures/deck-gates/deck-spec.wdsf'))),
@@ -132,20 +132,67 @@ function validateTimings(host, timings) {
 }
 
 function validateQuality(native, browser, topology) {
-  assert.equal(native.schema, 1)
-  assert.equal(native.corpus, 'autolayout-v2')
-  assert.equal(native.counts.logicalSlides, 11)
+  assert.equal(native.schema, 2)
+  assert.equal(native.corpus, 'autolayout-v3')
+  assert.equal(native.counts.logicalSlides, 53)
   assert.equal(native.counts.physicalPages, topology.slideCount)
   assert(native.counts.flowPages >= 1, 'corpus did not produce a flow-column page')
   assert(native.counts.galleryPages >= 1, 'corpus did not produce a gallery page')
-  assert(native.counts.mediaFragments >= 10, 'corpus did not retain its media set')
+  assert(native.counts.mediaFragments >= 127, 'corpus did not retain its media set')
+  assert.equal(native.counts.qualityImages, 117)
   assert(native.counts.tableFragments >= 2, 'corpus did not paginate its table')
+  assert.equal(native.images.length, 117)
   assert(Object.values(native.contracts).every((passed) => passed === true))
-  assert.equal(browser.schema, 1)
+  assert.equal(browser.schema, 2)
   assert.equal(browser.renderedSlides, topology.slideCount)
   assert(browser.sourceElements >= 30, 'rendered slides lost semantic source elements')
   assert(browser.minimumChangedPixels >= 20, 'a rendered Canvas slide was blank')
+  assert.equal(browser.images.length, 117)
   assert(Object.values(browser.contracts).every((passed) => passed === true))
+
+  assert.deepEqual(
+    browser.images.map(commonImageEvidence).toSorted(bySemanticId),
+    native.images.map(commonImageEvidence).toSorted(bySemanticId),
+    'browser Canvas media geometry differs from the native plan',
+  )
+  for (const image of native.images) {
+    assert.equal(image.sourceWidth, image.expectedWidth, `${image.case} source width drifted`)
+    assert.equal(image.sourceHeight, image.expectedHeight, `${image.case} source height drifted`)
+    assert(image.aspectErrorPerMillion <= 25, `${image.case} distorted its source aspect`)
+    assert(image.cropLossPerMille <= 300, `${image.case} exceeded the crop budget`)
+  }
+  for (const aspect of ['4x1', '16x9', '1x1', '3x4', '1x4']) {
+    for (const context of [
+      'image-only', 'caption', 'short-copy', 'long-prose',
+      '2-pairs', '3-pairs', '5-pairs', '9-pairs',
+    ]) {
+      assert(native.images.some((image) => image.case === `${aspect}-${context}`),
+        `media quality corpus lost ${aspect}-${context}`)
+    }
+  }
+  assert(native.images.some((image) => image.case === 'exif-6-short-copy'))
+  assert(native.images.some((image) => image.case === 'exif-8-caption'))
+}
+
+function commonImageEvidence(image) {
+  return {
+    semanticId: image.semanticId,
+    case: image.case,
+    item: image.item,
+    pageIndex: image.pageIndex,
+    expectedWidth: image.expectedWidth,
+    expectedHeight: image.expectedHeight,
+    sourceWidth: image.sourceWidth,
+    sourceHeight: image.sourceHeight,
+    frameWidth: image.frameWidth,
+    frameHeight: image.frameHeight,
+    aspectErrorPerMillion: image.aspectErrorPerMillion,
+    cropLossPerMille: image.cropLossPerMille,
+  }
+}
+
+function bySemanticId(left, right) {
+  return left.semanticId.localeCompare(right.semanticId)
 }
 
 function percentile(samples, quantile) {

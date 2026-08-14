@@ -860,6 +860,15 @@ impl DeckPlanner {
         if let Some((node, slice)) = contiguous_table_group(group) {
             return self.fit_table_group(node, slice, lane_frame, initial_size, target, measurer);
         }
+        if let Some(fitted) = self.fit_extreme_portrait_media_text_group(
+            group,
+            lane_frame,
+            initial_size,
+            target,
+            measurer,
+        )? {
+            return Ok(Some(fitted));
+        }
         let mut font_size = initial_size;
         loop {
             let mut cursor = target.y;
@@ -1004,6 +1013,150 @@ impl DeckPlanner {
             }
             font_size = font_size
                 .saturating_sub(self.policy.font_step.max(1))
+                .max(self.policy.readable_floor);
+        }
+    }
+
+    fn fit_extreme_portrait_media_text_group<'a>(
+        &self,
+        group: &FlowGroup<'a>,
+        lane_frame: EmuRect,
+        initial_size: u32,
+        target: &FitTarget<'_>,
+        measurer: &mut Measurer<'_>,
+    ) -> Result<Option<FittedGroup<'a>>, PlanError> {
+        let [media_unit, text_unit] = group.units.as_slice() else {
+            return Ok(None);
+        };
+        if !matches!(text_unit.node.content, SemanticContent::Text(_))
+            || !matches!(
+                media_unit.node.role,
+                SemanticRole::Figure | SemanticRole::Chart | SemanticRole::Diagram
+            )
+        {
+            return Ok(None);
+        }
+        let Some(source_size) = measurer.intrinsic_size(media_unit.node) else {
+            return Ok(None);
+        };
+        if u64::from(source_size.height) <= u64::from(source_size.width).saturating_mul(2) {
+            return Ok(None);
+        }
+        let remaining = EmuRect {
+            x: lane_frame.x,
+            y: target.y,
+            width: lane_frame.width,
+            height: lane_frame
+                .y
+                .saturating_add(lane_frame.height)
+                .saturating_sub(target.y),
+        };
+        if !remaining.is_positive() {
+            return Ok(None);
+        }
+        let margins = target.region.margins;
+        let stacked_slot = inset_frame(
+            EmuRect {
+                height: remaining.height.saturating_mul(3) / 4,
+                ..remaining
+            },
+            margins,
+        );
+        let Some(stacked) = MediaPlacement::contain(stacked_slot, source_size) else {
+            return Ok(None);
+        };
+        if stacked
+            .visible_frame
+            .width
+            .min(stacked.visible_frame.height)
+            >= self.policy.readable_media_floor
+        {
+            return Ok(None);
+        }
+
+        let horizontal_margins = margins.left.saturating_add(margins.right);
+        let vertical_margins = margins.top.saturating_add(margins.bottom);
+        let usable_height = remaining.height.saturating_sub(vertical_margins).max(1);
+        let visible_width = usable_height
+            .saturating_mul(i64::from(source_size.width))
+            .saturating_add(i64::from(source_size.height).saturating_sub(1))
+            .checked_div(i64::from(source_size.height).max(1))
+            .unwrap_or(1)
+            .max(self.policy.readable_media_floor);
+        let media_width = visible_width.saturating_add(horizontal_margins);
+        if media_width.saturating_add(self.policy.gap) >= remaining.width {
+            return Ok(None);
+        }
+        let frames = split_pair(remaining, self.policy.gap, media_width, true);
+        let Some(media) = MediaPlacement::contain(inset_frame(frames[0], margins), source_size)
+        else {
+            return Ok(None);
+        };
+        if media.visible_frame.width.min(media.visible_frame.height)
+            < self.policy.readable_media_floor
+        {
+            return Ok(None);
+        }
+
+        let text_frame = frames[1];
+        let usable_text_width = text_frame.width.saturating_sub(horizontal_margins).max(1);
+        let mut font_size = initial_size;
+        loop {
+            let measured = measurer
+                .measure(
+                    text_unit.node,
+                    text_unit.slice,
+                    target.region,
+                    text_frame,
+                    font_size,
+                    target.repeat_table_header_rows,
+                )
+                .map_err(|failure| measure_error(failure, text_unit.node.id))?;
+            if measured.width.min <= usable_text_width && measured.height <= text_frame.height {
+                let text_bounds = EmuRect {
+                    height: measured.height,
+                    ..text_frame
+                };
+                return Ok(Some(FittedGroup {
+                    placements: vec![
+                        FittedPlacement {
+                            node: media_unit.node,
+                            slice: media_unit.slice,
+                            frame: media.visible_frame,
+                            font_size: 0,
+                            reduction: 0,
+                            width_penalty: contain_whitespace_penalty(media),
+                            font_risk: false,
+                            media: Some(media),
+                            repeat_table_header_rows: target.repeat_table_header_rows,
+                        },
+                        FittedPlacement {
+                            node: text_unit.node,
+                            slice: text_unit.slice,
+                            frame: text_bounds,
+                            font_size: measured.font_size,
+                            reduction: initial_size.saturating_sub(measured.font_size),
+                            width_penalty: width_penalty(
+                                measured.width.preferred.min(measured.width.max),
+                                usable_text_width,
+                            ),
+                            font_risk: measured.font_risk,
+                            media: None,
+                            repeat_table_header_rows: target.repeat_table_header_rows,
+                        },
+                    ],
+                    bottom: media
+                        .visible_frame
+                        .y
+                        .saturating_add(media.visible_frame.height)
+                        .max(text_bounds.y.saturating_add(text_bounds.height)),
+                }));
+            }
+            if font_size <= self.policy.readable_floor {
+                return Ok(None);
+            }
+            font_size = font_size
+                .saturating_sub(self.policy.font_step)
                 .max(self.policy.readable_floor);
         }
     }
@@ -1316,6 +1469,7 @@ impl Pattern {
             Self::MediaEnd => LayoutTopology::MediaEnd,
             Self::PeerGrid2 | Self::PeerGrid4 | Self::PeerGrid6 => LayoutTopology::PeerGrid,
             Self::LeadSupporting => LayoutTopology::LeadSupporting,
+            Self::RelatedCards if slot_count == 1 => LayoutTopology::Stack,
             Self::RelatedCards => LayoutTopology::PeerGrid,
             Self::Gallery2 | Self::Gallery4 | Self::Gallery6 => LayoutTopology::Gallery,
             Self::TableWide => LayoutTopology::TableWide,
@@ -1446,7 +1600,7 @@ impl Pattern {
                 }
             }
             Self::RelatedCards => {
-                if (2..=3).contains(&groups.len()) && groups.iter().all(FlowGroup::is_related_card)
+                if (1..=3).contains(&groups.len()) && groups.iter().all(FlowGroup::is_related_card)
                 {
                     unique_assignment(groups.len(), slots)
                 } else {
@@ -1536,7 +1690,7 @@ fn related_media_text_groups<'a>(
     groups: &[FlowGroup<'a>],
     relations: &[MediaTextRelation],
 ) -> Option<Vec<FlowGroup<'a>>> {
-    if !matches!(groups.len(), 4 | 6) {
+    if !matches!(groups.len(), 2 | 4 | 6) {
         return None;
     }
     let mut cards = Vec::with_capacity(groups.len() / 2);
@@ -3656,6 +3810,73 @@ mod tests {
         assert_ne!(slots[0], slots[2]);
         assert_eq!(plan.pages[0].topology.kind, LayoutTopology::PeerGrid);
         assert!(validate_deck_plan(&spec, &template(5_500_000), &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn extreme_portrait_and_short_related_copy_share_one_readable_page() {
+        let mut spec = spec_with_resources(
+            vec![
+                text_node(3, SemanticRole::Title, SplitPolicy::Never, "Portrait"),
+                figure_node(4, 90, "extreme portrait"),
+                text_node(
+                    5,
+                    SemanticRole::Prose,
+                    SplitPolicy::Never,
+                    "Short copy explains the portrait without overwhelming it.",
+                ),
+            ],
+            vec![DeckResource {
+                id: id(90),
+                kind: ResourceKind::RasterImage,
+                media_type: "image/png".to_owned(),
+                bytes: vec![1],
+                intrinsic_size: Some(PixelSize {
+                    width: 64,
+                    height: 256,
+                }),
+            }],
+        );
+        spec.logical_slides[0].media_text_relations = vec![MediaTextRelation {
+            media_node_id: id(4),
+            text_node_id: id(5),
+            proximity: MediaTextProximity::AdjacentBlocks,
+            text_side: MediaTextSide::AfterMedia,
+            explicit_caption: false,
+        }];
+        let template = template(5_500_000);
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+
+        assert_eq!(plan.pages.len(), 1);
+        let page = &plan.pages[0];
+        let located = |node| {
+            page.regions
+                .iter()
+                .find_map(|region| {
+                    region
+                        .fragments
+                        .iter()
+                        .find(|fragment| fragment.source_node_id == node)
+                        .map(|fragment| (region.placement, fragment))
+                })
+                .unwrap()
+        };
+        let (media_slot, media) = located(id(4));
+        let (text_slot, text) = located(id(5));
+        assert_eq!(media_slot, text_slot);
+        assert!(
+            media.frame.x.saturating_add(media.frame.width) <= text.frame.x,
+            "portrait and related copy overlap: {:?} {:?}",
+            media.frame,
+            text.frame
+        );
+        assert!(
+            media.frame.width.min(media.frame.height)
+                >= PlannerPolicy::default().readable_media_floor
+        );
+        assert!(text.type_choice.font_size >= PlannerPolicy::default().readable_floor);
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
     }
 
     #[test]

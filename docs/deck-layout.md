@@ -37,9 +37,12 @@ includes the display-axis swap for JPEG EXIF orientations five through eight and
 square, and landscape demand identical on native and Wasm hosts.
 Contain-fit media may scale down to its candidate slot, but only while both rendered dimensions
 remain above `PlannerPolicy::readable_media_floor`. A figure in an indivisible figure/caption group
-reserves one quarter of its slot for the following caption before measurement; an extreme aspect ratio that
-would collapse below the floor remains an atomic overflow. The selected visible frame is centered
-inside the template margins and has the canonical resource aspect within integer EMU tolerance.
+reserves one quarter of its slot for the following caption before measurement. When that stacked
+reservation would collapse an extreme portrait below the floor, a bounded side-by-side fit keeps
+the portrait and its caption or short related copy in one topology slot. If neither orientation
+fits at the media and type floors, the candidate remains unavailable. The selected visible frame
+is centered inside the template margins and has the canonical resource aspect within integer EMU
+tolerance.
 
 ## Semantic flow
 
@@ -75,7 +78,7 @@ lead/supporting, two/four/six-item gallery, table-wide, and comparison topologie
 owns a finite slot set. Continuous prose, list, code, and weighted splits enumerate bounded
 contiguous partitions; peer and gallery groups occupy distinct slots; and media/text candidates
 assign by semantic role rather than assuming source order is visual order. Adjacent weak
-media/text relations may additionally form two or three source-ordered cards for one candidate;
+media/text relations may additionally form one, two, or three source-ordered cards for one candidate;
 they remain separable in every other candidate, so unrelated prose is not pulled into a card.
 Candidates never infer layout from example slides or visible shape names. The selected topology
 and slot count are encoded on each physical page, while fixed template content and topology-slot
@@ -155,21 +158,24 @@ bounded termination.
 
 ## Canonical quality corpus
 
-`fixtures/deck-gates/corpus.json` pins the end-to-end `autolayout-v2` corpus beside its generated
+`fixtures/deck-gates/corpus.json` pins the end-to-end `autolayout-v3` corpus beside its generated
 Starter POTX and WDSF input. The corpus includes variable title details, long prose, a long list
 with an intentionally empty in-progress item, multi-page tables and code, mixed aspect-ratio media,
 ten-item galleries with captions, quotes, sections, display math, definitions, statements, and a
-hidden page. The fixture generator is the source of truth; CI regenerates all four files and fails
-on byte drift.
+hidden page. It also crosses 4:1, 16:9, 1:1, 3:4, and 1:4 resources with image-only, caption,
+short-copy, long-prose, and 2/3/5/9 related media/text contexts, plus JPEG EXIF orientations six
+and eight. Those cases produce 117 independently identified quality images. The fixture generator
+is the source of truth; CI regenerates all four files and fails on byte drift.
 
 The native gate rejects lost or duplicate source coverage, overlapping geometry, type below the
 readable floor, empty or badly imbalanced selected columns, singleton final-page orphans,
 undersized media, fragmented table row slices, and invalidation beyond one edited logical slide.
-It emits `native-quality.json` with the exercised topology counts and contract results. Chrome then
-decodes and renders every resulting WPDL scene through the public Canvas renderer, checks that all
-source-backed bounds remain inside the page, and rejects visually blank slides in
-`browser-quality.json`. The final gate requires exact template-plan, deck-plan, WPDL, PPTX, and
-topology parity across native, browser, and workerd hosts before accepting the quality evidence.
+It emits `native-quality.json` with topology counts, contract results, and raw per-image source
+axes, visible frame, aspect error, and crop loss. Chrome then decodes and renders every resulting
+WPDL scene through the public Canvas renderer, checks every source-backed bound, rejects blank
+slides, and records the same raw evidence from the actual `draw-image` commands and decoded image
+dimensions in `browser-quality.json`. The final gate requires the two evidence sets plus exact
+template-plan, deck-plan, WPDL, PPTX, and topology parity across native, browser, and workerd hosts.
 
 ## Verification
 

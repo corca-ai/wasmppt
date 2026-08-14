@@ -226,8 +226,10 @@ budgets and correctness rules in the [performance contract](performance.md).
 The host-adapter job also regenerates the canonical automatic-layout fixture, executes it seven
 times per host, and publishes `target/deck-gates/report.json`. That report combines exact
 native/browser/workerd byte parity with plan-quality invariants and a real Chrome Canvas render of
-every physical page. Update the fixture generator, checked-in corpus files, and the semantic-layout
-contract together whenever automatic layout or pagination behavior changes.
+every physical page. Native planning and Chrome rendering also publish and compare raw per-image
+display axes, visible geometry, aspect error, and crop loss for the canonical media-context matrix.
+Update the fixture generator, checked-in corpus files, and the semantic-layout contract together
+whenever automatic layout or pagination behavior changes.
 
 `npm run build:pages` assembles the static dogfood application under `target/pages` from the
 checked-in Wasm host bindings, browser package, and two dogfood POTX templates. `npm run test:pages`

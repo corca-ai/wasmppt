@@ -43,16 +43,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn corpus_manifest() -> &'static str {
     concat!(
-        "{\n  \"schema\": 1,\n  \"id\": \"autolayout-v2\",\n  \"cases\": [\n",
+        "{\n  \"schema\": 2,\n  \"id\": \"autolayout-v3\",\n  \"cases\": [\n",
         "    \"title-variants\", \"long-prose\", \"long-list-with-live-empty-item\",\n",
         "    \"table-continuation\", \"long-code\", \"mixed-media\",\n",
         "    \"aspect-aware-gallery-10\", \"figure-caption\", \"quote-credit\",\n",
-        "    \"section\", \"display-math\", \"definition\", \"statement\", \"hidden-page\"\n",
+        "    \"section\", \"display-math\", \"definition\", \"statement\", \"hidden-page\",\n",
+        "    \"media-aspects-4x1-16x9-1x1-3x4-1x4\",\n",
+        "    \"media-context-image-caption-short-long\",\n",
+        "    \"media-pairs-2-3-5-9\", \"jpeg-exif-orientation-6-8\"\n",
         "  ],\n  \"invariants\": [\n",
         "    \"exact-source-coverage\", \"no-overlap\", \"readable-type\",\n",
         "    \"balanced-flow\", \"no-singleton-final-orphan\", \"bounded-media\",\n",
         "    \"single-editable-table-per-slice\", \"canvas-pptx-geometry-parity\",\n",
-        "    \"cross-host-byte-determinism\", \"single-slide-invalidation\"\n",
+        "    \"cross-host-byte-determinism\", \"single-slide-invalidation\",\n",
+        "    \"contain-aspect-fidelity\", \"bounded-cover-crop\",\n",
+        "    \"media-text-cohesion\", \"gallery-page-balance\",\n",
+        "    \"jpeg-exif-display-axis\"\n",
         "  ]\n}\n",
     )
 }
@@ -208,6 +214,14 @@ fn deck_spec() -> DeckSpec {
     let math = id(233);
     let portrait = id(234);
     let wide = id(235);
+    let quality_resources = [
+        media_resource(0, "4x1", 400, 100, [220, 38, 38]),
+        media_resource(1, "16x9", 160, 90, [234, 88, 12]),
+        media_resource(2, "1x1", 128, 128, [22, 163, 74]),
+        media_resource(3, "3x4", 120, 160, [8, 145, 178]),
+        media_resource(4, "1x4", 64, 256, [124, 58, 237]),
+    ];
+    let exif_resources = [exif_resource(0, "exif-6", 6), exif_resource(1, "exif-8", 8)];
     let mut slides = vec![
         slide(
             1,
@@ -365,63 +379,381 @@ fn deck_spec() -> DeckSpec {
         text_side: MediaTextSide::AfterMedia,
         explicit_caption: true,
     });
+    slides.extend(media_quality_slides(&quality_resources, &exif_resources));
+    let mut resources = vec![
+        DeckResource {
+            id: square,
+            kind: ResourceKind::RasterImage,
+            media_type: "image/png".to_owned(),
+            bytes: png(64, 64, [37, 99, 235]),
+            intrinsic_size: Some(PixelSize {
+                width: 64,
+                height: 64,
+            }),
+        },
+        DeckResource {
+            id: gif,
+            kind: ResourceKind::RasterImage,
+            media_type: "image/gif".to_owned(),
+            bytes: b"GIF89a\x01\0\x01\0\x80\0\0\0\0\0\xff\xff\xff!\xf9\x04\x01\0\0\0\0,\0\0\0\0\x01\0\x01\0\0\x02\x02D\x01\0;".to_vec(),
+            intrinsic_size: Some(PixelSize { width: 1, height: 1 }),
+        },
+        DeckResource {
+            id: svg,
+            kind: ResourceKind::Svg,
+            media_type: "image/svg+xml".to_owned(),
+            bytes: br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><path fill="#2563eb" d="M0 0h16v9H0z"/></svg>"##.to_vec(),
+            intrinsic_size: Some(PixelSize { width: 16, height: 9 }),
+        },
+        DeckResource {
+            id: math,
+            kind: ResourceKind::Svg,
+            media_type: "image/svg+xml".to_owned(),
+            bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><path d="M1 8L8 1l7 7"/></svg>"#.to_vec(),
+            intrinsic_size: Some(PixelSize { width: 16, height: 9 }),
+        },
+        DeckResource {
+            id: portrait,
+            kind: ResourceKind::RasterImage,
+            media_type: "image/png".to_owned(),
+            bytes: png(48, 96, [15, 118, 110]),
+            intrinsic_size: Some(PixelSize {
+                width: 48,
+                height: 96,
+            }),
+        },
+        DeckResource {
+            id: wide,
+            kind: ResourceKind::RasterImage,
+            media_type: "image/png".to_owned(),
+            bytes: png(128, 48, [217, 119, 6]),
+            intrinsic_size: Some(PixelSize {
+                width: 128,
+                height: 48,
+            }),
+        },
+    ];
+    resources.extend(
+        quality_resources
+            .iter()
+            .map(|resource| resource.resource.clone()),
+    );
+    resources.extend(
+        exif_resources
+            .iter()
+            .map(|resource| resource.resource.clone()),
+    );
     DeckSpec {
         id: id(255),
         logical_slides: slides,
-        resources: vec![
-            DeckResource {
-                id: square,
-                kind: ResourceKind::RasterImage,
-                media_type: "image/png".to_owned(),
-                bytes: png(64, 64, [37, 99, 235]),
-                intrinsic_size: Some(PixelSize {
-                    width: 64,
-                    height: 64,
-                }),
-            },
-            DeckResource {
-                id: gif,
-                kind: ResourceKind::RasterImage,
-                media_type: "image/gif".to_owned(),
-                bytes: b"GIF89a\x01\0\x01\0\x80\0\0\0\0\0\xff\xff\xff!\xf9\x04\x01\0\0\0\0,\0\0\0\0\x01\0\x01\0\0\x02\x02D\x01\0;".to_vec(),
-                intrinsic_size: Some(PixelSize { width: 1, height: 1 }),
-            },
-            DeckResource {
-                id: svg,
-                kind: ResourceKind::Svg,
-                media_type: "image/svg+xml".to_owned(),
-                bytes: br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><path fill="#2563eb" d="M0 0h16v9H0z"/></svg>"##.to_vec(),
-                intrinsic_size: Some(PixelSize { width: 16, height: 9 }),
-            },
-            DeckResource {
-                id: math,
-                kind: ResourceKind::Svg,
-                media_type: "image/svg+xml".to_owned(),
-                bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><path d="M1 8L8 1l7 7"/></svg>"#.to_vec(),
-                intrinsic_size: Some(PixelSize { width: 16, height: 9 }),
-            },
-            DeckResource {
-                id: portrait,
-                kind: ResourceKind::RasterImage,
-                media_type: "image/png".to_owned(),
-                bytes: png(48, 96, [15, 118, 110]),
-                intrinsic_size: Some(PixelSize {
-                    width: 48,
-                    height: 96,
-                }),
-            },
-            DeckResource {
-                id: wide,
-                kind: ResourceKind::RasterImage,
-                media_type: "image/png".to_owned(),
-                bytes: png(128, 48, [217, 119, 6]),
-                intrinsic_size: Some(PixelSize {
-                    width: 128,
-                    height: 48,
-                }),
+        resources,
+    }
+}
+
+#[derive(Clone)]
+struct MediaFixture {
+    label: &'static str,
+    display_size: PixelSize,
+    resource: DeckResource,
+}
+
+fn media_resource(
+    ordinal: u32,
+    label: &'static str,
+    width: u32,
+    height: u32,
+    color: [u8; 3],
+) -> MediaFixture {
+    let resource_id = id(229).derive(b"media-quality-resource", ordinal);
+    let display_size = PixelSize { width, height };
+    MediaFixture {
+        label,
+        display_size,
+        resource: DeckResource {
+            id: resource_id,
+            kind: ResourceKind::RasterImage,
+            media_type: "image/png".to_owned(),
+            bytes: png(width, height, color),
+            intrinsic_size: Some(display_size),
+        },
+    }
+}
+
+fn exif_resource(ordinal: u32, label: &'static str, orientation: u16) -> MediaFixture {
+    let resource_id = id(229).derive(b"media-quality-exif-resource", ordinal);
+    MediaFixture {
+        label,
+        display_size: PixelSize {
+            width: 10,
+            height: 40,
+        },
+        resource: DeckResource {
+            id: resource_id,
+            kind: ResourceKind::RasterImage,
+            media_type: "image/jpeg".to_owned(),
+            bytes: jpeg_with_orientation(orientation),
+            // Deliberately stale stored-axis hint: byte-derived EXIF display axes must win.
+            intrinsic_size: Some(PixelSize {
+                width: 40,
+                height: 10,
+            }),
+        },
+    }
+}
+
+fn media_quality_slides(
+    resources: &[MediaFixture; 5],
+    exif_resources: &[MediaFixture; 2],
+) -> Vec<LogicalSlide> {
+    let mut slides = Vec::new();
+    let mut ordinal = 0u32;
+    for resource in resources {
+        for scenario in ["image-only", "caption", "short-copy", "long-prose"] {
+            slides.push(media_context_slide(ordinal, resource, scenario));
+            ordinal += 1;
+        }
+        for count in [2usize, 3, 5, 9] {
+            slides.push(media_pair_slide(ordinal, resource, count));
+            ordinal += 1;
+        }
+    }
+    slides.push(media_context_slide(
+        ordinal,
+        &exif_resources[0],
+        "short-copy",
+    ));
+    slides.push(media_context_slide(
+        ordinal + 1,
+        &exif_resources[1],
+        "caption",
+    ));
+    slides
+}
+
+fn media_context_slide(ordinal: u32, resource: &MediaFixture, scenario: &str) -> LogicalSlide {
+    let case = format!("{}-{scenario}", resource.label);
+    let slide_id = media_quality_id(b"slide", ordinal);
+    let title = quality_text_node(
+        slide_id.derive(b"title", 0),
+        &case,
+        0,
+        SemanticRole::Title,
+        &format!("Media quality: {case}"),
+        SplitPolicy::Never,
+    );
+    let figure_id = slide_id.derive(b"figure", 0);
+    let figure = quality_image_node(figure_id, &case, 20, resource, 0);
+    let mut nodes = vec![title, figure];
+    let mut relations = Vec::new();
+    if scenario != "image-only" {
+        let text_id = slide_id.derive(b"copy", 0);
+        let (role, text, split, explicit_caption) = match scenario {
+            "caption" => (
+                SemanticRole::Caption,
+                format!("A concise caption for the {} resource.", resource.label),
+                SplitPolicy::Never,
+                true,
+            ),
+            "short-copy" => (
+                SemanticRole::Prose,
+                format!("Short copy explains the {} visual without overwhelming it.", resource.label),
+                SplitPolicy::Never,
+                false,
+            ),
+            "long-prose" => (
+                SemanticRole::Prose,
+                std::iter::repeat_n(
+                    format!(
+                        "Long measured prose accompanies the {} visual while preserving readable type and useful media geometry.",
+                        resource.label
+                    ),
+                    14,
+                )
+                .collect::<Vec<_>>()
+                .join(" "),
+                SplitPolicy::Text,
+                false,
+            ),
+            _ => unreachable!("bounded media context"),
+        };
+        nodes.push(quality_text_node(text_id, &case, 40, role, &text, split));
+        relations.push(MediaTextRelation {
+            media_node_id: figure_id,
+            text_node_id: text_id,
+            proximity: MediaTextProximity::AdjacentBlocks,
+            text_side: MediaTextSide::AfterMedia,
+            explicit_caption,
+        });
+    }
+    LogicalSlide {
+        id: slide_id,
+        source: SourceRange::new(format!("media-quality/{case}.md"), 0, 1_000),
+        kind: LogicalSlideKind::Content,
+        hidden: false,
+        nodes,
+        media_text_relations: relations,
+    }
+}
+
+fn media_pair_slide(ordinal: u32, resource: &MediaFixture, count: usize) -> LogicalSlide {
+    let case = format!("{}-{count}-pairs", resource.label);
+    let slide_id = media_quality_id(b"slide", ordinal);
+    let mut children = Vec::with_capacity(count * 2);
+    let mut relations = Vec::with_capacity(count);
+    for index in 0..count {
+        let item = u32::try_from(index).expect("quality fixture item count is bounded");
+        let figure_id = slide_id.derive(b"figure", item);
+        let caption_id = slide_id.derive(b"caption", item);
+        children.push(quality_image_node(
+            figure_id,
+            &case,
+            100 + item * 20,
+            resource,
+            item,
+        ));
+        children.push(quality_text_node(
+            caption_id,
+            &case,
+            110 + item * 20,
+            SemanticRole::Caption,
+            &format!("Related copy {} of {count}", index + 1),
+            SplitPolicy::Never,
+        ));
+        relations.push(MediaTextRelation {
+            media_node_id: figure_id,
+            text_node_id: caption_id,
+            proximity: MediaTextProximity::AdjacentBlocks,
+            text_side: MediaTextSide::AfterMedia,
+            explicit_caption: true,
+        });
+    }
+    LogicalSlide {
+        id: slide_id,
+        source: SourceRange::new(format!("media-quality/{case}.md"), 0, 1_000),
+        kind: LogicalSlideKind::Content,
+        hidden: false,
+        nodes: vec![
+            quality_text_node(
+                slide_id.derive(b"title", 0),
+                &case,
+                0,
+                SemanticRole::Title,
+                &format!("{} related media/text pairs", count),
+                SplitPolicy::Never,
+            ),
+            SemanticNode {
+                id: slide_id.derive(b"gallery", 0),
+                source: SourceRange::new(format!("media-quality/{case}.md"), 90, 900),
+                role: SemanticRole::Gallery,
+                split: SplitPolicy::Children,
+                content: SemanticContent::Children(children),
             },
         ],
+        media_text_relations: relations,
     }
+}
+
+fn quality_text_node(
+    node_id: StableId,
+    case: &str,
+    start: u32,
+    role: SemanticRole,
+    text: &str,
+    split: SplitPolicy,
+) -> SemanticNode {
+    SemanticNode {
+        id: node_id,
+        source: SourceRange::new(
+            format!("media-quality/{case}.md"),
+            start,
+            start.saturating_add(9),
+        ),
+        role,
+        split,
+        content: SemanticContent::Text(plain(text)),
+    }
+}
+
+fn quality_image_node(
+    node_id: StableId,
+    case: &str,
+    start: u32,
+    resource: &MediaFixture,
+    item: u32,
+) -> SemanticNode {
+    SemanticNode {
+        id: node_id,
+        source: SourceRange::new(
+            format!("media-quality/{case}.md"),
+            start,
+            start.saturating_add(9),
+        ),
+        role: SemanticRole::Figure,
+        split: SplitPolicy::Never,
+        content: SemanticContent::Image(ImageContent {
+            resource_id: resource.resource.id,
+            alt_text: format!(
+                "gate-media|{case}|{item}|{}|{}",
+                resource.display_size.width, resource.display_size.height
+            ),
+        }),
+    }
+}
+
+fn media_quality_id(domain: &[u8], ordinal: u32) -> StableId {
+    id(229).derive(domain, ordinal)
+}
+
+fn jpeg_with_orientation(orientation: u16) -> Vec<u8> {
+    assert!((5..=8).contains(&orientation));
+    let base = decode_hex(concat!(
+        "ffd8ffe000104a46494600010100000100010000ffdb0043000503040404030504040405050506070c08070707070f0b0b090c110f1212110f111113161c171314",
+        "1a1511111821181a1d1d1f1f1f13172224221e241c1e1f1effdb0043010505050706070e08080e1e1411141e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e",
+        "1e1e",
+        "1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1effc0001108000a002803012200021101031101ffc40015000101000000000000000000",
+        "00000000000007ffc40014100100000000000000000000000000000000ffc4001501010100000000000000000000000000000007ffc400141101000000000000",
+        "00000000000000000000ffda000c03010002110311003f009a00a827e000000fffd9",
+    ));
+    assert_eq!(&base[..2], &[0xff, 0xd8]);
+    let mut exif = vec![0xff, 0xe1, 0x00, 0x22];
+    exif.extend_from_slice(b"Exif\0\0II");
+    exif.extend_from_slice(&42u16.to_le_bytes());
+    exif.extend_from_slice(&8u32.to_le_bytes());
+    exif.extend_from_slice(&1u16.to_le_bytes());
+    exif.extend_from_slice(&0x0112u16.to_le_bytes());
+    exif.extend_from_slice(&3u16.to_le_bytes());
+    exif.extend_from_slice(&1u32.to_le_bytes());
+    exif.extend_from_slice(&orientation.to_le_bytes());
+    exif.extend_from_slice(&0u16.to_le_bytes());
+    exif.extend_from_slice(&0u32.to_le_bytes());
+    let mut bytes = Vec::with_capacity(base.len() + exif.len());
+    bytes.extend_from_slice(&base[..2]);
+    bytes.extend_from_slice(&exif);
+    bytes.extend_from_slice(&base[2..]);
+    assert_eq!(
+        wasmppt_deck::inspect_jpeg_size(&bytes),
+        Some(PixelSize {
+            width: 10,
+            height: 40,
+        })
+    );
+    bytes
+}
+
+fn decode_hex(value: &str) -> Vec<u8> {
+    assert_eq!(value.len() % 2, 0);
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let digit = |byte: u8| match byte {
+                b'0'..=b'9' => byte - b'0',
+                b'a'..=b'f' => byte - b'a' + 10,
+                _ => panic!("fixture JPEG contains non-hex input"),
+            };
+            digit(pair[0]) * 16 + digit(pair[1])
+        })
+        .collect()
 }
 
 fn png(width: u32, height: u32, color: [u8; 3]) -> Vec<u8> {

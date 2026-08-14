@@ -20,13 +20,15 @@ title/section still maps to the title placeholder.
 statement, plus the typed table row, cell, and column contracts. It includes rich text and safe
 links, Korean/CJK and RTL text, nested ordered/unordered lists, PNG, GIF first-frame conversion,
 SVG, tables, charts, code, diagrams, display math, definitions, hidden slides, missing-font
-diagnostics, and enough content for automatic continuation pages. `atomic-overflow.wdsf` is a
-valid contract that cannot fit at the readable floor.
+diagnostics, and enough content for automatic continuation pages. Its media-quality matrix covers
+4:1, 16:9, 1:1, 3:4, and 1:4 sources as image-only, caption, short-copy, long-prose, and 2/3/5/9
+related pairs, with two JPEG EXIF display-axis cases. `atomic-overflow.wdsf` is a valid contract
+that cannot fit at the readable floor.
 
 The 18-row table is expected to remain at the template's comfortable type size and continue across
-three physical pages. Each page contains one native editable table, continued pages repeat the
-single header row as chrome, and the portable topology evidence fixes the resulting 13-page deck
-and 12-page presentable set.
+three physical pages. Each page contains one native editable table and continued pages repeat the
+single header row as chrome. Together with the media matrix, the portable topology evidence fixes
+the resulting 75-page deck and 74-page presentable set.
 
 Regenerate and compare the fixtures with:
 
@@ -53,6 +55,8 @@ the remaining six produce the enforced warm p50/p95 summary. The gate:
 - compares exact compiled-template plans, physical plans, every resolved display list, and PPTX;
 - compares slide count, presentable indices, physical/logical ownership, hidden state, and
   continuation metadata returned by the host APIs;
+- renders every physical page through real Chrome Canvas and compares all 117 images' decoded
+  display axes, visible frames, aspect error, and crop loss against the host-neutral native plan;
 - mutates every renderable semantic role independently and requires a changed native plan,
   display list, or package, then flips one plan byte and proves the cross-host comparator notices;
 - rejects a truncated WDSF with the stable `payload/invalid-deck-spec` envelope; and

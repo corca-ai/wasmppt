@@ -14,7 +14,7 @@ use std::{
 };
 
 use flow::{FlowError, FlowUnit, build_flow};
-use measure::{MeasureError, Measurer};
+use measure::{MeasureError, Measurer, display_math_natural_size};
 use sha2::{Digest, Sha256};
 use wasmppt_deck::{
     ContentFit, DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckResource, DeckSpec,
@@ -780,6 +780,7 @@ impl DeckPlanner {
                     lane: slot,
                     y: cursors[slot],
                     repeat_table_header_rows,
+                    center_single_statement: groups.len() == 1,
                 },
                 measurer,
             )?
@@ -943,24 +944,34 @@ impl DeckPlanner {
                     overflow = true;
                     break;
                 }
+                let media_slot = if unit.node.role == SemanticRole::DisplayMath {
+                    intrinsic_size.map(|size| {
+                        display_math_slot(
+                            inset_frame(measurement_frame, target.region.margins),
+                            size,
+                            font_size,
+                            target.center_single_statement
+                                && group.units.len() == 1
+                                && target.region.role == RegionRole::Statement,
+                        )
+                    })
+                } else {
+                    Some(inset_frame(measurement_frame, target.region.margins))
+                };
                 let media = intrinsic_size.and_then(|size| match fit {
-                    ContentFit::Contain => MediaPlacement::contain(
-                        inset_frame(measurement_frame, target.region.margins),
-                        size,
-                    ),
-                    ContentFit::Cover => MediaPlacement::cover(
-                        inset_frame(measurement_frame, target.region.margins),
-                        size,
-                    ),
+                    ContentFit::Contain => MediaPlacement::contain(media_slot?, size),
+                    ContentFit::Cover => MediaPlacement::cover(media_slot?, size),
                     ContentFit::None => None,
                 });
-                if media.is_some_and(|placement| {
-                    placement
-                        .visible_frame
-                        .width
-                        .min(placement.visible_frame.height)
-                        < self.policy.readable_media_floor
-                }) {
+                if unit.node.role != SemanticRole::DisplayMath
+                    && media.is_some_and(|placement| {
+                        placement
+                            .visible_frame
+                            .width
+                            .min(placement.visible_frame.height)
+                            < self.policy.readable_media_floor
+                    })
+                {
                     overflow = true;
                     break;
                 }
@@ -2229,6 +2240,7 @@ struct FitTarget<'a> {
     lane: usize,
     y: Emu,
     repeat_table_header_rows: u32,
+    center_single_statement: bool,
 }
 
 impl FlowGroup<'_> {
@@ -2613,6 +2625,31 @@ fn inset_frame(frame: EmuRect, margins: wasmppt_deck::TextMargins) -> EmuRect {
             .saturating_sub(margins.top)
             .saturating_sub(margins.bottom)
             .max(1),
+    }
+}
+
+fn display_math_slot(
+    available: EmuRect,
+    source_size: PixelSize,
+    font_size: u32,
+    center_vertically: bool,
+) -> EmuRect {
+    let natural = display_math_natural_size(source_size, font_size);
+    let width = natural.width.min(available.width).max(1);
+    let height = natural.height.min(available.height).max(1);
+    EmuRect {
+        x: available
+            .x
+            .saturating_add(available.width.saturating_sub(width) / 2),
+        y: if center_vertically {
+            available
+                .y
+                .saturating_add(available.height.saturating_sub(height) / 2)
+        } else {
+            available.y
+        },
+        width,
+        height,
     }
 }
 
@@ -3205,6 +3242,17 @@ mod tests {
 
         assert_eq!(plan.pages[0].template_layout_id, id(100));
         assert_eq!(plan.pages[0].regions[0].fragments[0].source_node_id, id(3));
+        let formula = fragments(&plan.pages[0])
+            .find(|fragment| fragment.source_node_id == id(4))
+            .unwrap();
+        assert!(
+            formula.frame.width <= 3_000_000,
+            "formula filled its lane: {formula:?}"
+        );
+        assert!(
+            formula.frame.height <= 700_000,
+            "formula became media-sized: {formula:?}"
+        );
         assert!(
             plan.pages[0]
                 .regions

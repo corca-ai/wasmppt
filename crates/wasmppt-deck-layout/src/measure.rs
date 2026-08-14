@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use wasmppt_deck::{
-    Emu, EmuRect, FragmentSlice, PixelSize, RegionRole, SemanticContent, SemanticNode,
+    Emu, EmuRect, EmuSize, FragmentSlice, PixelSize, RegionRole, SemanticContent, SemanticNode,
     SemanticRole, StableId, TableColumnAlignment, TemplateRegion, inspect_media_size,
 };
 use wasmppt_shaper::{ShapeOptions, ShapedRun, shape};
@@ -9,6 +9,8 @@ use wasmppt_shaper::{ShapeOptions, ShapedRun, shape};
 use crate::{FontCatalog, PlannerLimits, flow::code_line};
 
 const EMU_PER_POINT: i64 = 12_700;
+const CSS_PIXEL_EMU: i64 = 9_525;
+const MATH_SVG_BASE_FONT_SIZE: u32 = 1_200;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MeasureError {
@@ -181,6 +183,11 @@ impl<'a> Measurer<'a> {
         };
         let media_height = aspect
             .map(|(width, height)| {
+                if node.role == SemanticRole::DisplayMath {
+                    return display_math_natural_size(PixelSize { width, height }, font_size)
+                        .height
+                        .min(frame.height);
+                }
                 let aspect_height = usable_width
                     .saturating_mul(i64::from(height))
                     .checked_div(i64::from(width).max(1))
@@ -312,6 +319,14 @@ fn measure_width_demand(
         return table_width_demand(table, slice, font, font_size, line_height);
     }
     if let Some((width, height)) = aspect {
+        if node.role == SemanticRole::DisplayMath {
+            let natural = display_math_natural_size(PixelSize { width, height }, font_size);
+            return WidthDemand {
+                min: natural.width,
+                preferred: natural.width,
+                max: natural.width,
+            };
+        }
         let min = line_height.saturating_mul(6);
         let preferred = min
             .saturating_mul(i64::from(width))
@@ -326,6 +341,19 @@ fn measure_width_demand(
     }
     let (text, _, _, _) = measure_content(node, slice);
     text_width_demand(&text, font, font_size, line_height)
+}
+
+pub(crate) fn display_math_natural_size(size: PixelSize, font_size: u32) -> EmuSize {
+    let scaled = |pixels: u32| {
+        i64::from(pixels)
+            .saturating_mul(CSS_PIXEL_EMU)
+            .saturating_mul(i64::from(font_size))
+            / i64::from(MATH_SVG_BASE_FONT_SIZE)
+    };
+    EmuSize {
+        width: scaled(size.width).max(1),
+        height: scaled(size.height).max(1),
+    }
 }
 
 fn table_width_demand(
@@ -691,6 +719,29 @@ mod tests {
             bytes,
             intrinsic_size: hint,
         }
+    }
+
+    #[test]
+    fn display_math_uses_css_pixels_at_the_template_type_scale() {
+        let source = PixelSize {
+            width: 96,
+            height: 24,
+        };
+
+        assert_eq!(
+            display_math_natural_size(source, 1_200),
+            EmuSize {
+                width: 914_400,
+                height: 228_600,
+            }
+        );
+        assert_eq!(
+            display_math_natural_size(source, 2_400),
+            EmuSize {
+                width: 1_828_800,
+                height: 457_200,
+            }
+        );
     }
 
     #[test]

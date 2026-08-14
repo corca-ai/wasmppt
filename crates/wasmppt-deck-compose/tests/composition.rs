@@ -837,6 +837,8 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
         )
         .unwrap();
     let slide_two = String::from_utf8(overlay.read_part("ppt/slides/slide2.xml").unwrap()).unwrap();
+    assert!(!slide_two.contains("Continuation marker"));
+    assert!(!slide_two.contains("<a:t>2/2</a:t>"));
     assert_eq!(slide_two.matches("<a:t>Quarter</a:t>").count(), 1);
     assert_eq!(slide_two.matches("<a:t>Q2</a:t>").count(), 1);
     assert_eq!(slide_two.matches("<a:tbl>").count(), 1);

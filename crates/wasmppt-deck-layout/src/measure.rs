@@ -184,10 +184,25 @@ impl<'a> Measurer<'a> {
         };
         let media_height = aspect
             .map(|(width, height)| {
-                usable_width
+                let aspect_height = usable_width
                     .saturating_mul(i64::from(height))
                     .checked_div(i64::from(width).max(1))
-                    .unwrap_or(frame.height)
+                    .unwrap_or(frame.height);
+                let usable_height = frame
+                    .height
+                    .saturating_sub(region.margins.top)
+                    .saturating_sub(region.margins.bottom)
+                    .max(1);
+                let contained_width = usable_height
+                    .saturating_mul(i64::from(width))
+                    .checked_div(i64::from(height).max(1))
+                    .unwrap_or(0);
+                if aspect_height > usable_height && contained_width < line_height.saturating_mul(6)
+                {
+                    aspect_height
+                } else {
+                    aspect_height.min(usable_height)
+                }
             })
             .unwrap_or(0);
         let height = text_height

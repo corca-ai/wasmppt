@@ -34,6 +34,10 @@ Raster PNG, JPEG, and GIF dimensions and SVG width/height or viewBox dimensions 
 bounded resource bytes. A matching host hint is accepted; a stale hint is replaced by the
 byte-derived value. Only an undecodable resource falls back to a positive validated hint. This
 makes portrait, square, and landscape demand identical on native and Wasm hosts.
+Contain-fit media may scale down to its candidate slot, but only while both rendered dimensions
+remain above the readable media floor. A figure in an indivisible figure/caption group reserves
+slot height for its following caption before measurement; an extreme aspect ratio that would
+collapse below the floor remains an atomic overflow.
 
 ## Semantic flow
 
@@ -63,17 +67,23 @@ those cover details without overlapping independently positioned header and body
 
 ## Candidate search and cost
 
-For each source position the planner evaluates a fixed generic family over the selected template
-body or statement frame: stack, balanced columns, weighted split, peer grid, lead/supporting, and
-dominant-content split. Candidates never infer layout from example slides or visible shape names.
-The selected candidate is encoded on each physical page as a topology kind and legal slot count;
-fixed template content and topology-slot regions remain distinguishable through composition.
+For each source position the planner evaluates explicit stack, two- and three-column flow,
+mirrored weighted split, mirrored media/text, two/four/six-peer grid, lead/supporting,
+two/four/six-item gallery, table-wide, and comparison topologies. Each topology owns a finite slot
+set. Continuous prose, list, code, and weighted splits enumerate bounded contiguous partitions;
+peer and gallery groups occupy distinct slots; and media/text candidates assign by semantic role
+rather than assuming source order is visual order. Candidates never infer layout from example
+slides or visible shape names. The selected topology and slot count are encoded on each physical
+page, while fixed template content and topology-slot regions remain distinguishable through
+composition.
 
-Dynamic programming first minimizes physical page count, then a deterministic cost combining font
-reduction, squared unused-frame area, narrow text measure, single-text orphaning, and candidate
-complexity. Squared whitespace makes an equally sized pagination prefer balanced pages and avoids
-a needlessly sparse final page. Source order and authored relation groups are hard constraints,
-not soft cost terms.
+Dynamic programming compares the worst readability band before physical page count. A comfortable
+continuation therefore wins over a one-page result compressed toward the readable floor. Remaining
+ties compare width/crop loss, measured slot-demand imbalance, continuation orphaning, whitespace,
+topology complexity, and a stable topology ordinal. Peer, gallery, table, and mixed media/text
+collections reject stack or generic flow assignments that would discard their semantic topology.
+Source order, contiguous flow partitions, and authored relation groups are hard constraints rather
+than soft cost terms.
 
 Text may shrink only to `PlannerPolicy::readable_floor`. An atomic group that cannot fit any legal
 candidate at that floor fails with `PLAN_ATOMIC_OVERFLOW`; it is not clipped or silently split.
@@ -87,8 +97,10 @@ composer renders this metadata without creating additional source fragments.
 
 ## Bounds and failure policy
 
-`PlannerLimits` independently bounds exact font faces and bytes, flow units, candidate pages,
-candidates per source position, font measurements, and dynamic-programming states. Measurement
+`PlannerLimits` independently bounds exact font faces and bytes, flow units, evaluated
+topology/slot assignments, accepted candidates per source position, font measurements, and
+dynamic-programming states. Contiguous partition enumeration has a fixed per-topology cap and every
+evaluated assignment consumes the global candidate-work counter. Measurement
 results are cached only within one immutable spec/font planning pass and keyed by node, slice,
 exact template region, region role, frame width and height, font size, and repeated table-header
 state. Exceeding a work bound fails with `PLAN_WORK_LIMIT`.
@@ -97,8 +109,9 @@ These are denial-of-service and resource contracts, not a UX slide cap. The call
 still bounds decoded collections and final physical pages for its host environment. Tests cover
 determinism, exact coverage, relation preservation, readable type, atomic overflow, repeated table
 headers, byte-derived media dimensions, alignment-aware table demand, nested-list preservation,
-contiguous editable slices, incremental slide reuse, fallback-font diagnostics, and
-property-generated bounded termination.
+contiguous editable slices, peer-slot assignment, mirrored media/text assignment, balanced
+contiguous columns, readability-first ordering, incremental slide reuse, fallback-font diagnostics,
+and property-generated bounded termination.
 
 ## Verification
 

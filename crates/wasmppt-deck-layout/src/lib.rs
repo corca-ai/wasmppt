@@ -14,7 +14,7 @@ use std::{
 };
 
 use flow::{FlowError, FlowUnit, build_flow};
-use measure::{MeasureError, Measurer, display_math_natural_size};
+use measure::{MeasureError, Measurer, display_math_natural_size, text_line_height};
 use sha2::{Digest, Sha256};
 use wasmppt_deck::{
     ContentFit, DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckResource, DeckSpec,
@@ -861,6 +861,11 @@ impl DeckPlanner {
         if let Some((node, slice)) = contiguous_table_group(group) {
             return self.fit_table_group(node, slice, lane_frame, initial_size, target, measurer);
         }
+        if let Some(fitted) =
+            self.fit_inline_math_group(group, lane_frame, initial_size, target, measurer)?
+        {
+            return Ok(Some(fitted));
+        }
         if let Some(fitted) = self.fit_extreme_portrait_media_text_group(
             group,
             lane_frame,
@@ -1022,6 +1027,152 @@ impl DeckPlanner {
                     bottom: cursor.saturating_sub(self.policy.gap),
                 }));
             }
+            if font_size <= self.policy.readable_floor {
+                return Ok(None);
+            }
+            font_size = font_size
+                .saturating_sub(self.policy.font_step.max(1))
+                .max(self.policy.readable_floor);
+        }
+    }
+
+    fn fit_inline_math_group<'a>(
+        &self,
+        group: &FlowGroup<'a>,
+        lane_frame: EmuRect,
+        initial_size: u32,
+        target: &FitTarget<'_>,
+        measurer: &mut Measurer<'_>,
+    ) -> Result<Option<FittedGroup<'a>>, PlanError> {
+        let inline = group.units.len() > 1
+            && group
+                .units
+                .iter()
+                .any(|unit| unit.node.role == SemanticRole::DisplayMath)
+            && group.units.iter().all(|unit| {
+                matches!(unit.node.content, SemanticContent::Text(_))
+                    || (unit.node.role == SemanticRole::DisplayMath
+                        && matches!(unit.node.content, SemanticContent::Svg(_)))
+            });
+        if !inline {
+            return Ok(None);
+        }
+
+        let remaining = EmuRect {
+            y: target.y,
+            height: lane_frame
+                .y
+                .saturating_add(lane_frame.height)
+                .saturating_sub(target.y),
+            ..lane_frame
+        };
+        let content = inset_frame(remaining, target.region.margins);
+        if !content.is_positive() {
+            return Ok(None);
+        }
+
+        let mut font_size = initial_size;
+        loop {
+            let line_height = text_line_height(font_size);
+            let mut items = Vec::with_capacity(group.units.len());
+            let mut failed = false;
+            for unit in &group.units {
+                let measured = measurer
+                    .measure(
+                        unit.node,
+                        unit.slice,
+                        target.region,
+                        remaining,
+                        font_size,
+                        target.repeat_table_header_rows,
+                    )
+                    .map_err(|failure| measure_error(failure, unit.node.id))?;
+                let intrinsic = measurer.intrinsic_size(unit.node);
+                let (width, height) = if let Some(size) = intrinsic {
+                    let natural = display_math_natural_size(size, font_size);
+                    (natural.width, natural.height)
+                } else {
+                    let wrapped_height = measured
+                        .height
+                        .saturating_sub(target.region.margins.top)
+                        .saturating_sub(target.region.margins.bottom)
+                        .max(line_height);
+                    (measured.width.preferred.min(content.width), wrapped_height)
+                };
+                if width <= 0 || height <= 0 || width > content.width {
+                    failed = true;
+                    break;
+                }
+                items.push((*unit, measured, intrinsic, width, height));
+            }
+
+            if !failed {
+                let mut lines = Vec::<(usize, usize, Emu, Emu)>::new();
+                let mut line_start = 0usize;
+                let mut line_width: Emu = 0;
+                let mut line_height_max: Emu = 0;
+                for (index, (_, _, _, width, height)) in items.iter().enumerate() {
+                    if line_width > 0 && line_width.saturating_add(*width) > content.width {
+                        lines.push((line_start, index, line_width, line_height_max));
+                        line_start = index;
+                        line_width = 0;
+                        line_height_max = 0;
+                    }
+                    line_width = line_width.saturating_add(*width);
+                    line_height_max = line_height_max.max(*height);
+                }
+                lines.push((line_start, items.len(), line_width, line_height_max));
+
+                let inline_line_gap = line_height / 5;
+                let total_height = lines
+                    .iter()
+                    .enumerate()
+                    .fold(0i64, |height, (index, line)| {
+                        height
+                            .saturating_add(line.3)
+                            .saturating_add(if index + 1 < lines.len() {
+                                inline_line_gap
+                            } else {
+                                0
+                            })
+                    });
+                if total_height <= content.height {
+                    let mut placements = Vec::with_capacity(items.len());
+                    let mut y = content.y;
+                    for (start, end, _, row_height) in lines {
+                        let mut x = content.x;
+                        for (unit, measured, intrinsic, width, height) in &items[start..end] {
+                            let slot = EmuRect {
+                                x,
+                                y: y.saturating_add(row_height.saturating_sub(*height) / 2),
+                                width: *width,
+                                height: *height,
+                            };
+                            let media =
+                                intrinsic.and_then(|size| MediaPlacement::contain(slot, size));
+                            let frame = media.map_or(slot, |placement| placement.visible_frame);
+                            placements.push(FittedPlacement {
+                                node: unit.node,
+                                slice: unit.slice,
+                                frame,
+                                font_size: measured.font_size,
+                                reduction: initial_size.saturating_sub(measured.font_size),
+                                width_penalty: 0,
+                                font_risk: measured.font_risk,
+                                media,
+                                repeat_table_header_rows: target.repeat_table_header_rows,
+                            });
+                            x = x.saturating_add(*width);
+                        }
+                        y = y.saturating_add(row_height).saturating_add(inline_line_gap);
+                    }
+                    return Ok(Some(FittedGroup {
+                        placements,
+                        bottom: content.y.saturating_add(total_height),
+                    }));
+                }
+            }
+
             if font_size <= self.policy.readable_floor {
                 return Ok(None);
             }
@@ -3261,6 +3412,71 @@ mod tests {
                 .all(|region| region.frame.is_within(safe))
         );
         assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn inline_math_children_share_a_baseline_in_source_order() {
+        let inline = SemanticNode {
+            id: id(4),
+            source: SourceRange::new("deck.md", 40, 80),
+            role: SemanticRole::Prose,
+            split: SplitPolicy::Children,
+            content: SemanticContent::Children(vec![
+                text_node(5, SemanticRole::Prose, SplitPolicy::Never, "Energy "),
+                SemanticNode {
+                    id: id(6),
+                    source: range(42),
+                    role: SemanticRole::DisplayMath,
+                    split: SplitPolicy::Never,
+                    content: SemanticContent::Svg(wasmppt_deck::SvgContent {
+                        resource_id: id(90),
+                        source_text: Some("$E=mc^2$".to_owned()),
+                    }),
+                },
+                text_node(
+                    7,
+                    SemanticRole::Prose,
+                    SplitPolicy::Never,
+                    " remains inline.",
+                ),
+            ]),
+        };
+        let mut spec = spec(vec![
+            text_node(3, SemanticRole::Title, SplitPolicy::Never, "Model"),
+            inline,
+        ]);
+        spec.resources.push(DeckResource {
+            id: id(90),
+            kind: ResourceKind::Svg,
+            media_type: "image/svg+xml".to_owned(),
+            bytes: br#"<svg xmlns="http://www.w3.org/2000/svg"/>"#.to_vec(),
+            intrinsic_size: Some(PixelSize {
+                width: 64,
+                height: 24,
+            }),
+        });
+
+        let plan = DeckPlanner::default()
+            .plan(
+                &spec,
+                &template(5_500_000),
+                &FontCatalog::default(),
+                &limits(),
+            )
+            .unwrap();
+        let parts = [id(5), id(6), id(7)].map(|node| {
+            fragments(&plan.pages[0])
+                .find(|fragment| fragment.source_node_id == node)
+                .unwrap()
+                .frame
+        });
+
+        assert!(parts.windows(2).all(|pair| pair[0].x < pair[1].x));
+        assert!(parts.windows(2).all(|pair| {
+            pair[0].y.abs_diff(pair[1].y)
+                <= u64::try_from(pair[0].height.max(pair[1].height)).unwrap_or(u64::MAX)
+        }));
+        assert!(validate_deck_plan(&spec, &template(5_500_000), &plan, &limits()).is_valid());
     }
 
     #[test]

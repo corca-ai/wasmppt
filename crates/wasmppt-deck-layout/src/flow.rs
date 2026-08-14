@@ -104,6 +104,20 @@ impl<'a> FlowBuilder<'a> {
         let SemanticContent::Children(children) = &node.content else {
             return self.leaf(node, forced_group, gallery_item);
         };
+        if children.iter().any(|child| {
+            child.role == SemanticRole::DisplayMath
+                && matches!(child.content, SemanticContent::Svg(_))
+        }) && children.iter().all(|child| {
+            matches!(child.content, SemanticContent::Text(_))
+                || (child.role == SemanticRole::DisplayMath
+                    && matches!(child.content, SemanticContent::Svg(_)))
+        }) {
+            let group = forced_group.unwrap_or_else(|| self.group());
+            for child in children {
+                self.node(child, Some(group), gallery_item)?;
+            }
+            return Ok(());
+        }
         match node.role {
             SemanticRole::Figure | SemanticRole::Definition => {
                 let group = forced_group.unwrap_or_else(|| self.group());

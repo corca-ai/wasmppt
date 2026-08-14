@@ -81,12 +81,15 @@ jobs:
           git diff --exit-code -- \
             packages/wasmppt-worker/src/generated/wasmppt_wasm.js \
             packages/wasmppt-worker/src/generated/wasmppt_wasm.d.ts \
+            packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm \
             packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm.d.ts \
             packages/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm.js \
             packages/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm.d.ts \
+            packages/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm_bg.wasm \
             packages/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm_bg.wasm.d.ts \
             packages/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm.js \
             packages/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm.d.ts \
+            packages/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm_bg.wasm \
             packages/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm_bg.wasm.d.ts
       - name: Report Wasm artifact size
         run: |

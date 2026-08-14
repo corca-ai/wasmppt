@@ -212,6 +212,9 @@ module and matching `wasm-bindgen` host files. The host-adapter and performance 
 on that job and download its revision-bound artifact, so both exercise identical Wasm bytes
 without compiling the release module twice. The artifact comes from the same workflow run;
 CI never substitutes the latest successful artifact from another revision.
+The job also compares every checked-in JavaScript, declaration, and Wasm host artifact with the
+fresh build. A Rust runtime change must therefore commit the regenerated browser bytes produced by
+`npm run build:wasm-hosts`; a Git dependency cannot silently ship an older embedded engine.
 
 The compatibility job converts a pinned real POTX and validates its PPTX output with the
 Microsoft Open XML SDK wrapper under `tools/openxml-validator`. It also resolves slides

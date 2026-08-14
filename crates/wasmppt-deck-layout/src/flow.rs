@@ -6,6 +6,7 @@ pub(crate) struct FlowUnit<'a> {
     pub(crate) node: &'a SemanticNode,
     pub(crate) slice: FragmentSlice,
     pub(crate) group: u32,
+    pub(crate) gallery_item: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -23,7 +24,7 @@ pub(crate) fn build_flow<'a>(
         max_units,
     };
     for node in nodes {
-        builder.node(node, None)?;
+        builder.node(node, None, false)?;
     }
     link_adjacent_relations(&mut builder.units);
     Ok(builder.units)
@@ -67,43 +68,48 @@ struct FlowBuilder<'a> {
 }
 
 impl<'a> FlowBuilder<'a> {
-    fn node(&mut self, node: &'a SemanticNode, forced_group: Option<u32>) -> Result<(), FlowError> {
+    fn node(
+        &mut self,
+        node: &'a SemanticNode,
+        forced_group: Option<u32>,
+        gallery_item: bool,
+    ) -> Result<(), FlowError> {
         let SemanticContent::Children(children) = &node.content else {
-            return self.leaf(node, forced_group);
+            return self.leaf(node, forced_group, gallery_item);
         };
         match node.role {
             SemanticRole::Figure | SemanticRole::Definition => {
                 let group = forced_group.unwrap_or_else(|| self.group());
                 for child in children {
-                    self.node(child, Some(group))?;
+                    self.node(child, Some(group), gallery_item)?;
                 }
             }
             SemanticRole::Gallery => {
                 let mut index = 0;
                 while index < children.len() {
                     let group = self.group();
-                    self.node(&children[index], Some(group))?;
+                    self.node(&children[index], Some(group), true)?;
                     if children[index].role == SemanticRole::Figure
                         && children
                             .get(index + 1)
                             .is_some_and(|child| child.role == SemanticRole::Caption)
                     {
                         index += 1;
-                        self.node(&children[index], Some(group))?;
+                        self.node(&children[index], Some(group), true)?;
                     }
                     index += 1;
                 }
             }
-            SemanticRole::Quote => self.quote(children, forced_group)?,
+            SemanticRole::Quote => self.quote(children, forced_group, gallery_item)?,
             SemanticRole::Section => {
                 let relation = forced_group.unwrap_or_else(|| self.group());
                 for (index, child) in children.iter().enumerate() {
-                    self.node(child, (index < 2).then_some(relation))?;
+                    self.node(child, (index < 2).then_some(relation), gallery_item)?;
                 }
             }
             _ => {
                 for child in children {
-                    self.node(child, forced_group)?;
+                    self.node(child, forced_group, gallery_item)?;
                 }
             }
         }
@@ -114,10 +120,11 @@ impl<'a> FlowBuilder<'a> {
         &mut self,
         children: &'a [SemanticNode],
         forced_group: Option<u32>,
+        gallery_item: bool,
     ) -> Result<(), FlowError> {
         let start = self.units.len();
         for child in children {
-            self.node(child, forced_group)?;
+            self.node(child, forced_group, gallery_item)?;
         }
         if forced_group.is_none() && self.units.len() > start + 1 {
             let relation = self.group();
@@ -128,7 +135,12 @@ impl<'a> FlowBuilder<'a> {
         Ok(())
     }
 
-    fn leaf(&mut self, node: &'a SemanticNode, forced_group: Option<u32>) -> Result<(), FlowError> {
+    fn leaf(
+        &mut self,
+        node: &'a SemanticNode,
+        forced_group: Option<u32>,
+        gallery_item: bool,
+    ) -> Result<(), FlowError> {
         let slices = match (&node.content, node.split) {
             (SemanticContent::Text(text), SplitPolicy::Text) => text_ranges(&text.plain_text()),
             (SemanticContent::List(list), SplitPolicy::ListItems) => (0..list.items.len())
@@ -158,7 +170,12 @@ impl<'a> FlowBuilder<'a> {
                 return Err(FlowError::UnitLimit);
             }
             let group = forced_group.unwrap_or_else(|| self.group());
-            self.units.push(FlowUnit { node, slice, group });
+            self.units.push(FlowUnit {
+                node,
+                slice,
+                group,
+                gallery_item,
+            });
         }
         Ok(())
     }

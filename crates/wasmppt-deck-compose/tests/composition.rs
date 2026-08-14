@@ -13,7 +13,9 @@ use wasmppt_deck::{
     TemplateTheme, TextMargins, TextMarks, TypeChoice, validate_deck_plan,
 };
 use wasmppt_deck_compose::{ComposeErrorCode, ComposeLimits, DeckComposer};
-use wasmppt_layout::{ChartKind as ResolvedChartKind, ElementKind, PresentationDocument};
+use wasmppt_layout::{
+    ChartKind as ResolvedChartKind, ElementKind, PresentationDocument, SourceLevel,
+};
 use wasmppt_opc::{
     CompressionMethod, EntryOptions, PackageGraph, PackagePartSource, VecSink, ZipArchive,
     ZipWriter,
@@ -358,8 +360,10 @@ fn fixture() -> (Vec<u8>, DeckSpec, DeckTemplatePlan, DeckPlan) {
                 },
                 fit: if source_node_id == id(20) {
                     ContentFit::Cover
-                } else {
+                } else if source_node_id == id(21) {
                     ContentFit::Contain
+                } else {
+                    ContentFit::None
                 },
             },
             repeat_table_header_rows: 0,
@@ -462,6 +466,7 @@ fn composes_editable_vector_and_first_frame_media_into_a_live_overlay() {
 
     let direct = PresentationDocument::open_source(Arc::new(overlay.clone())).unwrap();
     assert_eq!(direct.slide_count(), 1);
+    assert_fragment_geometry(&direct, &plan);
     let mut cursor = overlay.generation_cursor();
     let mut exported = Vec::new();
     while !cursor.is_done() {
@@ -517,6 +522,7 @@ fn composes_an_empty_list_item_as_an_editable_bullet_paragraph() {
 
     assert!(slide.contains("<a:buAutoNum type=\"arabicPeriod\" startAt=\"4\"/>"));
     assert!(slide.contains("startAt=\"4\"/></a:pPr><a:endParaRPr/></a:p>"));
+    assert_eq!(slide.matches("name=\"List\"").count(), 1);
 }
 
 #[test]
@@ -764,6 +770,7 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
     assert!(slide_two.contains("val=\"123456\"") && slide_two.contains("<c:chart"));
 
     let direct = PresentationDocument::open_source(Arc::new(overlay.clone())).unwrap();
+    assert_fragment_geometry(&direct, &plan);
     let first_slide = direct.resolve_slide(0).unwrap();
     let first_table = first_slide
         .slide
@@ -836,4 +843,39 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
     let workbook = ZipArchive::from_bytes(package.read_part(&workbook_name).unwrap()).unwrap();
     let sheet = String::from_utf8(workbook.read_part("xl/worksheets/sheet1.xml").unwrap()).unwrap();
     assert!(sheet.contains("Q2") && sheet.contains(">24<"));
+}
+
+fn assert_fragment_geometry(document: &PresentationDocument, plan: &DeckPlan) {
+    for (slide_index, page) in plan.pages.iter().enumerate() {
+        let resolved = document.resolve_slide(slide_index).unwrap();
+        let expected = page
+            .regions
+            .iter()
+            .flat_map(|region| {
+                region.fragments.iter().map(|fragment| {
+                    let frame = fragment.frame;
+                    (frame.x, frame.y, frame.width, frame.height)
+                })
+            })
+            .collect::<Vec<_>>();
+        let skip = usize::from(page.continuation.repeated_heading_node_id.is_some());
+        let actual = resolved
+            .slide
+            .elements
+            .iter()
+            .filter(|element| element.source == SourceLevel::Slide)
+            .skip(skip)
+            .take(expected.len())
+            .map(|element| {
+                let frame = element.transform.bounds;
+                (
+                    frame.origin.x,
+                    frame.origin.y,
+                    frame.size.width,
+                    frame.size.height,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected, "slide {slide_index} geometry drifted");
+    }
 }

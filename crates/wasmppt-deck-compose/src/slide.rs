@@ -232,29 +232,10 @@ impl SlideWriter<'_> {
                     true,
                 )
             }
-            SemanticContent::Children(children) => {
-                let paragraphs = children
-                    .iter()
-                    .filter_map(|child| match &child.content {
-                        SemanticContent::Text(text) => Some(Paragraph::rich(text.runs.clone(), 0)),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>();
-                if paragraphs.is_empty() {
-                    Err(ComposeError::new(
-                        ComposeErrorCode::UnsupportedContent,
-                        "container fragment has no directly editable text",
-                    ))
-                } else {
-                    self.text_shape(
-                        fragment.frame,
-                        role_name(node),
-                        &paragraphs,
-                        Some(region),
-                        Some(fragment.type_choice.font_size),
-                    )
-                }
-            }
+            SemanticContent::Children(_) => Err(ComposeError::new(
+                ComposeErrorCode::InvalidContract,
+                "container nodes do not own composed shapes",
+            )),
             SemanticContent::Table(table) => self.table(fragment, table, region),
             SemanticContent::Chart(chart) => self.chart(fragment, chart),
         }

@@ -38,6 +38,11 @@ Each shape and relationship receives a deterministic source-order identifier. Hi
 written on the physical slide. Derived continuation pages add only the planned repeated heading
 and minimal `n/total` marker; neither becomes another source-owned fragment.
 
+Container nodes never become output shapes. The validated plan names only source-owning leaf
+nodes, and each coalesced fragment becomes exactly one editable text box, list, code box, table,
+picture, or chart. Composition does not re-split a planned slice or perform output-specific
+column fitting.
+
 Tables remain native DrawingML tables. Planned row slices retain source order, continuation pages
 prepend exactly the planned source header rows, and every cell uses the same editable rich-run and
 hyperlink writer as ordinary text. The template plan's region text style and theme color slots
@@ -62,6 +67,11 @@ PNG and JPEG payloads pass through unchanged. `cover` computes a centered Drawin
 non-visual properties. Composition never guesses between those modes: the planner records the
 choice after semantic-safety and aspect-loss evaluation, and the same frame and fit feed browser
 display-list lowering and PPTX output.
+
+Plan validation rejects overlapping source-owned fragment frames and font/fit choices that do not
+match the semantic content. After the overlay is resolved, the browser adapter also requires every
+source-owned display-list element to have the exact planned bounds before it attaches source
+semantics; geometry drift is a hard error rather than a missing hit-test annotation.
 
 SVG is retained as vector media and referenced through the Office SVG extension. XML parsing
 rejects scripts, foreign objects, event handlers, JavaScript URLs, imports, and external references.

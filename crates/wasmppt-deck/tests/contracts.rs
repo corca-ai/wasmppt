@@ -130,6 +130,27 @@ fn reports_each_plan_integrity_failure_with_a_stable_code() {
         DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
     );
 
+    let mut overlap = plan.clone();
+    overlap.pages[2].regions[0].fragments[1].frame.y =
+        overlap.pages[2].regions[0].fragments[0].frame.y;
+    assert_code(
+        &spec,
+        &template,
+        &overlap,
+        DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
+    );
+
+    let mut invalid_type_choice = plan.clone();
+    invalid_type_choice.pages[1].regions[0].fragments[0]
+        .type_choice
+        .fit = ContentFit::Cover;
+    assert_code(
+        &spec,
+        &template,
+        &invalid_type_choice,
+        DeckDiagnosticCode::PLAN_TARGET_DRIFT,
+    );
+
     let mut invalid_slot = plan.clone();
     invalid_slot.pages[0].regions[0].placement = RegionPlacement::Slot(1);
     assert_code(

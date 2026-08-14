@@ -697,7 +697,12 @@ impl WasmpptEngine {
             coded_error("WasmpptDeckPlanError", "deck slide index is out of bounds")
         })?;
         let mut display = DisplayList::from_resolve(&resolved);
-        annotate_deck_semantics(&mut display, page, &record.spec);
+        annotate_deck_semantics(&mut display, page, &record.spec).map_err(|()| {
+            coded_error(
+                "WasmpptDeckGeometryError",
+                "composed display-list shape does not match its planned frame",
+            )
+        })?;
         let bytes = display.encode();
         record
             .scenes
@@ -1247,7 +1252,7 @@ fn annotate_deck_semantics(
     display: &mut DisplayList,
     page: &wasmppt_deck::PhysicalPage,
     spec: &DeckSpec,
-) {
+) -> Result<(), ()> {
     let mut nodes = std::collections::BTreeMap::new();
     for slide in &spec.logical_slides {
         index_semantic_nodes(&slide.nodes, &mut nodes);
@@ -1257,14 +1262,14 @@ fn annotate_deck_semantics(
     if page.continuation.ordinal > 1 {
         if let Some(node_id) = page.continuation.repeated_heading_node_id {
             if let Some(node) = nodes.get(&node_id) {
-                annotate_shape(
+                require_annotated_shape(
                     display,
                     shape_id,
                     None,
                     node.id,
                     &node.source,
                     reading_order,
-                );
+                )?;
                 shape_id = shape_id.saturating_add(1);
                 reading_order = reading_order.saturating_add(1);
             }
@@ -1276,17 +1281,40 @@ fn annotate_deck_semantics(
         .flat_map(|region| region.fragments.iter())
     {
         if let Some(node) = nodes.get(&fragment.source_node_id) {
-            annotate_shape(
+            require_annotated_shape(
                 display,
                 shape_id,
                 Some(fragment.frame),
                 fragment.id,
                 &node.source,
                 reading_order,
-            );
+            )?;
         }
         shape_id = shape_id.saturating_add(1);
         reading_order = reading_order.saturating_add(1);
+    }
+    Ok(())
+}
+
+fn require_annotated_shape(
+    display: &mut DisplayList,
+    shape_id: u32,
+    expected_bounds: Option<wasmppt_deck::EmuRect>,
+    semantic_id: StableId,
+    source: &SourceRange,
+    reading_order: u32,
+) -> Result<(), ()> {
+    if annotate_shape(
+        display,
+        shape_id,
+        expected_bounds,
+        semantic_id,
+        source,
+        reading_order,
+    ) {
+        Ok(())
+    } else {
+        Err(())
     }
 }
 
@@ -1297,7 +1325,7 @@ fn annotate_shape(
     semantic_id: StableId,
     source: &SourceRange,
     reading_order: u32,
-) {
+) -> bool {
     let semantic = display.semantics.iter_mut().find(|semantic| {
         semantic.source.is_none()
             && semantic.shape_id == shape_id
@@ -1316,6 +1344,9 @@ fn annotate_shape(
             start: source.start,
             end: source.end,
         });
+        true
+    } else {
+        false
     }
 }
 
@@ -1787,6 +1818,22 @@ mod tests {
                 .windows(16)
                 .any(|bytes| bytes == fragment_id.as_bytes())
         );
+
+        let geometry_drift_is_hard_failure = {
+            let record = engine.deck_session(session).unwrap();
+            let resolved = record.document.resolve_slide(0).unwrap();
+            let mut drifted = DisplayList::from_resolve(&resolved);
+            drifted
+                .semantics
+                .iter_mut()
+                .find(|semantic| semantic.shape_id == 2)
+                .unwrap()
+                .bounds
+                .origin
+                .x += 1;
+            annotate_deck_semantics(&mut drifted, &record.plan.pages[0], &record.spec).is_err()
+        };
+        assert!(geometry_drift_is_hard_failure);
 
         let expected = {
             let record = engine.deck_session(session).unwrap();

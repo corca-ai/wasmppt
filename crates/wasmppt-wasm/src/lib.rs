@@ -17,7 +17,8 @@ use wasmppt_deck_template::ThemeTemplateCompiler;
 use wasmppt_display::{DisplayList, SemanticSource};
 use wasmppt_layout::{LayoutError, LayoutErrorCode, PresentationDocument};
 use wasmppt_opc::{
-    Error as OpcError, ErrorCode as OpcErrorCode, OverlayCursor, PackageLimits, ZipArchive,
+    Error as OpcError, ErrorCode as OpcErrorCode, OverlayCursor, PackageLimits, PackagePartSource,
+    ZipArchive,
 };
 use wasmppt_template::{
     BindingDiagnostic, BindingDiagnosticCode, BindingKind, BindingSource, CompileError,
@@ -1017,12 +1018,13 @@ impl WasmpptEngine {
             .map_err(|error| coded_error("WasmpptDeckComposeError", error))?;
         let changed_parts = overlay.changed_parts_since(&record.overlay);
         let full_fallback = record.plan.pages.len() != update.plan.pages.len();
-        let source: Arc<dyn wasmppt_opc::PackagePartSource> = Arc::new(overlay.clone());
-        let document = if full_fallback {
-            PresentationDocument::open_source(source).map_err(layout_error)?
-        } else {
-            record.document.with_compatible_source(source)
-        };
+        let document = open_deck_revision_document(
+            &record.document,
+            &record.overlay,
+            &overlay,
+            &changed_parts,
+            full_fallback,
+        )?;
         let invalidated_ids = update
             .invalidated_pages
             .iter()
@@ -1101,6 +1103,35 @@ impl WasmpptEngine {
             .get_mut(&handle)
             .ok_or_else(|| coded_error("WasmpptHandleError", "unknown deck session handle"))
     }
+}
+
+fn open_deck_revision_document(
+    current: &PresentationDocument,
+    previous: &PresentationOverlay,
+    next: &PresentationOverlay,
+    changed_parts: &[String],
+    force_reopen: bool,
+) -> Result<PresentationDocument, JsValue> {
+    let source: Arc<dyn PackagePartSource> = Arc::new(next.clone());
+    if force_reopen || !deck_overlay_graph_is_compatible(previous, next, changed_parts) {
+        PresentationDocument::open_source(source).map_err(layout_error)
+    } else {
+        Ok(current.with_compatible_source(source))
+    }
+}
+
+fn deck_overlay_graph_is_compatible(
+    previous: &PresentationOverlay,
+    next: &PresentationOverlay,
+    changed_parts: &[String],
+) -> bool {
+    previous.part_names() == next.part_names()
+        && !changed_parts.iter().any(|name| {
+            name == "[Content_Types].xml"
+                || name == "_rels/.rels"
+                || name == "ppt/presentation.xml"
+                || name.ends_with(".rels")
+        })
 }
 
 impl SceneCache {
@@ -1747,9 +1778,9 @@ const fn generate_error_code(value: GenerateErrorCode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use wasmppt_deck::{
-        EmuRect, LogicalSlide, LogicalSlideKind, PlaceholderIdentity, RegionRole, RichText,
-        RichTextRun, SemanticRole, SplitPolicy, TemplateLayout, TemplateLayoutCapability,
-        TemplateRegion, TextMargins, TextMarks,
+        DeckResource, EmuRect, LogicalSlide, LogicalSlideKind, PixelSize, PlaceholderIdentity,
+        RegionRole, ResourceKind, RichText, RichTextRun, SemanticRole, SplitPolicy, SvgContent,
+        TemplateLayout, TemplateLayoutCapability, TemplateRegion, TextMargins, TextMarks,
     };
 
     use super::*;
@@ -1759,47 +1790,7 @@ mod tests {
     #[test]
     fn deck_preview_and_export_share_one_overlay_and_wpdl_carries_source_identity() {
         let mut engine = WasmpptEngine::new();
-        let compiled = engine.prepare_deck_template(POTX).unwrap();
-        let mut template_plan = engine
-            .deck_template(compiled)
-            .unwrap()
-            .plan
-            .as_ref()
-            .clone();
-        template_plan.diagnostics.clear();
-        template_plan.layouts = vec![TemplateLayout {
-            id: id(100),
-            capability: TemplateLayoutCapability::ContentEnvelope,
-            matching_name: "test-content".to_owned(),
-            source_part: "ppt/slideLayouts/slideLayout1.xml".to_owned(),
-            master_part: "ppt/slideMasters/slideMaster1.xml".to_owned(),
-            region_ids: vec![id(101)],
-            asset_ids: vec![],
-            background: None,
-        }];
-        template_plan.regions = vec![TemplateRegion {
-            id: id(101),
-            layout_id: id(100),
-            role: RegionRole::Body,
-            placeholder: PlaceholderIdentity {
-                kind: "body".to_owned(),
-                index: 0,
-            },
-            frame: EmuRect {
-                x: 500_000,
-                y: 500_000,
-                width: template_plan.page_size.width - 1_000_000,
-                height: template_plan.page_size.height - 1_000_000,
-            },
-            bleed_frame: None,
-            margins: TextMargins::default(),
-            text_levels: vec![],
-            accepts: vec![SemanticRole::Prose],
-            required: true,
-        }];
-        let template = engine
-            .insert_deck_template(POTX.to_vec().into(), template_plan, true)
-            .unwrap();
+        let (compiled, template) = test_deck_template(&mut engine);
         let spec = deck_spec();
         let encoded = spec.encode(&DeckLimits::default()).unwrap();
         let session = engine.create_deck_session(template, &encoded).unwrap();
@@ -1859,6 +1850,162 @@ mod tests {
         assert!(engine.release_deck_session(session));
         assert!(engine.release_deck_template(template));
         assert!(engine.release_deck_template(compiled));
+    }
+
+    #[test]
+    fn replacing_generated_media_reopens_the_package_relationship_graph() {
+        let mut engine = WasmpptEngine::new();
+        let (_compiled, template) = test_deck_template(&mut engine);
+        let initial_spec = svg_deck_spec(20, "#2563eb");
+        let template = engine.deck_template_record(template).unwrap();
+        let initial_plan = DeckPlanner::default()
+            .plan(
+                &initial_spec,
+                &template.plan,
+                &FontCatalog::default(),
+                &DeckLimits::default(),
+            )
+            .unwrap();
+        let initial_overlay = DeckComposer
+            .compose(
+                template.bytes.clone(),
+                &initial_spec,
+                &template.plan,
+                &initial_plan,
+                &DeckLimits::default(),
+                &ComposeLimits::default(),
+            )
+            .unwrap();
+        let initial_document =
+            PresentationDocument::open_source(Arc::new(initial_overlay.clone())).unwrap();
+        let next_spec = svg_deck_spec(21, "#db2777");
+        let update = DeckPlanner::default()
+            .replan(
+                &initial_spec,
+                &initial_plan,
+                &next_spec,
+                &template.plan,
+                &FontCatalog::default(),
+                &DeckLimits::default(),
+            )
+            .unwrap();
+        assert_eq!(initial_plan.pages.len(), update.plan.pages.len());
+        let next_overlay = DeckComposer
+            .compose(
+                template.bytes.clone(),
+                &next_spec,
+                &template.plan,
+                &update.plan,
+                &DeckLimits::default(),
+                &ComposeLimits::default(),
+            )
+            .unwrap();
+        let changed_parts = next_overlay.changed_parts_since(&initial_overlay);
+        assert!(changed_parts.iter().any(|name| name.ends_with(".rels")));
+        let document = open_deck_revision_document(
+            &initial_document,
+            &initial_overlay,
+            &next_overlay,
+            &changed_parts,
+            false,
+        )
+        .unwrap();
+        let resolved = document.resolve_slide(0).unwrap();
+        let part_name = resolved
+            .slide
+            .elements
+            .iter()
+            .find_map(|element| match &element.kind {
+                wasmppt_layout::ElementKind::Image {
+                    part_name: Some(part_name),
+                    ..
+                } => Some(part_name.as_str()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(part_name, format!("ppt/media/deck-{}.svg", id(21)));
+        assert!(!document.read_part(part_name).unwrap().is_empty());
+    }
+
+    fn test_deck_template(engine: &mut WasmpptEngine) -> (u32, u32) {
+        let compiled = engine.prepare_deck_template(POTX).unwrap();
+        let mut template_plan = engine
+            .deck_template(compiled)
+            .unwrap()
+            .plan
+            .as_ref()
+            .clone();
+        template_plan.diagnostics.clear();
+        template_plan.layouts = vec![TemplateLayout {
+            id: id(100),
+            capability: TemplateLayoutCapability::ContentEnvelope,
+            matching_name: "test-content".to_owned(),
+            source_part: "ppt/slideLayouts/slideLayout1.xml".to_owned(),
+            master_part: "ppt/slideMasters/slideMaster1.xml".to_owned(),
+            region_ids: vec![id(101)],
+            asset_ids: vec![],
+            background: None,
+        }];
+        template_plan.regions = vec![TemplateRegion {
+            id: id(101),
+            layout_id: id(100),
+            role: RegionRole::Body,
+            placeholder: PlaceholderIdentity {
+                kind: "body".to_owned(),
+                index: 0,
+            },
+            frame: EmuRect {
+                x: 500_000,
+                y: 500_000,
+                width: template_plan.page_size.width - 1_000_000,
+                height: template_plan.page_size.height - 1_000_000,
+            },
+            bleed_frame: None,
+            margins: TextMargins::default(),
+            text_levels: vec![],
+            accepts: vec![SemanticRole::Prose, SemanticRole::Diagram],
+            required: true,
+        }];
+        let template = engine
+            .insert_deck_template(POTX.to_vec().into(), template_plan, true)
+            .unwrap();
+        (compiled, template)
+    }
+
+    fn svg_deck_spec(resource: u8, fill: &str) -> DeckSpec {
+        DeckSpec {
+            id: id(1),
+            logical_slides: vec![LogicalSlide {
+                id: id(2),
+                source: SourceRange::new("deck.md", 0, 24),
+                kind: LogicalSlideKind::Content,
+                hidden: false,
+                nodes: vec![SemanticNode {
+                    id: id(3),
+                    source: SourceRange::new("deck.md", 4, 24),
+                    role: SemanticRole::Diagram,
+                    split: SplitPolicy::Never,
+                    content: SemanticContent::Svg(SvgContent {
+                        resource_id: id(resource),
+                        source_text: Some("x = y".to_owned()),
+                    }),
+                }],
+                media_text_relations: Vec::new(),
+            }],
+            resources: vec![DeckResource {
+                id: id(resource),
+                kind: ResourceKind::Svg,
+                media_type: "image/svg+xml".to_owned(),
+                bytes: format!(
+                    r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="20" viewBox="0 0 100 20"><rect width="100" height="20" fill="{fill}"/></svg>"#,
+                )
+                .into_bytes(),
+                intrinsic_size: Some(PixelSize {
+                    width: 100,
+                    height: 20,
+                }),
+            }],
+        }
     }
 
     fn deck_spec() -> DeckSpec {

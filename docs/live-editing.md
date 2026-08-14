@@ -66,6 +66,12 @@ Every resolved slide fingerprint hashes the slide's complete reachable dependenc
 part bytes. Reverse OPC relationships map changed parts to affected slides. Missing proof selects a
 broader invalidation; it never permits a false cache hit.
 
+The indexed `PresentationDocument` graph is rebound without reparsing only when the logical part
+name set is identical and no relationship part, content-types part, or presentation main part
+changed. Replacing generated SVG or raster media changes its content-addressed part name and slide
+relationship, so that accepted revision rebuilds the lightweight package graph before resolving a
+display list. It does not force a full layout fallback or materialize a preview ZIP.
+
 The bounded cache layers are:
 
 - compiled templates, keyed by template and compiler identity;

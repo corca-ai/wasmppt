@@ -1717,8 +1717,8 @@ const fn generate_error_code(value: GenerateErrorCode) -> &'static str {
 mod tests {
     use wasmppt_deck::{
         EmuRect, LogicalSlide, LogicalSlideKind, PlaceholderIdentity, RegionRole, RichText,
-        RichTextRun, SemanticRole, SplitPolicy, TemplateLayout, TemplateLayoutRole, TemplateRegion,
-        TextMargins, TextMarks,
+        RichTextRun, SemanticRole, SplitPolicy, TemplateLayout, TemplateLayoutCapability,
+        TemplateRegion, TextMargins, TextMarks,
     };
 
     use super::*;
@@ -1738,7 +1738,7 @@ mod tests {
         template_plan.diagnostics.clear();
         template_plan.layouts = vec![TemplateLayout {
             id: id(100),
-            role: TemplateLayoutRole::Content,
+            capability: TemplateLayoutCapability::ContentFlow,
             matching_name: "test-content".to_owned(),
             source_part: "ppt/slideLayouts/slideLayout1.xml".to_owned(),
             master_part: "ppt/slideMasters/slideMaster1.xml".to_owned(),

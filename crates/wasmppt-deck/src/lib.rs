@@ -427,7 +427,7 @@ pub struct DeckTemplatePlan {
 }
 
 impl DeckTemplatePlan {
-    pub const SCHEMA_VERSION: u32 = 2;
+    pub const SCHEMA_VERSION: u32 = 3;
 
     pub fn encode(&self, limits: &DeckLimits) -> Result<Vec<u8>, WireError> {
         wire::encode_template_plan(self, limits)
@@ -463,7 +463,8 @@ pub struct ThemeColor {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TemplateLayout {
     pub id: StableId,
-    pub role: TemplateLayoutRole,
+    /// Semantic and geometric capability exposed by this compiled layout.
+    pub capability: TemplateLayoutCapability,
     pub matching_name: String,
     pub source_part: String,
     pub master_part: String,
@@ -474,10 +475,32 @@ pub struct TemplateLayout {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TemplateLayoutRole {
+pub enum TemplateLayoutCapability {
     Title,
-    Content,
     Statement,
+    ContentFlow,
+    ContentSplit,
+    MediaStart,
+    MediaEnd,
+    Gallery,
+    Table,
+    Comparison,
+}
+
+impl TemplateLayoutCapability {
+    /// Capability used when a specialized layout is absent from a valid v2 starter.
+    #[must_use]
+    pub const fn procedural_fallback(self) -> Self {
+        match self {
+            Self::Title | Self::Statement | Self::ContentFlow => self,
+            Self::ContentSplit
+            | Self::MediaStart
+            | Self::MediaEnd
+            | Self::Gallery
+            | Self::Table
+            | Self::Comparison => Self::ContentFlow,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

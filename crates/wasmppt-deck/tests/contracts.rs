@@ -262,8 +262,8 @@ fn golden_payloads_are_stable() {
         template_plan_with_unknown_diagnostic()
             .encode(&limits)
             .unwrap(),
-        "fixtures/deck-contracts/template-plan-v2.hex",
-        include_str!("../../../fixtures/deck-contracts/template-plan-v2.hex"),
+        "fixtures/deck-contracts/template-plan-v3.hex",
+        include_str!("../../../fixtures/deck-contracts/template-plan-v3.hex"),
     );
     assert_golden(
         valid_plan(&simple_spec(), &template_plan_with_unknown_diagnostic())
@@ -608,8 +608,8 @@ fn template_plan() -> DeckTemplatePlan {
         theme: TemplateTheme::default(),
         layouts: vec![TemplateLayout {
             id: id(52),
-            role: TemplateLayoutRole::Content,
-            matching_name: "wasmppt:content-v1".to_owned(),
+            capability: TemplateLayoutCapability::ContentFlow,
+            matching_name: "wasmppt:content-flow-v2".to_owned(),
             source_part: "ppt/slideLayouts/slideLayout1.xml".to_owned(),
             master_part: "ppt/slideMasters/slideMaster1.xml".to_owned(),
             region_ids: vec![id(51)],

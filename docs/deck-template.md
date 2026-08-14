@@ -1,6 +1,6 @@
 # Cortex Theme Starter compiler
 
-Status: explicit Starter v1 discovery, validation, profile compilation, and deterministic
+Status: explicit Starter v2 discovery, capability compilation, validation, and deterministic
 cache identity implemented; automatic layout and PresentationML composition are implemented by
 the downstream deck-layout and deck-compose crates
 
@@ -11,12 +11,25 @@ injection, while this crate compiles layout affordances for generated semantic d
 
 ## Discovery contract
 
-A Cortex Theme Starter contains exactly one preserved slide layout for each standard
-`p:sldLayout/@matchingName` value:
+A minimal Cortex Theme Starter v2 contains exactly one preserved slide layout for each
+required `p:sldLayout/@matchingName` value:
 
-- `wasmppt:title-v1`
-- `wasmppt:content-v1`
-- `wasmppt:statement-v1`
+- `wasmppt:title-v2`
+- `wasmppt:content-flow-v2`
+- `wasmppt:statement-v2`
+
+A Starter may also expose these optional capabilities:
+
+- `wasmppt:content-split-v2`
+- `wasmppt:media-start-v2`
+- `wasmppt:media-end-v2`
+- `wasmppt:gallery-v2`
+- `wasmppt:table-v2`
+- `wasmppt:comparison-v2`
+
+Each optional name may occur at most once. If an optional capability is absent, the planner may
+construct the topology procedurally inside `content-flow`; it never guesses a layout from its
+visible name or an example slide.
 
 Regions use standard `p:ph/@type` and `p:ph/@idx` identities. The compiler never uses
 example slides, slide order, visible `p:cSld/@name` values, `p:cNvPr/@name` values, Alt Text,
@@ -26,9 +39,12 @@ gets stable missing-layout diagnostics instead of a guessed profile. PowerPoint 
 
 Title layouts require title and subtitle regions. The subtitle region is the ordered cover-details
 flow and accepts subtitle, prose, and credit text without guessing whether a block is an author,
-date, or description. Content layouts require title and body regions. Statement layouts require a
-centered-title or title region mapped to the statement role. Optional picture, footer, date,
-slide-number, and other supported placeholders remain available without becoming role identifiers.
+date, or description. Content-flow requires title and body. Content-split and comparison require a
+title and two independently identified body placeholders. Media-start and media-end require title,
+body, and media; gallery requires title and at least two media placeholders; table requires title
+and a table placeholder. Statement requires a centered-title or title region mapped to the
+statement role. Optional footer, date, slide-number, and other supported placeholders remain
+available without becoming role identifiers.
 Footer, date, and slide-number placeholders are compiled as preserved page-furniture assets rather
 than semantic regions.
 
@@ -58,7 +74,8 @@ overlap checks fail before profile allocation. Compilation additionally validate
 - bounded, namespace-correct PresentationML XML;
 - resolvable master, layout, theme, and internal relationship targets;
 - unique required matching names and placeholder identities;
-- required placeholder roles, positive inherited geometry, and a positive page size;
+- capability-specific placeholder counts, positive inherited geometry, non-overlapping regions
+  contained by the slide, and a positive page size;
 - absence of VBA, ActiveX, OLE/package embeddings, custom UI, digital signatures, and macro or
   program actions.
 
@@ -74,7 +91,7 @@ diagnostics and `cacheable = false`. Active-content-bearing input is never cache
 The cache key hashes the POTX bytes, Starter validator version, WDTP schema version, compiler and
 OPC engine versions, and policy identifier. Plan and child identities derive from that key or the
 template hash plus semantic identifiers, never collection positions or visible names. The same
-Rust implementation and WDTP v2 encoder compile for native and `wasm32-unknown-unknown`, giving
+Rust implementation and WDTP v3 encoder compile for native and `wasm32-unknown-unknown`, giving
 both hosts one deterministic cache boundary.
 
 ## Verification
@@ -86,9 +103,10 @@ cargo check -p wasmppt-deck-template --target wasm32-unknown-unknown
 npm run check:core-boundary
 ```
 
-Integration tests build real OPC ZIP fixtures and cover role discovery independence, inherited
-geometry and styles, asset source ranges, exact page size, accumulated missing/duplicate errors,
-active-content rejection, deterministic cache identity, and deterministic WDTP bytes.
+Integration tests build real OPC ZIP fixtures and cover minimal-valid and capability-complete v2
+Starters, capability discovery independence, inherited geometry and styles, asset source ranges,
+exact page size, accumulated missing/duplicate errors, active-content rejection, deterministic
+cache identity, and deterministic WDTP bytes.
 
 ## Related documents
 

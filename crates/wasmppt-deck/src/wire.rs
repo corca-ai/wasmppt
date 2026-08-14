@@ -558,7 +558,7 @@ impl<'a> Writer<'a> {
 
     fn template_layout(&mut self, layout: &TemplateLayout) -> Result<(), WireError> {
         self.id(layout.id)?;
-        self.byte(template_layout_role_tag(layout.role))?;
+        self.byte(template_layout_capability_tag(layout.capability))?;
         self.string(&layout.matching_name)?;
         self.string(&layout.source_part)?;
         self.string(&layout.master_part)?;
@@ -1157,7 +1157,7 @@ impl<'a> Reader<'a> {
     fn template_layout(&mut self) -> Result<TemplateLayout, WireError> {
         Ok(TemplateLayout {
             id: self.id()?,
-            role: template_layout_role(self.byte()?)?,
+            capability: template_layout_capability(self.byte()?)?,
             matching_name: self.string()?,
             source_part: self.string()?,
             master_part: self.string()?,
@@ -1534,19 +1534,31 @@ fn region_role(value: u8) -> Result<RegionRole, WireError> {
     }
 }
 
-const fn template_layout_role_tag(value: TemplateLayoutRole) -> u8 {
+const fn template_layout_capability_tag(value: TemplateLayoutCapability) -> u8 {
     match value {
-        TemplateLayoutRole::Title => 1,
-        TemplateLayoutRole::Content => 2,
-        TemplateLayoutRole::Statement => 3,
+        TemplateLayoutCapability::Title => 1,
+        TemplateLayoutCapability::Statement => 3,
+        TemplateLayoutCapability::ContentFlow => 4,
+        TemplateLayoutCapability::ContentSplit => 5,
+        TemplateLayoutCapability::MediaStart => 6,
+        TemplateLayoutCapability::MediaEnd => 7,
+        TemplateLayoutCapability::Gallery => 8,
+        TemplateLayoutCapability::Table => 9,
+        TemplateLayoutCapability::Comparison => 10,
     }
 }
 
-fn template_layout_role(value: u8) -> Result<TemplateLayoutRole, WireError> {
+fn template_layout_capability(value: u8) -> Result<TemplateLayoutCapability, WireError> {
     match value {
-        1 => Ok(TemplateLayoutRole::Title),
-        2 => Ok(TemplateLayoutRole::Content),
-        3 => Ok(TemplateLayoutRole::Statement),
+        1 => Ok(TemplateLayoutCapability::Title),
+        3 => Ok(TemplateLayoutCapability::Statement),
+        4 => Ok(TemplateLayoutCapability::ContentFlow),
+        5 => Ok(TemplateLayoutCapability::ContentSplit),
+        6 => Ok(TemplateLayoutCapability::MediaStart),
+        7 => Ok(TemplateLayoutCapability::MediaEnd),
+        8 => Ok(TemplateLayoutCapability::Gallery),
+        9 => Ok(TemplateLayoutCapability::Table),
+        10 => Ok(TemplateLayoutCapability::Comparison),
         _ => Err(invalid_tag("template layout role")),
     }
 }

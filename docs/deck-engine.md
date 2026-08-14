@@ -59,7 +59,7 @@ ordinal; fragment IDs use the complete source node ID and fragment slice.
 ## Template and physical plans
 
 `DeckTemplatePlan` contains the compiled template identity and SHA-256, exact page size,
-deterministic cache key, theme fonts and colors, role-specific layouts, semantic regions,
+deterministic cache key, theme fonts and colors, capability-specific layouts, semantic regions,
 and preserved assets. Each region has one EMU frame, standard placeholder type/index,
 resolved text margins and hierarchy, a role, accepted semantic roles, and a required marker.
 Assets retain their original package part and exact XML source range so a later composer can
@@ -112,7 +112,7 @@ The little-endian envelopes are:
 | Magic | Version | Value |
 | --- | ---: | --- |
 | `WDSF` | 3 | `DeckSpec` and binary resources |
-| `WDTP` | 2 | `DeckTemplatePlan` |
+| `WDTP` | 3 | `DeckTemplatePlan` |
 | `WDPL` | 3 | `DeckPlan` |
 
 Vectors and strings are length-prefixed. Media remains raw bytes rather than JSON or
@@ -123,7 +123,7 @@ and fragment limits before allocating the declared content.
 
 `DeckLimitCode` values are append-only and identify each bounded dimension. Callers may
 tighten `DeckLimits` for a host but MUST NOT turn a limit failure into partial content.
-Checked-in hexadecimal fixtures pin WDSF v3, WDTP v2, and WDPL v3. Older semantic-plan
+Checked-in hexadecimal fixtures pin WDSF v3, WDTP v3, and WDPL v3. Older semantic-plan
 payloads are intentionally unsupported because the planner boundary is replaced atomically.
 
 ## Verification

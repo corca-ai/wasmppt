@@ -16,8 +16,8 @@ use sha2::{Digest, Sha256};
 use wasmppt_deck::{
     DeckDiagnostic, DeckDiagnosticCode, DeckTemplatePlan, DiagnosticSeverity, EmuRect, EmuSize,
     PlaceholderIdentity, RegionRole, SemanticRole, SourceRange, StableId, TemplateAsset,
-    TemplateAssetKind, TemplateLayout, TemplateLayoutRole, TemplateTextColor, TemplateTextLevel,
-    TemplateTheme, TextMargins, ThemeColor, ThemeFontSet,
+    TemplateAssetKind, TemplateLayout, TemplateLayoutCapability, TemplateTextColor,
+    TemplateTextLevel, TemplateTheme, TextMargins, ThemeColor, ThemeFontSet,
 };
 use wasmppt_opc::{
     DiagnosticCode as OpcDiagnosticCode, MemorySource, PackageGraph, PackageLimits, PartId,
@@ -32,13 +32,62 @@ const LAYOUT_TYPE: &str =
     "application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml";
 const PML_NS: &str = "http://schemas.openxmlformats.org/presentationml/2006/main";
 const STRICT_PML_NS: &str = "http://purl.oclc.org/ooxml/presentationml/main";
-const POLICY: &str = "cortex-theme-starter-v1";
-const VALIDATOR_VERSION: u32 = 2;
+const POLICY: &str = "cortex-theme-starter-v2";
+const VALIDATOR_VERSION: u32 = 3;
 
-const REQUIRED_LAYOUTS: [(&str, TemplateLayoutRole); 3] = [
-    ("wasmppt:title-v1", TemplateLayoutRole::Title),
-    ("wasmppt:content-v1", TemplateLayoutRole::Content),
-    ("wasmppt:statement-v1", TemplateLayoutRole::Statement),
+#[derive(Clone, Copy)]
+struct CapabilityContract {
+    matching_name: &'static str,
+    capability: TemplateLayoutCapability,
+    required: bool,
+}
+
+const CAPABILITIES: [CapabilityContract; 9] = [
+    CapabilityContract {
+        matching_name: "wasmppt:title-v2",
+        capability: TemplateLayoutCapability::Title,
+        required: true,
+    },
+    CapabilityContract {
+        matching_name: "wasmppt:statement-v2",
+        capability: TemplateLayoutCapability::Statement,
+        required: true,
+    },
+    CapabilityContract {
+        matching_name: "wasmppt:content-flow-v2",
+        capability: TemplateLayoutCapability::ContentFlow,
+        required: true,
+    },
+    CapabilityContract {
+        matching_name: "wasmppt:content-split-v2",
+        capability: TemplateLayoutCapability::ContentSplit,
+        required: false,
+    },
+    CapabilityContract {
+        matching_name: "wasmppt:media-start-v2",
+        capability: TemplateLayoutCapability::MediaStart,
+        required: false,
+    },
+    CapabilityContract {
+        matching_name: "wasmppt:media-end-v2",
+        capability: TemplateLayoutCapability::MediaEnd,
+        required: false,
+    },
+    CapabilityContract {
+        matching_name: "wasmppt:gallery-v2",
+        capability: TemplateLayoutCapability::Gallery,
+        required: false,
+    },
+    CapabilityContract {
+        matching_name: "wasmppt:table-v2",
+        capability: TemplateLayoutCapability::Table,
+        required: false,
+    },
+    CapabilityContract {
+        matching_name: "wasmppt:comparison-v2",
+        capability: TemplateLayoutCapability::Comparison,
+        required: false,
+    },
 ];
 
 #[derive(Clone, Debug)]
@@ -173,17 +222,28 @@ fn compile_archive(
         }
     }
 
-    for (name, _) in REQUIRED_LAYOUTS {
-        match discovered.get(name).map(Vec::len).unwrap_or(0) {
-            0 => diagnostics.push(diagnostic(
+    for contract in CAPABILITIES {
+        match discovered
+            .get(contract.matching_name)
+            .map(Vec::len)
+            .unwrap_or(0)
+        {
+            0 if contract.required => diagnostics.push(diagnostic(
                 DeckDiagnosticCode::TEMPLATE_MISSING_LAYOUT,
-                format!("missing required slide layout {name}"),
+                format!(
+                    "missing required {:?} capability layout {}",
+                    contract.capability, contract.matching_name
+                ),
                 None,
             )),
+            0 => {}
             1 => {}
             count => diagnostics.push(diagnostic(
                 DeckDiagnosticCode::TEMPLATE_DUPLICATE_LAYOUT,
-                format!("slide layout {name} occurs {count} times"),
+                format!(
+                    "capability layout {} occurs {count} times",
+                    contract.matching_name
+                ),
                 None,
             )),
         }
@@ -225,16 +285,18 @@ fn compile_archive(
             regions: &mut regions,
             assets: &mut assets,
         };
-        for (matching_name, role) in REQUIRED_LAYOUTS {
+        for contract in CAPABILITIES {
             let Some(layout_id) = discovered
-                .get(matching_name)
+                .get(contract.matching_name)
                 .and_then(|parts| (parts.len() == 1).then_some(parts[0]))
             else {
                 continue;
             };
-            compiler.compile(layout_id, matching_name, role);
+            compiler.compile(layout_id, contract.matching_name, contract.capability);
         }
     }
+
+    report_layout_geometry(page_size, &layouts, &regions, &mut diagnostics);
 
     diagnostics.sort_by(|left, right| {
         (
@@ -268,6 +330,80 @@ fn compile_archive(
     Ok(ThemeCompileResult { plan, cacheable })
 }
 
+fn report_layout_geometry(
+    page_size: EmuSize,
+    layouts: &[TemplateLayout],
+    regions: &[wasmppt_deck::TemplateRegion],
+    diagnostics: &mut Vec<DeckDiagnostic>,
+) {
+    for layout in layouts {
+        let layout_regions = regions
+            .iter()
+            .filter(|region| region.layout_id == layout.id)
+            .collect::<Vec<_>>();
+        for region in &layout_regions {
+            if !rect_within_page(region.frame, page_size) {
+                diagnostics.push(diagnostic(
+                    DeckDiagnosticCode::TEMPLATE_INVALID_PLACEHOLDER,
+                    format!(
+                        "{} placeholder {}:{} lies outside the slide safe region",
+                        layout.matching_name, region.placeholder.kind, region.placeholder.index
+                    ),
+                    None,
+                ));
+            }
+        }
+        for (index, left) in layout_regions.iter().enumerate() {
+            for right in &layout_regions[index + 1..] {
+                if rects_overlap(left.frame, right.frame) {
+                    diagnostics.push(diagnostic(
+                        DeckDiagnosticCode::TEMPLATE_INVALID_PLACEHOLDER,
+                        format!(
+                            "{} placeholders {}:{} and {}:{} overlap",
+                            layout.matching_name,
+                            left.placeholder.kind,
+                            left.placeholder.index,
+                            right.placeholder.kind,
+                            right.placeholder.index
+                        ),
+                        None,
+                    ));
+                }
+            }
+        }
+    }
+}
+
+fn rect_within_page(rect: EmuRect, page: EmuSize) -> bool {
+    rect.is_positive()
+        && rect.x >= 0
+        && rect.y >= 0
+        && rect
+            .x
+            .checked_add(rect.width)
+            .is_some_and(|right| right <= page.width)
+        && rect
+            .y
+            .checked_add(rect.height)
+            .is_some_and(|bottom| bottom <= page.height)
+}
+
+fn rects_overlap(left: EmuRect, right: EmuRect) -> bool {
+    let Some(left_right) = left.x.checked_add(left.width) else {
+        return true;
+    };
+    let Some(right_right) = right.x.checked_add(right.width) else {
+        return true;
+    };
+    let Some(left_bottom) = left.y.checked_add(left.height) else {
+        return true;
+    };
+    let Some(right_bottom) = right.y.checked_add(right.height) else {
+        return true;
+    };
+    left.x < right_right && right.x < left_right && left.y < right_bottom && right.y < left_bottom
+}
+
 struct LayoutCompiler<'a> {
     archive: &'a ZipArchive<MemorySource>,
     graph: &'a PackageGraph,
@@ -280,7 +416,12 @@ struct LayoutCompiler<'a> {
 }
 
 impl LayoutCompiler<'_> {
-    fn compile(&mut self, layout_part_id: PartId, matching_name: &str, role: TemplateLayoutRole) {
+    fn compile(
+        &mut self,
+        layout_part_id: PartId,
+        matching_name: &str,
+        capability: TemplateLayoutCapability,
+    ) {
         let layout_part = self.graph.part(layout_part_id);
         let layout_name = self.graph.part_name(layout_part);
         let Some(layout_xml) =
@@ -311,7 +452,7 @@ impl LayoutCompiler<'_> {
         let mut role_counts = BTreeMap::<RegionRole, usize>::new();
 
         for placeholder in layout_placeholders {
-            let region_role = placeholder_role(role, &placeholder.identity.kind);
+            let region_role = placeholder_role(capability, &placeholder.identity.kind);
             let Some(region_role) = region_role else {
                 continue;
             };
@@ -374,10 +515,10 @@ impl LayoutCompiler<'_> {
                 margins,
                 text_levels,
                 accepts: accepted_roles(region_role),
-                required: required_region(role, region_role),
+                required: required_region(capability, region_role),
             });
         }
-        report_required_regions(matching_name, role, &role_counts, self.diagnostics);
+        report_required_regions(matching_name, capability, &role_counts, self.diagnostics);
 
         let related_parts = preserved_relationship_parts(self.graph, layout_part_id, master_id);
         let mut layout_assets = collect_assets(&master_xml, master_name, id, &related_parts, 0);
@@ -395,7 +536,7 @@ impl LayoutCompiler<'_> {
             .or_else(|| find_background(&master_xml, master_name));
         self.layouts.push(TemplateLayout {
             id,
-            role,
+            capability,
             matching_name: matching_name.to_owned(),
             source_part: layout_name.to_owned(),
             master_part: master_name.to_owned(),
@@ -504,8 +645,8 @@ fn theme_parts(
     diagnostics: &mut Vec<DeckDiagnostic>,
 ) -> Vec<PartId> {
     let mut themes = BTreeSet::new();
-    for (name, _) in REQUIRED_LAYOUTS {
-        for layout in discovered.get(name).into_iter().flatten() {
+    for contract in CAPABILITIES {
+        for layout in discovered.get(contract.matching_name).into_iter().flatten() {
             let Some(master) = related_part(graph, *layout, "/slideMaster") else {
                 continue;
             };
@@ -514,7 +655,10 @@ fn theme_parts(
             } else {
                 diagnostics.push(diagnostic(
                     DeckDiagnosticCode::TEMPLATE_INVALID_GRAPH,
-                    format!("{name} master has no theme relationship"),
+                    format!(
+                        "{} master has no theme relationship",
+                        contract.matching_name
+                    ),
                     None,
                 ));
             }
@@ -856,16 +1000,20 @@ fn report_duplicate_placeholders(
     }
 }
 
-fn placeholder_role(layout: TemplateLayoutRole, kind: &str) -> Option<RegionRole> {
+fn placeholder_role(capability: TemplateLayoutCapability, kind: &str) -> Option<RegionRole> {
     match kind {
-        "title" | "ctrTitle" if layout == TemplateLayoutRole::Statement => {
+        "title" | "ctrTitle" if capability == TemplateLayoutCapability::Statement => {
             Some(RegionRole::Statement)
         }
         "title" | "ctrTitle" => Some(RegionRole::Title),
-        "subTitle" if layout == TemplateLayoutRole::Statement => Some(RegionRole::Caption),
+        "subTitle" if capability == TemplateLayoutCapability::Statement => {
+            Some(RegionRole::Caption)
+        }
         "subTitle" => Some(RegionRole::Subtitle),
         "body" | "obj" => Some(RegionRole::Body),
-        "pic" => Some(RegionRole::Media),
+        "pic" | "media" | "clipArt" | "dgm" => Some(RegionRole::Media),
+        "tbl" => Some(RegionRole::Table),
+        "chart" => Some(RegionRole::Chart),
         // Page furniture is preserved by `collect_assets`; it is not a
         // semantic insertion target and therefore must not become a region.
         "ftr" | "dt" | "sldNum" => None,
@@ -873,42 +1021,50 @@ fn placeholder_role(layout: TemplateLayoutRole, kind: &str) -> Option<RegionRole
     }
 }
 
-fn required_region(layout: TemplateLayoutRole, role: RegionRole) -> bool {
-    matches!(
-        (layout, role),
-        (TemplateLayoutRole::Title, RegionRole::Title)
-            | (TemplateLayoutRole::Title, RegionRole::Subtitle)
-            | (TemplateLayoutRole::Content, RegionRole::Title)
-            | (TemplateLayoutRole::Content, RegionRole::Body)
-            | (TemplateLayoutRole::Statement, RegionRole::Statement)
-    )
+fn required_region(capability: TemplateLayoutCapability, role: RegionRole) -> bool {
+    required_region_counts(capability)
+        .iter()
+        .any(|(required, _)| *required == role)
 }
 
 fn report_required_regions(
     name: &str,
-    layout: TemplateLayoutRole,
+    capability: TemplateLayoutCapability,
     counts: &BTreeMap<RegionRole, usize>,
     diagnostics: &mut Vec<DeckDiagnostic>,
 ) {
-    let required: &[RegionRole] = match layout {
-        TemplateLayoutRole::Title => &[RegionRole::Title, RegionRole::Subtitle],
-        TemplateLayoutRole::Content => &[RegionRole::Title, RegionRole::Body],
-        TemplateLayoutRole::Statement => &[RegionRole::Statement],
-    };
-    for role in required {
+    for (role, expected) in required_region_counts(capability) {
         match counts.get(role).copied().unwrap_or(0) {
             0 => diagnostics.push(diagnostic(
                 DeckDiagnosticCode::TEMPLATE_INVALID_PLACEHOLDER,
                 format!("{name} is missing required {role:?} placeholder"),
                 None,
             )),
-            1 => {}
+            count if count == *expected => {}
             count => diagnostics.push(diagnostic(
                 DeckDiagnosticCode::TEMPLATE_DUPLICATE_PLACEHOLDER,
-                format!("{name} resolves {count} placeholders to required role {role:?}"),
+                format!("{name} requires {expected} {role:?} placeholder(s), but resolves {count}"),
                 None,
             )),
         }
+    }
+}
+
+fn required_region_counts(capability: TemplateLayoutCapability) -> &'static [(RegionRole, usize)] {
+    match capability {
+        TemplateLayoutCapability::Title => &[(RegionRole::Title, 1), (RegionRole::Subtitle, 1)],
+        TemplateLayoutCapability::Statement => &[(RegionRole::Statement, 1)],
+        TemplateLayoutCapability::ContentFlow => &[(RegionRole::Title, 1), (RegionRole::Body, 1)],
+        TemplateLayoutCapability::ContentSplit | TemplateLayoutCapability::Comparison => {
+            &[(RegionRole::Title, 1), (RegionRole::Body, 2)]
+        }
+        TemplateLayoutCapability::MediaStart | TemplateLayoutCapability::MediaEnd => &[
+            (RegionRole::Title, 1),
+            (RegionRole::Body, 1),
+            (RegionRole::Media, 1),
+        ],
+        TemplateLayoutCapability::Gallery => &[(RegionRole::Title, 1), (RegionRole::Media, 2)],
+        TemplateLayoutCapability::Table => &[(RegionRole::Title, 1), (RegionRole::Table, 1)],
     }
 }
 
@@ -1155,8 +1311,8 @@ mod tests {
     fn visible_names_are_not_part_of_identity() {
         let template = [7; 32];
         assert_eq!(
-            derive_id(&template, b"layout", &[b"wasmppt:title-v1"]),
-            derive_id(&template, b"layout", &[b"wasmppt:title-v1"])
+            derive_id(&template, b"layout", &[b"wasmppt:title-v2"]),
+            derive_id(&template, b"layout", &[b"wasmppt:title-v2"])
         );
     }
 }

@@ -1,5 +1,5 @@
 use wasmppt_deck::{
-    DeckDiagnosticCode, DeckLimits, RegionRole, TemplateAssetKind, TemplateLayoutRole,
+    DeckDiagnosticCode, DeckLimits, RegionRole, TemplateAssetKind, TemplateLayoutCapability,
 };
 use wasmppt_deck_template::ThemeTemplateCompiler;
 use wasmppt_opc::{CompressionMethod, EntryOptions, VecSink, ZipWriter};
@@ -22,7 +22,7 @@ fn package(entries: Vec<(&str, String)>) -> Vec<u8> {
 }
 
 fn starter(visible_suffix: &str, extra: Vec<(&str, String)>) -> Vec<u8> {
-    starter_with_content(visible_suffix, extra, None)
+    starter_with_capabilities(visible_suffix, extra, None, false)
 }
 
 fn starter_with_content(
@@ -30,17 +30,42 @@ fn starter_with_content(
     extra: Vec<(&str, String)>,
     content_override: Option<Vec<String>>,
 ) -> Vec<u8> {
+    starter_with_capabilities(visible_suffix, extra, content_override, false)
+}
+
+fn starter_with_capabilities(
+    visible_suffix: &str,
+    extra: Vec<(&str, String)>,
+    content_override: Option<Vec<String>>,
+    include_optional: bool,
+) -> Vec<u8> {
     let content_placeholders = content_override.unwrap_or_else(|| {
         vec![
             placeholder(21, "title", 3, false, visible_suffix),
             placeholder(22, "body", 4, true, visible_suffix),
         ]
     });
+    let optional_content_types = if include_optional {
+        ["content-split", "media-start", "media-end", "gallery", "table", "comparison"]
+            .into_iter()
+            .map(|name| format!(r#"<Override PartName="/ppt/slideLayouts/{name}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>"#))
+            .collect::<String>()
+    } else {
+        String::new()
+    };
+    let optional_master_relationships = if include_optional {
+        ["content-split", "media-start", "media-end", "gallery", "table", "comparison"]
+            .into_iter()
+            .map(|name| format!(r#"<Relationship Id="{name}" Type="{OFFICE_REL}/slideLayout" Target="../slideLayouts/{name}.xml"/>"#))
+            .collect::<String>()
+    } else {
+        String::new()
+    };
     let mut entries = vec![
         (
             "[Content_Types].xml",
             format!(
-                r#"<Types xmlns="{CT}"><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.template.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/title.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/slideLayouts/content.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/slideLayouts/statement.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/></Types>"#,
+                r#"<Types xmlns="{CT}"><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.template.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/title.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/slideLayouts/content.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/slideLayouts/statement.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>{optional_content_types}<Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/></Types>"#,
             ),
         ),
         (
@@ -78,13 +103,13 @@ fn starter_with_content(
         (
             "ppt/slideMasters/_rels/slideMaster1.xml.rels",
             format!(
-                r#"<Relationships xmlns="{REL}"><Relationship Id="title" Type="{OFFICE_REL}/slideLayout" Target="../slideLayouts/title.xml"/><Relationship Id="content" Type="{OFFICE_REL}/slideLayout" Target="../slideLayouts/content.xml"/><Relationship Id="statement" Type="{OFFICE_REL}/slideLayout" Target="../slideLayouts/statement.xml"/><Relationship Id="theme" Type="{OFFICE_REL}/theme" Target="../theme/theme1.xml"/><Relationship Id="logo" Type="{OFFICE_REL}/image" Target="../media/logo.png"/></Relationships>"#,
+                r#"<Relationships xmlns="{REL}"><Relationship Id="title" Type="{OFFICE_REL}/slideLayout" Target="../slideLayouts/title.xml"/><Relationship Id="content" Type="{OFFICE_REL}/slideLayout" Target="../slideLayouts/content.xml"/><Relationship Id="statement" Type="{OFFICE_REL}/slideLayout" Target="../slideLayouts/statement.xml"/>{optional_master_relationships}<Relationship Id="theme" Type="{OFFICE_REL}/theme" Target="../theme/theme1.xml"/><Relationship Id="logo" Type="{OFFICE_REL}/image" Target="../media/logo.png"/></Relationships>"#,
             ),
         ),
         (
             "ppt/slideLayouts/title.xml",
             layout(
-                "wasmppt:title-v1",
+                "wasmppt:title-v2",
                 visible_suffix,
                 &[
                     placeholder(11, "title", 1, false, visible_suffix),
@@ -94,12 +119,12 @@ fn starter_with_content(
         ),
         (
             "ppt/slideLayouts/content.xml",
-            layout("wasmppt:content-v1", visible_suffix, &content_placeholders),
+            layout("wasmppt:content-flow-v2", visible_suffix, &content_placeholders),
         ),
         (
             "ppt/slideLayouts/statement.xml",
             layout(
-                "wasmppt:statement-v1",
+                "wasmppt:statement-v2",
                 visible_suffix,
                 &[placeholder(31, "ctrTitle", 5, false, visible_suffix)],
             ),
@@ -124,6 +149,155 @@ fn starter_with_content(
         ),
         ("ppt/media/logo.png", "not-a-real-png".to_owned()),
     ];
+    if include_optional {
+        let optional_layouts = [
+            (
+                "content-split",
+                "wasmppt:content-split-v2",
+                vec![
+                    placeholder(41, "title", 3, false, visible_suffix),
+                    framed_placeholder(
+                        42,
+                        "body",
+                        4,
+                        (500_000, 1_200_000, 4_300_000, 3_800_000),
+                        visible_suffix,
+                    ),
+                    framed_placeholder(
+                        43,
+                        "body",
+                        6,
+                        (5_200_000, 1_200_000, 4_300_000, 3_800_000),
+                        visible_suffix,
+                    ),
+                ],
+            ),
+            (
+                "media-start",
+                "wasmppt:media-start-v2",
+                vec![
+                    placeholder(51, "title", 3, false, visible_suffix),
+                    framed_placeholder(
+                        52,
+                        "pic",
+                        7,
+                        (500_000, 1_200_000, 4_300_000, 3_800_000),
+                        visible_suffix,
+                    ),
+                    framed_placeholder(
+                        53,
+                        "body",
+                        4,
+                        (5_200_000, 1_200_000, 4_300_000, 3_800_000),
+                        visible_suffix,
+                    ),
+                ],
+            ),
+            (
+                "media-end",
+                "wasmppt:media-end-v2",
+                vec![
+                    placeholder(61, "title", 3, false, visible_suffix),
+                    framed_placeholder(
+                        62,
+                        "body",
+                        4,
+                        (500_000, 1_200_000, 4_300_000, 3_800_000),
+                        visible_suffix,
+                    ),
+                    framed_placeholder(
+                        63,
+                        "pic",
+                        7,
+                        (5_200_000, 1_200_000, 4_300_000, 3_800_000),
+                        visible_suffix,
+                    ),
+                ],
+            ),
+            (
+                "gallery",
+                "wasmppt:gallery-v2",
+                vec![
+                    placeholder(71, "title", 3, false, visible_suffix),
+                    framed_placeholder(
+                        72,
+                        "pic",
+                        7,
+                        (500_000, 1_200_000, 4_300_000, 3_800_000),
+                        visible_suffix,
+                    ),
+                    framed_placeholder(
+                        73,
+                        "pic",
+                        8,
+                        (5_200_000, 1_200_000, 4_300_000, 3_800_000),
+                        visible_suffix,
+                    ),
+                ],
+            ),
+            (
+                "table",
+                "wasmppt:table-v2",
+                vec![
+                    placeholder(81, "title", 3, false, visible_suffix),
+                    framed_placeholder(
+                        82,
+                        "tbl",
+                        9,
+                        (500_000, 1_200_000, 9_000_000, 3_800_000),
+                        visible_suffix,
+                    ),
+                ],
+            ),
+            (
+                "comparison",
+                "wasmppt:comparison-v2",
+                vec![
+                    placeholder(91, "title", 3, false, visible_suffix),
+                    framed_placeholder(
+                        92,
+                        "body",
+                        4,
+                        (500_000, 1_200_000, 4_300_000, 3_800_000),
+                        visible_suffix,
+                    ),
+                    framed_placeholder(
+                        93,
+                        "body",
+                        6,
+                        (5_200_000, 1_200_000, 4_300_000, 3_800_000),
+                        visible_suffix,
+                    ),
+                ],
+            ),
+        ];
+        for (part, matching_name, placeholders) in optional_layouts {
+            entries.push((
+                match part {
+                    "content-split" => "ppt/slideLayouts/content-split.xml",
+                    "media-start" => "ppt/slideLayouts/media-start.xml",
+                    "media-end" => "ppt/slideLayouts/media-end.xml",
+                    "gallery" => "ppt/slideLayouts/gallery.xml",
+                    "table" => "ppt/slideLayouts/table.xml",
+                    "comparison" => "ppt/slideLayouts/comparison.xml",
+                    _ => unreachable!(),
+                },
+                layout(matching_name, visible_suffix, &placeholders),
+            ));
+            entries.push((
+                match part {
+                    "content-split" => "ppt/slideLayouts/_rels/content-split.xml.rels",
+                    "media-start" => "ppt/slideLayouts/_rels/media-start.xml.rels",
+                    "media-end" => "ppt/slideLayouts/_rels/media-end.xml.rels",
+                    "gallery" => "ppt/slideLayouts/_rels/gallery.xml.rels",
+                    "table" => "ppt/slideLayouts/_rels/table.xml.rels",
+                    "comparison" => "ppt/slideLayouts/_rels/comparison.xml.rels",
+                    _ => unreachable!(),
+                },
+                layout_relationships(),
+            ));
+        }
+    }
     entries.extend(extra);
     package(entries)
 }
@@ -193,6 +367,19 @@ fn placeholder(id: u32, kind: &str, index: u32, with_style: bool, suffix: &str) 
     )
 }
 
+fn framed_placeholder(
+    id: u32,
+    kind: &str,
+    index: u32,
+    frame: (i64, i64, i64, i64),
+    suffix: &str,
+) -> String {
+    let (x, y, width, height) = frame;
+    format!(
+        r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Visible {suffix} {id}"/><p:nvPr><p:ph type="{kind}" idx="{index}"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/></p:txBody></p:sp>"#,
+    )
+}
+
 fn layout(matching_name: &str, suffix: &str, placeholders: &[String]) -> String {
     format!(
         r#"<p:sldLayout xmlns:p="{PML}" xmlns:a="{DRAWING}" matchingName="{matching_name}"><p:cSld name="Visible Layout {suffix}"><p:spTree>{}<p:sp><p:nvSpPr><p:cNvPr id="80" name="Decoration {suffix}"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100000" cy="100000"/></a:xfrm></p:spPr></p:sp></p:spTree></p:cSld></p:sldLayout>"#,
@@ -215,7 +402,10 @@ fn compiles_exact_geometry_inherited_regions_theme_and_preserved_assets() {
     assert_eq!(result.plan.page_size.width, 10_000_000);
     assert_eq!(result.plan.page_size.height, 5_625_000);
     assert_eq!(result.plan.layouts.len(), 3);
-    assert_eq!(result.plan.layouts[0].role, TemplateLayoutRole::Title);
+    assert_eq!(
+        result.plan.layouts[0].capability,
+        TemplateLayoutCapability::Title
+    );
     assert_eq!(result.plan.regions.len(), 5);
     assert!(result.plan.assets.len() >= 6);
     assert_eq!(
@@ -281,6 +471,45 @@ fn compiles_exact_geometry_inherited_regions_theme_and_preserved_assets() {
 }
 
 #[test]
+fn compiles_the_complete_v2_capability_catalog_deterministically() {
+    let bytes = starter_with_capabilities("Complete", vec![], None, true);
+    let first = ThemeTemplateCompiler::default()
+        .compile(bytes.clone())
+        .unwrap();
+    let second = ThemeTemplateCompiler::default().compile(bytes).unwrap();
+
+    assert!(first.cacheable, "{:?}", first.plan.diagnostics);
+    assert_eq!(first.plan.layouts.len(), 9);
+    assert_eq!(
+        first
+            .plan
+            .layouts
+            .iter()
+            .map(|layout| layout.capability)
+            .collect::<Vec<_>>(),
+        vec![
+            TemplateLayoutCapability::Title,
+            TemplateLayoutCapability::Statement,
+            TemplateLayoutCapability::ContentFlow,
+            TemplateLayoutCapability::ContentSplit,
+            TemplateLayoutCapability::MediaStart,
+            TemplateLayoutCapability::MediaEnd,
+            TemplateLayoutCapability::Gallery,
+            TemplateLayoutCapability::Table,
+            TemplateLayoutCapability::Comparison,
+        ]
+    );
+    assert_eq!(
+        first.plan.encode(&DeckLimits::default()).unwrap(),
+        second.plan.encode(&DeckLimits::default()).unwrap()
+    );
+    assert_eq!(
+        TemplateLayoutCapability::Gallery.procedural_fallback(),
+        TemplateLayoutCapability::ContentFlow
+    );
+}
+
+#[test]
 fn visible_names_and_example_slides_do_not_drive_discovery() {
     let first = ThemeTemplateCompiler::default()
         .compile(starter("First", vec![]))
@@ -299,7 +528,7 @@ fn visible_names_and_example_slides_do_not_drive_discovery() {
             .plan
             .layouts
             .iter()
-            .map(|layout| (layout.matching_name.clone(), layout.role))
+            .map(|layout| (layout.matching_name.clone(), layout.capability))
             .collect::<Vec<_>>()
     };
     assert_eq!(roles(&first), roles(&second));
@@ -357,11 +586,11 @@ fn reports_missing_and_duplicate_contract_problems_together() {
         ),
         (
             "ppt/slideLayouts/a.xml",
-            layout("wasmppt:title-v1", "A", &[]),
+            layout("wasmppt:title-v2", "A", &[]),
         ),
         (
             "ppt/slideLayouts/b.xml",
-            layout("wasmppt:title-v1", "B", &[]),
+            layout("wasmppt:title-v2", "B", &[]),
         ),
     ];
     let bytes = package(entries);
@@ -405,7 +634,7 @@ fn reports_duplicate_and_missing_placeholders_in_one_result() {
     assert!(
         messages
             .iter()
-            .any(|message| message.contains("2 placeholders") && message.contains("Body"))
+            .any(|message| message.contains("requires 1 Body") && message.contains("resolves 2"))
     );
 }
 

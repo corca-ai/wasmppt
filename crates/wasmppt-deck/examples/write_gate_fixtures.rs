@@ -83,14 +83,14 @@ fn starter() -> Vec<u8> {
         (
             "ppt/slideLayouts/title.xml",
             layout(
-                "wasmppt:title-v1",
+                "wasmppt:title-v2",
                 &[placeholder(11, "title", 1), placeholder(12, "subTitle", 2)],
             ),
         ),
         (
             "ppt/slideLayouts/content.xml",
             layout(
-                "wasmppt:content-v1",
+                "wasmppt:content-flow-v2",
                 &[
                     placeholder(21, "title", 3),
                     placeholder(22, "body", 4),
@@ -100,7 +100,7 @@ fn starter() -> Vec<u8> {
         ),
         (
             "ppt/slideLayouts/statement.xml",
-            layout("wasmppt:statement-v1", &[placeholder(31, "ctrTitle", 5)]),
+            layout("wasmppt:statement-v2", &[placeholder(31, "ctrTitle", 5)]),
         ),
         (
             "ppt/slideLayouts/_rels/title.xml.rels",

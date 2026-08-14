@@ -70,14 +70,16 @@ those cover details without overlapping independently positioned header and body
 ## Candidate search and cost
 
 For each source position the planner evaluates explicit stack, two- and three-column flow,
-mirrored weighted split, mirrored media/text, two/four/six-peer grid, lead/supporting,
-two/four/six-item gallery, table-wide, and comparison topologies. Each topology owns a finite slot
-set. Continuous prose, list, code, and weighted splits enumerate bounded contiguous partitions;
-peer and gallery groups occupy distinct slots; and media/text candidates assign by semantic role
-rather than assuming source order is visual order. Candidates never infer layout from example
-slides or visible shape names. The selected topology and slot count are encoded on each physical
-page, while fixed template content and topology-slot regions remain distinguishable through
-composition.
+mirrored weighted split, mirrored media/text, related media/text cards, two/four/six-peer grid,
+lead/supporting, two/four/six-item gallery, table-wide, and comparison topologies. Each topology
+owns a finite slot set. Continuous prose, list, code, and weighted splits enumerate bounded
+contiguous partitions; peer and gallery groups occupy distinct slots; and media/text candidates
+assign by semantic role rather than assuming source order is visual order. Adjacent weak
+media/text relations may additionally form two or three source-ordered cards for one candidate;
+they remain separable in every other candidate, so unrelated prose is not pulled into a card.
+Candidates never infer layout from example slides or visible shape names. The selected topology
+and slot count are encoded on each physical page, while fixed template content and topology-slot
+regions remain distinguishable through composition.
 
 Media/text candidates derive a bounded set of mirrored column and top/bottom split positions from
 the canonical media aspect, readable media floor, measured text minimum/preferred width, measured
@@ -86,12 +88,15 @@ resource cannot be profiled. Measured fit selects among the derived breakpoints 
 on Markdown source order. Same-paragraph, adjacent-block, and blank-separated source relations
 become decreasing affinity costs; source side penalizes a contrary visual order, while an explicit
 caption remains an indivisible hard relation. Contain whitespace, relation distance, visual
-imbalance, and complexity are scored after readability. Gallery candidates use
-exact two-, three-, four-, five-, and six-item frame sets. Two items compare rows with columns,
-three compare a lead/supporting arrangement with three columns, and five or six compare 3-by-2 with
-2-by-3 grids. Cover-crop loss is measured from the byte-derived source aspect and candidate frame,
-so portrait, square, wide, and mixed collections select deterministic aspect-aware geometry.
-Seven to ten items are balanced across continuation pages by the same global page-load score.
+imbalance, and complexity are scored after readability. Gallery candidates enumerate bounded
+source-ordered justified rows, their transposed column equivalents, and lead/supporting variants.
+Track weights come from canonical intrinsic aspects; caption-bearing items reserve part of their
+track before those weights are derived. Cover-crop loss is measured from the byte-derived source
+aspect and candidate frame. A raster uses cover only while that loss is at or below
+`PlannerPolicy::max_cover_crop_per_mille`; otherwise the same candidate deterministically falls
+back to contain. Portrait, square, wide, and mixed collections can therefore choose non-uniform
+geometry without unsafe distortion or implicit crop. Seven to ten items are balanced across
+continuation pages by the same global page-load score.
 
 Gallery ancestry remains explicit on internal flow units after the semantic `Gallery` container is
 expanded. Only raster images authored in that gallery context may select `ContentFit::Cover`.

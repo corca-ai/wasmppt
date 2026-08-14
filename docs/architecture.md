@@ -150,6 +150,11 @@ convention authored the relation. The planner alone converts that evidence into 
 cohesion or scored affinity. Hosts do not supply column ratios, crop thresholds, or pagination
 decisions.
 
+Intrinsic media dimensions and factual media/text relations are planner inputs. The layout core
+derives bounded justified-row, transposed, lead/supporting, media-band, and related-card candidates,
+and owns the readable-media and maximum-cover-loss policies. Downstream hosts consume the resolved
+slot, visible frame, fit, and exact crop without recomputing image geometry.
+
 `DeckTemplatePlan` is the template-side input to the planner. It owns the exact page
 geometry, stable template and cache identity, capability-specific layouts, resolved placeholder
 regions and text hierarchy, theme fonts and colors, preserved template assets, and template

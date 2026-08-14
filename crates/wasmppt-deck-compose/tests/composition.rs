@@ -487,6 +487,38 @@ fn composes_editable_vector_and_first_frame_media_into_a_live_overlay() {
 }
 
 #[test]
+fn composes_an_empty_list_item_as_an_editable_bullet_paragraph() {
+    let (bytes, mut spec, template, mut plan) = fixture();
+    let SemanticContent::List(list) = &mut spec.logical_slides[0].nodes[1].content else {
+        unreachable!()
+    };
+    list.items.push(ListItem {
+        id: id(16),
+        source: range(39, 40),
+        blocks: vec![],
+        children: vec![],
+    });
+    let fragment = &mut plan.pages[0].regions[0].fragments[1];
+    fragment.slice = FragmentSlice::ListItems { start: 0, end: 2 };
+    fragment.id = PlannedFragment::expected_id(fragment.source_node_id, fragment.slice);
+
+    let overlay = DeckComposer
+        .compose(
+            Arc::<[u8]>::from(bytes),
+            &spec,
+            &template,
+            &plan,
+            &DeckLimits::default(),
+            &ComposeLimits::default(),
+        )
+        .unwrap();
+    let slide = String::from_utf8(overlay.read_part("ppt/slides/slide1.xml").unwrap()).unwrap();
+
+    assert!(slide.contains("<a:buAutoNum type=\"arabicPeriod\" startAt=\"4\"/>"));
+    assert!(slide.contains("startAt=\"4\"/></a:pPr><a:endParaRPr/></a:p>"));
+}
+
+#[test]
 fn composition_is_deterministic_and_rejects_template_drift_and_unsafe_links() {
     let (bytes, mut spec, template, plan) = fixture();
     let compose = |spec: &DeckSpec| {

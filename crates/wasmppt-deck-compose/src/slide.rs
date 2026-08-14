@@ -756,6 +756,17 @@ fn append_list(
 ) {
     for (index, item) in items.iter().enumerate() {
         let mut first = true;
+        if item.blocks.is_empty() {
+            output.push(Paragraph {
+                runs: vec![],
+                level,
+                bullet: if ordered {
+                    Bullet::Ordered(start.saturating_add(index as u32))
+                } else {
+                    Bullet::Unordered
+                },
+            });
+        }
         for block in &item.blocks {
             if let SemanticContent::Text(text) = &block.content {
                 output.push(Paragraph {

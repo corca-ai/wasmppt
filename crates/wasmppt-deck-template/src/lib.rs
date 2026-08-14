@@ -33,7 +33,7 @@ const LAYOUT_TYPE: &str =
 const PML_NS: &str = "http://schemas.openxmlformats.org/presentationml/2006/main";
 const STRICT_PML_NS: &str = "http://purl.oclc.org/ooxml/presentationml/main";
 const POLICY: &str = "cortex-theme-starter-v1";
-const VALIDATOR_VERSION: u32 = 1;
+const VALIDATOR_VERSION: u32 = 2;
 
 const REQUIRED_LAYOUTS: [(&str, TemplateLayoutRole); 3] = [
     ("wasmppt:title-v1", TemplateLayoutRole::Title),
@@ -915,7 +915,11 @@ fn report_required_regions(
 fn accepted_roles(role: RegionRole) -> Vec<SemanticRole> {
     match role {
         RegionRole::Title => vec![SemanticRole::Title, SemanticRole::Section],
-        RegionRole::Subtitle => vec![SemanticRole::Subtitle, SemanticRole::Credit],
+        RegionRole::Subtitle => vec![
+            SemanticRole::Subtitle,
+            SemanticRole::Prose,
+            SemanticRole::Credit,
+        ],
         RegionRole::Body => vec![
             SemanticRole::Section,
             SemanticRole::Prose,

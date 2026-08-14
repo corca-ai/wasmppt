@@ -260,6 +260,17 @@ fn compiles_exact_geometry_inherited_regions_theme_and_preserved_assets() {
             .accepts
             .contains(&wasmppt_deck::SemanticRole::DefinitionDescription)
     );
+    let title_details = result
+        .plan
+        .regions
+        .iter()
+        .find(|region| region.role == RegionRole::Subtitle)
+        .unwrap();
+    assert!(
+        title_details
+            .accepts
+            .contains(&wasmppt_deck::SemanticRole::Prose)
+    );
     assert!(
         result
             .plan

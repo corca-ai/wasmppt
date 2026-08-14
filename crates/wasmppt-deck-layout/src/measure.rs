@@ -356,6 +356,10 @@ pub(crate) fn display_math_natural_size(size: PixelSize, font_size: u32) -> EmuS
     }
 }
 
+pub(crate) fn text_line_height(font_size: u32) -> Emu {
+    font_size_to_emu(font_size).saturating_mul(6) / 5
+}
+
 fn table_width_demand(
     table: &wasmppt_deck::TableContent,
     slice: FragmentSlice,

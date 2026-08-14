@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use wasmppt_deck::{
     ChartContent, ChartKind, EmuRect, EmuSize, FragmentSlice, HyperlinkKind, ListContent,
@@ -33,6 +33,7 @@ struct SlideWriter<'a> {
     nodes: &'a BTreeMap<StableId, &'a SemanticNode>,
     media: &'a BTreeMap<StableId, PreparedMedia>,
     theme: &'a TemplateTheme,
+    inline_text_nodes: BTreeSet<StableId>,
 }
 
 pub(crate) fn compose_slide(
@@ -64,6 +65,7 @@ pub(crate) fn compose_slide(
         nodes,
         media,
         theme,
+        inline_text_nodes: inline_text_node_ids(nodes),
     };
 
     if page.continuation.ordinal > 1 {
@@ -147,12 +149,14 @@ impl SlideWriter<'_> {
         match &node.content {
             SemanticContent::Text(text) => {
                 let runs = slice_rich_text(text, fragment.slice)?;
-                self.text_shape(
+                let compact = self.inline_text_nodes.contains(&node.id);
+                self.text_shape_mode(
                     fragment.frame,
                     role_name(node),
                     &[Paragraph::rich(runs, 0)],
                     Some(region),
                     Some(fragment.type_choice.font_size),
+                    compact,
                 )
             }
             SemanticContent::Code(code) => {
@@ -314,7 +318,12 @@ impl SlideWriter<'_> {
                 self.xml.push_str("</a:lstStyle>");
                 let paragraph = Paragraph::rich(cell.content.runs.clone(), 0)
                     .aligned(table.columns[column_index].alignment);
-                self.paragraph(&paragraph, style, Some(fragment.type_choice.font_size))?;
+                self.paragraph(
+                    &paragraph,
+                    style,
+                    Some(fragment.type_choice.font_size),
+                    false,
+                )?;
                 self.xml.push_str("</a:txBody><a:tcPr marL=\"91440\" marR=\"91440\" marT=\"45720\" marB=\"45720\">");
                 let fill = if header {
                     theme_rgb(self.theme, "accent1", 0x0044_72c4)
@@ -413,16 +422,33 @@ impl SlideWriter<'_> {
         region: Option<&TemplateRegion>,
         requested_font_size: Option<u32>,
     ) -> Result<(), ComposeError> {
+        self.text_shape_mode(frame, name, paragraphs, region, requested_font_size, false)
+    }
+
+    fn text_shape_mode(
+        &mut self,
+        frame: EmuRect,
+        name: &str,
+        paragraphs: &[Paragraph],
+        region: Option<&TemplateRegion>,
+        requested_font_size: Option<u32>,
+        compact: bool,
+    ) -> Result<(), ComposeError> {
         let shape_id = self.take_shape_id()?;
         let style = region.and_then(|region| region.text_levels.first());
+        let body_margins = if compact {
+            String::new()
+        } else {
+            margins(region)
+        };
         self.xml.push_str(&format!(
             "<p:sp><p:nvSpPr><p:cNvPr id=\"{shape_id}\" name=\"{}\"/><p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x=\"{}\" y=\"{}\"/><a:ext cx=\"{}\" cy=\"{}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr{} wrap=\"square\"/><a:lstStyle>",
             xml_attr(name), frame.x, frame.y, frame.width, frame.height,
-            margins(region)
+            body_margins
         ));
         self.xml.push_str("</a:lstStyle>");
         for paragraph in paragraphs {
-            self.paragraph(paragraph, style, requested_font_size)?;
+            self.paragraph(paragraph, style, requested_font_size, compact)?;
         }
         self.xml.push_str("</p:txBody></p:sp>");
         Ok(())
@@ -433,12 +459,21 @@ impl SlideWriter<'_> {
         paragraph: &Paragraph,
         style: Option<&TemplateTextLevel>,
         requested: Option<u32>,
+        compact: bool,
     ) -> Result<(), ComposeError> {
         let level = paragraph.level.min(8);
-        let margin = style
-            .and_then(|level| level.margin_left)
-            .unwrap_or(342_900 + i64::from(level) * 342_900);
-        let indent = style.and_then(|level| level.indent).unwrap_or(-285_750);
+        let margin = if compact {
+            0
+        } else {
+            style
+                .and_then(|level| level.margin_left)
+                .unwrap_or(342_900 + i64::from(level) * 342_900)
+        };
+        let indent = if compact {
+            0
+        } else {
+            style.and_then(|level| level.indent).unwrap_or(-285_750)
+        };
         let alignment = paragraph.alignment.map_or("", |alignment| match alignment {
             TableColumnAlignment::Start => " algn=\"l\"",
             TableColumnAlignment::Center => " algn=\"ctr\"",
@@ -594,6 +629,30 @@ impl SlideWriter<'_> {
         })?;
         Ok(format!("rId{id}"))
     }
+}
+
+fn inline_text_node_ids(nodes: &BTreeMap<StableId, &SemanticNode>) -> BTreeSet<StableId> {
+    nodes
+        .values()
+        .filter_map(|node| match &node.content {
+            SemanticContent::Children(children)
+                if children.iter().any(|child| {
+                    child.role == wasmppt_deck::SemanticRole::DisplayMath
+                        && matches!(child.content, SemanticContent::Svg(_))
+                }) && children.iter().all(|child| {
+                    matches!(child.content, SemanticContent::Text(_))
+                        || (child.role == wasmppt_deck::SemanticRole::DisplayMath
+                            && matches!(child.content, SemanticContent::Svg(_)))
+                }) =>
+            {
+                Some(children)
+            }
+            _ => None,
+        })
+        .flat_map(|children| children.iter())
+        .filter(|child| matches!(child.content, SemanticContent::Text(_)))
+        .map(|child| child.id)
+        .collect()
 }
 
 #[derive(Clone)]
@@ -946,5 +1005,58 @@ const fn chart_kind(kind: ChartKind) -> EditableChartKind {
         ChartKind::Pie => EditableChartKind::Pie,
         ChartKind::Doughnut => EditableChartKind::Doughnut,
         ChartKind::Scatter => EditableChartKind::Scatter,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inline_text_shape_does_not_repeat_placeholder_margins() {
+        let nodes = BTreeMap::new();
+        let media = BTreeMap::new();
+        let theme = TemplateTheme::default();
+        let mut writer = SlideWriter {
+            xml: String::new(),
+            relationships: String::new(),
+            next_shape_id: 2,
+            next_relationship_id: 2,
+            parts: Vec::new(),
+            nodes: &nodes,
+            media: &media,
+            theme: &theme,
+            inline_text_nodes: BTreeSet::new(),
+        };
+        writer
+            .text_shape_mode(
+                EmuRect {
+                    x: 10,
+                    y: 20,
+                    width: 300,
+                    height: 40,
+                },
+                "Inline text",
+                &[Paragraph::rich(
+                    vec![RichTextRun {
+                        text: "Energy ".to_owned(),
+                        marks: Default::default(),
+                        hyperlink: None,
+                    }],
+                    0,
+                )],
+                None,
+                Some(2_000),
+                true,
+            )
+            .unwrap();
+
+        assert!(writer.xml.contains("<a:bodyPr wrap=\"square\"/>"));
+        assert!(
+            writer
+                .xml
+                .contains("<a:pPr lvl=\"0\" marL=\"0\" indent=\"0\"")
+        );
+        assert!(!writer.xml.contains("lIns="));
     }
 }

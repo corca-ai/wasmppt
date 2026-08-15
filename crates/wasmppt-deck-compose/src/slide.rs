@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use wasmppt_deck::{
     ChartContent, ChartKind, EmuRect, EmuSize, FragmentSlice, HyperlinkKind, ListContent,
-    PhysicalPage, PlannedFragment, RegionRole, RichText, RichTextRun, SemanticContent,
-    SemanticNode, StableId, TableColumnAlignment, TableContent, TemplateLayout, TemplateRegion,
-    TemplateTextLevel, TemplateTheme,
+    PhysicalPage, PlannedFragment, PlannedRegion, RegionRole, RichText, RichTextRun,
+    SemanticContent, SemanticNode, StableId, TableColumnAlignment, TableContent, TemplateLayout,
+    TemplateRegion, TemplateTextLevel, TemplateTheme,
 };
 use wasmppt_template::{ChartData, ChartSeriesData, EditableChartKind, build_editable_chart};
 
@@ -103,7 +103,9 @@ pub(crate) fn compose_slide(
         }
     }
 
-    for planned_region in &page.regions {
+    let mut region_index = 0usize;
+    while region_index < page.regions.len() {
+        let planned_region = &page.regions[region_index];
         let region = regions
             .get(&planned_region.template_region_id)
             .copied()
@@ -116,9 +118,14 @@ pub(crate) fn compose_slide(
                     ),
                 )
             })?;
-        for fragment in &planned_region.fragments {
-            writer.fragment(fragment, region)?;
-        }
+        let region_end = matching_region_run_end(&page.regions, region_index);
+        writer.fragments(
+            page.regions[region_index..region_end]
+                .iter()
+                .flat_map(|planned| planned.fragments.iter()),
+            region,
+        )?;
+        region_index = region_end;
     }
     writer
         .xml
@@ -131,7 +138,105 @@ pub(crate) fn compose_slide(
     })
 }
 
+fn matching_region_run_end(regions: &[PlannedRegion], start: usize) -> usize {
+    let Some(first) = regions.get(start) else {
+        return start;
+    };
+    let mut end = start + 1;
+    while regions.get(end).is_some_and(|next| {
+        next.template_region_id == first.template_region_id && next.placement == first.placement
+    }) {
+        end += 1;
+    }
+    end
+}
+
 impl SlideWriter<'_> {
+    fn fragments<'a>(
+        &mut self,
+        fragments: impl IntoIterator<Item = &'a PlannedFragment>,
+        region: &TemplateRegion,
+    ) -> Result<(), ComposeError> {
+        let fragments = fragments.into_iter().collect::<Vec<_>>();
+        let mut index = 0usize;
+        while index < fragments.len() {
+            let fragment = fragments[index];
+            if !self.inline_text_nodes.contains(&fragment.source_node_id) {
+                self.fragment(fragment, region)?;
+                index += 1;
+                continue;
+            }
+            let mut end = index + 1;
+            while let Some(next) = fragments.get(end) {
+                let previous = fragments[end - 1];
+                if !self.inline_text_nodes.contains(&next.source_node_id)
+                    || previous.frame.y != next.frame.y
+                    || previous.frame.height != next.frame.height
+                    || previous.frame.x.saturating_add(previous.frame.width) != next.frame.x
+                    || previous.type_choice != next.type_choice
+                {
+                    break;
+                }
+                end += 1;
+            }
+            self.inline_text_shape(&fragments[index..end], region)?;
+            index = end;
+        }
+        Ok(())
+    }
+
+    fn inline_text_shape(
+        &mut self,
+        fragments: &[&PlannedFragment],
+        region: &TemplateRegion,
+    ) -> Result<(), ComposeError> {
+        let first = fragments.first().ok_or_else(|| {
+            ComposeError::new(
+                ComposeErrorCode::InvalidContract,
+                "inline text shape has no fragments",
+            )
+        })?;
+        let last = fragments.last().unwrap_or(first);
+        let mut runs = Vec::new();
+        for fragment in fragments {
+            let node = self
+                .nodes
+                .get(&fragment.source_node_id)
+                .copied()
+                .ok_or_else(|| {
+                    ComposeError::new(
+                        ComposeErrorCode::InvalidContract,
+                        format!(
+                            "fragment references missing node {}",
+                            fragment.source_node_id
+                        ),
+                    )
+                })?;
+            let SemanticContent::Text(text) = &node.content else {
+                return Err(ComposeError::new(
+                    ComposeErrorCode::InvalidContract,
+                    "inline text fragment is not text",
+                ));
+            };
+            runs.extend(slice_rich_text(text, fragment.slice)?);
+        }
+        self.text_shape_mode(
+            EmuRect {
+                width: last
+                    .frame
+                    .x
+                    .saturating_add(last.frame.width)
+                    .saturating_sub(first.frame.x),
+                ..first.frame
+            },
+            "Content",
+            &[Paragraph::rich(runs, 0)],
+            Some(region),
+            Some(first.type_choice.font_size),
+            true,
+        )
+    }
+
     fn fragment(
         &mut self,
         fragment: &PlannedFragment,
@@ -450,7 +555,7 @@ impl SlideWriter<'_> {
         let shape_id = self.take_shape_id()?;
         let style = region.and_then(|region| region.text_levels.first());
         let body_margins = if compact {
-            String::new()
+            " lIns=\"0\" tIns=\"0\" rIns=\"0\" bIns=\"0\"".to_owned()
         } else {
             margins(region)
         };
@@ -1101,7 +1206,7 @@ mod tests {
     }
 
     #[test]
-    fn inline_text_shape_does_not_repeat_placeholder_margins() {
+    fn inline_text_shape_uses_explicit_zero_insets() {
         let nodes = BTreeMap::new();
         let media = BTreeMap::new();
         let theme = TemplateTheme::default();
@@ -1139,12 +1244,132 @@ mod tests {
             )
             .unwrap();
 
-        assert!(writer.xml.contains("<a:bodyPr wrap=\"square\"/>"));
+        assert!(
+            writer.xml.contains(
+                "<a:bodyPr lIns=\"0\" tIns=\"0\" rIns=\"0\" bIns=\"0\" wrap=\"square\"/>"
+            )
+        );
         assert!(
             writer
                 .xml
                 .contains("<a:pPr lvl=\"0\" marL=\"0\" indent=\"0\"")
         );
-        assert!(!writer.xml.contains("lIns="));
+    }
+
+    #[test]
+    fn adjacent_inline_text_fragments_share_one_shape() {
+        let role = wasmppt_deck::SemanticRole::Prose;
+        let first = test_node(
+            2,
+            role,
+            SemanticContent::Text(RichText {
+                runs: vec![RichTextRun {
+                    text: "The ".to_owned(),
+                    marks: Default::default(),
+                    hyperlink: None,
+                }],
+            }),
+        );
+        let second = test_node(
+            3,
+            role,
+            SemanticContent::Text(RichText {
+                runs: vec![RichTextRun {
+                    text: "unit ".to_owned(),
+                    marks: Default::default(),
+                    hyperlink: None,
+                }],
+            }),
+        );
+        let nodes = BTreeMap::from([(first.id, &first), (second.id, &second)]);
+        let media = BTreeMap::new();
+        let theme = TemplateTheme::default();
+        let mut writer = SlideWriter {
+            xml: String::new(),
+            relationships: String::new(),
+            next_shape_id: 2,
+            next_relationship_id: 2,
+            parts: Vec::new(),
+            nodes: &nodes,
+            media: &media,
+            theme: &theme,
+            inline_text_nodes: BTreeSet::from([first.id, second.id]),
+        };
+        let region = TemplateRegion {
+            id: StableId::from_bytes([10; 16]),
+            layout_id: StableId::from_bytes([11; 16]),
+            role: RegionRole::Body,
+            placeholder: wasmppt_deck::PlaceholderIdentity {
+                kind: "body".to_owned(),
+                index: 1,
+            },
+            frame: EmuRect {
+                x: 0,
+                y: 0,
+                width: 1_000,
+                height: 100,
+            },
+            bleed_frame: None,
+            margins: Default::default(),
+            text_levels: vec![TemplateTextLevel::default()],
+            accepts: vec![role],
+            required: true,
+        };
+        let choice = wasmppt_deck::TypeChoice { font_size: 2_000 };
+        let fragments = [
+            PlannedFragment {
+                id: StableId::from_bytes([20; 16]),
+                source_node_id: first.id,
+                slice: FragmentSlice::Whole,
+                frame: EmuRect {
+                    x: 100,
+                    y: 200,
+                    width: 300,
+                    height: 400,
+                },
+                type_choice: choice,
+                media: None,
+                repeat_table_header_rows: 0,
+            },
+            PlannedFragment {
+                id: StableId::from_bytes([21; 16]),
+                source_node_id: second.id,
+                slice: FragmentSlice::Whole,
+                frame: EmuRect {
+                    x: 400,
+                    y: 200,
+                    width: 350,
+                    height: 400,
+                },
+                type_choice: choice,
+                media: None,
+                repeat_table_header_rows: 0,
+            },
+        ];
+
+        let planned_regions = fragments
+            .into_iter()
+            .map(|fragment| PlannedRegion {
+                template_region_id: region.id,
+                placement: wasmppt_deck::RegionPlacement::Slot(0),
+                frame: fragment.frame,
+                fragments: vec![fragment],
+            })
+            .collect::<Vec<_>>();
+        let end = matching_region_run_end(&planned_regions, 0);
+        assert_eq!(end, 2);
+        writer
+            .fragments(
+                planned_regions[..end]
+                    .iter()
+                    .flat_map(|planned| planned.fragments.iter()),
+                &region,
+            )
+            .unwrap();
+
+        assert_eq!(writer.xml.matches("<p:sp>").count(), 1);
+        assert!(writer.xml.contains("<a:t>The </a:t>"));
+        assert!(writer.xml.contains("<a:t>unit </a:t>"));
+        assert!(writer.xml.contains("<a:ext cx=\"650\" cy=\"400\"/>"));
     }
 }

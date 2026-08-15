@@ -226,6 +226,38 @@ impl<'a> Measurer<'a> {
         Ok(measured)
     }
 
+    pub(crate) fn inline_text_width(
+        &self,
+        node: &SemanticNode,
+        slice: FragmentSlice,
+        region: &TemplateRegion,
+        font_size: u32,
+    ) -> Emu {
+        let (text, _, _, _) = self.measure_content(node, slice);
+        let requested_family = region
+            .text_levels
+            .first()
+            .and_then(|level| level.latin_typeface.as_deref());
+        let exact = requested_family
+            .and_then(|family| self.fonts.font(family))
+            .or_else(|| {
+                self.fonts
+                    .default_family
+                    .as_deref()
+                    .and_then(|family| self.fonts.font(family))
+            });
+        text.split('\n')
+            .map(|line| {
+                exact.map_or_else(
+                    || approximate_inline_text_advance(line, font_size),
+                    |font| text_advance(line, Some(font), font_size),
+                )
+            })
+            .max()
+            .unwrap_or(1)
+            .max(1)
+    }
+
     pub(crate) fn intrinsic_size(&self, node: &SemanticNode) -> Option<PixelSize> {
         let resource_id = match &node.content {
             SemanticContent::Image(image) => image.resource_id,
@@ -517,6 +549,38 @@ fn text_advance(text: &str, font: Option<&crate::FontFace>, font_size: u32) -> E
         let average = font_size_to_emu(font_size).saturating_mul(11) / 20;
         average.saturating_mul(i64::try_from(text.chars().count()).unwrap_or(i64::MAX))
     })
+}
+
+fn approximate_inline_text_advance(text: &str, font_size: u32) -> Emu {
+    let units = text.chars().fold(0i64, |total, character| {
+        let width = if character.is_whitespace() {
+            250
+        } else if matches!(
+            character,
+            'i' | 'j' | 'l' | 'I' | '|' | '!' | '.' | ',' | ':' | ';' | '\'' | '`'
+        ) {
+            280
+        } else if matches!(
+            character,
+            'f' | 'r' | 't' | '(' | ')' | '[' | ']' | '{' | '}' | '-' | '/'
+        ) {
+            360
+        } else if matches!(character, 'm' | 'w' | 'M' | 'W' | '@' | '%' | '&') {
+            850
+        } else if character.is_ascii_uppercase() {
+            650
+        } else if character.is_ascii_lowercase() {
+            520
+        } else if character.is_ascii_digit() {
+            560
+        } else if character.is_ascii_punctuation() {
+            400
+        } else {
+            1_000
+        };
+        total.saturating_add(width)
+    });
+    font_size_to_emu(font_size).saturating_mul(units) / 1_000
 }
 
 impl From<FragmentSlice> for SliceKey {

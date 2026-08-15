@@ -140,7 +140,9 @@ A `Prose` or `Subtitle` child sequence whose same-role leaves contain both text 
 an inline formula flow. The planner measures each text span at the selected template type size,
 scales each formula from its natural CSS-pixel extent at that same size, packs the atoms in source
 order, and wraps only between atoms. Atoms on one row are vertically centered against the row's
-maximum extent. The direct-container and same-role requirements keep sections that contain
+maximum extent. Inline text uses font advances when the requested font is available and a
+character-class advance estimate otherwise; it does not inherit the block-flow minimum width.
+The direct-container and same-role requirements keep sections that contain
 standalone display math, media-caption groups, and ordinary prose children in their block flows.
 
 ## Continuations

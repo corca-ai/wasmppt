@@ -712,7 +712,15 @@ impl SlideWriter<'_> {
                 self.xml
                     .push_str(&format!("<a:hlinkClick r:id=\"{}\"/>", xml_attr(&id)));
             }
-            self.xml.push_str("</a:rPr><a:t>");
+            self.xml.push_str(
+                if run.text.starts_with(char::is_whitespace)
+                    || run.text.ends_with(char::is_whitespace)
+                {
+                    "</a:rPr><a:t xml:space=\"preserve\">"
+                } else {
+                    "</a:rPr><a:t>"
+                },
+            );
             self.xml.push_str(&xml_text(&run.text));
             self.xml.push_str("</a:t></a:r>");
         }
@@ -1260,7 +1268,7 @@ mod tests {
     }
 
     #[test]
-    fn inline_text_shape_uses_explicit_zero_insets() {
+    fn inline_text_shape_uses_zero_insets_and_preserves_boundary_spaces() {
         let nodes = BTreeMap::new();
         let media = BTreeMap::new();
         let theme = TemplateTheme::default();
@@ -1286,7 +1294,7 @@ mod tests {
                 "Inline text",
                 &[Paragraph::rich(
                     vec![RichTextRun {
-                        text: "Energy ".to_owned(),
+                        text: " stretches them".to_owned(),
                         marks: Default::default(),
                         hyperlink: None,
                     }],
@@ -1307,6 +1315,11 @@ mod tests {
             writer
                 .xml
                 .contains("<a:pPr lvl=\"0\" marL=\"0\" indent=\"0\"")
+        );
+        assert!(
+            writer
+                .xml
+                .contains("<a:t xml:space=\"preserve\"> stretches them</a:t>")
         );
     }
 
@@ -1431,8 +1444,16 @@ mod tests {
             .unwrap();
 
         assert_eq!(writer.xml.matches("<p:sp>").count(), 1);
-        assert!(writer.xml.contains("<a:t>The </a:t>"));
-        assert!(writer.xml.contains("<a:t>unit </a:t>"));
+        assert!(
+            writer
+                .xml
+                .contains("<a:t xml:space=\"preserve\">The </a:t>")
+        );
+        assert!(
+            writer
+                .xml
+                .contains("<a:t xml:space=\"preserve\">unit </a:t>")
+        );
         assert!(writer.xml.contains("<a:ext cx=\"650\" cy=\"400\"/>"));
     }
 }

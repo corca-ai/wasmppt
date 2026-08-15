@@ -58,7 +58,8 @@ and then resolves:
 
 - safe and optional bleed frame geometry plus DrawingML text insets;
 - nine-level layout, master-placeholder, and master title/body/other text styles;
-- font size, Latin/East Asian/complex-script typeface, emphasis, indentation, and color;
+- font size, Latin/East Asian/complex-script typeface, emphasis, indentation, and color after the
+  effective master/layout color mapping;
 - theme major/minor fonts and the resolved sRGB color scheme;
 - effective layout or master background;
 - non-placeholder master/layout shapes, pictures, logos, footers, and their relationship parts.

@@ -8,7 +8,11 @@ use wasmppt_deck::{
 };
 use wasmppt_template::{ChartData, ChartSeriesData, EditableChartKind, build_editable_chart};
 
-use crate::{ComposeError, ComposeErrorCode, media::PreparedMedia, xml_attr, xml_text};
+use crate::{
+    ComposeError, ComposeErrorCode,
+    media::{PreparedMedia, PreparedMediaKey},
+    xml_attr, xml_text,
+};
 
 const OFFICE_REL: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
@@ -31,7 +35,7 @@ struct SlideWriter<'a> {
     next_relationship_id: u32,
     parts: Vec<ComposedPart>,
     nodes: &'a BTreeMap<StableId, &'a SemanticNode>,
-    media: &'a BTreeMap<StableId, PreparedMedia>,
+    media: &'a BTreeMap<PreparedMediaKey, PreparedMedia>,
     theme: &'a TemplateTheme,
     inline_text_nodes: BTreeSet<StableId>,
 }
@@ -43,7 +47,7 @@ pub(crate) fn compose_slide(
     theme: &TemplateTheme,
     regions: &BTreeMap<StableId, &TemplateRegion>,
     nodes: &BTreeMap<StableId, &SemanticNode>,
-    media: &BTreeMap<StableId, PreparedMedia>,
+    media: &BTreeMap<PreparedMediaKey, PreparedMedia>,
 ) -> Result<ComposedSlide, ComposeError> {
     let visibility = if page.hidden { " show=\"0\"" } else { "" };
     let mut writer = SlideWriter {
@@ -196,12 +200,15 @@ impl SlideWriter<'_> {
                 )
             }
             SemanticContent::Image(image) => {
-                let media = self.media.get(&image.resource_id).ok_or_else(|| {
-                    ComposeError::new(
-                        ComposeErrorCode::InvalidContract,
-                        "prepared image is missing",
-                    )
-                })?;
+                let media = self
+                    .media
+                    .get(&PreparedMediaKey::Resource(image.resource_id))
+                    .ok_or_else(|| {
+                        ComposeError::new(
+                            ComposeErrorCode::InvalidContract,
+                            "prepared image is missing",
+                        )
+                    })?;
                 let placement = fragment.media.ok_or_else(|| {
                     ComposeError::new(
                         ComposeErrorCode::InvalidContract,
@@ -211,7 +218,13 @@ impl SlideWriter<'_> {
                 self.picture(&image.alt_text, media, placement, false)
             }
             SemanticContent::Svg(svg) => {
-                let media = self.media.get(&svg.resource_id).ok_or_else(|| {
+                let formula_key = PreparedMediaKey::Formula(node.id);
+                let key = if self.media.contains_key(&formula_key) {
+                    formula_key
+                } else {
+                    PreparedMediaKey::Resource(svg.resource_id)
+                };
+                let media = self.media.get(&key).ok_or_else(|| {
                     ComposeError::new(ComposeErrorCode::InvalidContract, "prepared SVG is missing")
                 })?;
                 let placement = fragment.media.ok_or_else(|| {
@@ -634,33 +647,57 @@ impl SlideWriter<'_> {
 fn inline_text_node_ids(nodes: &BTreeMap<StableId, &SemanticNode>) -> BTreeSet<StableId> {
     nodes
         .values()
-        .filter_map(|node| match &node.content {
-            SemanticContent::Children(children)
-                if matches!(
-                    node.role,
-                    wasmppt_deck::SemanticRole::Prose | wasmppt_deck::SemanticRole::Subtitle
-                ) && children
-                    .iter()
-                    .any(|child| matches!(child.content, SemanticContent::Svg(_)))
-                    && children
-                        .iter()
-                        .any(|child| matches!(child.content, SemanticContent::Text(_)))
-                    && children.iter().all(|child| {
-                        child.role == node.role
-                            && matches!(
-                                child.content,
-                                SemanticContent::Text(_) | SemanticContent::Svg(_)
-                            )
-                    }) =>
-            {
-                Some(children)
-            }
-            _ => None,
-        })
+        .filter_map(|node| inline_formula_children(node))
         .flat_map(|children| children.iter())
         .filter(|child| matches!(child.content, SemanticContent::Text(_)))
         .map(|child| child.id)
         .collect()
+}
+
+pub(crate) fn formula_svg_node_ids(
+    nodes: &BTreeMap<StableId, &SemanticNode>,
+) -> BTreeSet<StableId> {
+    let mut output = nodes
+        .values()
+        .filter(|node| node.role == wasmppt_deck::SemanticRole::DisplayMath)
+        .filter(|node| matches!(node.content, SemanticContent::Svg(_)))
+        .map(|node| node.id)
+        .collect::<BTreeSet<_>>();
+    for children in nodes
+        .values()
+        .filter_map(|node| inline_formula_children(node))
+    {
+        output.extend(
+            children
+                .iter()
+                .filter(|child| matches!(child.content, SemanticContent::Svg(_)))
+                .map(|child| child.id),
+        );
+    }
+    output
+}
+
+fn inline_formula_children(node: &SemanticNode) -> Option<&[SemanticNode]> {
+    let SemanticContent::Children(children) = &node.content else {
+        return None;
+    };
+    (matches!(
+        node.role,
+        wasmppt_deck::SemanticRole::Prose | wasmppt_deck::SemanticRole::Subtitle
+    ) && children
+        .iter()
+        .any(|child| matches!(child.content, SemanticContent::Svg(_)))
+        && children
+            .iter()
+            .any(|child| matches!(child.content, SemanticContent::Text(_)))
+        && children.iter().all(|child| {
+            child.role == node.role
+                && matches!(
+                    child.content,
+                    SemanticContent::Text(_) | SemanticContent::Svg(_)
+                )
+        }))
+    .then_some(children)
 }
 
 #[derive(Clone)]
@@ -1019,6 +1056,49 @@ const fn chart_kind(kind: ChartKind) -> EditableChartKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_node(
+        value: u8,
+        role: wasmppt_deck::SemanticRole,
+        content: SemanticContent,
+    ) -> SemanticNode {
+        SemanticNode {
+            id: StableId::from_bytes([value; 16]),
+            source: wasmppt_deck::SourceRange::new("formula.md", u32::from(value), 100),
+            role,
+            split: wasmppt_deck::SplitPolicy::Never,
+            content,
+        }
+    }
+
+    #[test]
+    fn recognizes_inline_formula_svg_leaves() {
+        let role = wasmppt_deck::SemanticRole::Prose;
+        let text = test_node(
+            2,
+            role,
+            SemanticContent::Text(RichText {
+                runs: vec![RichTextRun {
+                    text: "Value ".to_owned(),
+                    marks: Default::default(),
+                    hyperlink: None,
+                }],
+            }),
+        );
+        let formula = test_node(
+            3,
+            role,
+            SemanticContent::Svg(wasmppt_deck::SvgContent {
+                resource_id: StableId::from_bytes([9; 16]),
+                source_text: Some("$V$".to_owned()),
+            }),
+        );
+        let formula_id = formula.id;
+        let parent = test_node(1, role, SemanticContent::Children(vec![text, formula]));
+        let nodes = BTreeMap::from([(parent.id, &parent)]);
+
+        assert_eq!(formula_svg_node_ids(&nodes), BTreeSet::from([formula_id]));
+    }
 
     #[test]
     fn inline_text_shape_does_not_repeat_placeholder_margins() {

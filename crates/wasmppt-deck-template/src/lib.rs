@@ -446,12 +446,15 @@ impl LayoutCompiler<'_> {
         else {
             return;
         };
+        let color_mapping = effective_color_mapping(&master_xml, &layout_xml);
 
         let id = derive_id(&self.template_hash, b"layout", &[matching_name.as_bytes()]);
-        let master_placeholders = placeholder_facts(&master_xml, master_name, self.theme);
-        let layout_placeholders = placeholder_facts(&layout_xml, layout_name, self.theme);
+        let master_placeholders =
+            placeholder_facts(&master_xml, master_name, self.theme, &color_mapping);
+        let layout_placeholders =
+            placeholder_facts(&layout_xml, layout_name, self.theme, &color_mapping);
         report_duplicate_placeholders(layout_name, &layout_placeholders, self.diagnostics);
-        let master_styles = master_text_styles(&master_xml, self.theme);
+        let master_styles = master_text_styles(&master_xml, self.theme, &color_mapping);
         let mut region_ids = Vec::new();
         let mut role_counts = BTreeMap::<RegionRole, usize>::new();
         let bleed_frame = layout_placeholders
@@ -796,6 +799,7 @@ fn placeholder_facts(
     elements: &Elements,
     part: &str,
     theme: &TemplateTheme,
+    color_mapping: &BTreeMap<String, String>,
 ) -> Vec<PlaceholderFacts> {
     shape_elements(elements)
         .filter_map(|shape| {
@@ -810,7 +814,7 @@ fn placeholder_facts(
                 identity,
                 frame: parse_frame(elements, shape),
                 margins: parse_margins(elements, shape),
-                text_levels: parse_text_levels(elements, shape, theme),
+                text_levels: parse_text_levels(elements, shape, theme, color_mapping),
                 source: part_source(part, shape),
             })
         })
@@ -886,6 +890,7 @@ fn parse_text_levels(
     elements: &Elements,
     parent: &Element,
     theme: &TemplateTheme,
+    color_mapping: &BTreeMap<String, String>,
 ) -> Vec<TemplateTextLevel> {
     let mut levels = Vec::new();
     for element in elements.descendants(parent) {
@@ -895,7 +900,7 @@ fn parse_text_levels(
         let run = elements
             .first_descendant(element, "defRPr")
             .unwrap_or(element);
-        let color = parse_text_color(elements, run, theme);
+        let color = parse_text_color(elements, run, theme, color_mapping);
         let mut output = TemplateTextLevel {
             level,
             font_size: attr(run, "sz").and_then(|value| value.parse().ok()),
@@ -935,6 +940,7 @@ fn parse_text_color(
     elements: &Elements,
     parent: &Element,
     theme: &TemplateTheme,
+    color_mapping: &BTreeMap<String, String>,
 ) -> Option<TemplateTextColor> {
     let color = elements
         .descendants(parent)
@@ -943,10 +949,11 @@ fn parse_text_color(
         .then(|| attr(color, "val").map(str::to_owned))
         .flatten();
     let rgb = if let Some(scheme) = &scheme {
+        let resolved = color_mapping.get(scheme).unwrap_or(scheme);
         theme
             .colors
             .iter()
-            .find(|color| &color.slot == scheme)
+            .find(|color| &color.slot == resolved)
             .map(|color| color.rgb)?
     } else {
         parse_hex(attr(color, "val").or_else(|| attr(color, "lastClr"))?)?
@@ -961,17 +968,64 @@ struct MasterTextStyles {
     other: Vec<TemplateTextLevel>,
 }
 
-fn master_text_styles(elements: &Elements, theme: &TemplateTheme) -> MasterTextStyles {
+fn master_text_styles(
+    elements: &Elements,
+    theme: &TemplateTheme,
+    color_mapping: &BTreeMap<String, String>,
+) -> MasterTextStyles {
     let mut styles = MasterTextStyles::default();
     for element in elements.values() {
         match element.local.as_str() {
-            "titleStyle" => styles.title = parse_text_levels(elements, element, theme),
-            "bodyStyle" => styles.body = parse_text_levels(elements, element, theme),
-            "otherStyle" => styles.other = parse_text_levels(elements, element, theme),
+            "titleStyle" => {
+                styles.title = parse_text_levels(elements, element, theme, color_mapping)
+            }
+            "bodyStyle" => styles.body = parse_text_levels(elements, element, theme, color_mapping),
+            "otherStyle" => {
+                styles.other = parse_text_levels(elements, element, theme, color_mapping)
+            }
             _ => {}
         }
     }
     styles
+}
+
+fn effective_color_mapping(master: &Elements, layout: &Elements) -> BTreeMap<String, String> {
+    let mut mapping = BTreeMap::from([
+        ("accent1".to_owned(), "accent1".to_owned()),
+        ("accent2".to_owned(), "accent2".to_owned()),
+        ("accent3".to_owned(), "accent3".to_owned()),
+        ("accent4".to_owned(), "accent4".to_owned()),
+        ("accent5".to_owned(), "accent5".to_owned()),
+        ("accent6".to_owned(), "accent6".to_owned()),
+        ("bg1".to_owned(), "lt1".to_owned()),
+        ("bg2".to_owned(), "lt2".to_owned()),
+        ("folHlink".to_owned(), "folHlink".to_owned()),
+        ("hlink".to_owned(), "hlink".to_owned()),
+        ("tx1".to_owned(), "dk1".to_owned()),
+        ("tx2".to_owned(), "dk2".to_owned()),
+    ]);
+    apply_color_mapping(master, "clrMap", &mut mapping);
+    apply_color_mapping(layout, "overrideClrMapping", &mut mapping);
+    mapping
+}
+
+fn apply_color_mapping(
+    elements: &Elements,
+    element_name: &str,
+    mapping: &mut BTreeMap<String, String>,
+) {
+    let Some(element) = elements
+        .values()
+        .iter()
+        .find(|element| element.local == element_name)
+    else {
+        return;
+    };
+    for (slot, target) in &element.attributes {
+        if let Some(value) = mapping.get_mut(slot) {
+            *value = target.clone();
+        }
+    }
 }
 
 fn style_for_region(styles: &MasterTextStyles, role: RegionRole) -> &[TemplateTextLevel] {

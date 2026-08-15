@@ -49,7 +49,10 @@ remain SVG pictures. All leaves inherit the `Prose` or `Subtitle` container role
 template region that accepts only subtitles. The composer suppresses per-placeholder body margins
 on those planned text spans because the planner has already applied the parent region margins
 once; it consumes the planned horizontal frames without repeating baseline, wrapping, or
-formula-size decisions.
+formula-size decisions. Formula SVG paint that uses the CSS `currentColor` keyword resolves to the
+effective template-region text color, including the slide master's color mapping, before the media
+part is written. Standalone display math uses the same rule, while diagrams and other authored SVG
+retain their original paint.
 
 Tables remain native DrawingML tables. Planned row slices retain source order, continuation pages
 prepend exactly the planned source header rows, and every cell uses the same editable rich-run and

@@ -50,8 +50,9 @@ template region that accepts only subtitles. The composer suppresses per-placeho
 on those planned text spans because the planner has already applied the parent region margins
 once; it consumes the planned horizontal frames without repeating baseline, wrapping, or
 formula-size decisions. Formula SVG paint that uses the CSS `currentColor` keyword resolves to the
-effective template-region text color before the media part is written. Standalone display math
-uses the same rule, while diagrams and other authored SVG retain their original paint.
+effective template-region text color, including the slide master's color mapping, before the media
+part is written. Standalone display math uses the same rule, while diagrams and other authored SVG
+retain their original paint.
 
 Tables remain native DrawingML tables. Planned row slices retain source order, continuation pages
 prepend exactly the planned source header rows, and every cell uses the same editable rich-run and

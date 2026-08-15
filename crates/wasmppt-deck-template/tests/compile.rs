@@ -78,7 +78,7 @@ fn starter_with_content(
                 r#"<p:sldMaster xmlns:p="{PML}" xmlns:a="{DRAWING}"><p:cSld><p:bg><p:bgPr><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></p:bgPr></p:bg><p:spTree>
                 {master_placeholders}
                 <p:pic><p:nvPicPr><p:cNvPr id="90" name="Master Logo {visible_suffix}"/></p:nvPicPr><p:spPr><a:xfrm><a:off x="9500000" y="100000"/><a:ext cx="400000" cy="400000"/></a:xfrm></p:spPr></p:pic>
-                </p:spTree></p:cSld><p:txStyles><p:titleStyle><a:lvl1pPr><a:defRPr sz="3600" b="1"><a:latin typeface="+mj-lt"/><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></a:defRPr></a:lvl1pPr></p:titleStyle><p:bodyStyle><a:lvl1pPr marL="1000" indent="-200"><a:defRPr sz="2000"><a:latin typeface="+mn-lt"/></a:defRPr></a:lvl1pPr></p:bodyStyle><p:otherStyle/></p:txStyles></p:sldMaster>"#,
+                </p:spTree></p:cSld><p:clrMap bg1="dk1" tx1="lt1" bg2="dk1" tx2="lt1" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/><p:txStyles><p:titleStyle><a:lvl1pPr><a:defRPr sz="3600" b="1"><a:latin typeface="+mj-lt"/><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></a:defRPr></a:lvl1pPr></p:titleStyle><p:bodyStyle><a:lvl1pPr marL="1000" indent="-200"><a:defRPr sz="2000"><a:latin typeface="+mn-lt"/><a:solidFill><a:schemeClr val="tx1"/></a:solidFill></a:defRPr></a:lvl1pPr></p:bodyStyle><p:otherStyle/></p:txStyles></p:sldMaster>"#,
                 master_placeholders = master_placeholders(visible_suffix),
             ),
         ),
@@ -195,7 +195,7 @@ fn master_placeholder(
 
 fn placeholder(id: u32, kind: &str, index: u32, with_style: bool, suffix: &str) -> String {
     let style = if with_style {
-        r#"<a:lvl1pPr><a:defRPr sz="1800" i="1"><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></a:defRPr></a:lvl1pPr>"#
+        r#"<a:lvl1pPr><a:defRPr sz="1800" i="1"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill></a:defRPr></a:lvl1pPr>"#
     } else {
         ""
     };
@@ -278,6 +278,13 @@ fn compiles_exact_geometry_inherited_regions_theme_and_preserved_assets() {
     assert_eq!(content_body.bleed_frame.unwrap().width, 9_400_000);
     assert_eq!(content_body.margins.left, 100);
     assert_eq!(content_body.text_levels[0].font_size, Some(1800));
+    assert_eq!(
+        content_body.text_levels[0].color,
+        Some(wasmppt_deck::TemplateTextColor {
+            scheme: Some("tx1".to_owned()),
+            rgb: 0xFAFAFA,
+        })
+    );
     assert_eq!(content_body.text_levels[0].italic, Some(true));
     assert_eq!(content_body.text_levels[0].margin_left, Some(1000));
     assert!(

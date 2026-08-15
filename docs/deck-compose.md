@@ -51,7 +51,10 @@ with explicit zero insets because the planner has already applied the parent reg
 Consecutive text spans on the same planned row are rejoined into one native text box between
 formula pictures so PowerPoint performs normal word spacing inside the sentence; the composer
 otherwise consumes the planned horizontal frames without repeating baseline, wrapping, or
-formula-size decisions. Formula SVG paint that uses the CSS `currentColor` keyword resolves to the
+formula-size decisions. `planned_shapes` exposes that exact coalesced shape inventory to the Wasm
+display-list projection, so browser preview, offline HTML, and PPTX use the same shape identifiers
+and unioned bounds rather than comparing a merged text box with its pre-merge fragments. Formula
+SVG paint that uses the CSS `currentColor` keyword resolves to the
 effective template-region text color, including the slide master's color mapping, before the media
 part is written. Standalone display math uses the same rule, while diagrams and other authored SVG
 retain their original paint.

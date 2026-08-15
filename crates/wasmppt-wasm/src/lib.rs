@@ -11,7 +11,7 @@ use wasmppt_deck::{
     DeckDiagnostic, DeckLimits, DeckPlan, DeckSpec, DiagnosticSeverity, SemanticContent,
     SemanticNode, SourceRange, StableId,
 };
-use wasmppt_deck_compose::{ComposeLimits, DeckComposer, PresentationOverlay};
+use wasmppt_deck_compose::{ComposeLimits, DeckComposer, PresentationOverlay, planned_shapes};
 use wasmppt_deck_layout::{DeckPlanner, FontCatalog, IncrementalPlanUpdate, PlanError};
 use wasmppt_deck_template::ThemeTemplateCompiler;
 use wasmppt_display::{DisplayList, SemanticSource};
@@ -1306,16 +1306,15 @@ fn annotate_deck_semantics(
             }
         }
     }
-    for fragment in page
-        .regions
-        .iter()
-        .flat_map(|region| region.fragments.iter())
-    {
+    for shape in planned_shapes(page, spec) {
+        let Some(fragment) = shape.fragments.first() else {
+            continue;
+        };
         if let Some(node) = nodes.get(&fragment.source_node_id) {
             require_annotated_shape(
                 display,
                 shape_id,
-                Some(fragment.frame),
+                Some(shape.frame),
                 fragment.id,
                 &node.source,
                 reading_order,
@@ -1853,6 +1852,106 @@ mod tests {
     }
 
     #[test]
+    fn deck_preview_semantics_follow_coalesced_inline_text_shapes() {
+        let spec = inline_formula_deck_spec();
+        let choice = wasmppt_deck::TypeChoice { font_size: 2_000 };
+        let fragment =
+            |fragment_id: u8, node_id: u8, x: i64, width: i64| wasmppt_deck::PlannedFragment {
+                id: id(fragment_id),
+                source_node_id: id(node_id),
+                slice: wasmppt_deck::FragmentSlice::Whole,
+                frame: EmuRect {
+                    x,
+                    y: 200,
+                    width,
+                    height: 400,
+                },
+                type_choice: choice,
+                media: None,
+                repeat_table_header_rows: 0,
+            };
+        let page = wasmppt_deck::PhysicalPage {
+            id: id(30),
+            logical_slide_id: id(2),
+            template_layout_id: id(100),
+            topology: wasmppt_deck::TopologyChoice::stack(),
+            hidden: false,
+            continuation: wasmppt_deck::Continuation {
+                ordinal: 1,
+                total: 1,
+                repeated_heading_node_id: None,
+                label: None,
+            },
+            regions: vec![
+                wasmppt_deck::PlannedRegion {
+                    template_region_id: id(101),
+                    placement: wasmppt_deck::RegionPlacement::Slot(0),
+                    frame: EmuRect {
+                        x: 100,
+                        y: 200,
+                        width: 300,
+                        height: 400,
+                    },
+                    fragments: vec![fragment(40, 4, 100, 300)],
+                },
+                wasmppt_deck::PlannedRegion {
+                    template_region_id: id(101),
+                    placement: wasmppt_deck::RegionPlacement::Slot(0),
+                    frame: EmuRect {
+                        x: 400,
+                        y: 200,
+                        width: 350,
+                        height: 400,
+                    },
+                    fragments: vec![fragment(41, 5, 400, 350)],
+                },
+            ],
+        };
+        let shapes = planned_shapes(&page, &spec);
+        assert_eq!(shapes.len(), 1);
+        let mut display = DisplayList {
+            size: wasmppt_layout::EmuSize {
+                width: 1_000,
+                height: 1_000,
+            },
+            commands: Vec::new(),
+            group_transforms: Vec::new(),
+            strings: Vec::new(),
+            images: Vec::new(),
+            embedded_fonts: Vec::new(),
+            semantics: vec![wasmppt_display::SemanticElement {
+                first_command: 0,
+                command_count: 0,
+                shape_id: 2,
+                z_order: 0,
+                reading_order: 0,
+                kind: wasmppt_display::SemanticKind::Shape,
+                bounds: wasmppt_layout::EmuRect {
+                    origin: wasmppt_layout::EmuPoint {
+                        x: shapes[0].frame.x,
+                        y: shapes[0].frame.y,
+                    },
+                    size: wasmppt_layout::EmuSize {
+                        width: shapes[0].frame.width,
+                        height: shapes[0].frame.height,
+                    },
+                },
+                name: "Content".to_owned(),
+                alternative_text: None,
+                hyperlink: None,
+                source: None,
+            }],
+            diagnostics: Vec::new(),
+        };
+
+        annotate_deck_semantics(&mut display, &page, &spec).unwrap();
+        assert_eq!(
+            display.semantics[0].source.as_ref().unwrap().semantic_id,
+            *id(40).as_bytes()
+        );
+    }
+
+    #[test]
     fn replacing_generated_media_reopens_the_package_relationship_graph() {
         let mut engine = WasmpptEngine::new();
         let (_compiled, template) = test_deck_template(&mut engine);
@@ -2003,6 +2102,64 @@ mod tests {
                 intrinsic_size: Some(PixelSize {
                     width: 100,
                     height: 20,
+                }),
+            }],
+        }
+    }
+
+    fn inline_formula_deck_spec() -> DeckSpec {
+        let role = SemanticRole::Prose;
+        let text = |node: u8, start: u32, value: &str| SemanticNode {
+            id: id(node),
+            source: SourceRange::new("deck.md", start, start + value.len() as u32),
+            role,
+            split: SplitPolicy::Never,
+            content: SemanticContent::Text(RichText {
+                runs: vec![RichTextRun {
+                    text: value.to_owned(),
+                    marks: TextMarks::default(),
+                    hyperlink: None,
+                }],
+            }),
+        };
+        DeckSpec {
+            id: id(1),
+            logical_slides: vec![LogicalSlide {
+                id: id(2),
+                source: SourceRange::new("deck.md", 0, 40),
+                kind: LogicalSlideKind::Content,
+                hidden: false,
+                nodes: vec![SemanticNode {
+                    id: id(3),
+                    source: SourceRange::new("deck.md", 0, 40),
+                    role,
+                    split: SplitPolicy::Children,
+                    content: SemanticContent::Children(vec![
+                        text(4, 0, "The "),
+                        text(5, 4, "unit "),
+                        SemanticNode {
+                            id: id(6),
+                            source: SourceRange::new("deck.md", 9, 12),
+                            role,
+                            split: SplitPolicy::Never,
+                            content: SemanticContent::Svg(SvgContent {
+                                resource_id: id(20),
+                                source_text: Some("$V$".to_owned()),
+                            }),
+                        },
+                        text(7, 12, " turns."),
+                    ]),
+                }],
+                media_text_relations: Vec::new(),
+            }],
+            resources: vec![DeckResource {
+                id: id(20),
+                kind: ResourceKind::Svg,
+                media_type: "image/svg+xml".to_owned(),
+                bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" width="1.742ex" height="1.595ex" viewBox="0 -683 770 705"><path d="M0 0L385 683L770 0Z"/></svg>"#.to_vec(),
+                intrinsic_size: Some(PixelSize {
+                    width: 35,
+                    height: 32,
                 }),
             }],
         }

@@ -13,6 +13,7 @@ use std::{
 use media::{PreparedMediaKey, prepare_formula_media, prepare_media};
 use package_xml::{patch_content_types, patch_presentation, patch_presentation_relationships};
 use sha2::{Digest, Sha256};
+pub use slide::{PlannedShape, planned_shapes};
 use slide::{compose_slide, formula_svg_node_ids};
 use wasmppt_deck::{
     DeckDiagnostic, DeckLimits, DeckPlan, DeckSpec, DeckTemplatePlan, DiagnosticSeverity,

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use wasmppt_deck::{
-    ChartContent, ChartKind, EmuRect, EmuSize, FragmentSlice, HyperlinkKind, ListContent,
+    ChartContent, ChartKind, DeckSpec, EmuRect, EmuSize, FragmentSlice, HyperlinkKind, ListContent,
     PhysicalPage, PlannedFragment, PlannedRegion, RegionRole, RichText, RichTextRun,
     SemanticContent, SemanticNode, StableId, TableColumnAlignment, TableContent, TemplateLayout,
     TemplateRegion, TemplateTextLevel, TemplateTheme,
@@ -103,29 +103,24 @@ pub(crate) fn compose_slide(
         }
     }
 
-    let mut region_index = 0usize;
-    while region_index < page.regions.len() {
-        let planned_region = &page.regions[region_index];
+    for planned_shape in planned_shapes_for_inline_nodes(page, &writer.inline_text_nodes) {
         let region = regions
-            .get(&planned_region.template_region_id)
+            .get(&planned_shape.template_region_id)
             .copied()
             .ok_or_else(|| {
                 ComposeError::new(
                     ComposeErrorCode::InvalidContract,
                     format!(
                         "planned region references missing template region {}",
-                        planned_region.template_region_id
+                        planned_shape.template_region_id
                     ),
                 )
             })?;
-        let region_end = matching_region_run_end(&page.regions, region_index);
-        writer.fragments(
-            page.regions[region_index..region_end]
-                .iter()
-                .flat_map(|planned| planned.fragments.iter()),
-            region,
-        )?;
-        region_index = region_end;
+        if planned_shape.compact_inline {
+            writer.inline_text_shape(&planned_shape.fragments, region)?;
+        } else if let Some(fragment) = planned_shape.fragments.first() {
+            writer.fragment(fragment, region)?;
+        }
     }
     writer
         .xml
@@ -151,40 +146,99 @@ fn matching_region_run_end(regions: &[PlannedRegion], start: usize) -> usize {
     end
 }
 
-impl SlideWriter<'_> {
-    fn fragments<'a>(
-        &mut self,
-        fragments: impl IntoIterator<Item = &'a PlannedFragment>,
-        region: &TemplateRegion,
-    ) -> Result<(), ComposeError> {
-        let fragments = fragments.into_iter().collect::<Vec<_>>();
-        let mut index = 0usize;
-        while index < fragments.len() {
-            let fragment = fragments[index];
-            if !self.inline_text_nodes.contains(&fragment.source_node_id) {
-                self.fragment(fragment, region)?;
-                index += 1;
-                continue;
-            }
-            let mut end = index + 1;
-            while let Some(next) = fragments.get(end) {
-                let previous = fragments[end - 1];
-                if !self.inline_text_nodes.contains(&next.source_node_id)
-                    || previous.frame.y != next.frame.y
-                    || previous.frame.height != next.frame.height
-                    || previous.frame.x.saturating_add(previous.frame.width) != next.frame.x
-                    || previous.type_choice != next.type_choice
-                {
-                    break;
-                }
-                end += 1;
-            }
-            self.inline_text_shape(&fragments[index..end], region)?;
-            index = end;
-        }
-        Ok(())
-    }
+/// One PresentationML shape emitted from a physical page plan.
+#[derive(Clone, Debug)]
+pub struct PlannedShape<'a> {
+    pub template_region_id: StableId,
+    pub fragments: Vec<&'a PlannedFragment>,
+    pub frame: EmuRect,
+    pub compact_inline: bool,
+}
 
+/// Returns the exact shape groups used by the PresentationML composer.
+///
+/// Consumers that project composed slides into another representation use this
+/// inventory to preserve shape identifiers and geometry after inline text
+/// fragments are coalesced.
+pub fn planned_shapes<'a>(page: &'a PhysicalPage, spec: &DeckSpec) -> Vec<PlannedShape<'a>> {
+    let mut inline_text_nodes = BTreeSet::new();
+    for slide in &spec.logical_slides {
+        collect_inline_text_node_ids(&slide.nodes, &mut inline_text_nodes);
+    }
+    planned_shapes_for_inline_nodes(page, &inline_text_nodes)
+}
+
+fn collect_inline_text_node_ids(nodes: &[SemanticNode], output: &mut BTreeSet<StableId>) {
+    for node in nodes {
+        if let Some(children) = inline_formula_children(node) {
+            output.extend(
+                children
+                    .iter()
+                    .filter(|child| matches!(child.content, SemanticContent::Text(_)))
+                    .map(|child| child.id),
+            );
+        }
+        if let SemanticContent::Children(children) = &node.content {
+            collect_inline_text_node_ids(children, output);
+        }
+    }
+}
+
+fn planned_shapes_for_inline_nodes<'a>(
+    page: &'a PhysicalPage,
+    inline_text_nodes: &BTreeSet<StableId>,
+) -> Vec<PlannedShape<'a>> {
+    let mut output = Vec::new();
+    let mut region_index = 0usize;
+    while region_index < page.regions.len() {
+        let first_region = &page.regions[region_index];
+        let region_end = matching_region_run_end(&page.regions, region_index);
+        let fragments = page.regions[region_index..region_end]
+            .iter()
+            .flat_map(|planned| planned.fragments.iter())
+            .collect::<Vec<_>>();
+        let mut fragment_index = 0usize;
+        while fragment_index < fragments.len() {
+            let first = fragments[fragment_index];
+            let compact_inline = inline_text_nodes.contains(&first.source_node_id);
+            let mut end = fragment_index + 1;
+            if compact_inline {
+                while let Some(next) = fragments.get(end) {
+                    let previous = fragments[end - 1];
+                    if !inline_text_nodes.contains(&next.source_node_id)
+                        || previous.frame.y != next.frame.y
+                        || previous.frame.height != next.frame.height
+                        || previous.frame.x.saturating_add(previous.frame.width) != next.frame.x
+                        || previous.type_choice != next.type_choice
+                    {
+                        break;
+                    }
+                    end += 1;
+                }
+            }
+            let grouped = fragments[fragment_index..end].to_vec();
+            let last = grouped.last().copied().unwrap_or(first);
+            output.push(PlannedShape {
+                template_region_id: first_region.template_region_id,
+                fragments: grouped,
+                frame: EmuRect {
+                    width: last
+                        .frame
+                        .x
+                        .saturating_add(last.frame.width)
+                        .saturating_sub(first.frame.x),
+                    ..first.frame
+                },
+                compact_inline,
+            });
+            fragment_index = end;
+        }
+        region_index = region_end;
+    }
+    output
+}
+
+impl SlideWriter<'_> {
     fn inline_text_shape(
         &mut self,
         fragments: &[&PlannedFragment],
@@ -1356,15 +1410,24 @@ mod tests {
                 fragments: vec![fragment],
             })
             .collect::<Vec<_>>();
-        let end = matching_region_run_end(&planned_regions, 0);
-        assert_eq!(end, 2);
+        let page = PhysicalPage {
+            id: StableId::from_bytes([30; 16]),
+            logical_slide_id: StableId::from_bytes([31; 16]),
+            template_layout_id: region.layout_id,
+            topology: wasmppt_deck::TopologyChoice::stack(),
+            hidden: false,
+            continuation: wasmppt_deck::Continuation {
+                ordinal: 1,
+                total: 1,
+                repeated_heading_node_id: None,
+                label: None,
+            },
+            regions: planned_regions,
+        };
+        let shapes = planned_shapes_for_inline_nodes(&page, &BTreeSet::from([first.id, second.id]));
+        assert_eq!(shapes.len(), 1);
         writer
-            .fragments(
-                planned_regions[..end]
-                    .iter()
-                    .flat_map(|planned| planned.fragments.iter()),
-                &region,
-            )
+            .inline_text_shape(&shapes[0].fragments, &region)
             .unwrap();
 
         assert_eq!(writer.xml.matches("<p:sp>").count(), 1);

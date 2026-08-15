@@ -47,8 +47,10 @@ column fitting.
 For inline formula flow, surrounding text leaves remain editable text boxes and formula leaves
 remain SVG pictures. All leaves inherit the `Prose` or `Subtitle` container role, including in a
 template region that accepts only subtitles. The composer suppresses per-placeholder body margins
-on those planned text spans because the planner has already applied the parent region margins
-once; it consumes the planned horizontal frames without repeating baseline, wrapping, or
+with explicit zero insets because the planner has already applied the parent region margins once.
+Consecutive text spans on the same planned row are rejoined into one native text box between
+formula pictures so PowerPoint performs normal word spacing inside the sentence; the composer
+otherwise consumes the planned horizontal frames without repeating baseline, wrapping, or
 formula-size decisions. Formula SVG paint that uses the CSS `currentColor` keyword resolves to the
 effective template-region text color, including the slide master's color mapping, before the media
 part is written. Standalone display math uses the same rule, while diagrams and other authored SVG

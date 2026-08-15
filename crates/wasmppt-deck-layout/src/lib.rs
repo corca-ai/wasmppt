@@ -1097,12 +1097,12 @@ impl DeckPlanner {
                     let natural = display_math_natural_size(size, font_size);
                     (natural.width, natural.height)
                 } else {
-                    let wrapped_height = measured
-                        .height
-                        .saturating_sub(target.region.margins.top)
-                        .saturating_sub(target.region.margins.bottom)
-                        .max(line_height);
-                    (measured.width.preferred.min(content.width), wrapped_height)
+                    (
+                        measurer
+                            .inline_text_width(unit.node, unit.slice, target.region, font_size)
+                            .min(content.width),
+                        line_height,
+                    )
                 };
                 if width <= 0 || height <= 0 || width > content.width {
                     failed = true;
@@ -3420,14 +3420,14 @@ mod tests {
     }
 
     #[test]
-    fn inline_math_children_share_a_baseline_in_source_order() {
+    fn inline_math_children_use_their_natural_inline_width_in_source_order() {
         let inline = SemanticNode {
             id: id(4),
             source: SourceRange::new("deck.md", 40, 80),
             role: SemanticRole::Prose,
             split: SplitPolicy::Children,
             content: SemanticContent::Children(vec![
-                text_node(5, SemanticRole::Prose, SplitPolicy::Never, "Energy "),
+                text_node(5, SemanticRole::Prose, SplitPolicy::Never, "A "),
                 SemanticNode {
                     id: id(6),
                     source: range(42),
@@ -3477,6 +3477,13 @@ mod tests {
         });
 
         assert!(parts.windows(2).all(|pair| pair[0].x < pair[1].x));
+        let leading = fragments(&plan.pages[0])
+            .find(|fragment| fragment.source_node_id == id(5))
+            .unwrap();
+        assert!(
+            leading.frame.width < text_line_height(leading.type_choice.font_size) * 2,
+            "a short inline word inherited the block-flow minimum width: {leading:?}"
+        );
         assert!(parts.windows(2).all(|pair| {
             pair[0].y.abs_diff(pair[1].y)
                 <= u64::try_from(pair[0].height.max(pair[1].height)).unwrap_or(u64::MAX)

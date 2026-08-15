@@ -10,10 +10,10 @@ use std::{
     sync::Arc,
 };
 
-use media::prepare_media;
+use media::{PreparedMediaKey, prepare_formula_media, prepare_media};
 use package_xml::{patch_content_types, patch_presentation, patch_presentation_relationships};
 use sha2::{Digest, Sha256};
-use slide::compose_slide;
+use slide::{compose_slide, formula_svg_node_ids};
 use wasmppt_deck::{
     DeckDiagnostic, DeckLimits, DeckPlan, DeckSpec, DeckTemplatePlan, DiagnosticSeverity,
     SemanticContent, SemanticNode, StableId, validate_deck_plan, validate_deck_spec,
@@ -170,24 +170,63 @@ impl DeckComposer {
             .iter()
             .map(|region| (region.id, region))
             .collect::<BTreeMap<_, _>>();
+        let formula_svg_nodes = formula_svg_node_ids(&nodes);
         let mut prepared = BTreeMap::new();
         for node in nodes.values() {
-            let resource_id = match &node.content {
-                SemanticContent::Image(image) => Some(image.resource_id),
-                SemanticContent::Svg(svg) => Some(svg.resource_id),
-                _ => None,
+            let (resource_id, key) = match &node.content {
+                SemanticContent::Image(image) => (
+                    image.resource_id,
+                    PreparedMediaKey::Resource(image.resource_id),
+                ),
+                SemanticContent::Svg(svg) if formula_svg_nodes.contains(&node.id) => {
+                    (svg.resource_id, PreparedMediaKey::Formula(node.id))
+                }
+                SemanticContent::Svg(svg) => {
+                    (svg.resource_id, PreparedMediaKey::Resource(svg.resource_id))
+                }
+                _ => continue,
             };
-            if let Some(resource_id) = resource_id {
-                let resource = resources.get(&resource_id).ok_or_else(|| {
-                    ComposeError::new(
-                        ComposeErrorCode::InvalidContract,
-                        format!("node references missing resource {resource_id}"),
-                    )
-                })?;
-                prepared
-                    .entry(resource_id)
-                    .or_insert(prepare_media(resource, compose_limits)?);
+            if prepared.contains_key(&key) {
+                continue;
             }
+            let resource = resources.get(&resource_id).ok_or_else(|| {
+                ComposeError::new(
+                    ComposeErrorCode::InvalidContract,
+                    format!("node references missing resource {resource_id}"),
+                )
+            })?;
+            let media = if matches!(key, PreparedMediaKey::Formula(_)) {
+                let region = plan
+                    .pages
+                    .iter()
+                    .flat_map(|page| &page.regions)
+                    .find(|planned_region| {
+                        planned_region
+                            .fragments
+                            .iter()
+                            .any(|fragment| fragment.source_node_id == node.id)
+                    })
+                    .and_then(|planned_region| regions.get(&planned_region.template_region_id))
+                    .copied()
+                    .ok_or_else(|| {
+                        ComposeError::new(
+                            ComposeErrorCode::InvalidContract,
+                            "formula fragment has no template region",
+                        )
+                    })?;
+                let color = region
+                    .text_levels
+                    .first()
+                    .and_then(|level| level.color.as_ref())
+                    .map_or_else(
+                        || theme_rgb(&template.theme, "dk1", 0),
+                        |color| color.rgb & 0x00ff_ffff,
+                    );
+                prepare_formula_media(resource, node.id, color, compose_limits)?
+            } else {
+                prepare_media(resource, compose_limits)?
+            };
+            prepared.insert(key, media);
         }
 
         let slide_parts = (1..=plan.pages.len())
@@ -420,6 +459,14 @@ fn index_nodes(spec: &DeckSpec) -> BTreeMap<StableId, &SemanticNode> {
         }
     }
     output
+}
+
+fn theme_rgb(theme: &wasmppt_deck::TemplateTheme, slot: &str, fallback: u32) -> u32 {
+    theme
+        .colors
+        .iter()
+        .find(|color| color.slot == slot)
+        .map_or(fallback, |color| color.rgb & 0x00ff_ffff)
 }
 
 fn revision_id(

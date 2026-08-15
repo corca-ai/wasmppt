@@ -409,8 +409,11 @@ fn deck_spec() -> DeckSpec {
             id: math,
             kind: ResourceKind::Svg,
             media_type: "image/svg+xml".to_owned(),
-            bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><path d="M1 8L8 1l7 7"/></svg>"#.to_vec(),
-            intrinsic_size: Some(PixelSize { width: 16, height: 9 }),
+            bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="13" viewBox="0 -10 10 10"><g stroke="currentColor" fill="currentColor" stroke-width="0" transform="scale(1,-1)"><path d="M0 10L5 0L10 10L8 10L5 4L2 10Z"/></g></svg>"#.to_vec(),
+            intrinsic_size: Some(PixelSize {
+                width: 14,
+                height: 13,
+            }),
         },
         DeckResource {
             id: portrait,

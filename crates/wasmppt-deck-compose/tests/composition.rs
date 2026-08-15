@@ -657,6 +657,47 @@ fn composition_is_deterministic_and_rejects_template_drift_and_unsafe_links() {
 }
 
 #[test]
+fn resolves_formula_current_color_from_the_template_text_style() {
+    let (bytes, mut spec, mut template, plan) = fixture();
+    let formula = spec.logical_slides[0]
+        .nodes
+        .iter_mut()
+        .find(|node| node.id == id(21))
+        .unwrap();
+    formula.role = SemanticRole::DisplayMath;
+    let resource = spec
+        .resources
+        .iter_mut()
+        .find(|resource| resource.id == id(41))
+        .unwrap();
+    resource.bytes = br#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><g fill="currentColor" stroke="CURRENTCOLOR"><path d="M0 0L10 10"/></g></svg>"#.to_vec();
+    template.regions[0].accepts.push(SemanticRole::DisplayMath);
+
+    let report = validate_deck_plan(&spec, &template, &plan, &DeckLimits::default());
+    assert!(report.is_valid(), "{:#?}", report.diagnostics);
+    let overlay = DeckComposer
+        .compose(
+            Arc::<[u8]>::from(bytes),
+            &spec,
+            &template,
+            &plan,
+            &DeckLimits::default(),
+            &ComposeLimits::default(),
+        )
+        .unwrap();
+    let formula_name = overlay
+        .part_names()
+        .into_iter()
+        .find(|name| name.ends_with("-formula.svg"))
+        .unwrap();
+    let formula_svg = String::from_utf8(overlay.read_part(&formula_name).unwrap()).unwrap();
+
+    assert!(formula_svg.contains("fill=\"#112233\""));
+    assert!(formula_svg.contains("stroke=\"#112233\""));
+    assert!(!formula_svg.to_ascii_lowercase().contains("currentcolor"));
+}
+
+#[test]
 fn composes_split_editable_table_and_chart_with_live_export_parity() {
     let (bytes, mut spec, mut template, mut plan) = fixture();
     let cell = |value: u8, text: &str| TableCell {

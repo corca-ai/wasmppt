@@ -1,7 +1,7 @@
 use std::{io::Cursor, num::NonZeroU64, sync::Arc};
 
 use gif::{ColorOutput, DecodeOptions, MemoryLimit};
-use wasmppt_deck::{DeckResource, PixelSize, ResourceKind, inspect_media_size};
+use wasmppt_deck::{DeckResource, PixelSize, ResourceKind, StableId, inspect_media_size};
 use wasmppt_xml::{TokenKind, XmlDocument};
 
 use crate::{ComposeError, ComposeErrorCode, ComposeLimits, stable_id_hex};
@@ -12,6 +12,12 @@ pub(crate) struct PreparedMedia {
     pub(crate) content_type: &'static str,
     pub(crate) bytes: Arc<[u8]>,
     pub(crate) size: Option<PixelSize>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum PreparedMediaKey {
+    Formula(StableId),
+    Resource(StableId),
 }
 
 pub(crate) fn prepare_media(
@@ -57,6 +63,90 @@ pub(crate) fn prepare_media(
         }
         _ => Err(media_error("unsupported deck media kind or content type")),
     }
+}
+
+pub(crate) fn prepare_formula_media(
+    resource: &DeckResource,
+    node_id: StableId,
+    color: u32,
+    limits: &ComposeLimits,
+) -> Result<PreparedMedia, ComposeError> {
+    let mut prepared = prepare_media(resource, limits)?;
+    if prepared.content_type != "image/svg+xml" {
+        return Err(media_error("formula media must be SVG"));
+    }
+    let bytes = resolve_svg_current_color(&prepared.bytes, color)?;
+    if bytes.len() > limits.max_media_bytes {
+        return Err(media_error(
+            "resolved formula SVG exceeds the configured byte bound",
+        ));
+    }
+    prepared.part_name = format!("ppt/media/deck-{}-formula.svg", stable_id_hex(node_id));
+    prepared.bytes = bytes.into();
+    Ok(prepared)
+}
+
+fn resolve_svg_current_color(source: &[u8], color: u32) -> Result<Vec<u8>, ComposeError> {
+    let document = XmlDocument::parse(source.to_vec())
+        .map_err(|error| media_error(format!("invalid SVG XML: {error}")))?;
+    let replacement = format!("#{:06X}", color & 0x00ff_ffff);
+    let mut patches = Vec::new();
+    for token in document.tokens() {
+        let TokenKind::Start { attributes, .. } = &token.kind else {
+            continue;
+        };
+        for attribute in attributes {
+            if !matches!(
+                attribute.name.local.as_str(),
+                "color"
+                    | "fill"
+                    | "flood-color"
+                    | "lighting-color"
+                    | "stop-color"
+                    | "stroke"
+                    | "style"
+            ) {
+                continue;
+            }
+            if let Some(value) = replace_ascii_case_insensitive(
+                attribute.value.as_bytes(),
+                b"currentColor",
+                replacement.as_bytes(),
+            ) {
+                patches.push((attribute.value_range.clone(), value));
+            }
+        }
+    }
+    let mut output = source.to_vec();
+    for (range, value) in patches.into_iter().rev() {
+        output.splice(range, value);
+    }
+    Ok(output)
+}
+
+fn replace_ascii_case_insensitive(
+    source: &[u8],
+    needle: &[u8],
+    replacement: &[u8],
+) -> Option<Vec<u8>> {
+    let mut output = Vec::with_capacity(source.len());
+    let mut cursor = 0;
+    let mut replaced = false;
+    while let Some(relative) = source[cursor..]
+        .windows(needle.len())
+        .position(|candidate| candidate.eq_ignore_ascii_case(needle))
+    {
+        let start = cursor + relative;
+        output.extend_from_slice(&source[cursor..start]);
+        output.extend_from_slice(replacement);
+        cursor = start + needle.len();
+        replaced = true;
+    }
+    if !replaced {
+        return None;
+    }
+    output.extend_from_slice(&source[cursor..]);
+    Some(output)
 }
 
 fn gif_first_frame(

@@ -33,10 +33,10 @@ export type DomImageResolver = (image: SceneImage, signal: AbortSignal) => Promi
 
 export interface DomSvgRenderOptions {
   readonly revision: number
-  readonly slideIndex?: number
-  readonly signal?: AbortSignal
-  readonly imageResolver?: DomImageResolver
-  readonly fontResolver?: FontResolver
+  readonly slideIndex?: number | undefined
+  readonly signal?: AbortSignal | undefined
+  readonly imageResolver?: DomImageResolver | undefined
+  readonly fontResolver?: FontResolver | undefined
 }
 
 export interface DomSvgRenderResult {
@@ -782,10 +782,10 @@ function domTextFill(run: RichTextLayoutRun): Record<string, string> {
 }
 
 export interface VirtualizedDomViewerOptions {
-  readonly sceneCacheBytes?: number
-  readonly prefetchNeighbors?: number
-  readonly imageResolver?: DomImageResolver
-  readonly fontResolver?: FontResolver
+  readonly sceneCacheBytes?: number | undefined
+  readonly prefetchNeighbors?: number | undefined
+  readonly imageResolver?: DomImageResolver | undefined
+  readonly fontResolver?: FontResolver | undefined
 }
 
 export interface DomSceneResolver {

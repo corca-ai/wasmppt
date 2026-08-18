@@ -20,7 +20,7 @@ the common display-list semantics on Canvas 2D:
 - preset paths, fills, strokes, rotation, flips, and nested group transforms;
 - linear/radial gradients, patterns, curved bounded custom paths, outer shadows, connectors, and line ends;
 - relationship-addressed images with PowerPoint source cropping;
-- shared WPDL v10 paragraph/run layout for mixed styles, script-specific theme fonts,
+- shared WPDL v11 paragraph/run layout for mixed styles, run-owned hyperlinks, script-specific theme fonts,
   RTL, tabs, vertical flow, decoration, baseline/character spacing, bullets, indentation,
   wrapping, autofit, alignment and text-frame anchoring;
 - deterministic cache eviction and disposal for decoded images.
@@ -108,8 +108,9 @@ baselines and per-slide tolerance reports belong to the compatibility-gate slice
 
 ## Current boundary
 
-The renderer supports WPDL v10 while retaining v1-v9 decoding. Version 10 carries stable semantic
-IDs, source ranges, reading order, and hit-test bounds for Canvas authoring. Version 9 marks text from a
+The renderer supports WPDL v11 while retaining v1-v10 decoding. Version 11 carries resolved
+run-owned hyperlinks for the DOM accessibility layer. Version 10 carries stable semantic IDs,
+source ranges, reading order, and hit-test bounds for Canvas authoring. Version 9 marks text from a
 materialized live-edit overlay so normal AutoFit recomputes the largest fitting scale instead of
 blindly retaining a stale authored hint. Embedded font relationships travel
 as lazy resources; `registerEmbeddedFonts` applies size and OpenType embedding-permission checks

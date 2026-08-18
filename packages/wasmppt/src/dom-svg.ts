@@ -650,7 +650,8 @@ async function updateAccessibleOverlay(
       transform: plan.rotationDegrees === 0 ? 'none' : `rotate(${plan.rotationDegrees}deg)`,
     })
     const runElements = await Promise.all(plan.runs.map(async (run) => {
-      const span = document.createElement('span')
+      const runHref = safeHref === undefined ? safeHyperlink(run.hyperlink) : undefined
+      const span = document.createElement(runHref === undefined ? 'span' : 'a')
       if (run.bulletImageResource !== undefined && imageResolver !== undefined) {
         const image = document.createElement('img')
         image.src = await imageResolver(required(scene.images, run.bulletImageResource), signal)
@@ -693,6 +694,11 @@ async function updateAccessibleOverlay(
           : 'initial',
       })
       span.dataset.paragraphIndex = String(run.paragraphIndex)
+      if (run.hyperlink !== undefined) span.dataset.hyperlink = run.hyperlink
+      if (span instanceof HTMLAnchorElement && runHref !== undefined) {
+        span.href = runHref
+        span.style.pointerEvents = 'auto'
+      }
       if (run.sourceStart !== undefined) span.dataset.sourceStart = String(run.sourceStart)
       if (run.sourceEnd !== undefined) span.dataset.sourceEnd = String(run.sourceEnd)
       return span

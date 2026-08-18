@@ -376,7 +376,7 @@ describe('wasmppt workerd adapter', () => {
       }),
     )
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ signature: '0698523062a91bcd' })
+    expect(await response.json()).toEqual({ signature: '0fcb609b5b81f3c8' })
   })
 
   it('emits deterministic DeckSpec plan, preview, topology, and export evidence', () => {

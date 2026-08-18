@@ -75,7 +75,7 @@ fn lowers_to_stable_compact_binary_commands_and_side_tables() {
         u16::from_le_bytes([encoded[4], encoded[5]]),
         DISPLAY_LIST_VERSION
     );
-    assert_eq!(display.structural_signature(), 0x0698_5230_62a9_1bcd);
+    assert_eq!(display.structural_signature(), 0x0fcb_609b_5b81_f3c8);
 }
 
 #[test]
@@ -118,4 +118,14 @@ fn lowers_tables_and_supported_chart_kinds_to_shared_primitives() {
     });
     assert!(rich_text.clone().any(|text| text == "Quarter"));
     assert!(rich_text.clone().any(|text| text == "42"));
+    let quarter_link = display.commands.iter().find_map(|command| match command {
+        DisplayCommand::DrawRichText { frame, .. } => frame
+            .paragraphs
+            .iter()
+            .flat_map(|paragraph| paragraph.runs.iter())
+            .find(|run| run.text == "Quarter")
+            .and_then(|run| run.hyperlink.as_deref()),
+        _ => None,
+    });
+    assert_eq!(quarter_link, Some("https://example.org/quarter"));
 }

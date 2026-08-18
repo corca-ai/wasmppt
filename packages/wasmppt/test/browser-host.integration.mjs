@@ -897,6 +897,9 @@ try {
       advancedPaths: advancedOfflineDocument.querySelectorAll('svg path').length,
       advancedKinds: [...advancedOfflineDocument.querySelectorAll('[data-semantic-kind]')]
         .map((element) => element.dataset.semanticKind),
+      advancedRunLink: advancedOfflineDocument
+        .querySelector('a[data-hyperlink="https://example.org/quarter"]')
+        ?.getAttribute('href'),
       deckResolveIndices,
       deckPhysicalIndices: [...deckOfflineDocument.querySelectorAll('[data-physical-slide-index]')]
         .map((element) => Number(element.dataset.physicalSlideIndex)),
@@ -1057,6 +1060,10 @@ try {
       textRuns: advancedScene.commands.flatMap((command) => command.kind === 'draw-rich-text'
         ? command.frame.paragraphs.flatMap((paragraph) => paragraph.runs.map((run) => run.text))
         : command.kind === 'draw-text' ? [advancedScene.strings[command.text]] : []),
+      runLinks: advancedScene.commands.flatMap((command) => command.kind === 'draw-rich-text'
+        ? command.frame.paragraphs.flatMap((paragraph) => paragraph.runs
+            .flatMap((run) => run.hyperlink === undefined ? [] : [run.hyperlink]))
+        : []),
       diagnosticCodes: advancedScene.diagnostics.map((diagnostic) => diagnostic.code),
       coloredPixels: advancedColoredPixels,
       smartartColoredPixels,
@@ -1064,6 +1071,9 @@ try {
       commandCount: advancedTelemetry.commandCount,
       svgPathCount: advancedDomHost.querySelectorAll('path').length,
       inlineImages: advancedDomHost.querySelectorAll('image').length,
+      inlineLink: advancedDomHost
+        .querySelector('a[data-hyperlink="https://example.org/quarter"]')
+        ?.getAttribute('href'),
       metafileSvgBytes,
       domDiagnosticCodes: advancedDom.diagnostics.map((diagnostic) => diagnostic.code),
     }
@@ -1476,6 +1486,8 @@ try {
   assert(result.advancedFacts.semanticKinds.includes('chart'))
   assert(result.advancedFacts.semanticKinds.includes('image'))
   assert(result.advancedFacts.textRuns.includes('Quarter'))
+  assert.deepEqual(result.advancedFacts.runLinks, ['https://example.org/quarter'])
+  assert.equal(result.advancedFacts.inlineLink, 'https://example.org/quarter')
   assert(result.advancedFacts.textRuns.includes('42'))
   for (const code of [
     'unsupported-animation',
@@ -1528,6 +1540,7 @@ try {
   assert(result.offlineFacts.advancedPaths > 10)
   assert(result.offlineFacts.advancedKinds.includes('table'))
   assert(result.offlineFacts.advancedKinds.includes('chart'))
+  assert.equal(result.offlineFacts.advancedRunLink, 'https://example.org/quarter')
   assert.deepEqual(result.offlineFacts.deckResolveIndices, [0, 2])
   assert.deepEqual(result.offlineFacts.deckPhysicalIndices, [0, 2])
   assert.equal(result.offlineFacts.deckRole, 'list')

@@ -265,6 +265,8 @@ pub struct ResolvedTextRun {
     pub style: ResolvedTextStyle,
     pub east_asian_font_family: Option<String>,
     pub complex_script_font_family: Option<String>,
+    /// Resolved external URL or internal package target owned by this run.
+    pub hyperlink: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -59,6 +59,7 @@ struct RawTextRun {
     style: PartialTextStyle,
     east_asian_font_family: Option<String>,
     complex_script_font_family: Option<String>,
+    hyperlink_relationship_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -661,6 +662,21 @@ fn relationship_target(graph: &PackageGraph, source: PartId, id: &str) -> Option
         })
 }
 
+fn hyperlink_target(graph: &PackageGraph, source: PartId, id: &str) -> Option<String> {
+    graph
+        .part(source)
+        .relationships
+        .iter()
+        .find(|relationship| graph.relationship_id(relationship) == id)
+        .and_then(|relationship| match &relationship.target {
+            RelationshipTarget::External(target) => Some(target.clone()),
+            RelationshipTarget::Internal(part) => {
+                Some(graph.part_name(graph.part(*part)).to_owned())
+            }
+            RelationshipTarget::Missing(_) => None,
+        })
+}
+
 fn append_non_placeholder(
     output: &mut Vec<ResolvedElement>,
     resolver: &mut ElementResolver<'_>,
@@ -747,9 +763,15 @@ fn resolve_element(
 ) -> ResolvedElement {
     let graph = resolver.graph;
     let kind = if let Some(table) = &shape.table {
-        ElementKind::Table {
-            table: table.clone(),
+        let mut table = table.clone();
+        for row in &mut table.rows {
+            for cell in &mut row.cells {
+                if let Some(frame) = &mut cell.text_frame {
+                    resolve_text_frame_hyperlinks(frame, graph, text_relationship_part);
+                }
+            }
         }
+        ElementKind::Table { table }
     } else if let Some(relationship_id) = &shape.chart_relationship_id {
         let target = relationship_target(graph, source_part, relationship_id);
         let chart = target
@@ -893,6 +915,7 @@ fn resolved_element(
                 });
             }
         }
+        resolve_text_frame_hyperlinks(&mut resolved, context.graph, context.text_relationship_part);
         resolved
     });
     if materializes_slide_number {
@@ -932,25 +955,28 @@ fn resolved_element(
         text_style,
         text_frame,
         alternative_text: shape.alternative_text.clone(),
-        hyperlink: shape.hyperlink_relationship_id.as_ref().and_then(|id| {
-            context
-                .graph
-                .part(context.source_part)
-                .relationships
-                .iter()
-                .find(|relationship| context.graph.relationship_id(relationship) == id)
-                .and_then(|relationship| match &relationship.target {
-                    RelationshipTarget::External(target) => Some(target.clone()),
-                    RelationshipTarget::Internal(part) => Some(
-                        context
-                            .graph
-                            .part_name(context.graph.part(*part))
-                            .to_owned(),
-                    ),
-                    RelationshipTarget::Missing(_) => None,
-                })
-        }),
+        hyperlink: shape
+            .hyperlink_relationship_id
+            .as_ref()
+            .and_then(|id| hyperlink_target(context.graph, context.source_part, id)),
         kind,
+    }
+}
+
+fn resolve_text_frame_hyperlinks(
+    frame: &mut ResolvedTextFrame,
+    graph: &PackageGraph,
+    relationship_part: PartId,
+) {
+    for run in frame
+        .paragraphs
+        .iter_mut()
+        .flat_map(|paragraph| paragraph.runs.iter_mut())
+    {
+        run.hyperlink = run
+            .hyperlink
+            .take()
+            .and_then(|id| hyperlink_target(graph, relationship_part, &id));
     }
 }
 
@@ -1019,6 +1045,7 @@ fn resolve_text_frame(
                             style: style.resolve(),
                             east_asian_font_family: run.east_asian_font_family.clone(),
                             complex_script_font_family: run.complex_script_font_family.clone(),
+                            hyperlink: run.hyperlink_relationship_id.clone(),
                         }
                     })
                     .collect::<Vec<_>>();
@@ -2882,6 +2909,7 @@ fn parse_rich_paragraph(
             let mut style = PartialTextStyle::default();
             let mut east_asian_font_family = None;
             let mut complex_script_font_family = None;
+            let mut hyperlink_relationship_id = None;
             for candidate in index..=run_end {
                 let TokenKind::Start {
                     name, attributes, ..
@@ -2894,6 +2922,15 @@ fn parse_rich_paragraph(
                         .unwrap_or(candidate)
                         .min(run_end);
                     style = parse_text_style_range(document, candidate, style_end, theme);
+                    hyperlink_relationship_id =
+                        direct_child_element(document, candidate, style_end, "hlinkClick")
+                            .and_then(|hyperlink| match &document.tokens()[hyperlink].kind {
+                                TokenKind::Start { attributes, .. } => attributes
+                                    .iter()
+                                    .find(|attribute| attribute.name.local == "id")
+                                    .map(|attribute| attribute.value.clone()),
+                                _ => None,
+                            });
                 } else if name.local == "ea" {
                     east_asian_font_family = plain(attributes, "typeface")
                         .map(|family| resolve_theme_font(family, theme));
@@ -2913,6 +2950,7 @@ fn parse_rich_paragraph(
                 style,
                 east_asian_font_family,
                 complex_script_font_family,
+                hyperlink_relationship_id,
             });
         }
         index = run_end + 1;
@@ -3931,6 +3969,12 @@ mod tests {
         );
 
         assert_eq!(shape.hyperlink_relationship_id.as_deref(), Some("rShape"));
+        assert_eq!(
+            shape.text_frame.as_ref().unwrap().paragraphs[0].runs[0]
+                .hyperlink_relationship_id
+                .as_deref(),
+            Some("rRun")
+        );
         assert_eq!(shape.image_relationship_id, None);
         assert_eq!(
             shape.text_frame.as_ref().unwrap().paragraphs[0]

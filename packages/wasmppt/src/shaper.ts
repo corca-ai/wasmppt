@@ -6,13 +6,13 @@ export interface FontByteShaper {
 
 export interface FontShapeRequest {
   readonly fontBytes: Uint8Array
-  readonly faceIndex?: number
+  readonly faceIndex?: number | undefined
   readonly text: string
   readonly direction: 'ltr' | 'rtl' | 'ttb' | 'btt'
-  readonly language?: string
-  readonly script?: string
-  readonly features?: readonly string[]
-  readonly variations?: readonly string[]
+  readonly language?: string | undefined
+  readonly script?: string | undefined
+  readonly features?: readonly string[] | undefined
+  readonly variations?: readonly string[] | undefined
 }
 
 export interface ShapedFontGlyph {
@@ -49,10 +49,10 @@ export interface WasmFontShaperModule {
 }
 
 export interface WasmFontShaperOptions {
-  readonly maxFontBytes?: number
-  readonly maxTextBytes?: number
-  readonly maxGlyphs?: number
-  readonly maxCacheBytes?: number
+  readonly maxFontBytes?: number | undefined
+  readonly maxTextBytes?: number | undefined
+  readonly maxGlyphs?: number | undefined
+  readonly maxCacheBytes?: number | undefined
 }
 
 const SHAPE_MAGIC = 'WPSH'

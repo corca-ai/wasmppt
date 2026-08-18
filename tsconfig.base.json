@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "declaration": true,
+    "exactOptionalPropertyTypes": true,
     "declarationMap": true,
     "forceConsistentCasingInFileNames": true,
     "module": "NodeNext",

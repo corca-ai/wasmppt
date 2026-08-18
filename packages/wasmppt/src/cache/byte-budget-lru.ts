@@ -1,7 +1,7 @@
 export class ByteBudgetLru<Key, Value> {
   readonly #entries = new Map<Key, { readonly value: Value; readonly weight: number }>()
   readonly #maxBytes: number
-  readonly #dispose?: (value: Value) => void
+  readonly #dispose: ((value: Value) => void) | undefined
   #residentBytes = 0
   #hits = 0
   #misses = 0

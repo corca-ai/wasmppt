@@ -46,7 +46,7 @@ export interface SceneGroupTransform {
 }
 
 export interface SceneImage {
-  readonly partName?: string
+  readonly partName?: string | undefined
   readonly relationshipId: string
 }
 
@@ -59,18 +59,20 @@ export interface SceneEmbeddedFont {
 export interface SceneTextStyle {
   readonly fontSize: number
   readonly color: RgbaColor
-  readonly fontFamily?: string
+  readonly fontFamily?: string | undefined
   readonly bold: boolean
   readonly italic: boolean
   readonly underline: boolean
   readonly strike: boolean
   readonly characterSpacing: number
   readonly baseline: number
-  readonly outline?: { readonly color: RgbaColor; readonly width: number; readonly dash?: string }
-  readonly shadow?: { readonly color: RgbaColor; readonly blurRadius: number; readonly distance: number; readonly direction: number }
-  readonly innerShadow?: { readonly color: RgbaColor; readonly blurRadius: number; readonly distance: number; readonly direction: number }
-  readonly fill?: SceneFill
-  readonly glow?: { readonly color: RgbaColor; readonly radius: number }
+  readonly outline?:
+    | { readonly color: RgbaColor; readonly width: number; readonly dash?: string | undefined }
+    | undefined
+  readonly shadow?: { readonly color: RgbaColor; readonly blurRadius: number; readonly distance: number; readonly direction: number } | undefined
+  readonly innerShadow?: { readonly color: RgbaColor; readonly blurRadius: number; readonly distance: number; readonly direction: number } | undefined
+  readonly fill?: SceneFill | undefined
+  readonly glow?: { readonly color: RgbaColor; readonly radius: number } | undefined
   readonly blurRadius: number
   readonly softEdgeRadius: number
   readonly reflection: boolean
@@ -85,23 +87,23 @@ export interface SceneTextStyle {
 export interface SceneTextRun {
   readonly text: string
   readonly style: SceneTextStyle
-  readonly eastAsianFontFamily?: string
-  readonly complexScriptFontFamily?: string
-  readonly hyperlink?: string
+  readonly eastAsianFontFamily?: string | undefined
+  readonly complexScriptFontFamily?: string | undefined
+  readonly hyperlink?: string | undefined
 }
 
 export interface SceneParagraph {
   readonly runs: readonly SceneTextRun[]
   readonly alignment: SceneTextStyle['alignment']
-  readonly bullet?: string
-  readonly bulletImageResource?: number
-  readonly bulletStyle?: SceneTextStyle
+  readonly bullet?: string | undefined
+  readonly bulletImageResource?: number | undefined
+  readonly bulletStyle?: SceneTextStyle | undefined
   readonly level: number
   readonly marginLeft: number
   readonly indent: number
-  readonly lineSpacing?: SceneTextSpacing
-  readonly spaceBefore?: SceneTextSpacing
-  readonly spaceAfter?: SceneTextSpacing
+  readonly lineSpacing?: SceneTextSpacing | undefined
+  readonly spaceBefore?: SceneTextSpacing | undefined
+  readonly spaceAfter?: SceneTextSpacing | undefined
   readonly direction: 'ltr' | 'rtl'
   readonly tabs: readonly SceneTextTab[]
   readonly fontAlignment: 'automatic' | 'top' | 'center' | 'baseline' | 'bottom'
@@ -126,14 +128,14 @@ export interface SceneTextFrame {
   readonly marginBottom: number
   readonly wrap: boolean
   readonly autofit: 'none' | 'shrink-text' | 'resize-shape'
-  readonly autofitFontScale?: number
-  readonly autofitLineSpacingReduction?: number
+  readonly autofitFontScale?: number | undefined
+  readonly autofitLineSpacingReduction?: number | undefined
   readonly autofitRecompute: boolean
   readonly flow: 'horizontal' | 'vertical' | 'vertical-270'
   readonly columnCount: number
   readonly columnSpacing: number
   readonly defaultTabSize: number
-  readonly warp?: { readonly preset: string; readonly adjustment: number }
+  readonly warp?: { readonly preset: string; readonly adjustment: number } | undefined
 }
 
 export interface SceneGradientStop {
@@ -167,8 +169,8 @@ export interface SceneSemanticElement {
   readonly kind: 'shape' | 'image' | 'table' | 'chart' | 'preserved-graphic'
   readonly bounds: EmuRect
   readonly name: string
-  readonly alternativeText?: string
-  readonly hyperlink?: string
+  readonly alternativeText?: string | undefined
+  readonly hyperlink?: string | undefined
   readonly source?: {
     readonly semanticId: string
     readonly source: string
@@ -198,7 +200,7 @@ export type DisplayDiagnosticCode =
 export interface SceneDiagnostic {
   readonly code: DisplayDiagnosticCode
   readonly partName: string
-  readonly shapeId?: number
+  readonly shapeId?: number | undefined
   readonly message: string
 }
 
@@ -218,9 +220,9 @@ export type SceneCommand =
       readonly transform: SceneTransform
       readonly color: RgbaColor
       readonly width: number
-      readonly dash?: string
-      readonly headEnd?: SceneLineEnd
-      readonly tailEnd?: SceneLineEnd
+      readonly dash?: string | undefined
+      readonly headEnd?: SceneLineEnd | undefined
+      readonly tailEnd?: SceneLineEnd | undefined
     }
   | {
       readonly kind: 'fill-gradient-preset'
@@ -250,13 +252,15 @@ export type SceneCommand =
       readonly pathHeight: number
       readonly path: readonly ScenePathCommand[]
       readonly fill: SceneFill
-      readonly stroke?: {
-        readonly color: RgbaColor
-        readonly width: number
-        readonly dash?: string
-        readonly headEnd?: SceneLineEnd
-        readonly tailEnd?: SceneLineEnd
-      }
+      readonly stroke?:
+        | {
+            readonly color: RgbaColor
+            readonly width: number
+            readonly dash?: string | undefined
+            readonly headEnd?: SceneLineEnd | undefined
+            readonly tailEnd?: SceneLineEnd | undefined
+          }
+        | undefined
     }
   | {
       readonly kind: 'draw-outer-shadow'
@@ -485,8 +489,8 @@ export interface ThemeFontSet {
 export interface WebFontDefinition {
   readonly family: string
   readonly source: string | ArrayBuffer
-  readonly faceIndex?: number
-  readonly descriptors?: FontFaceDescriptors
+  readonly faceIndex?: number | undefined
+  readonly descriptors?: FontFaceDescriptors | undefined
 }
 
 export interface ResolvedFont {
@@ -496,18 +500,18 @@ export interface ResolvedFont {
   readonly exact: boolean
   readonly css: string
   readonly sizePixels: number
-  readonly shapingKey?: string
-  readonly fontBytes?: Uint8Array
-  readonly faceIndex?: number
+  readonly shapingKey?: string | undefined
+  readonly fontBytes?: Uint8Array | undefined
+  readonly faceIndex?: number | undefined
 }
 
 export interface FontResolverOptions {
-  readonly theme?: Partial<ThemeFontSet>
-  readonly substitutions?: Readonly<Record<string, string>>
-  readonly webFonts?: readonly WebFontDefinition[]
-  readonly fallback?: Partial<Record<FontScript, string>>
-  readonly host?: FontLoadingHost
-  readonly shaper?: FontByteShaper
+  readonly theme?: Partial<ThemeFontSet> | undefined
+  readonly substitutions?: Readonly<Record<string, string>> | undefined
+  readonly webFonts?: readonly WebFontDefinition[] | undefined
+  readonly fallback?: Partial<Record<FontScript, string>> | undefined
+  readonly host?: FontLoadingHost | undefined
+  readonly shaper?: FontByteShaper | undefined
 }
 
 export interface FontLoadingHost {
@@ -522,7 +526,7 @@ export class FontResolver {
   readonly #webFonts = new Map<string, WebFontDefinition[]>()
   readonly #fallback: Record<FontScript, string>
   readonly #host: FontLoadingHost
-  readonly #shaper?: FontByteShaper
+  readonly #shaper: FontByteShaper | undefined
   readonly #loaded = new Map<string, Promise<void>>()
   readonly #resolved = new Map<string, Promise<ResolvedFont>>()
 
@@ -669,13 +673,13 @@ export class FontResolver {
 }
 
 export interface EmbeddedFontLoadOptions {
-  readonly maxFontBytes?: number
+  readonly maxFontBytes?: number | undefined
   readonly resource: (partName: string, signal?: AbortSignal) => Promise<ArrayBuffer | Uint8Array>
-  readonly signal?: AbortSignal
+  readonly signal?: AbortSignal | undefined
 }
 
 export interface OpenTypeEmbeddingInfo {
-  readonly fsType?: number
+  readonly fsType?: number | undefined
   readonly permitted: boolean
   readonly reason: 'installable' | 'preview-print' | 'editable' | 'restricted' | 'unknown'
 }
@@ -911,21 +915,21 @@ export interface RichTextLayoutRun {
   readonly fontSize: number
   readonly baselineShift: number
   readonly direction: 'ltr' | 'rtl'
-  readonly outline?: SceneTextStyle['outline']
-  readonly shadow?: SceneTextStyle['shadow']
-  readonly innerShadow?: SceneTextStyle['innerShadow']
-  readonly fill?: SceneFill
-  readonly glow?: SceneTextStyle['glow']
+  readonly outline?: SceneTextStyle['outline'] | undefined
+  readonly shadow?: SceneTextStyle['shadow'] | undefined
+  readonly innerShadow?: SceneTextStyle['innerShadow'] | undefined
+  readonly fill?: SceneFill | undefined
+  readonly glow?: SceneTextStyle['glow'] | undefined
   readonly blurRadius: number
   readonly softEdgeRadius: number
   readonly reflection: boolean
-  readonly shaped?: ShapedFontRun
+  readonly shaped?: ShapedFontRun | undefined
   readonly warpRotation: number
-  readonly bulletImageResource?: number
+  readonly bulletImageResource?: number | undefined
   readonly paragraphIndex: number
-  readonly sourceStart?: number
-  readonly sourceEnd?: number
-  readonly hyperlink?: string
+  readonly sourceStart?: number | undefined
+  readonly sourceEnd?: number | undefined
+  readonly hyperlink?: string | undefined
 }
 
 export interface RichTextLayoutPlan {
@@ -1642,8 +1646,8 @@ export interface RasterImageMetadata {
 }
 
 export interface RasterDecodeLimits {
-  readonly maxBytes?: number
-  readonly maxPixels?: number
+  readonly maxBytes?: number | undefined
+  readonly maxPixels?: number | undefined
 }
 
 /** Reads bounded raster metadata and JPEG EXIF orientation without decoding pixels. */
@@ -1898,13 +1902,13 @@ export interface RenderTelemetry {
 }
 
 export interface CanvasRenderOptions {
-  readonly signal?: AbortSignal
-  readonly fontResolver?: FontResolver
-  readonly imageResolver?: ImageResolver
-  readonly imageCacheKey?: ImageCacheKeyResolver
-  readonly imageCacheBytes?: number
-  readonly resolutionMs?: number
-  readonly scale?: number
+  readonly signal?: AbortSignal | undefined
+  readonly fontResolver?: FontResolver | undefined
+  readonly imageResolver?: ImageResolver | undefined
+  readonly imageCacheKey?: ImageCacheKeyResolver | undefined
+  readonly imageCacheBytes?: number | undefined
+  readonly resolutionMs?: number | undefined
+  readonly scale?: number | undefined
 }
 
 /** Executes one compact scene and owns bounded image, measurement, and layout caches. */
@@ -2240,10 +2244,10 @@ export async function renderOffscreenThumbnail(
 }
 
 export interface VirtualizedViewerOptions {
-  readonly sceneCacheBytes?: number
-  readonly prefetchNeighbors?: number
-  readonly devicePixelRatio?: number
-  readonly onTelemetry?: (slideIndex: number, telemetry: RenderTelemetry) => void
+  readonly sceneCacheBytes?: number | undefined
+  readonly prefetchNeighbors?: number | undefined
+  readonly devicePixelRatio?: number | undefined
+  readonly onTelemetry?: (slideIndex: number, telemetry: RenderTelemetry) => void | undefined
 }
 
 /** Keeps DOM canvases limited to visible slides while prefetching bounded neighbor scenes. */

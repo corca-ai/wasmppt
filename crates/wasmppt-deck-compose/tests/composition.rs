@@ -703,7 +703,13 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
     let cell = |value: u8, text: &str| TableCell {
         id: id(value),
         source: range(u32::from(value), u32::from(value) + 1),
-        content: rich(text),
+        content: RichText {
+            runs: vec![RichTextRun {
+                text: text.to_owned(),
+                marks: Default::default(),
+                hyperlink: None,
+            }],
+        },
     };
     let table_id = id(70);
     let table = SemanticNode {
@@ -893,7 +899,7 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
         .collect::<Vec<_>>();
     assert_eq!(grid_widths.len(), 2);
     assert_ne!(grid_widths[0], grid_widths[1]);
-    assert!(slide_two.contains("val=\"123456\"") && slide_two.contains("<c:chart"));
+    assert!(slide_two.contains("val=\"DEE3E7\"") && slide_two.contains("<c:chart"));
 
     let direct = PresentationDocument::open_source(Arc::new(overlay.clone())).unwrap();
     assert_fragment_geometry(&direct, &plan);
@@ -936,19 +942,46 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
     let header = &resolved_table.rows[0].cells[0];
     assert_eq!(
         (header.fill.red, header.fill.green, header.fill.blue),
-        (0x12, 0x34, 0x56)
+        (0xDE, 0xE3, 0xE7)
     );
     let body = &resolved_table.rows[1].cells[0];
     assert_eq!(
         (body.fill.red, body.fill.green, body.fill.blue),
-        (0xEE, 0xEE, 0xEE)
+        (0xF7, 0xF7, 0xF7)
     );
     let border = header.borders.left.as_ref().unwrap();
     assert_eq!(
         (border.color.red, border.color.green, border.color.blue),
+        (0xD7, 0xD7, 0xD7)
+    );
+    assert_eq!(border.width, 6_350);
+    let header_frame = header.text_frame.as_ref().unwrap();
+    assert_eq!(
+        header_frame.vertical_alignment,
+        wasmppt_layout::TextVerticalAlignment::Center
+    );
+    assert_eq!(
+        (
+            header_frame.margin_left,
+            header_frame.margin_top,
+            header_frame.margin_right,
+            header_frame.margin_bottom,
+        ),
+        (137_160, 91_440, 137_160, 91_440)
+    );
+    let header_run = &header_frame.paragraphs[0].runs[0];
+    assert!(header_run.style.bold);
+    assert_eq!(
+        (
+            header_run.style.color.red,
+            header_run.style.color.green,
+            header_run.style.color.blue,
+        ),
         (0x22, 0x22, 0x22)
     );
-    assert!(resolved_table.rows[0].cells[0].text_frame.is_some());
+    let body_run = &body.text_frame.as_ref().unwrap().paragraphs[0].runs[0];
+    assert!(!body_run.style.bold);
+    assert_eq!(body_run.style.color, header_run.style.color);
     let resolved_chart = direct_slide
         .slide
         .elements

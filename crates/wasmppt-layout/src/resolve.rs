@@ -1690,6 +1690,7 @@ fn parse_table(document: &XmlDocument, start: usize, end: usize, theme: &Theme) 
                 let text = collect_text(document, cell_index, cell_end);
                 let direct_fill =
                     find_direct_table_cell_fill(document, cell_index, cell_end, theme);
+                let text_style = parse_table_cell_text_style(document, cell_index, cell_end);
                 let row_number = rows.len();
                 let column_number = cells.len();
                 let fill = direct_fill.unwrap_or_else(|| {
@@ -1706,11 +1707,8 @@ fn parse_table(document: &XmlDocument, start: usize, end: usize, theme: &Theme) 
                 });
                 cells.push(ResolvedTableCell {
                     text,
-                    text_frame: parse_text_frame(document, cell_index, cell_end, theme).map(
-                        |frame| {
-                            resolve_text_frame(&frame, &PartialTextStyle::default(), false, None)
-                        },
-                    ),
+                    text_frame: parse_text_frame(document, cell_index, cell_end, theme)
+                        .map(|frame| resolve_text_frame(&frame, &text_style, false, None)),
                     row_span: plain_u32(cell_attributes, "rowSpan").unwrap_or(1),
                     column_span: plain_u32(cell_attributes, "gridSpan").unwrap_or(1),
                     horizontal_merge: plain(cell_attributes, "hMerge").is_some_and(ooxml_bool),
@@ -1733,6 +1731,35 @@ fn parse_table(document: &XmlDocument, start: usize, end: usize, theme: &Theme) 
         banded_rows,
         banded_columns,
     }
+}
+
+fn parse_table_cell_text_style(
+    document: &XmlDocument,
+    start: usize,
+    end: usize,
+) -> PartialTextStyle {
+    let mut style = PartialTextStyle::default();
+    if let Some(body) = direct_child_element(document, start, end, "txBody") {
+        let body_end = element_end(document, body).unwrap_or(body).min(end);
+        if let Some(properties) = direct_child_element(document, body, body_end, "bodyPr") {
+            if let TokenKind::Start { attributes, .. } = &document.tokens()[properties].kind {
+                style.overlay(&parse_body_properties(attributes));
+            }
+        }
+    }
+    if let Some(properties) = direct_child_element(document, start, end, "tcPr") {
+        if let TokenKind::Start { attributes, .. } = &document.tokens()[properties].kind {
+            style.overlay(&PartialTextStyle {
+                vertical_alignment: plain(attributes, "anchor").and_then(text_vertical_alignment),
+                margin_left: plain_i64(attributes, "marL"),
+                margin_top: plain_i64(attributes, "marT"),
+                margin_right: plain_i64(attributes, "marR"),
+                margin_bottom: plain_i64(attributes, "marB"),
+                ..PartialTextStyle::default()
+            });
+        }
+    }
+    style
 }
 
 fn find_direct_table_cell_fill(
@@ -3763,8 +3790,8 @@ mod tests {
           <a:tblPr firstRow="1" firstCol="1" bandRow="1" bandCol="0"/>
           <a:tblGrid><a:gridCol w="100"/><a:gridCol w="200"/></a:tblGrid>
           <a:tr h="50">
-            <a:tc gridSpan="2" rowSpan="2"><a:txBody><a:bodyPr/><a:p><a:r><a:rPr b="1"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:rPr><a:t>Header</a:t></a:r></a:p></a:txBody><a:tcPr><a:lnB w="12700"><a:solidFill><a:srgbClr val="445566"/></a:solidFill><a:extLst><a:ext><x:noFill/><x:srgbClr val="ABCDEF"/><x:prstDash val="dot"/></a:ext></a:extLst></a:lnB><a:solidFill><a:srgbClr val="112233"/></a:solidFill></a:tcPr></a:tc>
-            <a:tc hMerge="1"><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr><a:extLst><a:ext><x:solidFill><x:srgbClr val="000000"/></x:solidFill></a:ext></a:extLst></a:tcPr></a:tc>
+            <a:tc gridSpan="2" rowSpan="2"><a:txBody><a:bodyPr anchor="b" lIns="900" tIns="901" rIns="902" bIns="903"/><a:p><a:r><a:rPr b="1"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:rPr><a:t>Header</a:t></a:r></a:p></a:txBody><a:tcPr anchor="ctr" marL="100" marT="200" marR="300" marB="400"><a:lnB w="12700"><a:solidFill><a:srgbClr val="445566"/></a:solidFill><a:extLst><a:ext><x:noFill/><x:srgbClr val="ABCDEF"/><x:prstDash val="dot"/></a:ext></a:extLst></a:lnB><a:solidFill><a:srgbClr val="112233"/></a:solidFill></a:tcPr></a:tc>
+            <a:tc hMerge="1"><a:txBody><a:bodyPr anchor="b" lIns="500" tIns="600" rIns="700" bIns="800"/><a:p/></a:txBody><a:tcPr><a:extLst><a:ext><x:solidFill><x:srgbClr val="000000"/></x:solidFill></a:ext></a:extLst></a:tcPr></a:tc>
           </a:tr>
           <a:tr h="60"><a:tc vMerge="1"><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr/></a:tc></a:tr>
           <a:extLst><a:ext><x:tblPr firstRow="0"/><x:gridCol w="999"/><x:tr h="999"><x:tc><x:tcPr><x:solidFill><x:srgbClr val="000000"/></x:solidFill></x:tcPr></x:tc></x:tr></a:ext></a:extLst>
@@ -3798,7 +3825,35 @@ mod tests {
                 .style
                 .bold
         );
+        let header_frame = header.text_frame.as_ref().unwrap();
+        assert_eq!(
+            header_frame.vertical_alignment,
+            TextVerticalAlignment::Center
+        );
+        assert_eq!(
+            (
+                header_frame.margin_left,
+                header_frame.margin_top,
+                header_frame.margin_right,
+                header_frame.margin_bottom,
+            ),
+            (100, 200, 300, 400)
+        );
         assert!(table.rows[0].cells[1].horizontal_merge);
+        let merged_frame = table.rows[0].cells[1].text_frame.as_ref().unwrap();
+        assert_eq!(
+            merged_frame.vertical_alignment,
+            TextVerticalAlignment::Bottom
+        );
+        assert_eq!(
+            (
+                merged_frame.margin_left,
+                merged_frame.margin_top,
+                merged_frame.margin_right,
+                merged_frame.margin_bottom,
+            ),
+            (500, 600, 700, 800)
+        );
         assert_eq!(
             table.rows[0].cells[1].fill,
             parse_hex_color("4472C4").unwrap()

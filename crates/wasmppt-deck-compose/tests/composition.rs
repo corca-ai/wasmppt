@@ -933,6 +933,21 @@ fn composes_split_editable_table_and_chart_with_live_export_parity() {
             .collect::<Vec<_>>(),
         ["Quarter", "Q2"]
     );
+    let header = &resolved_table.rows[0].cells[0];
+    assert_eq!(
+        (header.fill.red, header.fill.green, header.fill.blue),
+        (0x12, 0x34, 0x56)
+    );
+    let body = &resolved_table.rows[1].cells[0];
+    assert_eq!(
+        (body.fill.red, body.fill.green, body.fill.blue),
+        (0xEE, 0xEE, 0xEE)
+    );
+    let border = header.borders.left.as_ref().unwrap();
+    assert_eq!(
+        (border.color.red, border.color.green, border.color.blue),
+        (0x22, 0x22, 0x22)
+    );
     assert!(resolved_table.rows[0].cells[0].text_frame.is_some());
     let resolved_chart = direct_slide
         .slide

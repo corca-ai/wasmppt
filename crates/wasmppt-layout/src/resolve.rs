@@ -1510,14 +1510,14 @@ fn child_elements(
     end: usize,
     local: &str,
 ) -> Vec<(usize, usize)> {
-    let minimum_depth = document.tokens()[start].depth + 1;
+    let child_depth = document.tokens()[start].depth + 1;
     (start + 1..end)
         .filter_map(|index| {
             let token = &document.tokens()[index];
             matches!(
                 &token.kind,
                 TokenKind::Start { name, .. }
-                    if name.local == local && token.depth >= minimum_depth
+                    if name.local == local && token.depth == child_depth
             )
             .then(|| element_end(document, index).map(|end| (index, end)))
             .flatten()
@@ -1609,21 +1609,38 @@ fn parse_table(document: &XmlDocument, start: usize, end: usize, theme: &Theme) 
     let mut first_column = false;
     let mut banded_rows = false;
     let mut banded_columns = false;
-    for index in start..=end {
+    if let Some(properties) = direct_child_element(document, start, end, "tblPr")
+        && let TokenKind::Start { attributes, .. } = &document.tokens()[properties].kind
+    {
+        first_row = plain(attributes, "firstRow").is_some_and(ooxml_bool);
+        first_column = plain(attributes, "firstCol").is_some_and(ooxml_bool);
+        banded_rows = plain(attributes, "bandRow").is_some_and(ooxml_bool);
+        banded_columns = plain(attributes, "bandCol").is_some_and(ooxml_bool);
+    }
+    if let Some(grid) = direct_child_element(document, start, end, "tblGrid") {
+        let grid_end = element_end(document, grid).unwrap_or(grid).min(end);
+        let column_depth = document.tokens()[grid].depth + 1;
+        for index in grid + 1..grid_end {
+            let TokenKind::Start {
+                name, attributes, ..
+            } = &document.tokens()[index].kind
+            else {
+                continue;
+            };
+            if name.local == "gridCol" && document.tokens()[index].depth == column_depth {
+                column_widths.push(plain_i64(attributes, "w").unwrap_or(0));
+            }
+        }
+    }
+    let row_depth = document.tokens()[start].depth + 1;
+    for index in start + 1..end {
         let TokenKind::Start {
             name, attributes, ..
         } = &document.tokens()[index].kind
         else {
             continue;
         };
-        if name.local == "tblPr" {
-            first_row = plain(attributes, "firstRow").is_some_and(ooxml_bool);
-            first_column = plain(attributes, "firstCol").is_some_and(ooxml_bool);
-            banded_rows = plain(attributes, "bandRow").is_some_and(ooxml_bool);
-            banded_columns = plain(attributes, "bandCol").is_some_and(ooxml_bool);
-        } else if name.local == "gridCol" {
-            column_widths.push(plain_i64(attributes, "w").unwrap_or(0));
-        } else if name.local == "tr" {
+        if name.local == "tr" && document.tokens()[index].depth == row_depth {
             let Some(row_end) = element_end(document, index) else {
                 continue;
             };
@@ -1697,19 +1714,17 @@ fn find_direct_table_cell_fill(
     end: usize,
     theme: &Theme,
 ) -> Option<RgbaColor> {
-    let properties = (start..=end).find(|index| {
-        matches!(
-            &document.tokens()[*index].kind,
-            TokenKind::Start { name, .. } if name.local == "tcPr"
-        )
-    })?;
+    let properties = direct_child_element(document, start, end, "tcPr")?;
     let properties_end = element_end(document, properties)
         .unwrap_or(properties)
         .min(end);
-    (properties..=properties_end).find_map(|fill_index| {
+    let fill_depth = document.tokens()[properties].depth + 1;
+    (properties + 1..properties_end).find_map(|fill_index| {
         matches!(
             &document.tokens()[fill_index].kind,
-            TokenKind::Start { name, .. } if name.local == "solidFill"
+            TokenKind::Start { name, .. }
+                if name.local == "solidFill"
+                    && document.tokens()[fill_index].depth == fill_depth
         )
         .then(|| {
             parse_color(
@@ -1730,13 +1745,23 @@ fn parse_table_cell_borders(
     theme: &Theme,
 ) -> TableCellBorders {
     let mut borders = TableCellBorders::default();
-    for index in start..=end {
+    let Some(properties) = direct_child_element(document, start, end, "tcPr") else {
+        return borders;
+    };
+    let properties_end = element_end(document, properties)
+        .unwrap_or(properties)
+        .min(end);
+    let border_depth = document.tokens()[properties].depth + 1;
+    for index in properties + 1..properties_end {
         let TokenKind::Start {
             name, attributes, ..
         } = &document.tokens()[index].kind
         else {
             continue;
         };
+        if document.tokens()[index].depth != border_depth {
+            continue;
+        }
         let target = match name.local.as_str() {
             "lnL" => &mut borders.left,
             "lnR" => &mut borders.right,
@@ -1744,17 +1769,46 @@ fn parse_table_cell_borders(
             "lnB" => &mut borders.bottom,
             _ => continue,
         };
-        let border_end = element_end(document, index).unwrap_or(index).min(end);
-        if document.tokens()[index..=border_end].iter().any(
-            |token| matches!(&token.kind, TokenKind::Start { name, .. } if name.local == "noFill"),
-        ) {
+        let border_end = element_end(document, index)
+            .unwrap_or(index)
+            .min(properties_end);
+        let property_depth = document.tokens()[index].depth + 1;
+        let mut no_fill = false;
+        let mut color = None;
+        let mut dash = None;
+        for property_index in index + 1..border_end {
+            let property_token = &document.tokens()[property_index];
+            if property_token.depth != property_depth {
+                continue;
+            }
+            let TokenKind::Start {
+                name, attributes, ..
+            } = &property_token.kind
+            else {
+                continue;
+            };
+            match name.local.as_str() {
+                "noFill" => no_fill = true,
+                "solidFill" | "gradFill" | "pattFill" if color.is_none() => {
+                    let fill_end = element_end(document, property_index)
+                        .unwrap_or(property_index)
+                        .min(border_end);
+                    color = parse_color(document, property_index, fill_end, theme);
+                }
+                "prstDash" if dash.is_none() => {
+                    dash = plain(attributes, "val").map(str::to_owned);
+                }
+                _ => {}
+            }
+        }
+        if no_fill {
             *target = None;
             continue;
         }
         *target = Some(Stroke {
-            color: parse_color(document, index, border_end, theme).unwrap_or(BLACK),
+            color: color.unwrap_or(BLACK),
             width: plain_i64(attributes, "w").unwrap_or(9_525),
-            dash: nearest_dash(document, index, border_end),
+            dash,
             head_end: None,
             tail_end: None,
         });
@@ -2064,7 +2118,7 @@ fn parse_shape(
                 attributes,
                 empty,
             } => {
-                let inside_line = stack.iter().any(|local| local == "ln");
+                let direct_parent = stack.last().map(String::as_str);
                 let inside_text_properties = stack
                     .iter()
                     .any(|local| matches!(local.as_str(), "rPr" | "defRPr" | "endParaRPr"));
@@ -2076,7 +2130,7 @@ fn parse_shape(
                             .or_else(|| plain(attributes, "title"))
                             .map(str::to_owned);
                     }
-                    "hlinkClick" => {
+                    "hlinkClick" if direct_parent == Some("cNvPr") => {
                         shape.hyperlink_relationship_id = attributes
                             .iter()
                             .find(|attribute| attribute.name.local == "id")
@@ -2174,28 +2228,45 @@ fn parse_shape(
                             ));
                         }
                     }
-                    "solidFill" if !inside_text_properties => {
+                    "solidFill" if direct_parent == Some("ln") => {
                         if let Some(fill_end) = element_end(document, index) {
                             let color =
                                 parse_color(document, index, fill_end, theme).unwrap_or(BLACK);
-                            if inside_line {
-                                let width =
-                                    nearest_line_width(document, start, index).unwrap_or(12_700);
-                                shape.stroke = Some(Stroke {
-                                    color,
-                                    width,
-                                    dash: nearest_dash(document, index, fill_end),
-                                    head_end: None,
-                                    tail_end: None,
-                                });
-                            } else if shape.fill.is_none() {
-                                shape.fill = Some(Fill::Solid(color));
-                            }
+                            let line = direct_parent_element(document, start, index, "ln");
+                            let width = line
+                                .and_then(|line| match &document.tokens()[line].kind {
+                                    TokenKind::Start { attributes, .. } => {
+                                        plain_i64(attributes, "w")
+                                    }
+                                    _ => None,
+                                })
+                                .unwrap_or(12_700);
+                            let dash = line.and_then(|line| {
+                                nearest_dash(
+                                    document,
+                                    line,
+                                    element_end(document, line).unwrap_or(line).min(end),
+                                )
+                            });
+                            shape.stroke = Some(Stroke {
+                                color,
+                                width,
+                                dash,
+                                head_end: None,
+                                tail_end: None,
+                            });
                         }
                     }
-                    "noFill" if inside_line => shape.stroke = None,
-                    "noFill" => shape.fill = Some(Fill::None),
-                    "gradFill" => {
+                    "solidFill" if direct_parent == Some("spPr") && shape.fill.is_none() => {
+                        if let Some(fill_end) = element_end(document, index) {
+                            let color =
+                                parse_color(document, index, fill_end, theme).unwrap_or(BLACK);
+                            shape.fill = Some(Fill::Solid(color));
+                        }
+                    }
+                    "noFill" if direct_parent == Some("ln") => shape.stroke = None,
+                    "noFill" if direct_parent == Some("spPr") => shape.fill = Some(Fill::None),
+                    "gradFill" if direct_parent == Some("spPr") => {
                         let fill_end = element_end(document, index).unwrap_or(index).min(end);
                         shape.fill = parse_gradient_fill(document, index, fill_end, theme);
                         if shape.fill.is_none() {
@@ -2207,7 +2278,7 @@ fn parse_shape(
                             ));
                         }
                     }
-                    "pattFill" => {
+                    "pattFill" if direct_parent == Some("spPr") => {
                         let fill_end = element_end(document, index).unwrap_or(index).min(end);
                         shape.fill = parse_pattern_fill(document, index, fill_end, theme);
                         if shape.fill.is_none() {
@@ -2218,17 +2289,17 @@ fn parse_shape(
                             ));
                         }
                     }
-                    "headEnd" if inside_line => {
+                    "headEnd" if direct_parent == Some("ln") => {
                         if let Some(stroke) = &mut shape.stroke {
                             stroke.head_end = plain(attributes, "type").and_then(line_end);
                         }
                     }
-                    "tailEnd" if inside_line => {
+                    "tailEnd" if direct_parent == Some("ln") => {
                         if let Some(stroke) = &mut shape.stroke {
                             stroke.tail_end = plain(attributes, "type").and_then(line_end);
                         }
                     }
-                    "blip" => {
+                    "blip" if direct_parent == Some("blipFill") => {
                         shape.image_relationship_id = attributes
                             .iter()
                             .find(|attribute| attribute.name.local == "embed")
@@ -2240,7 +2311,7 @@ fn parse_shape(
                         "media is preserved and its poster may render, but playback is never activated"
                             .to_owned(),
                     )),
-                    "srcRect" => {
+                    "srcRect" if direct_parent == Some("blipFill") => {
                         shape.crop = ImageCrop {
                             left: plain_i32(attributes, "l").unwrap_or(0),
                             top: plain_i32(attributes, "t").unwrap_or(0),
@@ -3388,6 +3459,35 @@ fn element_end(document: &XmlDocument, start: usize) -> Option<usize> {
         })
 }
 
+fn direct_child_element(
+    document: &XmlDocument,
+    start: usize,
+    end: usize,
+    local: &str,
+) -> Option<usize> {
+    let child_depth = document.tokens().get(start)?.depth + 1;
+    (start + 1..end).find(|index| {
+        let token = &document.tokens()[*index];
+        token.depth == child_depth
+            && matches!(&token.kind, TokenKind::Start { name, .. } if name.local == local)
+    })
+}
+
+fn direct_parent_element(
+    document: &XmlDocument,
+    start: usize,
+    index: usize,
+    local: &str,
+) -> Option<usize> {
+    let parent_depth = document.tokens().get(index)?.depth.checked_sub(1)?;
+    (start..index).rev().find(|candidate| {
+        let token = &document.tokens()[*candidate];
+        token.depth == parent_depth
+            && matches!(&token.kind, TokenKind::Start { name, .. } if name.local == local)
+            && element_end(document, *candidate).is_some_and(|end| end >= index)
+    })
+}
+
 fn preset_geometry(value: &str) -> Option<PresetGeometry> {
     match value {
         "rect" => Some(PresetGeometry::Rect),
@@ -3413,25 +3513,12 @@ fn preset_geometry(value: &str) -> Option<PresetGeometry> {
     }
 }
 
-fn nearest_line_width(document: &XmlDocument, start: usize, before: usize) -> Option<i64> {
-    document.tokens()[start..=before]
-        .iter()
-        .rev()
-        .find_map(|token| {
-            let TokenKind::Start {
-                name, attributes, ..
-            } = &token.kind
-            else {
-                return None;
-            };
-            (name.local == "ln")
-                .then(|| plain_i64(attributes, "w"))
-                .flatten()
-        })
-}
-
 fn nearest_dash(document: &XmlDocument, start: usize, end: usize) -> Option<String> {
+    let property_depth = document.tokens()[start].depth + 1;
     document.tokens()[start..=end].iter().find_map(|token| {
+        if token.depth != property_depth {
+            return None;
+        }
         let TokenKind::Start {
             name, attributes, ..
         } = &token.kind
@@ -3524,6 +3611,7 @@ mod tests {
             "",
             r#"<mc:Fallback><p:pic><p:nvPicPr><p:cNvPr id="81" name="No relationship"/></p:nvPicPr></p:pic></mc:Fallback>"#,
             r#"<mc:Fallback><p:pic><p:nvPicPr><p:cNvPr id="81" name="First"/></p:nvPicPr><p:blipFill><a:blip r:embed="rOne"/></p:blipFill></p:pic><p:pic><p:nvPicPr><p:cNvPr id="82" name="Second"/></p:nvPicPr><p:blipFill><a:blip r:embed="rTwo"/></p:blipFill></p:pic></mc:Fallback>"#,
+            r#"<mc:Fallback><p:grpSp><p:nvGrpSpPr/><p:grpSpPr/><p:pic><p:nvPicPr><p:cNvPr id="81" name="Nested picture"/></p:nvPicPr><p:blipFill><a:blip r:embed="rNested"/></p:blipFill></p:pic></p:grpSp></mc:Fallback>"#,
         ] {
             let source = smartart_alternate_content(fallback);
             let document = XmlDocument::parse(source.into_bytes()).unwrap();
@@ -3633,14 +3721,15 @@ mod tests {
 
     #[test]
     fn parses_table_formatting_merges_and_rich_text_without_leaking_text_color() {
-        let source = br#"<a:tbl xmlns:a="a">
+        let source = br#"<a:tbl xmlns:a="a" xmlns:x="extension">
           <a:tblPr firstRow="1" firstCol="1" bandRow="1" bandCol="0"/>
           <a:tblGrid><a:gridCol w="100"/><a:gridCol w="200"/></a:tblGrid>
           <a:tr h="50">
-            <a:tc gridSpan="2" rowSpan="2"><a:txBody><a:bodyPr/><a:p><a:r><a:rPr b="1"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:rPr><a:t>Header</a:t></a:r></a:p></a:txBody><a:tcPr><a:solidFill><a:srgbClr val="112233"/></a:solidFill><a:lnB w="12700"><a:solidFill><a:srgbClr val="445566"/></a:solidFill></a:lnB></a:tcPr></a:tc>
-            <a:tc hMerge="1"><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr/></a:tc>
+            <a:tc gridSpan="2" rowSpan="2"><a:txBody><a:bodyPr/><a:p><a:r><a:rPr b="1"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:rPr><a:t>Header</a:t></a:r></a:p></a:txBody><a:tcPr><a:lnB w="12700"><a:solidFill><a:srgbClr val="445566"/></a:solidFill><a:extLst><a:ext><x:noFill/><x:srgbClr val="ABCDEF"/><x:prstDash val="dot"/></a:ext></a:extLst></a:lnB><a:solidFill><a:srgbClr val="112233"/></a:solidFill></a:tcPr></a:tc>
+            <a:tc hMerge="1"><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr><a:extLst><a:ext><x:solidFill><x:srgbClr val="000000"/></x:solidFill></a:ext></a:extLst></a:tcPr></a:tc>
           </a:tr>
           <a:tr h="60"><a:tc vMerge="1"><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr/></a:tc></a:tr>
+          <a:extLst><a:ext><x:tblPr firstRow="0"/><x:gridCol w="999"/><x:tr h="999"><x:tc><x:tcPr><x:solidFill><x:srgbClr val="000000"/></x:solidFill></x:tcPr></x:tc></x:tr></a:ext></a:extLst>
         </a:tbl>"#;
         let document = XmlDocument::parse(source.as_slice()).unwrap();
         let table = parse_table(
@@ -3651,6 +3740,7 @@ mod tests {
         );
 
         assert_eq!(table.column_widths, [100, 200]);
+        assert_eq!(table.rows.len(), 2);
         assert!(table.first_row);
         assert!(table.first_column);
         assert!(table.banded_rows);
@@ -3660,12 +3750,21 @@ mod tests {
         assert_eq!(header.row_span, 2);
         assert_eq!(header.fill, parse_hex_color("112233").unwrap());
         assert_eq!(header.borders.bottom.as_ref().unwrap().width, 12_700);
+        assert_eq!(
+            header.borders.bottom.as_ref().unwrap().color,
+            parse_hex_color("445566").unwrap()
+        );
+        assert_eq!(header.borders.bottom.as_ref().unwrap().dash, None);
         assert!(
             header.text_frame.as_ref().unwrap().paragraphs[0].runs[0]
                 .style
                 .bold
         );
         assert!(table.rows[0].cells[1].horizontal_merge);
+        assert_eq!(
+            table.rows[0].cells[1].fill,
+            parse_hex_color("4472C4").unwrap()
+        );
         assert!(table.rows[1].cells[0].vertical_merge);
     }
 
@@ -3775,8 +3874,75 @@ mod tests {
     }
 
     #[test]
+    fn descendant_paint_does_not_override_shape_fill() {
+        for descendant in [
+            r#"<a:rPr><a:noFill/></a:rPr>"#,
+            r#"<a:rPr><a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="FF0000"/></a:gs><a:gs pos="100000"><a:srgbClr val="0000FF"/></a:gs></a:gsLst></a:gradFill></a:rPr>"#,
+            r#"<a:rPr><a:pattFill prst="cross"><a:fgClr><a:srgbClr val="FF0000"/></a:fgClr><a:bgClr><a:srgbClr val="00FF00"/></a:bgClr></a:pattFill></a:rPr>"#,
+            r#"<a:ln><a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="FF0000"/></a:gs><a:gs pos="100000"><a:srgbClr val="0000FF"/></a:gs></a:gsLst></a:gradFill></a:ln>"#,
+            r#"<a:ln><a:pattFill prst="cross"><a:fgClr><a:srgbClr val="FF0000"/></a:fgClr><a:bgClr><a:srgbClr val="00FF00"/></a:bgClr></a:pattFill></a:ln>"#,
+        ] {
+            let source = format!(
+                r#"<p:sp xmlns:p="p" xmlns:a="a"><p:spPr><a:solidFill><a:srgbClr val="112233"/></a:solidFill>{line_paint}</p:spPr><p:txBody><a:bodyPr/><a:p><a:r>{run_paint}<a:t>Text</a:t></a:r></a:p></p:txBody></p:sp>"#,
+                line_paint = if descendant.starts_with("<a:ln>") {
+                    descendant
+                } else {
+                    ""
+                },
+                run_paint = if descendant.starts_with("<a:rPr>") {
+                    descendant
+                } else {
+                    ""
+                },
+            );
+            let document = XmlDocument::parse(source.into_bytes()).unwrap();
+            let shape = parse_shape(
+                &document,
+                0,
+                element_end(&document, 0).unwrap(),
+                Vec::new(),
+                &Theme::default(),
+                &mut Vec::new(),
+            );
+
+            assert_eq!(
+                shape.fill,
+                Some(Fill::Solid(parse_hex_color("112233").unwrap())),
+                "descendant paint must not become the shape body fill: {descendant}",
+            );
+        }
+    }
+
+    #[test]
+    fn text_links_and_picture_bullets_do_not_become_shape_properties() {
+        let source = br#"<p:sp xmlns:p="p" xmlns:a="a" xmlns:r="r">
+          <p:nvSpPr><p:cNvPr id="1" name="Linked shape"><a:hlinkClick r:id="rShape"/></p:cNvPr><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+          <p:spPr/>
+          <p:txBody><a:bodyPr/><a:p><a:pPr><a:buBlip><a:blip r:embed="rBullet"/></a:buBlip></a:pPr><a:r><a:rPr><a:hlinkClick r:id="rRun"/></a:rPr><a:t>Item</a:t></a:r></a:p></p:txBody>
+        </p:sp>"#;
+        let document = XmlDocument::parse(source.as_slice()).unwrap();
+        let shape = parse_shape(
+            &document,
+            0,
+            element_end(&document, 0).unwrap(),
+            Vec::new(),
+            &Theme::default(),
+            &mut Vec::new(),
+        );
+
+        assert_eq!(shape.hyperlink_relationship_id.as_deref(), Some("rShape"));
+        assert_eq!(shape.image_relationship_id, None);
+        assert_eq!(
+            shape.text_frame.as_ref().unwrap().paragraphs[0]
+                .bullet_image_relationship_id
+                .as_deref(),
+            Some("rBullet")
+        );
+    }
+
+    #[test]
     fn lowers_linear_gradient_custom_path_shadow_and_line_ends() {
-        let source = br#"<p:sp xmlns:p="p" xmlns:a="a">
+        let source = br#"<p:sp xmlns:p="p" xmlns:a="a" xmlns:x="extension">
           <p:spPr>
             <a:custGeom><a:pathLst><a:path w="100" h="100">
               <a:moveTo><a:pt x="0" y="0"/></a:moveTo>
@@ -3790,7 +3956,8 @@ mod tests {
               <a:gs pos="100000"><a:srgbClr val="0000FF"/></a:gs>
             </a:gsLst><a:lin ang="5400000"/></a:gradFill>
             <a:ln w="12700"><a:solidFill><a:srgbClr val="000000"/></a:solidFill>
-              <a:headEnd type="triangle"/><a:tailEnd type="diamond"/></a:ln>
+              <a:prstDash val="dash"/><a:headEnd type="triangle"/><a:tailEnd type="diamond"/>
+              <a:extLst><a:ext><x:prstDash val="dot"/></a:ext></a:extLst></a:ln>
             <a:effectLst><a:outerShdw blurRad="100" dist="200" dir="5400000">
               <a:srgbClr val="333333"/>
             </a:outerShdw></a:effectLst>
@@ -3820,6 +3987,7 @@ mod tests {
         assert!(matches!(commands[3], PathCommand::CubicTo { .. }));
         assert!(matches!(commands[4], PathCommand::ArcTo { .. }));
         let stroke = shape.stroke.unwrap();
+        assert_eq!(stroke.dash.as_deref(), Some("dash"));
         assert_eq!(stroke.head_end, Some(LineEnd::Triangle));
         assert_eq!(stroke.tail_end, Some(LineEnd::Diamond));
         assert_eq!(shape.outer_shadow.unwrap().distance, 200);

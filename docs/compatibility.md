@@ -111,7 +111,7 @@ machines inspect the uploaded report but never synthesize a PowerPoint reference
 
 ## Diagnostics and policy evolution
 
-WPDL v2 through v10 transport resolver diagnostics unchanged to Canvas and DOM/SVG. New diagnostic variants
+WPDL v2 through v11 transport resolver diagnostics unchanged to Canvas and DOM/SVG. New diagnostic variants
 append stable numeric wire codes. Unknown future codes decode as `unknown`, so older frontends fail
 honestly without corrupting the scene. Security-limit regressions and unknown-markup loss are test
 failures, never benchmark tradeoffs.

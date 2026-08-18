@@ -24,10 +24,11 @@ normal-AutoFit hints, shape-resize bounds, columns, lazy embedded fonts, and edi
 outlines, outer shadows, glow, blur, soft edges, and reflection. WPDL version 8 separates inner
 shadow paint from outer shadow paint. WPDL version 9 distinguishes source-faithful AutoFit from
 live-edited recomputation. WPDL version 10 adds explicit reading order and optional source-backed
-semantic identity and ranges. The decoder retains v1-v9 compatibility.
+semantic identity and ranges. WPDL version 11 keeps hyperlinks on their owning rich-text runs
+instead of promoting descendant links to the whole shape. The decoder retains v1-v10 compatibility.
 
-The resolver reads `cNvPr` description/title attributes and hyperlink relationships. External
-links are retained in the scene. The browser exposes clickable `http`, `https`, `mailto`, and
+The resolver reads shape hyperlinks from `cNvPr` and run hyperlinks from the run's direct `rPr`.
+External links are retained in the scene at that ownership boundary. The browser exposes clickable `http`, `https`, `mailto`, and
 `tel` links; unsafe schemes remain available as selection metadata but are not activated.
 
 ## DOM contract

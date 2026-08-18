@@ -87,6 +87,7 @@ export interface SceneTextRun {
   readonly style: SceneTextStyle
   readonly eastAsianFontFamily?: string
   readonly complexScriptFontFamily?: string
+  readonly hyperlink?: string
 }
 
 export interface SceneParagraph {
@@ -304,7 +305,7 @@ export interface DisplayScene {
 }
 
 /**
- * Decode WPDL v1-v10 defensively before touching Canvas APIs.
+ * Decode WPDL v1-v11 defensively before touching Canvas APIs.
  * Counts, references, safe-integer coordinates, group balance, truncation, and trailing bytes are
  * validated before a scene is returned.
  */
@@ -313,7 +314,7 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
   const reader = new BinaryReader(bytes)
   if (reader.ascii(4) !== 'WPDL') throw new Error('display list has an invalid magic value')
   const version = reader.u16()
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8 && version !== 9 && version !== 10) {
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8 && version !== 9 && version !== 10 && version !== 11) {
     throw new Error(`unsupported display-list version ${version}`)
   }
   if (reader.u16() !== 0) throw new Error('display-list reserved flags are non-zero')
@@ -924,6 +925,7 @@ export interface RichTextLayoutRun {
   readonly paragraphIndex: number
   readonly sourceStart?: number
   readonly sourceEnd?: number
+  readonly hyperlink?: string
 }
 
 export interface RichTextLayoutPlan {
@@ -1236,6 +1238,7 @@ export async function buildRichTextLayout(
               paragraphIndex,
               sourceStart: isBullet ? undefined : paragraphSourceOffset + fragmentSourceOffset,
               sourceEnd: isBullet ? undefined : paragraphSourceOffset + fragmentSourceOffset + token.length,
+              hyperlink: isBullet ? undefined : run.hyperlink,
             })
             lineWidth += width
             lineHeight = Math.max(lineHeight, fontSize * 1.2)
@@ -2608,11 +2611,13 @@ function readCommand(
           const style = readTextStyle(reader, version)
           const eastAsianFontFamily = reader.utf8Blob()
           const complexScriptFontFamily = reader.utf8Blob()
+          const hyperlink = version >= 11 ? reader.utf8Blob() : ''
           runs.push({
             text,
             style,
             eastAsianFontFamily: eastAsianFontFamily || undefined,
             complexScriptFontFamily: complexScriptFontFamily || undefined,
+            hyperlink: hyperlink || undefined,
           })
         }
         paragraphs.push({

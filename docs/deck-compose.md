@@ -64,8 +64,9 @@ retain their original paint.
 
 Tables remain native DrawingML tables. Planned row slices retain source order, continuation pages
 prepend exactly the planned source header rows, and every cell uses the same editable rich-run and
-hyperlink writer as ordinary text. The template plan's region text style and theme color slots
-drive cell text, header fill, banding, and borders. Column widths are deterministic content-demand
+hyperlink writer as ordinary text. Theme color slots drive a light accent-tinted header with dark
+bold text, quiet alternating surfaces, and low-contrast borders. Cell-owned padding and a center
+vertical anchor keep the declared horizontal alignment while avoiding corner-bound text. Column widths are deterministic content-demand
 weights derived from visible cell text and declared start/center/end alignment; a wide table keeps
 extra width for its leading key column. Row heights likewise follow the maximum wrapped-cell demand
 for each visible row. The weighted geometry consumes the exact planned frame, retains declared cell

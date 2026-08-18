@@ -9,7 +9,9 @@ by [Microsoft's OOXML implementation notes](https://learn.microsoft.com/en-us/op
 ## Tables
 
 The lazy resolver reads grid-column widths, row heights, rich cell text, horizontal/vertical merge topology,
-banding flags, solid cell fills, and per-side borders. It lowers each visible cell to the same
+banding flags, solid cell fills, per-side borders, and the cell-owned text margins and vertical
+anchor from `a:tcPr`. Cell properties override `a:bodyPr` for those values, matching DrawingML's
+table ownership boundary. It lowers each visible cell to the same
 fill, stroke, and text primitives used
 by ordinary shapes, so Canvas and SVG do not own table layout logic. Template generation retains
 the compiled repeated-row mechanism: it clones the original `a:tr`, patches bound cell text, and
@@ -20,8 +22,9 @@ source slide through the same deterministic topology path as explicit slide copi
 second continuation table or an explicit copy request on the same source slide before emission.
 
 Deck composition creates native tables directly from planned row slices. It repeats declared
-header rows only on derived slices, uses region rich-text properties for cells, and derives fills
-and borders from the compiled theme. Equal deterministic row and column allocation is the explicit
+header rows only on derived slices and derives a restrained, contrast-safe table treatment from
+the compiled theme: dark text, a lightly tinted and bold header, subtle banding and borders, padded
+cells, and vertical centering. Equal deterministic row and column allocation is the explicit
 fallback because the semantic deck contract carries no author-invented row or column measurements.
 
 ## Charts

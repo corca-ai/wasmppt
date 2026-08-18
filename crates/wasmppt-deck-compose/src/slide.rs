@@ -4,7 +4,7 @@ use wasmppt_deck::{
     ChartContent, ChartKind, DeckSpec, EmuRect, EmuSize, FragmentSlice, HyperlinkKind, ListContent,
     PhysicalPage, PlannedFragment, PlannedRegion, RegionRole, RichText, RichTextRun,
     SemanticContent, SemanticNode, StableId, TableColumnAlignment, TableContent, TemplateLayout,
-    TemplateRegion, TemplateTextLevel, TemplateTheme,
+    TemplateRegion, TemplateTextColor, TemplateTextLevel, TemplateTheme,
 };
 use wasmppt_template::{ChartData, ChartSeriesData, EditableChartKind, build_editable_chart};
 
@@ -476,7 +476,22 @@ impl SlideWriter<'_> {
         }
         self.xml.push_str("</a:tblGrid>");
         let row_heights = table_row_lengths(&rows, &column_widths, frame.height)?;
-        let style = region.text_levels.first();
+        let surface = theme_rgb(self.theme, "lt1", 0x00ff_ffff);
+        let alternate_surface = mix_rgb(theme_rgb(self.theme, "lt2", 0x00e7_e6e6), surface, 50);
+        let text = theme_rgb(self.theme, "dk1", 0x0017_2033);
+        let accent = theme_rgb(self.theme, "accent1", 0x0044_72c4);
+        let header_fill = mix_rgb(accent, surface, 14);
+        let border = mix_rgb(text, surface, 18);
+        let mut body_style = region.text_levels.first().cloned().unwrap_or_default();
+        body_style.color = Some(TemplateTextColor {
+            scheme: None,
+            rgb: text,
+        });
+        body_style.bold = Some(false);
+        body_style.margin_left = Some(0);
+        body_style.indent = Some(0);
+        let mut header_style = body_style.clone();
+        header_style.bold = Some(true);
         for (rendered_index, (row, height)) in rows.iter().zip(row_heights).enumerate() {
             let source_index = if rendered_index < repeated {
                 rendered_index
@@ -492,22 +507,21 @@ impl SlideWriter<'_> {
                     .aligned(table.columns[column_index].alignment);
                 self.paragraph(
                     &paragraph,
-                    style,
+                    Some(if header { &header_style } else { &body_style }),
                     Some(fragment.type_choice.font_size),
                     false,
                 )?;
-                self.xml.push_str("</a:txBody><a:tcPr marL=\"91440\" marR=\"91440\" marT=\"45720\" marB=\"45720\">");
+                self.xml.push_str("</a:txBody><a:tcPr anchor=\"ctr\" marL=\"137160\" marR=\"137160\" marT=\"91440\" marB=\"91440\">");
                 let fill = if header {
-                    theme_rgb(self.theme, "accent1", 0x0044_72c4)
+                    header_fill
                 } else if rendered_index % 2 == 1 {
-                    theme_rgb(self.theme, "lt2", 0x00e7_e6e6)
+                    alternate_surface
                 } else {
-                    theme_rgb(self.theme, "lt1", 0x00ff_ffff)
+                    surface
                 };
-                let border = theme_rgb(self.theme, "dk1", 0x007f_7f7f);
                 // CT_TableCellProperties requires border lines before its fill choice.
                 for side in ["L", "R", "T", "B"] {
-                    self.xml.push_str(&format!("<a:ln{side} w=\"9525\"><a:solidFill><a:srgbClr val=\"{border:06X}\"/></a:solidFill><a:prstDash val=\"solid\"/></a:ln{side}>"));
+                    self.xml.push_str(&format!("<a:ln{side} w=\"6350\"><a:solidFill><a:srgbClr val=\"{border:06X}\"/></a:solidFill><a:prstDash val=\"solid\"/></a:ln{side}>"));
                 }
                 self.xml.push_str(&format!(
                     "<a:solidFill><a:srgbClr val=\"{fill:06X}\"/></a:solidFill>"
@@ -1206,6 +1220,20 @@ fn theme_rgb(theme: &TemplateTheme, slot: &str, fallback: u32) -> u32 {
         .iter()
         .find(|color| color.slot == slot)
         .map_or(fallback, |color| color.rgb & 0x00ff_ffff)
+}
+
+fn mix_rgb(foreground: u32, background: u32, foreground_percent: u32) -> u32 {
+    let foreground_percent = foreground_percent.min(100);
+    let background_percent = 100 - foreground_percent;
+    [16, 8, 0].into_iter().fold(0, |rgb, shift| {
+        let foreground_channel = (foreground >> shift) & 0xff;
+        let background_channel = (background >> shift) & 0xff;
+        let mixed = (foreground_channel * foreground_percent
+            + background_channel * background_percent
+            + 50)
+            / 100;
+        rgb | (mixed << shift)
+    })
 }
 
 const fn chart_kind(kind: ChartKind) -> EditableChartKind {

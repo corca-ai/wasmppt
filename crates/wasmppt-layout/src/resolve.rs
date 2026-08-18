@@ -1609,13 +1609,13 @@ fn parse_table(document: &XmlDocument, start: usize, end: usize, theme: &Theme) 
     let mut first_column = false;
     let mut banded_rows = false;
     let mut banded_columns = false;
-    if let Some(properties) = direct_child_element(document, start, end, "tblPr")
-        && let TokenKind::Start { attributes, .. } = &document.tokens()[properties].kind
-    {
-        first_row = plain(attributes, "firstRow").is_some_and(ooxml_bool);
-        first_column = plain(attributes, "firstCol").is_some_and(ooxml_bool);
-        banded_rows = plain(attributes, "bandRow").is_some_and(ooxml_bool);
-        banded_columns = plain(attributes, "bandCol").is_some_and(ooxml_bool);
+    if let Some(properties) = direct_child_element(document, start, end, "tblPr") {
+        if let TokenKind::Start { attributes, .. } = &document.tokens()[properties].kind {
+            first_row = plain(attributes, "firstRow").is_some_and(ooxml_bool);
+            first_column = plain(attributes, "firstCol").is_some_and(ooxml_bool);
+            banded_rows = plain(attributes, "bandRow").is_some_and(ooxml_bool);
+            banded_columns = plain(attributes, "bandCol").is_some_and(ooxml_bool);
+        }
     }
     if let Some(grid) = direct_child_element(document, start, end, "tblGrid") {
         let grid_end = element_end(document, grid).unwrap_or(grid).min(end);

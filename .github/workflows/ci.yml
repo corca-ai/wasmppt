@@ -113,7 +113,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install pinned Rust toolchain
         run: rustup show
-      - uses: taiki-e/install-action@b20dedce73af6905cdc30d6611090c9b67557c8d # v2
+      - uses: taiki-e/install-action@288e746965032cfcc232e09af2daf5f23c14d780 # v2
         with:
           tool: cargo-nextest@0.9.143
       - name: Check formatting
@@ -137,7 +137,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install LLVM coverage support
         run: rustup component add llvm-tools-preview
-      - uses: taiki-e/install-action@b20dedce73af6905cdc30d6611090c9b67557c8d # v2
+      - uses: taiki-e/install-action@288e746965032cfcc232e09af2daf5f23c14d780 # v2
         with:
           tool: cargo-llvm-cov@0.8.7
       - name: Measure the host-agnostic core
@@ -430,7 +430,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: taiki-e/install-action@b20dedce73af6905cdc30d6611090c9b67557c8d # v2
+      - uses: taiki-e/install-action@288e746965032cfcc232e09af2daf5f23c14d780 # v2
         with:
           tool: cargo-deny@0.19.8,cargo-machete@0.9.2
       - name: Check advisory, license, source, and duplicate policy

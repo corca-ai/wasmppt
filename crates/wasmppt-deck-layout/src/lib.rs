@@ -1093,22 +1093,31 @@ impl DeckPlanner {
                     )
                     .map_err(|failure| measure_error(failure, unit.node.id))?;
                 let intrinsic = measurer.intrinsic_size(unit.node);
-                let (width, height) = if let Some(size) = intrinsic {
+                let (width, height, leading_space) = if let Some(size) = intrinsic {
                     let natural = display_math_natural_size(size, font_size);
-                    (natural.width, natural.height)
+                    (natural.width, natural.height, 0)
                 } else {
+                    let leading_space = measurer.inline_leading_space_width(
+                        unit.node,
+                        unit.slice,
+                        target.region,
+                        font_size,
+                    );
                     (
                         measurer
                             .inline_text_width(unit.node, unit.slice, target.region, font_size)
-                            .min(content.width),
+                            .min(content.width)
+                            .saturating_add(leading_space),
                         line_height,
+                        leading_space,
                     )
                 };
-                if width <= 0 || height <= 0 || width > content.width {
+                if width <= 0 || height <= 0 || width.saturating_sub(leading_space) > content.width
+                {
                     failed = true;
                     break;
                 }
-                items.push((*unit, measured, intrinsic, width, height));
+                items.push((*unit, measured, intrinsic, width, height, leading_space));
             }
 
             if !failed {
@@ -1116,14 +1125,24 @@ impl DeckPlanner {
                 let mut line_start = 0usize;
                 let mut line_width: Emu = 0;
                 let mut line_height_max: Emu = 0;
-                for (index, (_, _, _, width, height)) in items.iter().enumerate() {
-                    if line_width > 0 && line_width.saturating_add(*width) > content.width {
+                for (index, (_, _, _, width, height, leading_space)) in items.iter().enumerate() {
+                    let packed_width = if line_width == 0 {
+                        width.saturating_sub(*leading_space).max(1)
+                    } else {
+                        *width
+                    };
+                    if line_width > 0 && line_width.saturating_add(packed_width) > content.width {
                         lines.push((line_start, index, line_width, line_height_max));
                         line_start = index;
                         line_width = 0;
                         line_height_max = 0;
                     }
-                    line_width = line_width.saturating_add(*width);
+                    let packed_width = if line_width == 0 {
+                        width.saturating_sub(*leading_space).max(1)
+                    } else {
+                        *width
+                    };
+                    line_width = line_width.saturating_add(packed_width);
                     line_height_max = line_height_max.max(*height);
                 }
                 lines.push((line_start, items.len(), line_width, line_height_max));
@@ -1146,11 +1165,16 @@ impl DeckPlanner {
                     let mut y = content.y;
                     for (start, end, _, row_height) in lines {
                         let mut x = content.x;
-                        for (unit, measured, intrinsic, width, height) in &items[start..end] {
+                        for (unit, measured, intrinsic, width, height, leading_space) in
+                            &items[start..end]
+                        {
+                            let at_line_start = x == content.x;
+                            let visible_width = width.saturating_sub(*leading_space).max(1);
+                            let gap = if at_line_start { 0 } else { *leading_space };
                             let slot = EmuRect {
-                                x,
+                                x: x.saturating_add(gap),
                                 y: y.saturating_add(row_height.saturating_sub(*height) / 2),
-                                width: *width,
+                                width: visible_width,
                                 height: *height,
                             };
                             let media =
@@ -1167,7 +1191,7 @@ impl DeckPlanner {
                                 media,
                                 repeat_table_header_rows: target.repeat_table_header_rows,
                             });
-                            x = x.saturating_add(*width);
+                            x = x.saturating_add(visible_width).saturating_add(gap);
                         }
                         y = y.saturating_add(row_height).saturating_add(inline_line_gap);
                     }
@@ -3444,7 +3468,7 @@ mod tests {
                     7,
                     SemanticRole::Prose,
                     SplitPolicy::Never,
-                    " remains inline.",
+                    "\nremains inline.",
                 ),
             ]),
         };
@@ -3479,6 +3503,10 @@ mod tests {
         });
 
         assert!(parts.windows(2).all(|pair| pair[0].x < pair[1].x));
+        assert!(
+            parts[2].x > parts[1].x.saturating_add(parts[1].width),
+            "the authored space after inline math must be physical layout space: {parts:?}"
+        );
         let leading = fragments(&plan.pages[0])
             .find(|fragment| fragment.source_node_id == id(5))
             .unwrap();

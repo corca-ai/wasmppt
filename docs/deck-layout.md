@@ -142,6 +142,9 @@ scales each formula from its natural CSS-pixel extent at that same size, packs t
 order, and wraps only between atoms. Atoms on one row are vertically centered against the row's
 maximum extent. Inline text uses font advances when the requested font is available and a
 character-class advance estimate otherwise; it does not inherit the block-flow minimum width.
+Leading soft whitespace after a formula becomes one measured word-space gap in the fragment
+geometry instead of relying on a consumer to paint whitespace at the start of a separate text
+box. The same whitespace collapses when its atom starts a wrapped row.
 The direct-container and same-role requirements keep sections that contain
 standalone display math, media-caption groups, and ordinary prose children in their block flows.
 

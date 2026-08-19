@@ -234,6 +234,26 @@ impl<'a> Measurer<'a> {
         font_size: u32,
     ) -> Emu {
         let (text, _, _, _) = self.measure_content(node, slice);
+        let text = text.trim_start_matches(is_inline_soft_whitespace);
+        self.inline_text_advance(text, region, font_size).max(1)
+    }
+
+    pub(crate) fn inline_leading_space_width(
+        &self,
+        node: &SemanticNode,
+        slice: FragmentSlice,
+        region: &TemplateRegion,
+        font_size: u32,
+    ) -> Emu {
+        let (text, _, _, _) = self.measure_content(node, slice);
+        if text.starts_with(is_inline_soft_whitespace) {
+            self.inline_text_advance(" ", region, font_size).max(1)
+        } else {
+            0
+        }
+    }
+
+    fn inline_text_advance(&self, text: &str, region: &TemplateRegion, font_size: u32) -> Emu {
         let requested_family = region
             .text_levels
             .first()
@@ -254,8 +274,7 @@ impl<'a> Measurer<'a> {
                 )
             })
             .max()
-            .unwrap_or(1)
-            .max(1)
+            .unwrap_or(0)
     }
 
     pub(crate) fn intrinsic_size(&self, node: &SemanticNode) -> Option<PixelSize> {
@@ -581,6 +600,10 @@ fn approximate_inline_text_advance(text: &str, font_size: u32) -> Emu {
         total.saturating_add(width)
     });
     font_size_to_emu(font_size).saturating_mul(units) / 1_000
+}
+
+fn is_inline_soft_whitespace(character: char) -> bool {
+    matches!(character, ' ' | '\t' | '\n' | '\r')
 }
 
 impl From<FragmentSlice> for SliceKey {

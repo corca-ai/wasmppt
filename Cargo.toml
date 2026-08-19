@@ -36,7 +36,7 @@ emf-core = { version = "0.1.0", default-features = false, features = ["svg"] }
 js-sys = "0.3.104"
 proptest = { version = "1.11.0", default-features = false, features = ["std"] }
 png = "0.18.1"
-harfrust = "0.12.0"
+harfrust = "0.13.0"
 read-fonts = "0.41.0"
 unicode-linebreak = "0.1.5"
 sha2 = { version = "0.10.9", default-features = false }

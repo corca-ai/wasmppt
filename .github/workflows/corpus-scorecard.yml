@@ -19,7 +19,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - uses: dtolnay/rust-toolchain@85c23e28f7ccc75a9a153d45d385d94a85464876 # dtolnay/rust-toolchain@1.85.1
+      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b # dtolnay/rust-toolchain@1.85.1
       - run: npm ci
       - run: cargo build --locked -p wasmppt-cli
       - run: node scripts/corpus-scorecard.mjs --all --output=target/corpus-scorecard-all.json

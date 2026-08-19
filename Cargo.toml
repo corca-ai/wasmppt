@@ -37,7 +37,7 @@ js-sys = "0.3.104"
 proptest = { version = "1.11.0", default-features = false, features = ["std"] }
 png = "0.18.1"
 harfrust = "0.12.0"
-read-fonts = "0.41.0"
+read-fonts = "0.43.0"
 unicode-linebreak = "0.1.5"
 sha2 = { version = "0.10.9", default-features = false }
 wasm-bindgen = "0.2.127"

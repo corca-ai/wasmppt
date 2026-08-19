@@ -53,8 +53,9 @@ formula pictures so PowerPoint performs normal word spacing inside the sentence;
 otherwise consumes the planned horizontal frames without repeating baseline, wrapping, or
 formula-size decisions. DrawingML text runs whose source starts or ends in whitespace use
 `xml:space="preserve"`, so the leading space after a formula picture and the trailing space before
-one survive PowerPoint's XML whitespace handling. `planned_shapes` exposes that exact coalesced
-shape inventory to the Wasm
+one survive round trips, while the planner-owned fragment offset provides the visible leading gap
+without depending on PowerPoint to paint whitespace at a text-box boundary. `planned_shapes`
+exposes that exact coalesced shape inventory to the Wasm
 display-list projection, so browser preview, offline HTML, and PPTX use the same shape identifiers
 and unioned bounds rather than comparing a merged text box with its pre-merge fragments. Formula
 SVG paint that uses the CSS `currentColor` keyword resolves to the

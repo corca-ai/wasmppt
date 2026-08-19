@@ -10,7 +10,9 @@ use std::{
     sync::Arc,
 };
 
-use media::{PreparedMediaKey, prepare_formula_media, prepare_media};
+use media::{
+    PreparedMediaKey, prepare_formula_fallback_media, prepare_formula_media, prepare_media,
+};
 use package_xml::{patch_content_types, patch_presentation, patch_presentation_relationships};
 use sha2::{Digest, Sha256};
 pub use slide::{PlannedShape, planned_shapes};
@@ -174,29 +176,44 @@ impl DeckComposer {
         let formula_svg_nodes = formula_svg_node_ids(&nodes);
         let mut prepared = BTreeMap::new();
         for node in nodes.values() {
-            let (resource_id, key) = match &node.content {
+            let (resource_id, key, fallback) = match &node.content {
                 SemanticContent::Image(image) => (
                     image.resource_id,
                     PreparedMediaKey::Resource(image.resource_id),
+                    None,
                 ),
-                SemanticContent::Svg(svg) if formula_svg_nodes.contains(&node.id) => {
-                    (svg.resource_id, PreparedMediaKey::Formula(node.id))
-                }
+                SemanticContent::Svg(svg) if formula_svg_nodes.contains(&node.id) => (
+                    svg.resource_id,
+                    PreparedMediaKey::Formula(node.id),
+                    Some((
+                        svg.fallback_resource_id.ok_or_else(|| {
+                            ComposeError::new(
+                                ComposeErrorCode::InvalidContract,
+                                "formula SVG has no PNG fallback resource",
+                            )
+                        })?,
+                        PreparedMediaKey::FormulaFallback(node.id),
+                    )),
+                ),
                 SemanticContent::Svg(svg) => {
-                    (svg.resource_id, PreparedMediaKey::Resource(svg.resource_id))
+                    let fallback_resource_id = svg.fallback_resource_id.ok_or_else(|| {
+                        ComposeError::new(
+                            ComposeErrorCode::InvalidContract,
+                            "SVG has no PNG fallback resource",
+                        )
+                    })?;
+                    (
+                        svg.resource_id,
+                        PreparedMediaKey::Resource(svg.resource_id),
+                        Some((
+                            fallback_resource_id,
+                            PreparedMediaKey::Resource(fallback_resource_id),
+                        )),
+                    )
                 }
                 _ => continue,
             };
-            if prepared.contains_key(&key) {
-                continue;
-            }
-            let resource = resources.get(&resource_id).ok_or_else(|| {
-                ComposeError::new(
-                    ComposeErrorCode::InvalidContract,
-                    format!("node references missing resource {resource_id}"),
-                )
-            })?;
-            let media = if matches!(key, PreparedMediaKey::Formula(_)) {
+            let formula_color = if matches!(key, PreparedMediaKey::Formula(_)) {
                 let region = plan
                     .pages
                     .iter()
@@ -223,11 +240,51 @@ impl DeckComposer {
                         || theme_rgb(&template.theme, "dk1", 0),
                         |color| color.rgb & 0x00ff_ffff,
                     );
-                prepare_formula_media(resource, node.id, color, compose_limits)?
+                Some(color)
             } else {
-                prepare_media(resource, compose_limits)?
+                None
             };
-            prepared.insert(key, media);
+            if let std::collections::btree_map::Entry::Vacant(entry) = prepared.entry(key) {
+                let resource = resources.get(&resource_id).ok_or_else(|| {
+                    ComposeError::new(
+                        ComposeErrorCode::InvalidContract,
+                        format!("node references missing resource {resource_id}"),
+                    )
+                })?;
+                let media = if let Some(color) = formula_color {
+                    prepare_formula_media(resource, node.id, color, compose_limits)?
+                } else {
+                    prepare_media(resource, compose_limits)?
+                };
+                entry.insert(media);
+            }
+            if let Some((fallback_resource_id, fallback_key)) = fallback {
+                if let std::collections::btree_map::Entry::Vacant(entry) =
+                    prepared.entry(fallback_key)
+                {
+                    let resource = resources.get(&fallback_resource_id).ok_or_else(|| {
+                        ComposeError::new(
+                            ComposeErrorCode::InvalidContract,
+                            format!(
+                                "SVG references missing fallback resource {fallback_resource_id}"
+                            ),
+                        )
+                    })?;
+                    let media = if let Some(color) = formula_color {
+                        prepare_formula_fallback_media(resource, node.id, color, compose_limits)?
+                    } else {
+                        let media = prepare_media(resource, compose_limits)?;
+                        if media.content_type != "image/png" {
+                            return Err(ComposeError::new(
+                                ComposeErrorCode::InvalidMedia,
+                                "SVG fallback media must be PNG",
+                            ));
+                        }
+                        media
+                    };
+                    entry.insert(media);
+                }
+            }
         }
 
         let slide_parts = (1..=plan.pages.len())

@@ -421,6 +421,7 @@ impl<'a> Writer<'a> {
             SemanticContent::Svg(svg) => {
                 self.byte(8)?;
                 self.id(svg.resource_id)?;
+                self.optional_id(svg.fallback_resource_id)?;
                 self.optional_string(svg.source_text.as_deref())
             }
         }
@@ -1002,6 +1003,7 @@ impl<'a> Reader<'a> {
             })),
             8 => Ok(SemanticContent::Svg(SvgContent {
                 resource_id: self.id()?,
+                fallback_resource_id: self.optional_id()?,
                 source_text: self.optional_string()?,
             })),
             _ => Err(invalid_tag("semantic content")),

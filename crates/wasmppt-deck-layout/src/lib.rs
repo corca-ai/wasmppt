@@ -3362,6 +3362,7 @@ mod tests {
                 split: SplitPolicy::Never,
                 content: SemanticContent::Svg(wasmppt_deck::SvgContent {
                     resource_id: id(90),
+                    fallback_resource_id: None,
                     source_text: Some("y=mx+b".to_owned()),
                 }),
             },
@@ -3435,6 +3436,7 @@ mod tests {
                     split: SplitPolicy::Never,
                     content: SemanticContent::Svg(wasmppt_deck::SvgContent {
                         resource_id: id(90),
+                        fallback_resource_id: None,
                         source_text: Some("$E=mc^2$".to_owned()),
                     }),
                 },
@@ -4171,6 +4173,7 @@ mod tests {
                 split: SplitPolicy::Never,
                 content: SemanticContent::Svg(wasmppt_deck::SvgContent {
                     resource_id: id(131),
+                    fallback_resource_id: None,
                     source_text: Some("flowchart".to_owned()),
                 }),
             },

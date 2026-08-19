@@ -48,6 +48,7 @@ struct RawShape {
     preserved_graphic: Option<PreservedFeature>,
     geometry: Option<PresetGeometry>,
     image_relationship_id: Option<String>,
+    svg_image_relationship_id: Option<String>,
     crop: ImageCrop,
     provenance: Vec<PropertyProvenance>,
 }
@@ -816,15 +817,32 @@ fn resolve_element(
         ElementKind::Chart { chart }
     } else if let Some(feature) = shape.preserved_graphic {
         ElementKind::PreservedGraphic { feature }
-    } else if let Some(relationship_id) = &shape.image_relationship_id {
-        let target = graph
-            .part(source_part)
-            .relationships
-            .iter()
-            .find(|relationship| graph.relationship_id(relationship) == relationship_id)
-            .and_then(|relationship| match relationship.target {
-                RelationshipTarget::Internal(part) => Some(part),
-                _ => None,
+    } else if let Some(relationship_id) = shape
+        .svg_image_relationship_id
+        .as_ref()
+        .or(shape.image_relationship_id.as_ref())
+    {
+        let relationships = &graph.part(source_part).relationships;
+        let internal_target = |candidate: &str| {
+            relationships
+                .iter()
+                .find(|relationship| graph.relationship_id(relationship) == candidate)
+                .and_then(|relationship| match relationship.target {
+                    RelationshipTarget::Internal(part) => Some(part),
+                    _ => None,
+                })
+        };
+        let (relationship_id, target) = shape
+            .svg_image_relationship_id
+            .as_ref()
+            .and_then(|candidate| internal_target(candidate).map(|target| (candidate, target)))
+            .or_else(|| {
+                shape.image_relationship_id.as_ref().and_then(|candidate| {
+                    internal_target(candidate).map(|target| (candidate, target))
+                })
+            })
+            .map_or((relationship_id, None), |(candidate, target)| {
+                (candidate, Some(target))
             });
         let part_name = target.map(|part| graph.part_name(graph.part(part)).to_owned());
         if let Some(name) = &part_name {
@@ -1215,6 +1233,7 @@ fn merge_shape(local: &RawShape, layout: Option<&RawShape>, master: Option<&RawS
             .or_else(|| layout.and_then(|shape| shape.geometry))
             .or_else(|| master.and_then(|shape| shape.geometry)),
         image_relationship_id: local.image_relationship_id.clone(),
+        svg_image_relationship_id: local.svg_image_relationship_id.clone(),
         crop: local.crop,
         provenance: [
             (
@@ -2355,6 +2374,12 @@ fn parse_shape(
                     }
                     "blip" if direct_parent == Some("blipFill") => {
                         shape.image_relationship_id = attributes
+                            .iter()
+                            .find(|attribute| attribute.name.local == "embed")
+                            .map(|attribute| attribute.value.clone());
+                    }
+                    "svgBlip" => {
+                        shape.svg_image_relationship_id = attributes
                             .iter()
                             .find(|attribute| attribute.name.local == "embed")
                             .map(|attribute| attribute.value.clone());
@@ -3667,6 +3692,24 @@ mod tests {
                 right: 3_000,
                 bottom: 4_000,
             }
+        );
+    }
+
+    #[test]
+    fn picture_records_the_svg_extension_relationship_separately_from_its_fallback() {
+        let source = r#"<p:sld xmlns:p="p" xmlns:a="a" xmlns:r="r" xmlns:asvg="http://schemas.microsoft.com/office/drawing/2016/SVG/main"><p:cSld><p:spTree><p:pic><p:nvPicPr><p:cNvPr id="9" name="Formula"/></p:nvPicPr><p:blipFill><a:blip r:embed="rFallback"><a:extLst><a:ext><asvg:svgBlip r:embed="rVector"/></a:ext></a:extLst></a:blip></p:blipFill></p:pic></p:spTree></p:cSld></p:sld>"#;
+        let document = XmlDocument::parse(source.as_bytes().to_vec()).unwrap();
+        let parsed = parse_drawing_part(&document, &Theme::default());
+
+        assert!(parsed.diagnostics.is_empty());
+        assert_eq!(parsed.shapes.len(), 1);
+        assert_eq!(
+            parsed.shapes[0].image_relationship_id.as_deref(),
+            Some("rFallback")
+        );
+        assert_eq!(
+            parsed.shapes[0].svg_image_relationship_id.as_deref(),
+            Some("rVector")
         );
     }
 

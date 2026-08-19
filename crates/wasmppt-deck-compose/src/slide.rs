@@ -374,7 +374,7 @@ impl SlideWriter<'_> {
                         "planned image placement is missing",
                     )
                 })?;
-                self.picture(&image.alt_text, media, placement, false)
+                self.picture(&image.alt_text, media, placement, None)
             }
             SemanticContent::Svg(svg) => {
                 let formula_key = PreparedMediaKey::Formula(node.id);
@@ -386,6 +386,22 @@ impl SlideWriter<'_> {
                 let media = self.media.get(&key).ok_or_else(|| {
                     ComposeError::new(ComposeErrorCode::InvalidContract, "prepared SVG is missing")
                 })?;
+                let fallback_key = if matches!(key, PreparedMediaKey::Formula(_)) {
+                    PreparedMediaKey::FormulaFallback(node.id)
+                } else {
+                    PreparedMediaKey::Resource(svg.fallback_resource_id.ok_or_else(|| {
+                        ComposeError::new(
+                            ComposeErrorCode::InvalidContract,
+                            "SVG has no PNG fallback resource",
+                        )
+                    })?)
+                };
+                let fallback = self.media.get(&fallback_key).ok_or_else(|| {
+                    ComposeError::new(
+                        ComposeErrorCode::InvalidContract,
+                        "prepared SVG fallback is missing",
+                    )
+                })?;
                 let placement = fragment.media.ok_or_else(|| {
                     ComposeError::new(
                         ComposeErrorCode::InvalidContract,
@@ -396,7 +412,7 @@ impl SlideWriter<'_> {
                     svg.source_text.as_deref().unwrap_or("Vector graphic"),
                     media,
                     placement,
-                    true,
+                    Some(fallback),
                 )
             }
             SemanticContent::Children(_) => Err(ComposeError::new(
@@ -764,7 +780,7 @@ impl SlideWriter<'_> {
         alt: &str,
         media: &PreparedMedia,
         placement: wasmppt_deck::MediaPlacement,
-        svg: bool,
+        svg_fallback: Option<&PreparedMedia>,
     ) -> Result<(), ComposeError> {
         if media.size != Some(placement.source_size) || !placement.is_canonical() {
             return Err(ComposeError::new(
@@ -773,22 +789,33 @@ impl SlideWriter<'_> {
             ));
         }
         let shape_id = self.take_shape_id()?;
-        let relationship_id = self.take_relationship_id()?;
-        let target = media
+        let fallback_relationship_id = self.take_relationship_id()?;
+        let fallback_media = svg_fallback.unwrap_or(media);
+        let fallback_target = fallback_media
             .part_name
             .strip_prefix("ppt/")
-            .unwrap_or(&media.part_name);
+            .unwrap_or(&fallback_media.part_name);
         self.relationships.push_str(&format!(
             "<Relationship Id=\"{}\" Type=\"{OFFICE_REL}/image\" Target=\"../{}\"/>",
-            xml_attr(&relationship_id),
-            xml_attr(target)
+            xml_attr(&fallback_relationship_id),
+            xml_attr(fallback_target)
         ));
         let crop = crop_xml(placement.crop);
         let visible_frame = placement.visible_frame;
-        let svg_extension = if svg {
+        let svg_extension = if svg_fallback.is_some() {
+            let svg_relationship_id = self.take_relationship_id()?;
+            let svg_target = media
+                .part_name
+                .strip_prefix("ppt/")
+                .unwrap_or(&media.part_name);
+            self.relationships.push_str(&format!(
+                "<Relationship Id=\"{}\" Type=\"{OFFICE_REL}/image\" Target=\"../{}\"/>",
+                xml_attr(&svg_relationship_id),
+                xml_attr(svg_target)
+            ));
             format!(
                 "<a:extLst><a:ext uri=\"{{96DAC541-7B7A-43D3-8B79-37D633B846F1}}\"><asvg:svgBlip xmlns:asvg=\"http://schemas.microsoft.com/office/drawing/2016/SVG/main\" r:embed=\"{}\"/></a:ext></a:extLst>",
-                xml_attr(&relationship_id)
+                xml_attr(&svg_relationship_id)
             )
         } else {
             String::new()
@@ -796,7 +823,7 @@ impl SlideWriter<'_> {
         self.xml.push_str(&format!(
             "<p:pic><p:nvPicPr><p:cNvPr id=\"{shape_id}\" name=\"Media {shape_id}\" descr=\"{}\"/><p:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed=\"{}\">{svg_extension}</a:blip>{crop}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x=\"{}\" y=\"{}\"/><a:ext cx=\"{}\" cy=\"{}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr></p:pic>",
             xml_attr(alt),
-            xml_attr(&relationship_id),
+            xml_attr(&fallback_relationship_id),
             visible_frame.x,
             visible_frame.y,
             visible_frame.width,
@@ -1285,6 +1312,7 @@ mod tests {
             role,
             SemanticContent::Svg(wasmppt_deck::SvgContent {
                 resource_id: StableId::from_bytes([9; 16]),
+                fallback_resource_id: None,
                 source_text: Some("$V$".to_owned()),
             }),
         );

@@ -17,6 +17,7 @@ pub(crate) struct PreparedMedia {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum PreparedMediaKey {
     Formula(StableId),
+    FormulaFallback(StableId),
     Resource(StableId),
 }
 
@@ -84,6 +85,94 @@ pub(crate) fn prepare_formula_media(
     prepared.part_name = format!("ppt/media/deck-{}-formula.svg", stable_id_hex(node_id));
     prepared.bytes = bytes.into();
     Ok(prepared)
+}
+
+pub(crate) fn prepare_formula_fallback_media(
+    resource: &DeckResource,
+    node_id: StableId,
+    color: u32,
+    limits: &ComposeLimits,
+) -> Result<PreparedMedia, ComposeError> {
+    let mut prepared = prepare_media(resource, limits)?;
+    if prepared.content_type != "image/png" {
+        return Err(media_error("formula fallback media must be PNG"));
+    }
+    prepared.bytes = recolor_formula_png(&prepared.bytes, color, limits)?.into();
+    prepared.part_name = format!(
+        "ppt/media/deck-{}-formula-fallback.png",
+        stable_id_hex(node_id)
+    );
+    Ok(prepared)
+}
+
+fn recolor_formula_png(
+    source: &[u8],
+    color: u32,
+    limits: &ComposeLimits,
+) -> Result<Vec<u8>, ComposeError> {
+    let mut decoder = png::Decoder::new(Cursor::new(source));
+    decoder.set_transformations(
+        png::Transformations::EXPAND | png::Transformations::STRIP_16 | png::Transformations::ALPHA,
+    );
+    let mut reader = decoder
+        .read_info()
+        .map_err(|error| media_error(format!("cannot decode formula fallback PNG: {error}")))?;
+    let output_size = reader
+        .output_buffer_size()
+        .ok_or_else(|| media_error("formula fallback PNG dimensions overflow"))?;
+    let mut decoded = vec![0; output_size];
+    let info = reader
+        .next_frame(&mut decoded)
+        .map_err(|error| media_error(format!("cannot decode formula fallback PNG: {error}")))?;
+    if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
+        return Err(media_error(
+            "formula fallback PNG must decode to 8-bit RGBA pixels",
+        ));
+    }
+    let pixels = usize::try_from(info.width)
+        .ok()
+        .and_then(|width| {
+            usize::try_from(info.height)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .ok_or_else(|| media_error("formula fallback PNG dimensions overflow"))?;
+    if pixels == 0 || pixels > limits.max_decoded_pixels {
+        return Err(media_error(
+            "formula fallback PNG dimensions exceed the decoded-pixel bound",
+        ));
+    }
+    let red = ((color >> 16) & 0xff) as u8;
+    let green = ((color >> 8) & 0xff) as u8;
+    let blue = (color & 0xff) as u8;
+    let rgba = &mut decoded[..info.buffer_size()];
+    for pixel in rgba.chunks_exact_mut(4) {
+        pixel[0] = red;
+        pixel[1] = green;
+        pixel[2] = blue;
+    }
+    let mut output = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut output, info.width, info.height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().map_err(|error| {
+            media_error(format!(
+                "cannot encode formula fallback PNG header: {error}"
+            ))
+        })?;
+        writer.write_image_data(rgba).map_err(|error| {
+            media_error(format!(
+                "cannot encode formula fallback PNG pixels: {error}"
+            ))
+        })?;
+    }
+    if output.len() > limits.max_media_bytes {
+        return Err(media_error(
+            "encoded formula fallback PNG exceeds the media byte bound",
+        ));
+    }
+    Ok(output)
 }
 
 fn resolve_svg_current_color(source: &[u8], color: u32) -> Result<Vec<u8>, ComposeError> {

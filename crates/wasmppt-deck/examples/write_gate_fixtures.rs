@@ -214,6 +214,8 @@ fn deck_spec() -> DeckSpec {
     let math = id(233);
     let portrait = id(234);
     let wide = id(235);
+    let svg_fallback = id(236);
+    let math_fallback = id(237);
     let quality_resources = [
         media_resource(0, "4x1", 400, 100, [220, 38, 38]),
         media_resource(1, "16x9", 160, 90, [234, 88, 12]),
@@ -317,7 +319,13 @@ fn deck_spec() -> DeckSpec {
             false,
             vec![
                 text_node(141, SemanticRole::Title, "Diagrams", SplitPolicy::Never),
-                svg_node(142, SemanticRole::Diagram, svg, Some("flowchart TD")),
+                svg_node(
+                    142,
+                    SemanticRole::Diagram,
+                    svg,
+                    svg_fallback,
+                    Some("flowchart TD"),
+                ),
             ],
         ),
         slide(
@@ -328,6 +336,7 @@ fn deck_spec() -> DeckSpec {
                 146,
                 SemanticRole::DisplayMath,
                 math,
+                math_fallback,
                 Some("x^2 + y^2"),
             )],
         ),
@@ -413,6 +422,26 @@ fn deck_spec() -> DeckSpec {
             intrinsic_size: Some(PixelSize {
                 width: 14,
                 height: 13,
+            }),
+        },
+        DeckResource {
+            id: svg_fallback,
+            kind: ResourceKind::RasterImage,
+            media_type: "image/png".to_owned(),
+            bytes: png(160, 90, [37, 99, 235]),
+            intrinsic_size: Some(PixelSize {
+                width: 160,
+                height: 90,
+            }),
+        },
+        DeckResource {
+            id: math_fallback,
+            kind: ResourceKind::RasterImage,
+            media_type: "image/png".to_owned(),
+            bytes: formula_png(56, 52),
+            intrinsic_size: Some(PixelSize {
+                width: 56,
+                height: 52,
             }),
         },
         DeckResource {
@@ -778,6 +807,30 @@ fn png(width: u32, height: u32, color: [u8; 3]) -> Vec<u8> {
     bytes
 }
 
+fn formula_png(width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder
+            .write_header()
+            .expect("formula PNG header must encode");
+        let pixels = (0..height)
+            .flat_map(|y| {
+                (0..width).flat_map(move |x| {
+                    let alpha = u8::from(x == y || x + y + 1 == width) * 255;
+                    [0, 0, 0, alpha]
+                })
+            })
+            .collect::<Vec<_>>();
+        writer
+            .write_image_data(&pixels)
+            .expect("formula PNG pixels must encode");
+    }
+    bytes
+}
+
 fn atomic_overflow_spec() -> DeckSpec {
     let resource_id = id(4);
     DeckSpec {
@@ -1086,6 +1139,7 @@ fn svg_node(
     value: u8,
     role: SemanticRole,
     resource_id: StableId,
+    fallback_resource_id: StableId,
     source_text: Option<&str>,
 ) -> SemanticNode {
     SemanticNode {
@@ -1095,6 +1149,7 @@ fn svg_node(
         split: SplitPolicy::Never,
         content: SemanticContent::Svg(SvgContent {
             resource_id,
+            fallback_resource_id: Some(fallback_resource_id),
             source_text: source_text.map(str::to_owned),
         }),
     }

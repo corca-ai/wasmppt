@@ -146,6 +146,20 @@ fn gif() -> Vec<u8> {
     bytes
 }
 
+fn formula_fallback_png() -> Vec<u8> {
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, 2, 2);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer
+            .write_image_data(&[0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 0])
+            .unwrap();
+    }
+    bytes
+}
+
 fn rich(text: &str) -> RichText {
     RichText {
         runs: vec![RichTextRun {
@@ -241,6 +255,7 @@ fn fixture() -> (Vec<u8>, DeckSpec, DeckTemplatePlan, DeckPlan) {
         split: SplitPolicy::Never,
         content: SemanticContent::Svg(SvgContent {
             resource_id: id(41),
+            fallback_resource_id: Some(id(42)),
             source_text: Some("graph TD; A-->B".to_owned()),
         }),
     };
@@ -250,6 +265,7 @@ fn fixture() -> (Vec<u8>, DeckSpec, DeckTemplatePlan, DeckPlan) {
         resources: vec![
             DeckResource { id: id(40), kind: ResourceKind::RasterImage, media_type: "image/gif".to_owned(), bytes: gif(), intrinsic_size: Some(PixelSize { width: 2, height: 1 }) },
             DeckResource { id: id(41), kind: ResourceKind::Svg, media_type: "image/svg+xml".to_owned(), bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0L10 10"/></svg>"#.to_vec(), intrinsic_size: Some(PixelSize { width: 10, height: 10 }) },
+            DeckResource { id: id(42), kind: ResourceKind::RasterImage, media_type: "image/png".to_owned(), bytes: formula_fallback_png(), intrinsic_size: Some(PixelSize { width: 2, height: 2 }) },
         ],
     };
     let layout_id = id(50);
@@ -457,6 +473,21 @@ fn composes_editable_vector_and_first_frame_media_into_a_live_overlay() {
             && contained_svg.contains("<a:ext cx=\"1500000\" cy=\"1500000\"/>")
             && contained_svg.contains("<a:srcRect/>")
     );
+    let fallback_relationship = contained_svg
+        .split_once("<a:blip r:embed=\"")
+        .and_then(|(_, tail)| tail.split_once('"'))
+        .map(|(id, _)| id)
+        .expect("SVG picture fallback relationship");
+    let svg_relationship = contained_svg
+        .split_once("<asvg:svgBlip")
+        .and_then(|(_, tail)| tail.split_once("r:embed=\""))
+        .and_then(|(_, tail)| tail.split_once('"'))
+        .map(|(id, _)| id)
+        .expect("SVG picture vector relationship");
+    assert_ne!(
+        fallback_relationship, svg_relationship,
+        "PowerPoint needs a raster fallback distinct from the SVG extension"
+    );
     assert!(rels.contains("https://example.com/deck") && rels.contains("TargetMode=\"External\""));
     let gif_still_name = overlay
         .part_names()
@@ -657,6 +688,34 @@ fn composition_is_deterministic_and_rejects_template_drift_and_unsafe_links() {
 }
 
 #[test]
+fn composition_rejects_an_svg_without_a_powerpoint_fallback() {
+    let (bytes, mut spec, template, plan) = fixture();
+    let svg = spec.logical_slides[0]
+        .nodes
+        .iter_mut()
+        .find_map(|node| match &mut node.content {
+            SemanticContent::Svg(svg) => Some(svg),
+            _ => None,
+        })
+        .unwrap();
+    svg.fallback_resource_id = None;
+
+    let error = DeckComposer
+        .compose(
+            Arc::<[u8]>::from(bytes),
+            &spec,
+            &template,
+            &plan,
+            &DeckLimits::default(),
+            &ComposeLimits::default(),
+        )
+        .unwrap_err();
+
+    assert_eq!(error.code(), ComposeErrorCode::InvalidContract);
+    assert!(error.to_string().contains("PNG fallback"));
+}
+
+#[test]
 fn resolves_formula_current_color_from_the_template_text_style() {
     let (bytes, mut spec, mut template, plan) = fixture();
     let formula = spec.logical_slides[0]
@@ -695,6 +754,25 @@ fn resolves_formula_current_color_from_the_template_text_style() {
     assert!(formula_svg.contains("fill=\"#112233\""));
     assert!(formula_svg.contains("stroke=\"#112233\""));
     assert!(!formula_svg.to_ascii_lowercase().contains("currentcolor"));
+    let fallback_name = overlay
+        .part_names()
+        .into_iter()
+        .find(|name| name.ends_with("-formula-fallback.png"))
+        .unwrap();
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(
+        overlay.read_part(&fallback_name).unwrap(),
+    ));
+    decoder.set_transformations(png::Transformations::EXPAND);
+    let mut reader = decoder.read_info().unwrap();
+    let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
+    let info = reader.next_frame(&mut pixels).unwrap();
+    assert_eq!(info.color_type, png::ColorType::Rgba);
+    assert!(
+        pixels[..info.buffer_size()]
+            .chunks_exact(4)
+            .filter(|pixel| pixel[3] != 0)
+            .all(|pixel| pixel[..3] == [0x11, 0x22, 0x33])
+    );
 }
 
 #[test]

@@ -30,7 +30,11 @@ pub fn validate_deck_spec(spec: &DeckSpec, limits: &DeckLimits) -> ValidationRep
         limits,
         report: ValidationReport::default(),
         ids: BTreeSet::new(),
-        resources: spec.resources.iter().map(|resource| resource.id).collect(),
+        resources: spec
+            .resources
+            .iter()
+            .map(|resource| (resource.id, resource))
+            .collect(),
         semantic_nodes: 0,
     };
 
@@ -98,7 +102,7 @@ struct SpecValidator<'a> {
     limits: &'a DeckLimits,
     report: ValidationReport,
     ids: BTreeSet<StableId>,
-    resources: BTreeSet<StableId>,
+    resources: BTreeMap<StableId, &'a crate::DeckResource>,
     semantic_nodes: usize,
 }
 
@@ -348,7 +352,27 @@ impl SpecValidator<'_> {
                     );
                 }
             }
-            SemanticContent::Svg(svg) => self.resource(svg.resource_id, node),
+            SemanticContent::Svg(svg) => {
+                self.resource(svg.resource_id, node);
+                if let Some(fallback_resource_id) = svg.fallback_resource_id {
+                    self.resource(fallback_resource_id, node);
+                    if self
+                        .resources
+                        .get(&fallback_resource_id)
+                        .is_some_and(|resource| {
+                            resource.kind != crate::ResourceKind::RasterImage
+                                || resource.media_type != "image/png"
+                        })
+                    {
+                        self.error(
+                            DeckDiagnosticCode::INVALID_SEMANTIC_CONTENT,
+                            Some(&node.source),
+                            Some(node.id),
+                            "SVG fallback resource must be a PNG raster image",
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -383,7 +407,7 @@ impl SpecValidator<'_> {
     }
 
     fn resource(&mut self, resource_id: StableId, node: &SemanticNode) {
-        if !self.resources.contains(&resource_id) {
+        if !self.resources.contains_key(&resource_id) {
             self.error(
                 DeckDiagnosticCode::MISSING_RESOURCE,
                 Some(&node.source),

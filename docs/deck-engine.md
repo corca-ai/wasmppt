@@ -41,8 +41,10 @@ package.
   `DisplayMath` remains a display formula;
 - explicit `Never`, `Text`, `ListItems`, `TableRows`, `CodeLines`, and `Children` split policy;
 - raster and SVG resources as binary bytes with media type and optional host-observed dimension
-  hints, which the core validates or replaces with dimensions derived from bounded bytes; JPEG
-  display dimensions include bounded EXIF orientation rather than only its stored sample matrix;
+  hints, which the core validates or replaces with dimensions derived from bounded bytes. An SVG
+  semantic node may name a distinct PNG fallback resource; PPTX composition requires it so Office
+  clients without SVG playback still render the picture. JPEG display dimensions include bounded
+  EXIF orientation rather than only its stored sample matrix;
 - table columns with explicit start, center, or end alignment.
 - factual image/text relations with same-paragraph, adjacent-block, or blank-separated proximity,
   source-order side, and an explicit-caption flag. These values carry authoring evidence, not
@@ -127,7 +129,7 @@ The little-endian envelopes are:
 
 | Magic | Version | Value |
 | --- | ---: | --- |
-| `WDSF` | 4 | `DeckSpec`, source relations, and binary resources |
+| `WDSF` | 5 | `DeckSpec`, SVG fallback references, source relations, and binary resources |
 | `WDTP` | 4 | `DeckTemplatePlan` |
 | `WDPL` | 4 | `DeckPlan` |
 
@@ -139,7 +141,7 @@ and fragment limits before allocating the declared content.
 
 `DeckLimitCode` values are append-only and identify each bounded dimension. Callers may
 tighten `DeckLimits` for a host but MUST NOT turn a limit failure into partial content.
-Checked-in hexadecimal fixtures pin WDSF v4, WDTP v4, and WDPL v4. Older semantic-plan
+Checked-in hexadecimal fixtures pin WDSF v5, WDTP v4, and WDPL v4. Older semantic-plan
 payloads are intentionally unsupported because the planner boundary is replaced atomically.
 
 ## Verification

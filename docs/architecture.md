@@ -123,7 +123,9 @@ Host authoring adapters convert their source language and authorized resources i
 source-backed `DeckSpec`. The core contract represents logical slides, semantic content,
 rich-text runs, stable source ranges, split policies, table-column alignment, hidden slides, and
 binary resources. Resource dimensions supplied by a host are hints that the core validates or
-derives from bounded bytes; the contract does not parse Markdown or call a host resource API.
+derives from bounded bytes. SVG authoring adapters may attach a distinct PNG fallback resource;
+PPTX composition requires that fallback and emits it as the base blip while retaining the SVG in
+the Office extension. The contract does not parse Markdown or call a host resource API.
 
 ```text
 host source adapter

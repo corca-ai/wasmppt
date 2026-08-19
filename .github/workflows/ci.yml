@@ -204,7 +204,7 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm ci
       - name: Download the shared Wasm host artifacts
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: wasm-host-${{ github.sha }}
           path: packages/wasmppt-worker/src/generated
@@ -310,7 +310,7 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm ci
       - name: Download the shared Wasm host artifacts
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: wasm-host-${{ github.sha }}
           path: packages/wasmppt-worker/src/generated
@@ -495,7 +495,7 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
       - name: Download the shared scalar Wasm release artifact
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: wasm-host-${{ github.sha }}
           path: packages/wasmppt-worker/src/generated

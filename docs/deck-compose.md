@@ -95,8 +95,13 @@ browser adapter also requires every
 source-owned display-list element to have the exact planned bounds before it attaches source
 semantics; geometry drift is a hard error rather than a missing hit-test annotation.
 
-SVG is retained as vector media and referenced through the Office SVG extension. XML parsing
-rejects scripts, foreign objects, event handlers, JavaScript URLs, imports, and external references.
+SVG is retained as vector media and referenced through the Office SVG extension. The base DrawingML
+blip references a distinct PNG fallback while the extension references the SVG; using one SVG
+relationship for both leaves unsupported Office clients with an empty picture placeholder. Formula
+fallback pixels are recolored with the same effective template text color as their SVG, while
+authored-diagram fallbacks retain their original paint. Reopened packages prefer the SVG extension
+for browser display and fall back to the PNG only when the vector relationship is unavailable. XML
+parsing rejects scripts, foreign objects, event handlers, JavaScript URLs, imports, and external references.
 GIF input is decoded under byte and pixel bounds, composited onto its logical first-frame canvas,
 and encoded as a deterministic PNG still in the core. These rules are identical for native and
 Wasm builds.

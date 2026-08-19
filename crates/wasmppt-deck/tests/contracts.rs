@@ -385,8 +385,8 @@ fn golden_payloads_are_stable() {
     let limits = DeckLimits::default();
     assert_golden(
         rich_spec().encode(&limits).unwrap(),
-        "fixtures/deck-contracts/deck-spec-v4.hex",
-        include_str!("../../../fixtures/deck-contracts/deck-spec-v4.hex"),
+        "fixtures/deck-contracts/deck-spec-v5.hex",
+        include_str!("../../../fixtures/deck-contracts/deck-spec-v5.hex"),
     );
     assert_golden(
         template_plan_with_unknown_diagnostic()
@@ -426,7 +426,7 @@ fn decoding_is_bounded_and_fails_closed() {
     );
 
     let mut future = bytes;
-    future[4..8].copy_from_slice(&5u32.to_le_bytes());
+    future[4..8].copy_from_slice(&6u32.to_le_bytes());
     assert_eq!(
         DeckSpec::decode(&future, &DeckLimits::default())
             .unwrap_err()
@@ -540,6 +540,7 @@ fn simple_spec() -> DeckSpec {
 fn rich_spec() -> DeckSpec {
     let image_id = id(40);
     let svg_id = id(41);
+    let svg_fallback_id = id(46);
     let nodes = vec![
         SemanticNode {
             id: id(11),
@@ -616,6 +617,7 @@ fn rich_spec() -> DeckSpec {
             split: SplitPolicy::Never,
             content: SemanticContent::Svg(SvgContent {
                 resource_id: svg_id,
+                fallback_resource_id: Some(svg_fallback_id),
                 source_text: Some("x^2".to_owned()),
             }),
         },
@@ -679,6 +681,16 @@ fn rich_spec() -> DeckSpec {
                 media_type: "image/svg+xml".to_owned(),
                 bytes: b"<svg/>".to_vec(),
                 intrinsic_size: None,
+            },
+            DeckResource {
+                id: svg_fallback_id,
+                kind: ResourceKind::RasterImage,
+                media_type: "image/png".to_owned(),
+                bytes: vec![137, 80, 78, 71],
+                intrinsic_size: Some(PixelSize {
+                    width: 1,
+                    height: 1,
+                }),
             },
         ],
     }

@@ -71,8 +71,10 @@ the normal renderer cache. Common GDI records render in Canvas and DOM/SVG; malf
 or currently unsupported record streams fail the image resolver and retain the ordinary visible
 image-unavailable fallback. The source package bytes are never rewritten by preview conversion.
 
-SVG and GIF pictures use the same lazy image resolver. SVG preview rejects active or external
-content before decode; GIF preview deterministically uses its first frame. Audio/video bytes are
+SVG and GIF pictures use the same lazy image resolver. When a picture contains an Office SVG
+extension plus a base PNG fallback, preview prefers the vector relationship and uses the raster
+relationship only when the SVG is unavailable. SVG preview rejects active or external content
+before decode; GIF preview deterministically uses its first frame. Audio/video bytes are
 never activated: an existing poster image may render and otherwise the semantic region remains a
 non-playing placeholder. Strict namespace/relationship variants use the same bounded OPC and PML
 paths, and template/macro/slideshow formats retain explicit conversion or preservation policy.

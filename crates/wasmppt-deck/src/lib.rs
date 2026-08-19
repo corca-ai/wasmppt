@@ -166,7 +166,7 @@ pub struct DeckSpec {
 }
 
 impl DeckSpec {
-    pub const SCHEMA_VERSION: u32 = 4;
+    pub const SCHEMA_VERSION: u32 = 5;
 
     pub fn encode(&self, limits: &DeckLimits) -> Result<Vec<u8>, WireError> {
         wire::encode_spec(self, limits)
@@ -366,6 +366,8 @@ pub struct CodeContent {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SvgContent {
     pub resource_id: StableId,
+    /// PNG resource used by PowerPoint consumers that do not render the SVG extension.
+    pub fallback_resource_id: Option<StableId>,
     /// Original source, retained for math and diagrams when available.
     pub source_text: Option<String>,
 }

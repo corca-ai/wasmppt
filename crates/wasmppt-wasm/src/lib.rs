@@ -2072,6 +2072,7 @@ mod tests {
     }
 
     fn svg_deck_spec(resource: u8, fill: &str) -> DeckSpec {
+        let fallback_resource = resource + 100;
         DeckSpec {
             id: id(1),
             logical_slides: vec![LogicalSlide {
@@ -2086,24 +2087,37 @@ mod tests {
                     split: SplitPolicy::Never,
                     content: SemanticContent::Svg(SvgContent {
                         resource_id: id(resource),
+                        fallback_resource_id: Some(id(fallback_resource)),
                         source_text: Some("x = y".to_owned()),
                     }),
                 }],
                 media_text_relations: Vec::new(),
             }],
-            resources: vec![DeckResource {
-                id: id(resource),
-                kind: ResourceKind::Svg,
-                media_type: "image/svg+xml".to_owned(),
-                bytes: format!(
-                    r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="20" viewBox="0 0 100 20"><rect width="100" height="20" fill="{fill}"/></svg>"#,
-                )
-                .into_bytes(),
-                intrinsic_size: Some(PixelSize {
-                    width: 100,
-                    height: 20,
-                }),
-            }],
+            resources: vec![
+                DeckResource {
+                    id: id(resource),
+                    kind: ResourceKind::Svg,
+                    media_type: "image/svg+xml".to_owned(),
+                    bytes: format!(
+                        r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="20" viewBox="0 0 100 20"><rect width="100" height="20" fill="{fill}"/></svg>"#,
+                    )
+                    .into_bytes(),
+                    intrinsic_size: Some(PixelSize {
+                        width: 100,
+                        height: 20,
+                    }),
+                },
+                DeckResource {
+                    id: id(fallback_resource),
+                    kind: ResourceKind::RasterImage,
+                    media_type: "image/png".to_owned(),
+                    bytes: test_png(),
+                    intrinsic_size: Some(PixelSize {
+                        width: 1,
+                        height: 1,
+                    }),
+                },
+            ],
         }
     }
 
@@ -2144,6 +2158,7 @@ mod tests {
                             split: SplitPolicy::Never,
                             content: SemanticContent::Svg(SvgContent {
                                 resource_id: id(20),
+                                fallback_resource_id: Some(id(21)),
                                 source_text: Some("$V$".to_owned()),
                             }),
                         },
@@ -2152,17 +2167,39 @@ mod tests {
                 }],
                 media_text_relations: Vec::new(),
             }],
-            resources: vec![DeckResource {
-                id: id(20),
-                kind: ResourceKind::Svg,
-                media_type: "image/svg+xml".to_owned(),
-                bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" width="1.742ex" height="1.595ex" viewBox="0 -683 770 705"><path d="M0 0L385 683L770 0Z"/></svg>"#.to_vec(),
-                intrinsic_size: Some(PixelSize {
-                    width: 35,
-                    height: 32,
-                }),
-            }],
+            resources: vec![
+                DeckResource {
+                    id: id(20),
+                    kind: ResourceKind::Svg,
+                    media_type: "image/svg+xml".to_owned(),
+                    bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" width="1.742ex" height="1.595ex" viewBox="0 -683 770 705"><path d="M0 0L385 683L770 0Z"/></svg>"#.to_vec(),
+                    intrinsic_size: Some(PixelSize {
+                        width: 35,
+                        height: 32,
+                    }),
+                },
+                DeckResource {
+                    id: id(21),
+                    kind: ResourceKind::RasterImage,
+                    media_type: "image/png".to_owned(),
+                    bytes: test_png(),
+                    intrinsic_size: Some(PixelSize {
+                        width: 1,
+                        height: 1,
+                    }),
+                },
+            ],
         }
+    }
+
+    fn test_png() -> Vec<u8> {
+        vec![
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x08,
+            0x1d, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x1f, 0x00, 0x05, 0x80, 0x02, 0x3f, 0x0a, 0x1e,
+            0x96, 0xa9, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+        ]
     }
 
     fn deck_spec() -> DeckSpec {

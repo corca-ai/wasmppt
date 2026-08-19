@@ -343,6 +343,7 @@ mod tests {
             role,
             SemanticContent::Svg(SvgContent {
                 resource_id: StableId::from_bytes([90; 16]),
+                fallback_resource_id: None,
                 source_text: Some("$E=mc^2$".to_owned()),
             }),
         )

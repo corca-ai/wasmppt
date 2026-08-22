@@ -39,6 +39,7 @@
     "test:fast": "cargo test --workspace --lib --all-features --locked --offline && node --test scripts/*.test.mjs && npm run test:unit --workspaces --if-present"
   },
   "devDependencies": {
+    "es-module-lexer": "2.3.1",
     "markdownlint-cli2": "0.23.2",
     "oxlint": "1.78.0",
     "typescript": "7.0.2"

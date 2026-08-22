@@ -29,8 +29,10 @@ Backend-neutral preset paths and shape/group transform matrices live in `scene/g
 Canvas only projects that shared plan through the Canvas path and transform APIs; it does not
 maintain a second preset-geometry table. The byte-budgeted cache is independently owned by
 `cache/byte-budget-lru`, while the WPDL decoder remains a pure byte-to-scene operation that does
-not read `document`, construct a canvas, or test browser capabilities. Existing symbols continue
-to be re-exported from the package root and `canvas.js` compatibility entry point.
+not read `document`, construct a canvas, or test browser capabilities. Bounded PNG, JPEG, GIF,
+and SVG metadata inspection, SVG active-content rejection, and browser decoding live in `image`;
+Canvas owns only their lifecycle and byte-budgeted caching. Existing image symbols continue to be
+re-exported from the package root and `canvas.js` compatibility entry point.
 
 Canvas 2D and `OffscreenCanvasRenderingContext2D` expose the same core drawing and text
 measurement operations. `renderOffscreenThumbnail` renders a bounded thumbnail in a Worker and

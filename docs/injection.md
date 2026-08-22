@@ -122,7 +122,9 @@ Set a chart graphic frame's Alt Text Description to `wasmppt:chart:sales`, then 
 relationship and part once; raw part names remain accepted as a low-level compatibility path.
 Generation validates dimensions and finite numeric values, then updates both
 the chart's text/category/number caches and the related embedded workbook worksheet in the same
-output. Cache formulas and workbook cell ranges are resized consistently. See
+output. The focused `inject::chart` projection owns those cache and nested-workbook changes while
+the injection orchestrator owns outer-package relationship lookup and atomic output. Cache formulas
+and workbook cell ranges are resized consistently. See
 [tables, charts, and advanced content](advanced-content.md) for read and render coverage.
 
 ## Slide inclusion and cloning

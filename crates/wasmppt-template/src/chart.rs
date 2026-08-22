@@ -2,7 +2,7 @@ use wasmppt_opc::{CompressionMethod, EntryOptions, VecSink, ZipWriter};
 
 use crate::{
     ChartData, GenerateError,
-    inject::{rewrite_chart_cache, rewrite_embedded_workbook, validate_chart_data},
+    inject::chart::{rewrite_chart_cache, rewrite_embedded_workbook, validate_chart_data},
 };
 
 /// Editable 2D chart families that the shared chart projector can create.

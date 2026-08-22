@@ -247,6 +247,9 @@ checked-in Wasm host bindings, browser package, and two dogfood POTX templates. 
 serves that directory and uses real Chrome to apply one editor delta to both templates, render both
 previews, and save both generated PPTX files under `target/pages-downloads`. CI validates those
 exact browser downloads with the Microsoft Open XML SDK before publishing the Pages artifact.
+The Pages build derives and copies the complete local ESM import, re-export, and dynamic-import
+closure from its browser entry points; a missing dependency fails assembly instead of surfacing as
+a browser-only 404. Non-module assets remain explicit entry points in that same checked closure.
 CI reuses the single revision-bound Wasm artifact for this gate and deploys the exact tested static
 directory to GitHub Pages on `main`. See the [browser dogfood playground](playground.md).
 

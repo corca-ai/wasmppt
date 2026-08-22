@@ -19,6 +19,7 @@ for (const file of [
   'error.js',
   'injection.js',
   'canvas.js',
+  'image.js',
   'shaper.js',
 ]) {
   await cp(resolve(root, 'packages/wasmppt/dist', file), resolve(output, 'lib', file))

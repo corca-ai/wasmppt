@@ -43,6 +43,8 @@ The first resolver implements:
   margins, vertical anchoring, wrapping and autofit mode;
 - slide-number fields materialized from one-based presentation order instead of their
   cached authoring-time text;
+- supported two-dimensional chart families resolved from cached category and series data by the
+  focused chart parser after package dependency traversal;
 - bounded move/line/quadratic/cubic/arc/close custom paths and outer shadows.
 
 Unsupported graphic frames and effect DAGs produce

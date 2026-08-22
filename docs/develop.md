@@ -73,14 +73,19 @@ planning and parsing:
   no DOM, JavaScript generator, filesystem, or browser dependency.
 - `wasmppt-template::inject` owns package reads, generation state, caching, and output
   orchestration. Its `patch` module owns bounded XML replacements, escaping, and relationship
-  target normalization; its `table` module owns row overflow and height-scaling policy. Neither
-  helper module may read or write a package.
+  target normalization; its `table` module owns row overflow and height-scaling policy; and its
+  `chart` module owns chart-data validation, cache projection, and rewriting the nested embedded
+  workbook package. These helpers do not inspect or mutate the outer presentation package graph.
 - `wasmppt-layout::resolve` owns dependency traversal, inheritance order, diagnostics, and slide
   assembly. Its `color` module owns theme color maps, font-scheme extraction, DrawingML color
-  parsing, and ordered color transforms. It consumes only XML tokens and resolved value types.
+  parsing, and ordered color transforms. Its `chart` module maps one already-resolved chart XML
+  document into chart kinds and cached series. Both helpers consume only XML tokens and resolved
+  value types.
 
 Dependencies point from each orchestrator into these focused modules, never back into package I/O
-or across sibling modules. Preserve original byte ranges for template patches, apply color
+or across sibling modules. The browser `image` module similarly owns bounded image inspection,
+SVG safety, and browser decoding while `canvas` owns display-list execution and cache orchestration.
+Preserve original byte ranges for template patches, apply color
 transforms in document order, and keep the public crate re-exports at their existing entry points
 when extending these areas.
 

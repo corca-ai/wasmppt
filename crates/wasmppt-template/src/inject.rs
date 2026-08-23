@@ -2905,12 +2905,27 @@ const STRICT_PRESENTATION_NS: &str = "http://purl.oclc.org/ooxml/presentationml/
 const TRANSITIONAL_DRAWING_NS: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
 const STRICT_DRAWING_NS: &str = "http://purl.oclc.org/ooxml/drawingml/main";
 
+#[derive(Clone, Copy)]
+enum BackgroundInspection {
+    Present,
+    Missing(BackgroundInsertion),
+}
+
+#[derive(Clone, Copy)]
+enum BackgroundInsertion {
+    Transitional(usize),
+    Strict(usize),
+    UnsupportedNamespace,
+    MissingCommonData,
+}
+
 fn prepare_default_background_patches(
     archive: &ZipArchive<MemorySource>,
     graph: &PackageGraph,
     slide_deck: &SlideDeckPlan,
 ) -> Result<HashMap<String, Patch>, GenerateError> {
     let mut patches = HashMap::new();
+    let mut inspected_parts = HashMap::new();
     for slide in &slide_deck.slides {
         let slide_part = graph.part_by_name(&slide.part_name).ok_or_else(|| {
             GenerateError::new(
@@ -2925,7 +2940,14 @@ fn prepare_default_background_patches(
         let master = layout.and_then(|part| related_part(graph, part, "/slideMaster"));
         let mut has_background = false;
         for part in [Some(slide_part.id), layout, master].into_iter().flatten() {
-            has_background |= part_has_background(archive, graph, part)?;
+            let inspection = if let Some(inspection) = inspected_parts.get(&part) {
+                *inspection
+            } else {
+                let inspection = inspect_background(archive, graph, part)?;
+                inspected_parts.insert(part, inspection);
+                inspection
+            };
+            has_background |= matches!(inspection, BackgroundInspection::Present);
         }
         if has_background {
             continue;
@@ -2935,8 +2957,14 @@ fn prepare_default_background_patches(
         if let std::collections::hash_map::Entry::Vacant(entry) =
             patches.entry(target_name.to_owned())
         {
-            let source = read_graph_part(archive, graph, target)?;
-            entry.insert(default_background_patch(target_name, &source)?);
+            let inspection = inspected_parts
+                .get(&target)
+                .copied()
+                .expect("the background target is part of the inspected inheritance chain");
+            let BackgroundInspection::Missing(insertion) = inspection else {
+                unreachable!("a background patch is only added when the inheritance chain is empty")
+            };
+            entry.insert(default_background_patch(target_name, insertion)?);
         }
     }
     Ok(patches)
@@ -2969,16 +2997,16 @@ fn read_graph_part(
     archive.read_entry(entry).map_err(package_error)
 }
 
-fn part_has_background(
+fn inspect_background(
     archive: &ZipArchive<MemorySource>,
     graph: &PackageGraph,
     part: PartId,
-) -> Result<bool, GenerateError> {
+) -> Result<BackgroundInspection, GenerateError> {
     let name = graph.part_name(graph.part(part));
     let source = read_graph_part(archive, graph, part)?;
     let document =
         XmlDocument::parse(source).map_err(|error| GenerateError::xml_in_part(error, name))?;
-    Ok(document.tokens().iter().any(|token| {
+    if document.tokens().iter().any(|token| {
         matches!(
             &token.kind,
             TokenKind::Start { name, .. }
@@ -2988,13 +3016,11 @@ fn part_has_background(
                         TRANSITIONAL_PRESENTATION_NS | STRICT_PRESENTATION_NS
                     ))
         )
-    }))
-}
+    }) {
+        return Ok(BackgroundInspection::Present);
+    }
 
-fn default_background_patch(name: &str, source: &[u8]) -> Result<Patch, GenerateError> {
-    let document = XmlDocument::parse(source.to_vec())
-        .map_err(|error| GenerateError::xml_in_part(error, name))?;
-    let (insertion_offset, presentation_namespace) = document
+    let insertion = document
         .tokens()
         .iter()
         .find_map(|token| {
@@ -3006,24 +3032,44 @@ fn default_background_patch(name: &str, source: &[u8]) -> Result<Patch, Generate
             };
             (name.local == "cSld")
                 .then(|| {
-                    name.namespace
-                        .map(|namespace| (token.range.end, document.namespace(namespace)))
+                    name.namespace.map(|namespace| {
+                        let offset = token.range.end;
+                        match document.namespace(namespace) {
+                            TRANSITIONAL_PRESENTATION_NS => {
+                                BackgroundInsertion::Transitional(offset)
+                            }
+                            STRICT_PRESENTATION_NS => BackgroundInsertion::Strict(offset),
+                            _ => BackgroundInsertion::UnsupportedNamespace,
+                        }
+                    })
                 })
                 .flatten()
         })
-        .ok_or_else(|| {
-            GenerateError::new(
-                GenerateErrorCode::InvalidTemplate,
-                format!("slide common data element is missing from {name}"),
-            )
-        })?;
-    let drawing_namespace = match presentation_namespace {
-        TRANSITIONAL_PRESENTATION_NS => TRANSITIONAL_DRAWING_NS,
-        STRICT_PRESENTATION_NS => STRICT_DRAWING_NS,
-        _ => {
+        .unwrap_or(BackgroundInsertion::MissingCommonData);
+    Ok(BackgroundInspection::Missing(insertion))
+}
+
+fn default_background_patch(
+    name: &str,
+    insertion: BackgroundInsertion,
+) -> Result<Patch, GenerateError> {
+    let (insertion_offset, presentation_namespace, drawing_namespace) = match insertion {
+        BackgroundInsertion::Transitional(offset) => (
+            offset,
+            TRANSITIONAL_PRESENTATION_NS,
+            TRANSITIONAL_DRAWING_NS,
+        ),
+        BackgroundInsertion::Strict(offset) => (offset, STRICT_PRESENTATION_NS, STRICT_DRAWING_NS),
+        BackgroundInsertion::UnsupportedNamespace => {
             return Err(GenerateError::new(
                 GenerateErrorCode::InvalidTemplate,
                 format!("slide common data has an unsupported namespace in {name}"),
+            ));
+        }
+        BackgroundInsertion::MissingCommonData => {
+            return Err(GenerateError::new(
+                GenerateErrorCode::InvalidTemplate,
+                format!("slide common data element is missing from {name}"),
             ));
         }
     };

@@ -50,6 +50,111 @@ fn with_cached_slide_number_fields() -> Vec<u8> {
     writer.finish().unwrap().0.into_inner()
 }
 
+fn with_footer_inheritance(slide_footer: bool) -> Vec<u8> {
+    let archive = ZipArchive::from_bytes(FIXTURE.to_vec()).unwrap();
+    let options = EntryOptions::deterministic(CompressionMethod::Deflate);
+    let mut writer = ZipWriter::new(VecSink::new());
+    for entry in archive.entries() {
+        let mut xml = archive.read_entry(entry).unwrap();
+        let shapes = match entry.name.as_str() {
+            "ppt/slideMasters/slideMaster1.xml" => [
+                ("dt", 2, "Master date", 457_200),
+                ("ftr", 3, "Master footer", 3_124_200),
+                ("sldNum", 4, "Master number", 6_553_200),
+                // Index collision must not make a layout footer inherit a body.
+                ("body", 11, "Master body", 123),
+            ]
+            .into_iter()
+            .map(|(kind, idx, text, x)| footer_shape(kind, idx, text, Some(x)))
+            .collect::<String>(),
+            "ppt/slideLayouts/slideLayout1.xml" => [
+                ("dt", 10, "Layout date"),
+                ("ftr", 11, "Layout footer"),
+                ("sldNum", 12, "Layout number"),
+            ]
+            .into_iter()
+            .map(|(kind, idx, text)| footer_shape(kind, idx, text, None))
+            .collect::<String>(),
+            "ppt/slides/slide1.xml" if slide_footer => {
+                // Slide type may be omitted; idx selects the layout footer.
+                footer_shape("obj", 11, "Slide footer", None)
+            }
+            _ => String::new(),
+        };
+        if !shapes.is_empty() {
+            xml = String::from_utf8(xml)
+                .unwrap()
+                .replace("</p:spTree>", &format!("{shapes}</p:spTree>"))
+                .into_bytes();
+        }
+        writer.write_entry(&entry.name, &xml, &options).unwrap();
+    }
+    writer.finish().unwrap().0.into_inner()
+}
+
+fn footer_shape(kind: &str, idx: u32, text: &str, x: Option<i64>) -> String {
+    let transform = x.map_or_else(String::new, |x| {
+        format!(r#"<a:xfrm><a:off x="{x}" y="6356350"/><a:ext cx="2133600" cy="365125"/></a:xfrm>"#)
+    });
+    format!(
+        r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="{kind}"/><p:nvPr><p:ph type="{kind}" idx="{idx}"/></p:nvPr></p:nvSpPr><p:spPr>{transform}</p:spPr><p:txBody><a:bodyPr/><a:p><a:r><a:t>{text}</a:t></a:r></a:p></p:txBody></p:sp>"#,
+        id = 80 + idx
+    )
+}
+
+#[test]
+fn layout_footer_items_inherit_master_geometry_by_type_without_duplicates() {
+    let output = PresentationDocument::open(with_footer_inheritance(false))
+        .unwrap()
+        .resolve_slide(0)
+        .unwrap();
+    for (kind, text, x) in [
+        ("dt", "Layout date", 457_200),
+        ("ftr", "Layout footer", 3_124_200),
+        ("sldNum", "Layout number", 6_553_200),
+    ] {
+        let items = output
+            .slide
+            .elements
+            .iter()
+            .filter(|element| {
+                element
+                    .placeholder
+                    .as_ref()
+                    .is_some_and(|ph| ph.kind == kind)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(items.len(), 1, "{kind} must be materialized only once");
+        assert_eq!(items[0].text, text);
+        assert_eq!(items[0].transform.bounds.origin.x, x);
+        assert_eq!(items[0].transform.bounds.origin.y, 6_356_350);
+        assert_eq!(items[0].transform.bounds.size.width, 2_133_600);
+    }
+}
+
+#[test]
+fn slide_footer_inherits_layout_then_master_when_slide_type_is_omitted() {
+    let output = PresentationDocument::open(with_footer_inheritance(true))
+        .unwrap()
+        .resolve_slide(0)
+        .unwrap();
+    let footer = output
+        .slide
+        .elements
+        .iter()
+        .find(|element| element.text == "Slide footer")
+        .unwrap();
+    assert_eq!(footer.transform.bounds.origin.x, 3_124_200);
+    assert_eq!(footer.transform.bounds.origin.y, 6_356_350);
+    assert!(
+        !output
+            .slide
+            .elements
+            .iter()
+            .any(|element| element.text == "Layout footer" || element.text == "Master footer")
+    );
+}
+
 #[test]
 fn layout_errors_preserve_stable_package_and_slide_context() {
     let package = PresentationDocument::open(b"not a zip".to_vec()).unwrap_err();

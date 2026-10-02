@@ -464,8 +464,11 @@ pub(crate) fn resolve_slide_parts_cached(
                 parsed,
                 SourceLevel::Layout,
                 *part,
-                &slide,
-                None,
+                &PlaceholderSources {
+                    slide: &slide,
+                    layout: None,
+                    master: master.as_ref().map(|(id, part, _)| (*id, part)),
+                },
             );
         }
         if show_master_shapes {
@@ -476,8 +479,11 @@ pub(crate) fn resolve_slide_parts_cached(
                     parsed,
                     SourceLevel::Master,
                     *part,
-                    &slide,
-                    layout.as_ref().map(|(_, part, _)| part),
+                    &PlaceholderSources {
+                        slide: &slide,
+                        layout: layout.as_ref().map(|(_, part, _)| part),
+                        master: None,
+                    },
                 );
             }
         }
@@ -485,17 +491,14 @@ pub(crate) fn resolve_slide_parts_cached(
             let inherited_layout = raw.placeholder.as_ref().and_then(|placeholder| {
                 layout.as_ref().and_then(|(_, part, _)| {
                     part.shapes.iter().find(|candidate| {
-                        placeholder_matches(placeholder, candidate.placeholder.as_ref())
+                        slide_placeholder_matches(placeholder, candidate.placeholder.as_ref())
                     })
                 })
             });
-            let inherited_master = raw.placeholder.as_ref().and_then(|placeholder| {
-                master.as_ref().and_then(|(_, part, _)| {
-                    part.shapes.iter().find(|candidate| {
-                        placeholder_matches(placeholder, candidate.placeholder.as_ref())
-                    })
-                })
-            });
+            let inherited_master = master_placeholder(
+                inherited_layout.unwrap_or(raw),
+                master.as_ref().map(|(_, part, _)| part),
+            );
             let text_relationship_part = if raw.text_frame.is_some() {
                 slide_id
             } else if inherited_layout.is_some_and(|shape| shape.text_frame.is_some()) {
@@ -702,14 +705,19 @@ fn append_non_placeholder(
     }
 }
 
+struct PlaceholderSources<'a> {
+    slide: &'a ParsedPart,
+    layout: Option<&'a ParsedPart>,
+    master: Option<(PartId, &'a ParsedPart)>,
+}
+
 fn append_unmaterialized_placeholders(
     output: &mut Vec<ResolvedElement>,
     resolver: &mut ElementResolver<'_>,
     part: &ParsedPart,
     source: SourceLevel,
     part_id: PartId,
-    slide: &ParsedPart,
-    nearer: Option<&ParsedPart>,
+    inherited: &PlaceholderSources<'_>,
 ) {
     let part_name = resolver
         .graph
@@ -719,6 +727,7 @@ fn append_unmaterialized_placeholders(
         let Some(placeholder) = &shape.placeholder else {
             continue;
         };
+        let slide = inherited.slide;
         let enabled = match placeholder.kind.as_str() {
             "hdr" => slide.show_header.or(part.show_header).unwrap_or(true),
             "ftr" => slide.show_footer.or(part.show_footer).unwrap_or(true),
@@ -729,21 +738,38 @@ fn append_unmaterialized_placeholders(
                 .unwrap_or(true),
             _ => false,
         };
-        if !enabled
-            || slide
-                .shapes
-                .iter()
-                .any(|candidate| placeholder_matches(placeholder, candidate.placeholder.as_ref()))
-            || nearer.is_some_and(|nearer| {
-                nearer.shapes.iter().any(|candidate| {
-                    placeholder_matches(placeholder, candidate.placeholder.as_ref())
+        let overridden = |candidate: &RawShape| {
+            if source == SourceLevel::Master {
+                candidate.placeholder.as_ref().is_some_and(|candidate| {
+                    master_placeholder_kind(&candidate.kind) == placeholder.kind
                 })
-            })
+            } else {
+                slide_placeholder_matches(placeholder, candidate.placeholder.as_ref())
+            }
+        };
+        if !enabled
+            || slide.shapes.iter().any(overridden)
+            || inherited
+                .layout
+                .is_some_and(|nearer| nearer.shapes.iter().any(overridden))
         {
             continue;
         }
+        let master_shape = master_placeholder(shape, inherited.master.map(|(_, part)| part));
+        let mut merged = merge_shape(shape, None, master_shape);
+        if let Some((_, master)) = inherited.master {
+            apply_master_text_styles(
+                &mut merged,
+                master_text_style_for(&master.text_styles, shape.placeholder.as_ref()),
+            );
+        }
+        let text_part = if shape.text_frame.is_none() && master_shape.is_some() {
+            inherited.master.map_or(part_id, |(id, _)| id)
+        } else {
+            part_id
+        };
         output.push(resolve_element(
-            shape, resolver, source, part_id, part_id, &part_name,
+            &merged, resolver, source, part_id, text_part, &part_name,
         ));
     }
 }
@@ -1330,10 +1356,30 @@ fn apply_paragraph_markers(text: &str, bullet: Option<&str>) -> String {
         .join("\n")
 }
 
-fn placeholder_matches(expected: &Placeholder, candidate: Option<&Placeholder>) -> bool {
-    candidate.is_some_and(|candidate| {
-        candidate.index == expected.index
-            || (candidate.kind == expected.kind && (candidate.index == 0 || expected.index == 0))
+fn slide_placeholder_matches(expected: &Placeholder, candidate: Option<&Placeholder>) -> bool {
+    expected.index != u32::MAX
+        && candidate.is_some_and(|candidate| candidate.index == expected.index)
+}
+
+fn master_placeholder_kind(kind: &str) -> &str {
+    match kind {
+        "ctrTitle" => "title",
+        "subTitle" | "obj" | "chart" | "tbl" | "clipArt" | "dgm" | "media" | "pic" => "body",
+        _ => kind,
+    }
+}
+
+fn master_placeholder<'a>(
+    shape: &RawShape,
+    master: Option<&'a ParsedPart>,
+) -> Option<&'a RawShape> {
+    let placeholder = shape.placeholder.as_ref()?;
+    let kind = master_placeholder_kind(&placeholder.kind);
+    master?.shapes.iter().find(|candidate| {
+        candidate
+            .placeholder
+            .as_ref()
+            .is_some_and(|candidate| candidate.kind == kind)
     })
 }
 

@@ -49,6 +49,8 @@ console.log(JSON.stringify({
   workload: 'author-new-text-heavy-deck',
   settings: { layout: 'LAYOUT_WIDE', compression: true, textBoxesPerSlide: 8 },
   semanticDifference: 'Authors a new PPTX; it does not compile or inject a POTX/POTM template.',
+  eligible: false,
+  exclusionReason: 'Legacy non-equivalent workload; comparative claims require the separately validated equivalent-output report.',
   slides,
   iterations,
   samplesMs,

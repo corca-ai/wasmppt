@@ -74,3 +74,74 @@ fn security_limits_fail_with_one_stable_code() {
         );
     }
 }
+
+#[test]
+fn nested_and_empty_namespace_declarations_restore_parent_bindings() {
+    let source = br#"<r xmlns="urn:root" xmlns:p="urn:outer"><p:a><b xmlns="urn:inner" xmlns:p="urn:shadow" p:id="1" id="2"><p:c/></b><p:d/><e xmlns:p="urn:empty"><p:f/></e><p:g xmlns:p="urn:leaf"/><p:h/></p:a></r>"#;
+    let document = XmlDocument::parse(source.as_slice()).unwrap();
+    let elements = document
+        .tokens()
+        .iter()
+        .filter_map(|token| {
+            let name = match &token.kind {
+                TokenKind::Start { name, .. } | TokenKind::End { name } => name,
+                _ => return None,
+            };
+            Some((
+                name.local.as_str(),
+                name.namespace.map(|symbol| document.namespace(symbol)),
+            ))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        elements,
+        [
+            ("r", Some("urn:root")),
+            ("a", Some("urn:outer")),
+            ("b", Some("urn:inner")),
+            ("c", Some("urn:shadow")),
+            ("b", Some("urn:inner")),
+            ("d", Some("urn:outer")),
+            ("e", Some("urn:root")),
+            ("f", Some("urn:empty")),
+            ("e", Some("urn:root")),
+            ("g", Some("urn:leaf")),
+            ("h", Some("urn:outer")),
+            ("a", Some("urn:outer")),
+            ("r", Some("urn:root")),
+        ]
+    );
+    let attributes = document
+        .tokens()
+        .iter()
+        .find_map(|token| match &token.kind {
+            TokenKind::Start {
+                name, attributes, ..
+            } if name.local == "b" => Some(attributes),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        document
+            .attribute(attributes, Some("urn:shadow"), "id")
+            .unwrap()
+            .value,
+        "1"
+    );
+    assert_eq!(
+        document.attribute(attributes, None, "id").unwrap().value,
+        "2"
+    );
+    assert_eq!(document.source(), source);
+}
+
+#[test]
+fn child_namespace_declarations_do_not_leak_to_siblings() {
+    for source in [
+        br#"<r><q:child xmlns:q="urn:child"/><q:sibling/></r>"#.as_slice(),
+        br#"<r><q:child xmlns:q="urn:child"></q:child><q:sibling/></r>"#.as_slice(),
+    ] {
+        let error = XmlDocument::parse(source).unwrap_err();
+        assert_eq!(error.code(), XmlErrorCode::UndeclaredPrefix);
+    }
+}

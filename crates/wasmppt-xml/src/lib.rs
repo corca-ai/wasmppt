@@ -1,6 +1,6 @@
 //! Loss-aware, namespace-aware XML tokens with exact source byte ranges.
 
-use std::{collections::HashMap, ops::Range, sync::Arc};
+use std::{collections::HashMap, ops::Range, rc::Rc, sync::Arc};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Symbol(u32);
@@ -215,7 +215,7 @@ struct Parser {
     cursor: usize,
     tokens: Vec<Token>,
     namespaces: Interner,
-    scopes: Vec<HashMap<String, String>>,
+    scopes: Vec<Rc<HashMap<String, String>>>,
     open_names: Vec<String>,
     limits: XmlLimits,
 }
@@ -232,7 +232,7 @@ impl Parser {
             cursor: 0,
             tokens: Vec::new(),
             namespaces: Interner::default(),
-            scopes: vec![root],
+            scopes: vec![Rc::new(root)],
             open_names: Vec::new(),
             limits,
         }
@@ -341,8 +341,8 @@ impl Parser {
                 format!("expected </{expected}> but found </{raw}>"),
             ));
         }
-        let scope = self.scopes.last().expect("root namespace scope").clone();
-        let name = resolve_name(raw, true, &scope, &mut self.namespaces, self.cursor)?;
+        let scope = self.scopes.last().expect("root namespace scope");
+        let name = resolve_name(raw, true, scope, &mut self.namespaces, self.cursor)?;
         self.scopes.pop();
         let range = self.cursor..end + 1;
         self.cursor = end + 1;
@@ -444,12 +444,14 @@ impl Parser {
             }
         }
 
-        let mut scope = self.scopes.last().expect("root namespace scope").clone();
+        // Most OOXML tags introduce no namespace bindings. Share their parent scope;
+        // a declaration is the only boundary that requires a private copy.
+        let mut scope = Rc::clone(self.scopes.last().expect("root namespace scope"));
         for (name, value, _, _) in &raw_attributes {
             if name == "xmlns" {
-                scope.insert(String::new(), value.clone());
+                Rc::make_mut(&mut scope).insert(String::new(), value.clone());
             } else if let Some(prefix) = name.strip_prefix("xmlns:") {
-                scope.insert(prefix.to_owned(), value.clone());
+                Rc::make_mut(&mut scope).insert(prefix.to_owned(), value.clone());
             }
         }
         let name = resolve_name(raw_name, true, &scope, &mut self.namespaces, name_start)?;

@@ -35,6 +35,22 @@ desktop-consumer evidence are distinct fields: the portable scorecard marks the 
 `not-run` and links to their authoritative workflow artifacts. Artifact upload runs even when a
 stage fails, so failure evidence is not lost.
 
+The independent browser smoke declarations live in `fixtures/render/corpus.json` and reference
+this registry's IDs without duplicating hashes or redistribution policy. `WithMaster.pptx` and
+`bar-chart.pptx` are externally authored PowerPoint decks; their recorded producer application and
+version are taken from `docProps/app.xml`. The browser gate verifies fetched bytes again before
+rendering all declared slides and publishes `target/visual-report/external-report.json` plus PNGs.
+It distinguishes external pixel smoke from generated regression baselines and Office ground truth.
+Fetch-only inputs and their derived PNGs stay outside version control.
+
+```sh
+node scripts/fetch-corpus.mjs target/corpus apache-poi-with-master-pptx apache-poi-bar-chart-pptx
+npm run test:browser:external --workspace @corca-ai/wasmppt
+```
+
+Set `WASMPPT_EXTERNAL_CORPUS_DIR` to use a different download directory. Missing or hash-mismatched
+inputs fail the gate and are recorded in its report. No network fetch occurs inside the renderer.
+
 ```sh
 cargo build -p wasmppt-cli
 node scripts/corpus-scorecard.mjs --output=target/corpus-scorecard-pr.json

@@ -250,6 +250,12 @@ jobs:
             > target/benchmarks/pptxgenjs.json
       - name: Execute the shared browser Worker fixture
         run: npm run test:browser --workspace @corca-ai/wasmppt
+      - name: Fetch and verify independent visual fixtures
+        run: >-
+          node scripts/fetch-corpus.mjs target/corpus
+          apache-poi-with-master-pptx apache-poi-bar-chart-pptx
+      - name: Render independent PowerPoint fixtures through the browser Worker
+        run: npm run test:browser:external --workspace @corca-ai/wasmppt
       - name: Enforce native, browser, and workerd deck parity
         run: >-
           node scripts/deck-gates.mjs
@@ -284,6 +290,7 @@ jobs:
             | tee target/native-display-signature.txt
           grep 'signature 0fcb609b5b81f3c8' target/native-display-signature.txt
       - name: Publish per-slide visual report
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: visual-regression-${{ github.sha }}

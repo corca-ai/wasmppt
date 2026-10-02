@@ -21,7 +21,8 @@
     "check": "tsc -p tsconfig.json --noEmit && tsc -p test/readme-tsconfig.json",
     "test": "npm run test:unit",
     "test:unit": "npm run build && node --test test/*.test.mjs",
-    "test:browser": "npm run build && node test/browser-host.integration.mjs"
+    "test:browser": "npm run build && node test/browser-host.integration.mjs",
+    "test:browser:external": "npm run build && node test/browser-external.integration.mjs"
   },
   "devDependencies": {
     "playwright": "^1.62.1"

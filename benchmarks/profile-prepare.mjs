@@ -58,7 +58,9 @@ for (const sample of profile.samples ?? []) {
   let id = sample
   const seen = new Set()
   while (id !== undefined) {
-    const name = nodes.get(id).callFrame.functionName
+    // Compiler hash suffixes identify builds, not logical functions. Keep those in
+    // the raw profile and aggregate the report by its readable function name.
+    const name = nodes.get(id).callFrame.functionName.replace(/::h[0-9a-f]{16}(?=\[|$)/g, '')
     if (!seen.has(name)) {
       const entry = hits.get(name) ?? { name, selfSamples: 0, inclusiveSamples: 0 }
       if (id === sample) entry.selfSamples += 1

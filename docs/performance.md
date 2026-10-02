@@ -93,7 +93,9 @@ showed namespace-map cloning and its string allocation/free costs in the XML par
 scope sharing addresses this boundary without removing validation or retaining a cross-document
 cache. The checked-in
 [measurement record](../benchmarks/results/prepare-namespace-sharing.json) contains repeated
-before/after release samples on one machine; it is bounded evidence for this preparation workload,
+before/after release samples on one machine and pins the accompanying generated POTX snapshot.
+Reproduce it with `node benchmarks/profile-prepare.mjs benchmarks/results/prepare-namespace-sharing.potx target/benchmarks/prepare-current.json`.
+This is bounded evidence for this preparation workload,
 not a general speed claim or an Office fidelity result.
 
 ## Release budgets

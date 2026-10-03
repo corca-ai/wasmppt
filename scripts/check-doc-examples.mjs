@@ -27,7 +27,7 @@ try {
       rootDir: root,
       paths: {
         '@corca-ai/wasmppt': [resolve(root, 'packages/wasmppt/src/index.ts')],
-        '@corca-ai/wasmppt/*': [resolve(root, 'packages/wasmppt/src/*')],
+        '@corca-ai/wasmppt/*': [resolve(root, 'packages/wasmppt/src/*.ts')],
       },
     },
     include: files,

@@ -51,6 +51,16 @@ Unsupported graphic frames and effect DAGs produce
 explicit `ResolveDiagnostic` values. Source OOXML remains untouched, so a later backend
 or fallback can recover it. The resolver never silently claims those features were drawn.
 
+Placeholder matching follows the inheritance boundary: a slide selects its layout placeholder by
+`idx`, while a layout selects its master placeholder by type (centered titles use the master title;
+content and subtitle placeholders use the master body). Header/footer items materialized from a
+layout inherit the corresponding master geometry and text style even when their indices differ.
+A nearer layout or slide item suppresses the matching master item so dates, footers, and slide
+numbers are drawn once. Explicit nearer transforms retain precedence. Synthetic inheritance
+cases and the independent `WithMaster.pptx` browser corpus check these rules; they do not establish
+Office pixel fidelity. The inheritance model is also described by
+[python-pptx's placeholder documentation](https://python-pptx.readthedocs.io/en/latest/dev/analysis/placeholders/index.html).
+
 ## Dependency invalidation
 
 The OPC graph is inverted once. `invalidated_slides(part_name)` walks reverse internal

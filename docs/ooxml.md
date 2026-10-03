@@ -7,7 +7,10 @@ PresentationML inspection layer. It builds on the [OPC and ZIP substrate](opc.md
 
 `wasmppt-xml` parses UTF-8 XML into namespace-resolved tokens while retaining the original
 byte buffer and an exact byte range for every token and attribute value. Namespace URIs
-are interned. Typed consumers compare expanded names rather than source prefixes, so
+are interned. The parser shares namespace scopes between tags without declarations and copies a
+scope only when a tag introduces or shadows a binding. Scope ownership stays inside one parse;
+closing a nested tag or completing an empty tag restores the parent binding. The token model,
+source ranges, and error/limit behavior remain unchanged. Typed consumers compare expanded names rather than source prefixes, so
 equivalent documents using different prefixes behave identically.
 
 The original bytes remain authoritative. Unknown attributes, elements,

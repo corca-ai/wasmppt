@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "buildSourceSha256": "bfec56d3956d47023d762449c922a10a461d591d9ec8688dba439fb69e378e38",
+  "buildSourceSha256": "daa5572489dd0327a510b9ac077d9e28c72ee52a52c389e66f1324e5949de291",
   "artifacts": {
-    "packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm": "4a2327c963c2d47f43ea1ae4f3f00453548198bda0fa5fe829d346d061c06664",
+    "packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm": "3151fa69f958c5dd34fd8b011efa142fe9b53b7e5d3e04f2fd51f62d7e662060",
     "packages/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm_bg.wasm": "20342da87d9cebe57df9cc972d82432c8906b7d499173e5e00d776e8a5998188",
     "packages/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm_bg.wasm": "12f80e5257d1042daf0eade43067430c487e73c4d6126365b7d6a73628345f35"
   }

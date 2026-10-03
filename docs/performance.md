@@ -75,6 +75,29 @@ load the HarfRust shaper only when exact font bytes are available and explicitly
 Presentations using neither capability do not fetch or instantiate either module. All artifact
 sizes remain visible so optional capability cost is not hidden.
 
+## Profiling template preparation
+
+`node benchmarks/profile-prepare.mjs TEMPLATE REPORT [ENGINE_DIRECTORY]` measures scalar-Wasm
+`prepare` in 200 fresh engines after 20 warmup calls. Module initialization and handle disposal
+are outside those latency samples. A separate 200-call inspector pass includes disposal and
+writes the raw V8 CPU profile to `REPORT.cpuprofile`; the JSON report retains every latency,
+engine/template hash, runtime, CPU, revision, and aggregated self/inclusive function samples.
+The optional engine directory allows a saved baseline or a Wasm build with function names to be
+profiled without replacing release artifacts.
+
+For named diagnostic profiles, build with `CARGO_PROFILE_WASM_RELEASE_STRIP=false` and run the
+matching `wasm-bindgen` CLI into an isolated directory under `target`. Do not publish that
+instrumented artifact as the size-budgeted release engine. Use the ordinary release artifact for
+before/after latency and correctness comparisons. A named profile of the equivalent text template
+showed namespace-map cloning and its string allocation/free costs in the XML parser. Namespace
+scope sharing addresses this boundary without removing validation or retaining a cross-document
+cache. The checked-in
+[measurement record](../benchmarks/results/prepare-namespace-sharing.json) contains repeated
+before/after release samples on one machine and pins the accompanying generated POTX snapshot.
+Reproduce it with `node benchmarks/profile-prepare.mjs benchmarks/results/prepare-namespace-sharing.potx target/benchmarks/prepare-current.json`.
+This is bounded evidence for this preparation workload,
+not a general speed claim or an Office fidelity result.
+
 ## Release budgets
 
 `benchmarks/budgets.json` is the only budget source. CI runs the actual native release binary,

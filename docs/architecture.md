@@ -85,6 +85,12 @@ A host authoring adapter supplies [DeckSpec](deck-engine.md), source identities,
 relations, and authorized resource bytes. Markdown parsing, network authorization, and product UI
 stay in the host. Media dimensions from the host are hints checked against bounded resource bytes.
 
+The [semantic SDK](semantic-sdk.md) accepts typed string keys independently of current source
+spans. It owns wire encoding, content-addressed asset registrations, exact font inputs, structured
+template inspection, and immutable accepted snapshots. A full template/spec/resource/font tuple
+replaces the deck atomically; retained snapshots remain usable during subsequent edits. Node and
+browser adapters share this API without depending on any consumer project.
+
 The [Starter compiler](deck-template.md) discovers explicit layout identities, resolves exact page
 geometry, text styles, theme assets, and safe content envelopes into `DeckTemplatePlan`.
 The [planner](deck-layout.md) owns measurement, candidate geometry, readable-size floors,
@@ -125,17 +131,17 @@ The [host adapters](hosts.md) own transfer, I/O, cancellation, errors, and memor
 
 - Native file adapters implement the core I/O capabilities and provide reference execution for
   profiling, fuzzing, and compatibility inspection.
-- Browser module Workers own handles and package/session state. Input buffers transfer ownership;
-  callers explicitly release handles and discard stale revisions. Main-thread adapters project
-  scenes and may persist binary template plans in host-owned storage.
+- Browser module Workers own handles and package/session state. The semantic SDK copies caller
+  inputs, manages handles, and exposes disposable snapshots. Its Canvas view owns lazy resources,
+  caches and complete-frame publication. The lower-level adapter transfers input ownership and
+  requires explicit handle/revision management.
 - Cloudflare HTTP endpoints stream generation from request or R2 template bytes. Only immutable
   prepared templates enter the isolate cache; mutable live sessions stay request-local. Browser
   Canvas and DOM APIs are not part of this HTTP surface.
 
 Crate ownership and package exports are listed in the [development guide](develop.md). Rust facades,
 package-root TypeScript exports, versioned binary envelopes, and structured errors remain pre-alpha;
-[release readiness](release.md) defines the future stability requirements. Conceptual pipeline names
-are not an additional JavaScript facade.
+[release readiness](release.md) defines the future stability requirements. The semantic SDK is the public authoring facade; binary protocols remain lower-level contracts.
 
 ## Determinism, security, and evidence
 

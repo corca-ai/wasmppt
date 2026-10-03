@@ -124,43 +124,22 @@ and clearing each slide.
 
 ## Export a semantic deck to HTML
 
-This uses the separate [Starter POTX contract](deck-template.md) and a WDSF-encoded
-[DeckSpec](deck-engine.md#binary-boundary-and-limits), not binding data or arbitrary PPTX bytes.
-The repository supplies `fixtures/deck-gates/starter.potx` and `deck-spec.wdsf` as a matched example.
-Both input buffers transfer to the Worker.
+Use the [semantic SDK](semantic-sdk.md) to pass a typed `DeckSpec`, render immutable snapshots,
+and export an explicit page selection to standalone HTML. The SDK owns binary encoding, resource
+registration, cache invalidation and revision lifetimes. `CanvasView` replaces host-written image
+loaders and frame publication for this path.
 
-```ts
-import { serializeDeckSessionToHtml, type WasmpptWorkerClient } from '@corca-ai/wasmppt'
-
-export async function exportDeckHtml(
-  client: WasmpptWorkerClient,
-  potx: ArrayBuffer,
-  wdsf: ArrayBuffer,
-): Promise<Uint8Array> {
-  const template = await client.prepareDeckTemplate(potx)
-  try {
-    const session = await client.createDeckSession(template.handle, wdsf)
-    try {
-      const offline = await client.withDeckSessionRevision(
-        session.handle, session.revision,
-        () => serializeDeckSessionToHtml(client, session, { title: 'Quarterly report' }),
-      )
-      return offline.bytes
-    } finally {
-      await client.releaseDeckSession(session.handle)
-    }
-  } finally {
-    await client.releaseDeckTemplate(template.handle)
-  }
-}
-```
-
-Save the UTF-8 bytes as HTML. The [offline serializer](dom-svg.md) resolves authorized package
-resources, inlines images and permitted fonts, rejects unsafe or missing required resources, and
-derives print geometry from the selected POTX. Hidden pages stay in PPTX but are omitted from the
-presentable HTML/PDF page set. Use the browser's print facility for PDF output.
+The lower-level `createDeckSession` and `serializeDeckSessionToHtml` operations remain available
+for binary-protocol consumers. They require WDSF buffers and an exact-revision read transaction;
+see the [host protocol](hosts.md#browser-worker-protocol). Save HTML bytes with an `.html`
+extension. The [offline serializer](dom-svg.md) inlines permitted resources and derives print
+geometry from the selected POTX. Hidden pages stay in PPTX and are omitted by default from HTML.
+Use the browser's print facility for PDF output.
 
 ## Ownership and lifecycle
+
+These rules apply to the lower-level client shown above. The [SDK lifecycle](semantic-sdk.md#inputs-and-ownership)
+uses copied input buffers and disposable objects instead.
 
 | Resource | Ownership rule |
 | --- | --- |

@@ -100,12 +100,17 @@ conditions for enabling publication.
 
 | Import | Purpose |
 | --- | --- |
-| `@corca-ai/wasmppt` | Browser API and versioned module-Worker adapter |
+| `@corca-ai/wasmppt/deck` | Host-neutral semantic types and source-offset helpers |
+| `@corca-ai/wasmppt/browser` | Semantic engine, Canvas view and HTML export |
+| `@corca-ai/wasmppt/node` | In-process semantic engine for Node |
+| `@corca-ai/wasmppt` | Lower-level browser API and versioned module-Worker adapter |
 | `@corca-ai/wasmppt/browser-worker` | Self-initializing browser Worker with a startup handshake |
 | `@corca-ai/wasmppt-worker` | Cloudflare Workers adapter |
 
 The root [package manifest](../package.json) exports TypeScript source for exact-commit Git
-consumers. Package-local manifests export built `dist` files for workspace builds and tests.
+consumers; `/node` exports checked-in JavaScript rebuilt by `npm run build:node` (also in
+`npm run build`). `npm run check:node-artifact` rejects source/bundle drift.
+Package-local manifests export built `dist` files for workspace builds and tests.
 [Browser integration](browser.md) explains asset emission and startup; [host adapters](hosts.md)
 define transport, ownership, limits, and errors.
 
@@ -159,7 +164,7 @@ cargo fuzz run --fuzz-dir crates/wasmppt-opc/fuzz package_graph
 - Missing offline Cargo dependency: run `cargo fetch --locked` before retrying the hook.
 - Generated-artifact drift: run the host build and review its manifest and binding changes.
 - Documentation example failure: `npm run check:doc-examples` type-checks the actual TypeScript
-  blocks in [browser integration](browser.md) and the [R2 example](hosts.md#r2-request-example).
+  blocks in the [semantic SDK](semantic-sdk.md), [browser integration](browser.md) and the [R2 example](hosts.md#r2-request-example).
 - Browser/Pages failure: inspect `target/visual-report` and `target/pages-downloads`; the
   [playground guide](playground.md) describes static assembly and deployment.
 - Cross-host or semantic-layout failure: follow the [deck gate](deck-gates.md) and

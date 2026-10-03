@@ -394,7 +394,7 @@ fn deck_spec() -> DeckSpec {
             id: square,
             kind: ResourceKind::RasterImage,
             media_type: "image/png".to_owned(),
-            bytes: png(64, 64, [37, 99, 235]),
+            bytes: png(64, 64, [37, 99, 235]).into(),
             intrinsic_size: Some(PixelSize {
                 width: 64,
                 height: 64,
@@ -404,21 +404,21 @@ fn deck_spec() -> DeckSpec {
             id: gif,
             kind: ResourceKind::RasterImage,
             media_type: "image/gif".to_owned(),
-            bytes: b"GIF89a\x01\0\x01\0\x80\0\0\0\0\0\xff\xff\xff!\xf9\x04\x01\0\0\0\0,\0\0\0\0\x01\0\x01\0\0\x02\x02D\x01\0;".to_vec(),
+            bytes: b"GIF89a\x01\0\x01\0\x80\0\0\0\0\0\xff\xff\xff!\xf9\x04\x01\0\0\0\0,\0\0\0\0\x01\0\x01\0\0\x02\x02D\x01\0;".to_vec().into(),
             intrinsic_size: Some(PixelSize { width: 1, height: 1 }),
         },
         DeckResource {
             id: svg,
             kind: ResourceKind::Svg,
             media_type: "image/svg+xml".to_owned(),
-            bytes: br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><path fill="#2563eb" d="M0 0h16v9H0z"/></svg>"##.to_vec(),
+            bytes: br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><path fill="#2563eb" d="M0 0h16v9H0z"/></svg>"##.to_vec().into(),
             intrinsic_size: Some(PixelSize { width: 16, height: 9 }),
         },
         DeckResource {
             id: math,
             kind: ResourceKind::Svg,
             media_type: "image/svg+xml".to_owned(),
-            bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="13" viewBox="0 -10 10 10"><g stroke="currentColor" fill="currentColor" stroke-width="0" transform="scale(1,-1)"><path d="M0 10L5 0L10 10L8 10L5 4L2 10Z"/></g></svg>"#.to_vec(),
+            bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="13" viewBox="0 -10 10 10"><g stroke="currentColor" fill="currentColor" stroke-width="0" transform="scale(1,-1)"><path d="M0 10L5 0L10 10L8 10L5 4L2 10Z"/></g></svg>"#.to_vec().into(),
             intrinsic_size: Some(PixelSize {
                 width: 14,
                 height: 13,
@@ -428,7 +428,7 @@ fn deck_spec() -> DeckSpec {
             id: svg_fallback,
             kind: ResourceKind::RasterImage,
             media_type: "image/png".to_owned(),
-            bytes: png(160, 90, [37, 99, 235]),
+            bytes: png(160, 90, [37, 99, 235]).into(),
             intrinsic_size: Some(PixelSize {
                 width: 160,
                 height: 90,
@@ -438,7 +438,7 @@ fn deck_spec() -> DeckSpec {
             id: math_fallback,
             kind: ResourceKind::RasterImage,
             media_type: "image/png".to_owned(),
-            bytes: formula_png(56, 52),
+            bytes: formula_png(56, 52).into(),
             intrinsic_size: Some(PixelSize {
                 width: 56,
                 height: 52,
@@ -448,7 +448,7 @@ fn deck_spec() -> DeckSpec {
             id: portrait,
             kind: ResourceKind::RasterImage,
             media_type: "image/png".to_owned(),
-            bytes: png(48, 96, [15, 118, 110]),
+            bytes: png(48, 96, [15, 118, 110]).into(),
             intrinsic_size: Some(PixelSize {
                 width: 48,
                 height: 96,
@@ -458,7 +458,7 @@ fn deck_spec() -> DeckSpec {
             id: wide,
             kind: ResourceKind::RasterImage,
             media_type: "image/png".to_owned(),
-            bytes: png(128, 48, [217, 119, 6]),
+            bytes: png(128, 48, [217, 119, 6]).into(),
             intrinsic_size: Some(PixelSize {
                 width: 128,
                 height: 48,
@@ -505,7 +505,7 @@ fn media_resource(
             id: resource_id,
             kind: ResourceKind::RasterImage,
             media_type: "image/png".to_owned(),
-            bytes: png(width, height, color),
+            bytes: png(width, height, color).into(),
             intrinsic_size: Some(display_size),
         },
     }
@@ -523,7 +523,7 @@ fn exif_resource(ordinal: u32, label: &'static str, orientation: u16) -> MediaFi
             id: resource_id,
             kind: ResourceKind::RasterImage,
             media_type: "image/jpeg".to_owned(),
-            bytes: jpeg_with_orientation(orientation),
+            bytes: jpeg_with_orientation(orientation).into(),
             // Deliberately stale stored-axis hint: byte-derived EXIF display axes must win.
             intrinsic_size: Some(PixelSize {
                 width: 40,
@@ -850,7 +850,7 @@ fn atomic_overflow_spec() -> DeckSpec {
             id: resource_id,
             kind: ResourceKind::RasterImage,
             media_type: "image/png".to_owned(),
-            bytes: vec![137, 80, 78, 71],
+            bytes: vec![137, 80, 78, 71].into(),
             intrinsic_size: Some(PixelSize {
                 width: 1,
                 height: 1_000,

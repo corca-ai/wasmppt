@@ -3396,7 +3396,7 @@ mod tests {
             id: id(90),
             kind: ResourceKind::Svg,
             media_type: "image/svg+xml".to_owned(),
-            bytes: br#"<svg xmlns="http://www.w3.org/2000/svg"/>"#.to_vec(),
+            bytes: br#"<svg xmlns="http://www.w3.org/2000/svg"/>"#.to_vec().into(),
             intrinsic_size: Some(PixelSize {
                 width: 100,
                 height: 20,
@@ -3480,7 +3480,7 @@ mod tests {
             id: id(90),
             kind: ResourceKind::Svg,
             media_type: "image/svg+xml".to_owned(),
-            bytes: br#"<svg xmlns="http://www.w3.org/2000/svg"/>"#.to_vec(),
+            bytes: br#"<svg xmlns="http://www.w3.org/2000/svg"/>"#.to_vec().into(),
             intrinsic_size: Some(PixelSize {
                 width: 64,
                 height: 24,
@@ -4045,7 +4045,7 @@ mod tests {
                     id: id(90),
                     kind: ResourceKind::RasterImage,
                     media_type: "image/png".to_owned(),
-                    bytes: vec![1],
+                    bytes: vec![1].into(),
                     intrinsic_size: Some(PixelSize {
                         width: 1_600,
                         height: 900,
@@ -4055,7 +4055,7 @@ mod tests {
                     id: id(91),
                     kind: ResourceKind::RasterImage,
                     media_type: "image/png".to_owned(),
-                    bytes: vec![1],
+                    bytes: vec![1].into(),
                     intrinsic_size: Some(PixelSize {
                         width: 900,
                         height: 1_600,
@@ -4138,7 +4138,7 @@ mod tests {
                 id: id(90),
                 kind: ResourceKind::RasterImage,
                 media_type: "image/png".to_owned(),
-                bytes: vec![1],
+                bytes: vec![1].into(),
                 intrinsic_size: Some(PixelSize {
                     width: 64,
                     height: 256,
@@ -4212,7 +4212,7 @@ mod tests {
                 id: id(130),
                 kind: ResourceKind::RasterImage,
                 media_type: "image/png".to_owned(),
-                bytes: vec![1],
+                bytes: vec![1].into(),
                 intrinsic_size: Some(PixelSize {
                     width: 1_600,
                     height: 900,
@@ -4222,7 +4222,9 @@ mod tests {
                 id: id(131),
                 kind: ResourceKind::Svg,
                 media_type: "image/svg+xml".to_owned(),
-                bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"/>"#.to_vec(),
+                bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"/>"#
+                    .to_vec()
+                    .into(),
                 intrinsic_size: Some(PixelSize {
                     width: 1_600,
                     height: 900,
@@ -4514,7 +4516,7 @@ mod tests {
                 id: id(90),
                 kind: ResourceKind::RasterImage,
                 media_type: "image/png".to_owned(),
-                bytes: vec![1],
+                bytes: vec![1].into(),
                 intrinsic_size: Some(PixelSize {
                     width: 2_000,
                     height: 100,
@@ -4696,7 +4698,7 @@ mod tests {
                 id: id(90),
                 kind: ResourceKind::RasterImage,
                 media_type: "image/png".to_owned(),
-                bytes: vec![1],
+                bytes: vec![1].into(),
                 intrinsic_size: Some(PixelSize {
                     width: 100,
                     height: 2_000,
@@ -4983,7 +4985,7 @@ mod tests {
                 id: id(100 + u8::try_from(index).unwrap()),
                 kind: ResourceKind::RasterImage,
                 media_type: "image/png".to_owned(),
-                bytes: vec![1],
+                bytes: vec![1].into(),
                 intrinsic_size: Some(PixelSize {
                     width: *width,
                     height: *height,
@@ -5015,7 +5017,7 @@ mod tests {
                 id: id(90),
                 kind: ResourceKind::RasterImage,
                 media_type: "image/png".to_owned(),
-                bytes: vec![1],
+                bytes: vec![1].into(),
                 intrinsic_size: Some(PixelSize {
                     width: aspect.0,
                     height: aspect.1,

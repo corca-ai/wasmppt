@@ -10,7 +10,7 @@ mod validate;
 mod wire;
 
 use sha2::{Digest, Sha256};
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 pub use media::{inspect_jpeg_size, inspect_media_size};
 pub use validate::{validate_deck_plan, validate_deck_spec};
@@ -377,7 +377,7 @@ pub struct DeckResource {
     pub id: StableId,
     pub kind: ResourceKind,
     pub media_type: String,
-    pub bytes: Vec<u8>,
+    pub bytes: Arc<[u8]>,
     /// Optional host-observed hint. Layout validates or derives canonical dimensions from bytes.
     pub intrinsic_size: Option<PixelSize>,
 }

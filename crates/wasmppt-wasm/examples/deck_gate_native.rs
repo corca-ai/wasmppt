@@ -703,7 +703,9 @@ fn mutate_content(content: &mut SemanticContent, resources: &mut [DeckResource])
                 .iter_mut()
                 .find(|resource| resource.id == svg.resource_id)
                 .expect("SVG mutation resource must exist");
-            resource.bytes.extend_from_slice(b"<!-- mutation -->");
+            let mut bytes = resource.bytes.to_vec();
+            bytes.extend_from_slice(b"<!-- mutation -->");
+            resource.bytes = bytes.into();
         }
     }
 }

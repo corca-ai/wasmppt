@@ -8,6 +8,10 @@ wasmppt semantic layout and composition pipeline. It keeps Markdown, project sto
 browser APIs, and Cloudflare APIs outside the Rust core while retaining enough source
 identity to return precise authoring diagnostics.
 
+JavaScript consumers use the [semantic SDK](semantic-sdk.md), which owns this binary boundary
+and separates host string keys from current source offsets. The following types describe the Rust
+contracts.
+
 ## Contract flow
 
 ```text
@@ -60,9 +64,10 @@ to POTX example slides as example content rather than reusable template furnitur
 example slides removes their notes-slide parts, relationships, and content-type overrides while
 preserving the shared notes master and unrelated opaque template parts.
 
-Call `StableId::from_source` with a stable document identity, exact source range, and
-semantic role. Inserting an unrelated logical slide therefore does not renumber existing
-content. Derived physical page IDs use the logical slide ID and its one-based continuation
+Native hosts can call `StableId::from_source` for deterministic source-derived identity, but a
+changed source range changes that ID. Editors that retain identity across unrelated insertions
+must preserve their own semantic identities. The SDK derives binary IDs from document and object
+keys rather than source ranges. Derived physical page IDs use the logical slide ID and its one-based continuation
 ordinal; fragment IDs use the complete source node ID and fragment slice.
 
 ## Template and physical plans

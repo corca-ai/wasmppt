@@ -1,3 +1,4 @@
+import type { DeckOperation, DeckOperationResult } from './deck/transport.js'
 import {
   LEGACY_WORKER_PROTOCOL_VERSION,
   WORKER_PROTOCOL_VERSION,
@@ -291,6 +292,23 @@ export class WasmpptWorkerClient {
       bindings: response.bindings,
       diagnostics: response.diagnostics,
     }
+  }
+
+  /** Internal SDK transport; normal consumers use Engine/DeckSnapshot. */
+  async deckOperation(operation: DeckOperation): Promise<DeckOperationResult> {
+    this.#assertOpen()
+    const id = this.#allocateId()
+    const result = this.#unaryRequest(id, 'session')
+    const transfer: Transferable[] = operation.kind === 'snapshot' ? [operation.spec]
+      : operation.kind === 'register-asset' || operation.kind === 'register-font' ? [operation.bytes] : []
+    this.#worker.postMessage({ version: WORKER_PROTOCOL_VERSION, id, type: 'deck-api', operation }, transfer)
+    const response = await result
+    if (response.type !== 'deck-api-result') throw new Error('invalid deck API response')
+    if (response.result.kind === 'snapshot') {
+      this.#releasedDeckSessions.delete(response.result.handle)
+      this.#deckRevisions.set(response.result.handle, response.result.revision)
+    }
+    return response.result
   }
 
   /** Transfer and compile a POTX governed by the deck template contract. */
@@ -1391,7 +1409,7 @@ function isWorkerResponse(value: unknown): value is WorkerResponse {
     candidate.version === WORKER_PROTOCOL_VERSION &&
     Number.isSafeInteger(candidate.id) &&
     (candidate.id as number) >= 0 &&
-    (candidate.type === 'deck-template-prepared' ||
+    (candidate.type === 'deck-api-result' || candidate.type === 'deck-template-prepared' ||
       candidate.type === 'deck-session-created' ||
       candidate.type === 'deck-session-updated' ||
       candidate.type === 'deck-slide-resolved' ||

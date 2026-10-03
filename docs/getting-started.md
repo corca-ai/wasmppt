@@ -9,10 +9,10 @@ Use a pinned source revision until the [release requirements](release.md) are me
 | Your task | Read next | Input and output |
 | --- | --- | --- |
 | Fill an authored PowerPoint template | [Browser integration](browser.md), then [bindings](bindings.md) and [injection](injection.md) | POTX/POTM plus binding data → PPTX |
-| Generate pages from semantic content | [Deck contracts](deck-engine.md), then [Starter templates](deck-template.md), [layout](deck-layout.md), and [composition](deck-compose.md) | Starter POTX plus `DeckSpec` → planned editable PPTX |
+| Generate pages from semantic content | [Semantic SDK](semantic-sdk.md), then [Starter templates](deck-template.md), [layout](deck-layout.md), and [composition](deck-compose.md) | Starter POTX plus `DeckSpec` → planned editable PPTX |
 | View an existing presentation | [Browser integration](browser.md), then [Canvas](canvas.md) | PPTX → lazy slide display lists → Canvas |
-| Export selectable HTML or print to PDF | [Offline DOM/SVG](dom-svg.md) | Exact semantic deck-session revision → standalone HTML |
-| Generate on a server | [Host adapters](hosts.md) | Native file capabilities or Cloudflare streaming HTTP |
+| Export selectable HTML or print to PDF | [Offline DOM/SVG](dom-svg.md) | Immutable semantic deck snapshot → standalone HTML |
+| Generate on a server | [Host adapters](hosts.md) | Node semantic SDK, native capabilities or Cloudflare streaming HTTP |
 
 The binding and semantic-deck pipelines use different template contracts. An arbitrary POTX can
 carry authored bindings; semantic layout requires the explicit Starter profile. Neither pipeline
@@ -36,7 +36,7 @@ A bundler that accepts TypeScript source and module Workers can use an exact rep
 ```
 
 Replace the placeholder with the full commit you reviewed. The repository-root exports include
-TypeScript and checked-in scalar Wasm bindings, so installation does not build Rust. The bundler
+TypeScript, a compiled `/node` entry, and checked-in scalar Wasm bindings, so installation does not build Rust. The bundler
 must emit Worker and Wasm asset URLs; [browser integration](browser.md) shows the startup handshake.
 Local workspace package exports instead use built `dist` files.
 
@@ -74,7 +74,8 @@ and [native host capabilities](hosts.md#native) for file-backed I/O.
 
 ## Errors and troubleshooting
 
-Browser failures reject with `WasmpptError`; Cloudflare returns an `error` JSON envelope.
+The semantic SDK returns typed diagnostics for input rejection and throws on runtime failure.
+Lower-level browser failures reject with `WasmpptError`; Cloudflare returns an `error` JSON envelope.
 Branch on `domain`, `code`, and context fields, never on the human-readable `message`. The
 [host contract](hosts.md#browser-worker-protocol) defines cancellation, limits, and lifecycle.
 

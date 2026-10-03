@@ -1,5 +1,7 @@
 //! Narrow WebAssembly boundary for the host-agnostic `wasmppt` core.
 
+mod deck_api;
+
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
@@ -88,6 +90,7 @@ pub struct WasmpptEngine {
     deck_templates: HashMap<u32, Arc<DeckTemplateRecord>>,
     deck_sessions: HashMap<u32, DeckSessionRecord>,
     generations: HashMap<u32, GenerationRecord>,
+    deck_inputs: deck_api::DeckInputs,
 }
 
 #[derive(Debug)]
@@ -119,6 +122,8 @@ struct DeckSessionRecord {
     overlay: PresentationOverlay,
     document: PresentationDocument,
     scenes: SceneCache,
+    fonts: FontCatalog,
+    retained_weight: usize,
 }
 
 enum GenerationRecord {
@@ -126,7 +131,7 @@ enum GenerationRecord {
     Deck(OverlayCursor),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct SceneCache {
     maximum_bytes: usize,
     resident_bytes: usize,
@@ -134,7 +139,7 @@ struct SceneCache {
     hits: u64,
     misses: u64,
     evictions: u64,
-    entries: HashMap<(u32, [u8; 32]), Vec<u8>>,
+    entries: HashMap<(u32, [u8; 32]), Arc<[u8]>>,
     order: VecDeque<(u32, [u8; 32])>,
 }
 
@@ -148,6 +153,7 @@ impl Default for WasmpptEngine {
             deck_templates: HashMap::new(),
             deck_sessions: HashMap::new(),
             generations: HashMap::new(),
+            deck_inputs: deck_api::DeckInputs::default(),
         }
     }
 }
@@ -683,10 +689,7 @@ impl WasmpptEngine {
     ) -> Result<Vec<u8>, JsValue> {
         let record = self.deck_session_mut(handle)?;
         require_deck_revision(record, revision)?;
-        let fingerprint = record
-            .document
-            .slide_dependency_fingerprint(slide_index as usize)
-            .map_err(layout_error)?;
+        let fingerprint = deck_api::scene_fingerprint(record, slide_index as usize)?;
         if let Some(bytes) = record.scenes.get((slide_index, fingerprint)) {
             return Ok(bytes);
         }
@@ -719,11 +722,7 @@ impl WasmpptEngine {
     ) -> Result<String, JsValue> {
         let record = self.deck_session(handle)?;
         require_deck_revision(record, revision)?;
-        record
-            .document
-            .slide_dependency_fingerprint(slide_index as usize)
-            .map(fingerprint_hex)
-            .map_err(layout_error)
+        deck_api::scene_fingerprint(record, slide_index as usize).map(fingerprint_hex)
     }
 
     pub fn deck_session_resource(
@@ -880,6 +879,7 @@ impl WasmpptEngine {
                 && !self.deck_templates.contains_key(&handle)
                 && !self.deck_sessions.contains_key(&handle)
                 && !self.generations.contains_key(&handle)
+                && !self.deck_inputs.contains(handle)
             {
                 return Ok(handle);
             }
@@ -952,6 +952,7 @@ impl WasmpptEngine {
         plan: wasmppt_deck::DeckTemplatePlan,
         cacheable: bool,
     ) -> Result<u32, JsValue> {
+        self.check_deck_capacity(bytes.len())?;
         let handle = self.allocate_handle()?;
         self.deck_templates.insert(
             handle,
@@ -993,6 +994,8 @@ impl WasmpptEngine {
                 overlay,
                 document,
                 scenes: SceneCache::new(SESSION_SCENE_CACHE_BYTES),
+                fonts: FontCatalog::default(),
+                retained_weight: 0,
             },
         );
         Ok(handle)
@@ -1149,7 +1152,7 @@ impl SceneCache {
     }
 
     fn get(&mut self, key: (u32, [u8; 32])) -> Option<Vec<u8>> {
-        let value = self.entries.get(&key).cloned();
+        let value = self.entries.get(&key).map(|bytes| bytes.to_vec());
         if value.is_some() {
             self.hits = self.hits.saturating_add(1);
             self.order.retain(|candidate| candidate != &key);
@@ -1169,7 +1172,7 @@ impl SceneCache {
         }
         self.order.retain(|candidate| candidate != &key);
         self.resident_bytes = self.resident_bytes.saturating_add(bytes.len());
-        self.entries.insert(key, bytes);
+        self.entries.insert(key, bytes.into());
         self.order.push_back(key);
         self.peak_bytes = self.peak_bytes.max(self.resident_bytes);
         while self.resident_bytes > self.maximum_bytes {
@@ -1512,13 +1515,19 @@ fn deck_diagnostics_array(diagnostics: &[DeckDiagnostic]) -> Array {
 
 fn deck_layout_error(error: PlanError) -> JsValue {
     let code = error.code.known_name().unwrap_or("deck-planning-failed");
-    envelope_error(
+    let value = envelope_error(
         "WasmpptDeckLayoutError",
         "layout",
         code,
         error.to_string(),
         ErrorContext::default(),
-    )
+    );
+    let _ = Reflect::set(
+        &value,
+        &JsValue::from("diagnostics"),
+        &deck_diagnostics_array(&error.diagnostics),
+    );
+    value
 }
 
 fn coded_error(name: &str, error: impl std::fmt::Display) -> JsValue {
@@ -2101,7 +2110,7 @@ mod tests {
                     bytes: format!(
                         r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="20" viewBox="0 0 100 20"><rect width="100" height="20" fill="{fill}"/></svg>"#,
                     )
-                    .into_bytes(),
+                    .into_bytes().into(),
                     intrinsic_size: Some(PixelSize {
                         width: 100,
                         height: 20,
@@ -2111,7 +2120,7 @@ mod tests {
                     id: id(fallback_resource),
                     kind: ResourceKind::RasterImage,
                     media_type: "image/png".to_owned(),
-                    bytes: test_png(),
+                    bytes: test_png().into(),
                     intrinsic_size: Some(PixelSize {
                         width: 1,
                         height: 1,
@@ -2172,7 +2181,7 @@ mod tests {
                     id: id(20),
                     kind: ResourceKind::Svg,
                     media_type: "image/svg+xml".to_owned(),
-                    bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" width="1.742ex" height="1.595ex" viewBox="0 -683 770 705"><path d="M0 0L385 683L770 0Z"/></svg>"#.to_vec(),
+                    bytes: br#"<svg xmlns="http://www.w3.org/2000/svg" width="1.742ex" height="1.595ex" viewBox="0 -683 770 705"><path d="M0 0L385 683L770 0Z"/></svg>"#.to_vec().into(),
                     intrinsic_size: Some(PixelSize {
                         width: 35,
                         height: 32,
@@ -2182,7 +2191,7 @@ mod tests {
                     id: id(21),
                     kind: ResourceKind::RasterImage,
                     media_type: "image/png".to_owned(),
-                    bytes: test_png(),
+                    bytes: test_png().into(),
                     intrinsic_size: Some(PixelSize {
                         width: 1,
                         height: 1,

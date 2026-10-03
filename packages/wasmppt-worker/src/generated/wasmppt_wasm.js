@@ -112,6 +112,24 @@ export class WasmpptEngine {
         return EngineCapabilities.__wrap(ret);
     }
     /**
+     * Tighten the SDK's conservative retained-state budget. Transient parser/composer limits
+     * remain independently bounded; this is not a measurement of the process heap.
+     * @param {number} maximum_bytes
+     */
+    configure_deck_budget(maximum_bytes) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.wasmpptengine_configure_deck_budget(retptr, this.__wbg_ptr, maximum_bytes);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * Create revision zero by planning and composing one complete WDSF deck specification.
      * @param {number} template_handle
      * @param {Uint8Array} spec
@@ -161,6 +179,37 @@ export class WasmpptEngine {
         }
     }
     /**
+     * Fork from a previous accepted snapshot without ever modifying it. The new handle is
+     * published only after validation, planning, composition and retained-budget checks pass.
+     * @param {number} template_handle
+     * @param {Uint8Array} spec
+     * @param {Uint32Array} assets
+     * @param {Uint32Array} fonts
+     * @param {number} previous_handle
+     * @returns {number}
+     */
+    create_deck_snapshot(template_handle, spec, assets, fonts, previous_handle) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passArray8ToWasm0(spec, wasm.__wbindgen_export);
+            const len0 = WASM_VECTOR_LEN;
+            const ptr1 = passArray32ToWasm0(assets, wasm.__wbindgen_export);
+            const len1 = WASM_VECTOR_LEN;
+            const ptr2 = passArray32ToWasm0(fonts, wasm.__wbindgen_export);
+            const len2 = WASM_VECTOR_LEN;
+            wasm.wasmpptengine_create_deck_snapshot(retptr, this.__wbg_ptr, template_handle, ptr0, len0, ptr1, len1, ptr2, len2, previous_handle);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0 >>> 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * Create a revision-zero live session from one prepared template and complete
      * initial generation data. The logical package is opened directly, without a
      * generated PPTX buffer.
@@ -184,6 +233,13 @@ export class WasmpptEngine {
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
+    }
+    /**
+     * @returns {number}
+     */
+    deck_accounted_bytes() {
+        const ret = wasm.wasmpptengine_deck_accounted_bytes(this.__wbg_ptr);
+        return ret;
     }
     /**
      * @param {number} handle
@@ -417,6 +473,27 @@ export class WasmpptEngine {
         }
     }
     /**
+     * WPDL semantic IDs identify physical fragments; retain their semantic-node ownership.
+     * @param {number} handle
+     * @param {number} revision
+     * @returns {Array<any>}
+     */
+    deck_snapshot_sources(handle, revision) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.wasmpptengine_deck_snapshot_sources(retptr, this.__wbg_ptr, handle, revision);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return takeObject(r0);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * @param {number} handle
      * @returns {boolean}
      */
@@ -453,6 +530,26 @@ export class WasmpptEngine {
             var v1 = getArrayU8FromWasm0(r0, r1).slice();
             wasm.__wbindgen_export4(r0, r1 * 1, 1);
             return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Structured template profile; no consumer decodes a binary plan or searches its bytes.
+     * @param {number} handle
+     * @returns {Array<any>}
+     */
+    describe_deck_template(handle) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.wasmpptengine_describe_deck_template(retptr, this.__wbg_ptr, handle);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return takeObject(r0);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
@@ -941,6 +1038,62 @@ export class WasmpptEngine {
         }
     }
     /**
+     * Register one bounded WDSF resource. Subsequent revisions send handles, never its bytes.
+     * @param {Uint8Array} payload
+     * @returns {number}
+     */
+    register_deck_asset(payload) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passArray8ToWasm0(payload, wasm.__wbindgen_export);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.wasmpptengine_register_deck_asset(retptr, this.__wbg_ptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0 >>> 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {string} family
+     * @param {number} face_index
+     * @param {Uint8Array} bytes
+     * @returns {number}
+     */
+    register_deck_font(family, face_index, bytes) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(family, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            const ptr1 = passArray8ToWasm0(bytes, wasm.__wbindgen_export);
+            const len1 = WASM_VECTOR_LEN;
+            wasm.wasmpptengine_register_deck_font(retptr, this.__wbg_ptr, ptr0, len0, face_index, ptr1, len1);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return r0 >>> 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Existing snapshots own shared bytes independently of these registration handles.
+     * @param {number} handle
+     * @returns {boolean}
+     */
+    release_deck_input(handle) {
+        const ret = wasm.wasmpptengine_release_deck_input(this.__wbg_ptr, handle);
+        return ret !== 0;
+    }
+    /**
      * @param {number} handle
      * @returns {boolean}
      */
@@ -1339,6 +1492,14 @@ function getStringFromWasm0(ptr, len) {
     return decodeText(ptr >>> 0, len);
 }
 
+let cachedUint32ArrayMemory0 = null;
+function getUint32ArrayMemory0() {
+    if (cachedUint32ArrayMemory0 === null || cachedUint32ArrayMemory0.byteLength === 0) {
+        cachedUint32ArrayMemory0 = new Uint32Array(wasm.memory.buffer);
+    }
+    return cachedUint32ArrayMemory0;
+}
+
 let cachedUint8ArrayMemory0 = null;
 function getUint8ArrayMemory0() {
     if (cachedUint8ArrayMemory0 === null || cachedUint8ArrayMemory0.byteLength === 0) {
@@ -1364,6 +1525,13 @@ let heap_next = heap.length;
 
 function isLikeNone(x) {
     return x === undefined || x === null;
+}
+
+function passArray32ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 4, 4) >>> 0;
+    getUint32ArrayMemory0().set(arg, ptr / 4);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
 }
 
 function passArray8ToWasm0(arg, malloc) {
@@ -1453,6 +1621,7 @@ function __wbg_finalize_init(instance, module) {
     wasm = instance.exports;
     wasmModule = module;
     cachedDataViewMemory0 = null;
+    cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     return wasm;
 }

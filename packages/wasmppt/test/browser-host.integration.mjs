@@ -8,6 +8,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { chromium } from 'playwright'
+import { checkDeckBrowserApi } from './deck-api.browser.mjs'
 
 const packageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const workspaceDirectory = resolve(packageDirectory, '../..')
@@ -118,6 +119,14 @@ const routes = new Map([
   ],
   [
     '/wasm/shaper/wasmppt_shaper_wasm_bg.wasm',
+    [join(generatedDirectory, 'shaper/wasmppt_shaper_wasm_bg.wasm'), 'application/wasm'],
+  ],
+  [
+    '/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm.js',
+    [join(generatedDirectory, 'shaper/wasmppt_shaper_wasm.js'), 'text/javascript'],
+  ],
+  [
+    '/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm_bg.wasm',
     [join(generatedDirectory, 'shaper/wasmppt_shaper_wasm_bg.wasm'), 'application/wasm'],
   ],
   [
@@ -245,6 +254,7 @@ try {
   })
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto(`http://127.0.0.1:${address.port}/`)
+  await checkDeckBrowserApi(page)
   const result = await page.evaluate(async (smartartRegion) => {
     const { connectWasmpptBrowserWorker } = await import('/dist/browser-worker-client.js')
     const { encodeInjectionData } = await import('/dist/injection.js')

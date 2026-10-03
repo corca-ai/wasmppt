@@ -18,7 +18,8 @@ Composition replaces the presentation's slide topology in one revision. It mater
 - media referenced by the generated slides; and
 - chart parts, their relationships, and coordinated embedded XLSX workbooks.
 
-Old slide parts are removed. Layouts, masters, themes, decorations, unrelated media, extension
+Old slide parts and their example notes-slide parts, relationships, and content-type overrides
+are removed; the shared notes master remains. Layouts, masters, themes, decorations, unrelated media, extension
 markup, and unknown parts remain in the template package. `PackageOverlay` serves those untouched
 parts directly from the original archive and raw-copies their compressed payloads during export.
 The live overlay itself implements `PackagePartSource`, so rendering and dependency fingerprinting
@@ -109,8 +110,8 @@ Wasm builds.
 
 ## Streaming and bounds
 
-`PresentationOverlay::generation_cursor` accepts a positive maximum output chunk size and emits
-the exact PPTX revision without constructing a complete PPTX buffer or base64 media graph. Peak
+`PresentationOverlay::generation_cursor()` returns an overlay cursor. Each `pull(maximum_bytes)`
+accepts a positive chunk bound and emits the exact PPTX revision without constructing a complete PPTX buffer or base64 media graph. Peak
 materialized memory is bounded by `ComposeLimits`; unchanged compressed source bytes and output
 bytes are not retained by the composer. The revision digest covers template identity, spec
 identity, the encoded plan, and every materialized logical part.

@@ -8,7 +8,9 @@ retains the raw-copy invariant. Cold template compilation and warm injection are
 
 ## Reproduce
 
-From a clean checkout with Rust 1.88.0, Node 24, `wasm-bindgen-cli` 0.2.127, and Chromium installed:
+Use the [development setup](develop.md), a matching `wasm-bindgen-cli`, Chromium, and .NET SDK
+for the Open XML comparison gate. CI builds host artifacts with Rust 1.88.0; local reports record
+the actual compiler and engine identity. Run from the repository root:
 
 ```sh
 npm ci
@@ -22,15 +24,14 @@ npm run build --workspace @corca-ai/wasmppt
 node benchmarks/comparisons/run-equivalent.mjs --iterations=3
 npm run test:browser --workspace @corca-ai/wasmppt
 npm test --workspace @corca-ai/wasmppt-worker
-node scripts/deck-gates.mjs --workerd-log=target/host-parity/workerd.log
 ```
 
-`benchmarks/run.mjs` deterministically creates the public 3-by-3 matrix in
-`target/benchmark-fixtures`: text-heavy, image-heavy, and mixed templates at 10, 50, and 200
-slides. Set `WASMPPT_BENCH_ITERATIONS`; the default is 30. For local process-level calibration,
-set `WASMPPT_BENCH_PROCESS_RUNS`; the default is one. `--ci` fixes both controls at ten iterations
-per child process and three fresh processes for each mixed 10, 50, and 200-slide fixture. Generated
-templates are source artifacts: their generator,
+[benchmarks/run.mjs](../benchmarks/run.mjs) creates the workload matrix from
+[fixtures.json](../benchmarks/fixtures.json) in `target/benchmark-fixtures`. Set
+`WASMPPT_BENCH_ITERATIONS` and `WASMPPT_BENCH_PROCESS_RUNS` for local calibration; the runner owns
+defaults and `--ci` fixes the minimum sampling policy and mixed-workload subset. The separate
+[deck gate](deck-gates.md#portable-evidence) needs native, browser, and captured workerd evidence.
+Generated templates are source artifacts: their generator,
 payload dimensions, compression mode, hashes, and redistribution license are recorded in the raw
 report rather than hidden behind an unpublished corpus.
 
@@ -88,12 +89,10 @@ profiled without replacing release artifacts.
 For named diagnostic profiles, build with `CARGO_PROFILE_WASM_RELEASE_STRIP=false` and run the
 matching `wasm-bindgen` CLI into an isolated directory under `target`. Do not publish that
 instrumented artifact as the size-budgeted release engine. Use the ordinary release artifact for
-before/after latency and correctness comparisons. A named profile of the equivalent text template
-showed namespace-map cloning and its string allocation/free costs in the XML parser. Namespace
-scope sharing addresses this boundary without removing validation or retaining a cross-document
-cache. The checked-in
-[measurement record](../benchmarks/results/prepare-namespace-sharing.json) contains repeated
-before/after release samples on one machine and pins the accompanying generated POTX snapshot.
+before/after latency and correctness comparisons. The revision-bound
+[namespace-sharing measurement](../benchmarks/results/prepare-namespace-sharing.json) records
+one preparation optimization and its generated POTX snapshot; it is historical evidence, not a
+current performance baseline.
 Reproduce it with `node benchmarks/profile-prepare.mjs benchmarks/results/prepare-namespace-sharing.potx target/benchmarks/prepare-current.json`.
 This is bounded evidence for this preparation workload,
 not a general speed claim or an Office fidelity result.
@@ -111,14 +110,13 @@ first/visible/all-slide latency, logical memory, and RSS ceilings are enforced i
 superlinear scaling. The checked-in ceilings include variance observed across repeated release
 processes; CI refuses reports with fewer than three processes or ten timing samples per process.
 
-The scalar browser artifact has a 3 MiB raw-Wasm ceiling after the revisioned deck planner,
-composer, and POTX compiler joined the browser engine in protocol v6. This is an explicit
-architecture budget, not an exemption: the benchmark still rejects growth beyond that ceiling,
-and the deck-specific multi-host size matrix is completed in the deck compatibility gate.
+The scalar browser artifact has its own raw-Wasm ceiling in
+[budgets.json](../benchmarks/budgets.json). Optional artifact costs are reported separately;
+changes to the scalar feature boundary must still pass that ceiling.
 
 The [deck compatibility gate](deck-gates.md) also enforces browser and workerd ceilings for
 Starter compilation plus initial planning, all-page resolution, and exact-revision PPTX export.
-Its report retains seven raw timing samples and cold/warm p50/p95 summaries for native, browser,
+Its report retains raw timing samples and cold/warm p50/p95 summaries for native, browser,
 and workerd next to exact cross-host plan, display-list, topology, and package identities, so
 latency evidence cannot outlive the correctness result it measured.
 
@@ -127,7 +125,7 @@ passing checks, and the raw artifact is uploaded even when the gate fails. Publi
 generated budget fixture for each revision. Browser reports additionally retain first-visible-slide
 samples, resolution/font/display/media stage timings, and scene/resource/decoded-image cache bytes.
 The visible set is awaited before neighbor prefetch can consume Worker or main-thread capacity.
-The browser gate also executes a 1,000-slide rapid-scroll trace, enforcing the configured
+The browser gate also executes a bounded rapid-scroll trace, enforcing the configured
 strong-reference window, byte-budgeted cache residency, disposal, and average scheduling/render
 budget. It exercises the OffscreenCanvas thumbnail path and closes the transferred ImageBitmap.
 The same gate fails when a text edit invalidates more than one independent slide, loses overlay
@@ -140,8 +138,8 @@ runtime/browser, API settings, workload adapter, output validation, and known se
 PptxGenJS 4.0.1 is the initial named generation comparator; it authors a new deck and does not
 perform POTX/POTM template injection, so its number must not be presented as an equivalent warm
 injection result. Its dependencies are isolated from the product workspaces and the adapter uses
-only generated text; its pinned dependency tree currently reports an `image-size` denial-of-service
-advisory, which is another reason it must never process untrusted comparator inputs. Browser
+only generated text; its [isolated lockfile](../benchmarks/comparisons/pptxgenjs/package-lock.json) owns dependency
+versions. Keep the workload generated and review dependency policy when updating it. Browser
 renderers likewise require the same input deck, viewport, font/image
 resources, visible-slide set, and pixel/semantic correctness thresholds.
 
@@ -182,7 +180,7 @@ reserialization costs are included in `author`. The same correction is applied t
 template. This is explicitly a PptxGenJS-plus-adapter pipeline, not an unmodified-library speed
 result. Raw outputs, their timings, and the validator errors remain visible and ineligible.
 
-Every timed PPTX is retained and validated with Microsoft `DocumentFormat.OpenXml` 3.5.1. The
+Every timed PPTX is retained and validated with the pinned Microsoft `DocumentFormat.OpenXml` validator. The
 scalar engine independently opens it, checks the exact slide count, resolves all ten slides,
 and checks ordered painted text, text-box geometry, font family/size/color, page dimensions,
 white background, and absence of resolver diagnostics. Empty trailing style runs are not painted

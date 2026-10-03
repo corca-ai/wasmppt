@@ -87,9 +87,10 @@ are closed when their host resource supports `close()`. `dispose()` aborts work,
 canvas, clears both caches, and releases listeners owned by the mounted canvas elements.
 
 Live rendering keys image resources by their exact part-content fingerprint rather than a
-relationship ID. Text widths use a 4 MiB LRU keyed by resolved font and text; rich-text layout uses
-an 8 MiB LRU keyed by font-resolver identity plus the full display command, including run tree,
-bounds, wrapping, margins, and flow. `clear()` empties all renderer-owned caches. The dogfood viewer
+relationship ID. Text widths use a byte-budgeted LRU keyed by resolved font and text; rich-text layout uses
+a separate LRU keyed by font-resolver identity plus the full display command, including run tree,
+bounds, wrapping, margins, and flow. The [renderer constructor](../packages/wasmppt/src/canvas.ts) owns configurable cache defaults.
+`clear()` empties all renderer-owned caches. The dogfood viewer
 keeps unrelated canvases mounted and redraws only visible invalidated slides; slide-level redraw is
 the current measured correctness boundary.
 
@@ -104,17 +105,16 @@ display execution, and media decode, plus command count, cache bytes, and cache 
 gate records first-visible-slide raw samples separately from injection and per-stage samples. It
 runs the real Wasm module in a module Worker, transfers a two-slide PPTX, resolves only slide
 zero, draws shapes, nested transforms, fills, strokes, text, an image crop, verifies cache
-cleanup and bounded mounted canvases, runs a 1,000-slide scroll/disposal stress trace, renders and
+cleanup and bounded mounted canvases, runs a bounded scroll/disposal stress trace, renders and
 closes an OffscreenCanvas thumbnail, and records a pixel fingerprint. Higher-fidelity visual
 baselines and per-slide tolerance reports belong to the compatibility-gate slice.
 
 ## Current boundary
 
-The renderer supports WPDL v11 while retaining v1-v10 decoding. Version 11 carries resolved
-run-owned hyperlinks for the DOM accessibility layer. Version 10 carries stable semantic IDs,
-source ranges, reading order, and hit-test bounds for Canvas authoring. Version 9 marks text from a
-materialized live-edit overlay so normal AutoFit recomputes the largest fitting scale instead of
-blindly retaining a stale authored hint. Embedded font relationships travel
+The renderer supports [WPDL v11 and legacy decoding](rendering.md#binary-display-list). Semantic
+IDs, source ranges, reading order, and hit-test bounds support Canvas authoring. Live-edited text
+marks normal AutoFit for recomputation rather than retaining a stale authored hint.
+Embedded font relationships travel
 as lazy resources; `registerEmbeddedFonts` applies size and OpenType embedding-permission checks
 before registering exact `FontFace` bytes. Hosts may additionally load the independent
 `wasmppt-shaper-wasm` artifact: its HarfRust pipeline returns deterministic font-unit advances,

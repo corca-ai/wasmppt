@@ -1,7 +1,8 @@
-# Development Guide
+# Development guide
 
-This document defines the bootstrap toolchain, package entry points, feature policy, and
-verification commands. For the durable subsystem design, see [System architecture](architecture.md).
+New contributors should read the [architecture](architecture.md), bootstrap below, then follow the
+[subsystem map](index.md#subsystem-contracts) for the area they will change. For application
+integration rather than repository work, use [getting started](getting-started.md).
 
 ## Toolchain
 
@@ -13,8 +14,8 @@ verification commands. For the durable subsystem design, see [System architectur
 - Node.js: 24 or newer
 - Documentation linters: `awiki` and `markdownlint-cli2`
 - Source linters: Clippy, `oxlint`, and ShellCheck
-- Rust quality tools: cargo-nextest 0.9.143, cargo-llvm-cov 0.8.7, cargo-machete 0.9.2,
-  cargo-deny 0.19.8, and cargo-fuzz 0.13.2
+- Rust quality tools: use versions pinned in [CI](../.github/workflows/ci.yml) for local gates
+  and the [scheduled workflow](../.github/workflows/rust-deep-quality.yml) for fuzzing/Miri.
 
 `rust-toolchain.toml` installs the development toolchain, `rustfmt`, Clippy, and the Wasm
 target. CI separately checks the workspace with the MSRV so using a newer local compiler
@@ -24,15 +25,46 @@ metafile crate manifests independently declare their higher MSRV, while `rust-to
 is the development-toolchain source. Contract-sync tests compare every workflow and document
 consumer against those declarations.
 
-`npm ci` installs the pinned JavaScript and Markdown linters. Install `awiki` and ShellCheck
-separately before using the local pre-commit gate. Install the Rust quality tools at the exact
-versions above; the hooks deliberately perform no installation. CI also pins Actionlint and Typos
+`npm ci` installs the pinned JavaScript and Markdown linters. Install ShellCheck through your
+system package manager and `awiki` with the pinned install command in CI's `documentation` job.
+Install Rust quality tools at the workflow-pinned versions; hooks perform no installation.
+CI also pins Actionlint and Typos
 to validate workflow semantics and spelling without adding those slower tools to every local
 commit. See [quality gates](quality.md) for tier ownership and quarantine policy.
 
+## Bootstrap
+
+From the repository root:
+
+```sh
+rustup show
+cargo fetch --locked
+npm ci
+npm run hooks:install
+npm run build
+npm run precommit
+```
+
+Fetching Cargo dependencies first is necessary because local hooks use `--offline`. The tracked
+hooks perform no installations or network fetches. Enable them once per clone; the installer sets
+`core.hooksPath` to `.githooks` and checks executable bits.
+
+The checked-in Wasm artifacts suffice for JavaScript-only work. For Rust changes affecting the
+engine or other inputs covered by the provenance manifest, install `wasm-bindgen-cli` matching
+`workspace.dependencies.wasm-bindgen` in [Cargo.toml](../Cargo.toml), then run:
+
+```sh
+npm run build:wasm-hosts
+node scripts/check-wasm-artifact-manifest.mjs
+```
+
+Commit the regenerated host bindings, Wasm bytes, and manifest together. The build invokes the CLI;
+its version must match the Rust dependency. CI builds its own artifact and compares bindings and
+provenance, rather than requiring macOS and Linux LLVM output to have identical bytes.
+
 ## Rust entry points
 
-| Package | Kind | Host dependency | Initial responsibility |
+| Package | Kind | Host dependency | Responsibility |
 | --- | --- | --- | --- |
 | `wasmppt-deck` | library | none | semantic deck and physical-plan contracts |
 | `wasmppt-deck-template` | library | none | explicit Cortex Theme Starter POTX profiles |
@@ -44,162 +76,49 @@ commit. See [quality gates](quality.md) for tier ownership and quarantine policy
 | `wasmppt-template` | library | none | binding plans and injection |
 | `wasmppt-layout` | library | none | theme, layout, and slide resolution |
 | `wasmppt-metafile` | library | none | bounded EMF/WMF-to-SVG conversion |
+| `wasmppt-shaper` | library | none | bounded exact font-byte shaping and line breaks |
 | `wasmppt-display` | library | none | backend-neutral display lists |
 | `wasmppt-native` | library | native standard library | file source and sink capabilities |
 | `wasmppt-wasm` | `cdylib` and library | `wasm-bindgen` | narrow Wasm ABI |
 | `wasmppt-metafile-wasm` | `cdylib` and library | `wasm-bindgen` | optional lazy metafile ABI |
+| `wasmppt-shaper-wasm` | `cdylib` and library | `wasm-bindgen` | optional browser font-shaping ABI |
 | `wasmppt-cli` | binary | native standard library | inspection and verification CLI |
 
 Core crates have empty default feature sets and MUST remain host-agnostic. Run
 `npm run check:core-boundary` to traverse the resolved Cargo dependency graph and reject
 browser, JavaScript, Wasm binding, or Cloudflare runtime packages reachable from core.
 
-### Core implementation ownership
+The [core boundary check](../scripts/core-boundary.mjs) owns the enforced crate set. Preserve the
+existing separation between package orchestration and pure XML, color, chart, table, measurement,
+and geometry helpers. Public re-exports remain at each crate's entry point; see the relevant
+[subsystem contract](index.md#subsystem-contracts) before changing their behavior.
 
-The large template and layout entry points keep orchestration separate from deterministic
-planning and parsing:
-
-- `wasmppt-deck-template` owns the strict Starter policy and package orchestration. Its
-  private XML projection retains element source ranges and exposes no package I/O. The
-  compiler reads packages only through bounded `wasmppt-opc` APIs and emits only
-  host-neutral `wasmppt-deck` values.
-- `wasmppt-deck-layout` consumes only validated deck and template contracts plus optional
-  exact font bytes. It owns semantic grouping, bounded candidate search, measurement caches,
-  pagination, and deterministic `DeckPlan` production; host font and DOM APIs stay outside it.
-- `wasmppt-deck-compose` validates an exact spec/template/plan tuple, projects its pages into
-  editable PresentationML, and owns only the changed topology, slide, relationship, media, chart,
-  and embedded-workbook bytes in an immutable overlay. It delegates ZIP reuse and streaming to `wasmppt-opc`,
-  delegates coordinated chart/cache/workbook projection to `wasmppt-template`, and has
-  no DOM, JavaScript generator, filesystem, or browser dependency.
-- `wasmppt-template::inject` owns package reads, generation state, caching, and output
-  orchestration. Its `patch` module owns bounded XML replacements, escaping, and relationship
-  target normalization; its `table` module owns row overflow and height-scaling policy; and its
-  `chart` module owns chart-data validation, cache projection, and rewriting the nested embedded
-  workbook package. These helpers do not inspect or mutate the outer presentation package graph.
-- `wasmppt-layout::resolve` owns dependency traversal, inheritance order, diagnostics, and slide
-  assembly. Its `color` module owns theme color maps, font-scheme extraction, DrawingML color
-  parsing, and ordered color transforms. Its `chart` module maps one already-resolved chart XML
-  document into chart kinds and cached series. Both helpers consume only XML tokens and resolved
-  value types.
-
-Dependencies point from each orchestrator into these focused modules, never back into package I/O
-or across sibling modules. The browser `image` module similarly owns bounded image inspection,
-SVG safety, and browser decoding while `canvas` owns display-list execution and cache orchestration.
-Preserve original byte ranges for template patches, apply color
-transforms in document order, and keep the public crate re-exports at their existing entry points
-when extending these areas.
-
-All crates are `publish = false` during the pre-alpha architecture phase. Publishing is
-enabled only after public API, semver, compatibility, and release artifact policies are
-accepted.
+All crates are unpublished during pre-alpha. [Release readiness](release.md) defines the
+conditions for enabling publication.
 
 ## JavaScript entry points
 
 | Import | Purpose |
 | --- | --- |
-| `@corca-ai/wasmppt` | browser package and versioned Web Worker adapter |
+| `@corca-ai/wasmppt` | Browser API and versioned module-Worker adapter |
+| `@corca-ai/wasmppt/browser-worker` | Self-initializing browser Worker with a startup handshake |
 | `@corca-ai/wasmppt-worker` | Cloudflare Workers adapter |
 
-They are separate so browser UI dependencies cannot inflate or constrain the Worker
-integration. See [Runtime host adapters](hosts.md) for their protocols and limits.
+The root [package manifest](../package.json) exports TypeScript source for exact-commit Git
+consumers. Package-local manifests export built `dist` files for workspace builds and tests.
+[Browser integration](browser.md) explains asset emission and startup; [host adapters](hosts.md)
+define transport, ownership, limits, and errors.
 
-The repository root also exports the browser package TypeScript and
-`@corca-ai/wasmppt/browser-worker` entry for exact-commit Git dependencies. That pre-alpha
-distribution boundary uses the checked-in Wasm-bindgen artifacts and has no install-time build.
-It is not a release or semver promise: consumers must pin a full merge commit. The package-local
-exports continue to point at `dist` for workspace builds and tests.
+## Build profiles and artifacts
 
-## Build profiles
+[Cargo.toml](../Cargo.toml) defines speed-oriented `release` with thin LTO, `wasm-release` with fat
+LTO, and the size-oriented comparison profile `wasm-small`. Production uses `wasm-release`;
+a smaller build must still meet the [latency contract](performance.md).
 
-- `release`: speed-oriented native and Wasm baseline with thin LTO.
-- `wasm-release`: speed-oriented Wasm release with fat LTO.
-- `wasm-small`: explicitly size-oriented Wasm comparison build.
-
-The default production path uses measured `wasm-release` results. `wasm-small` is not
-selected merely because it is smaller; it must meet the same latency contract.
-
-## Verification
-
-Run the complete local bootstrap suite from the repository root:
+The host build emits scalar, optional metafile, and optional shaper modules. To report their raw
+sizes after `npm run build:wasm-hosts`:
 
 ```sh
-cargo fmt --all --check
-cargo check --workspace --all-targets --all-features --locked
-cargo nextest run --workspace --all-features --locked
-cargo test --workspace --all-features --locked --doc
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-cargo check --workspace --all-features --locked --target wasm32-unknown-unknown
-cargo +1.85.1 check --workspace --all-targets --all-features --locked \
-  --exclude wasmppt-metafile --exclude wasmppt-metafile-wasm
-cargo +1.88.0 check -p wasmppt-metafile -p wasmppt-metafile-wasm --all-targets --locked
-cargo deny check
-cargo machete --skip-target-dir
-npm ci
-npm run lint
-npm run check
-npm run check:contracts
-npm run build
-npm run build:wasm-hosts
-npm test --workspace @corca-ai/wasmppt-worker
-npm run test:browser --workspace @corca-ai/wasmppt
-npm run build:pages
-npm run test:pages
-node benchmarks/run.mjs --ci
-awiki lint -root docs
-```
-
-Generate and enforce the current core coverage baseline separately:
-
-```sh
-rustup component add llvm-tools-preview
-npm run coverage:core
-```
-
-Enable the repository-owned hooks once per clone:
-
-```sh
-npm run hooks:install
-```
-
-The pre-commit hook runs `npm run precommit`, composed from two reproducible layers:
-
-- `npm run check:fast` checks Rust formatting, JavaScript/TypeScript/Markdown/shell lint,
-  package types, architectural and cross-file contracts, and the documentation graph.
-- `npm run test:fast` runs offline Rust library tests, repository tool tests, browser-package Node
-  tests, and Worker adapter tests that do not launch workerd.
-
-Staged whitespace is checked before both layers. The gate performs no installs or network fetches;
-run `npm ci` and install the separately listed system tools during bootstrap. Its warm-run target is
-under 30 seconds on a contributor machine (3.2 seconds measured on the reference macOS checkout on
-2026-08-13). Browser integration, workerd integration, and performance suites remain deliberate
-omissions. CI is authoritative. In an exceptional situation, bypass only this local guard with
-`git commit --no-verify`, disclose the bypass in the pull request, and run `npm run precommit` as
-soon as the environment is repaired.
-
-The hooks are version-controlled under `.githooks/`; the installer verifies their execute bits and
-sets the clone-local `core.hooksPath`, so no implementation is copied into `.git`. Repository tests
-exercise installation in a temporary Git repository and lock the hook-to-command mapping. A failed
-hook prints the exact manual reproduction command.
-
-The pre-push hook stores Git's ref update stream in the temporary file named by
-`WASMPPT_PRE_PUSH_REFS`, then runs `npm run prepush`. The default medium-cost, offline gate runs
-workspace Cargo check and Clippy, native library/integration tests, separate doctests, a Wasm target
-check, package tests (including workerd), core boundary and contract checks, cargo-deny's
-license/source/duplicate policy, and cargo-machete. It requires pinned quality tools to be installed
-during bootstrap but never installs them itself. Warm runs should take under two minutes and clean
-builds roughly ten minutes, depending on the machine.
-
-Use `npm run prepush:full` only when the local checkout already has `wasm-bindgen`, Chromium, and the
-benchmark inputs. It additionally builds release Wasm hosts, runs browser and Pages integration,
-and enforces the native benchmark matrix; it still performs no dependency installation. PowerPoint
-consumers, corpus downloads, and full cross-host CI matrices remain remote gates. An exceptional
-push can bypass local hooks with `git push --no-verify`; disclose it and rely on required CI before
-merge.
-
-Build and report the raw Wasm artifact size with:
-
-```sh
-cargo build --profile wasm-release --locked --target wasm32-unknown-unknown -p wasmppt-wasm
 node scripts/report-wasm-size.mjs \
   target/wasm32-unknown-unknown/wasm-release/wasmppt_wasm.wasm
 node scripts/report-wasm-size.mjs \
@@ -208,62 +127,50 @@ node scripts/report-wasm-size.mjs \
   target/wasm32-unknown-unknown/wasm-release/wasmppt_shaper_wasm.wasm
 ```
 
-CI runs the same gates, including Actionlint workflow validation, Typos spell checking, runtime
-compatibility, security, visual, and performance contracts on their real host adapters. The
-contract synchronization check prevents WPDL version, decoder compatibility, fixture signature,
-visual corpus, and browser budget declarations from drifting independently. One dedicated job
-builds the scalar `wasm-release`
-module and matching `wasm-bindgen` host files. The host-adapter and performance jobs depend
-on that job and download its revision-bound artifact, so both exercise identical Wasm bytes
-without compiling the release module twice. The artifact comes from the same workflow run;
-CI never substitutes the latest successful artifact from another revision.
-The job compares checked-in JavaScript and declarations with its fresh build. It also validates a
-portable provenance manifest that binds every checked-in Wasm binary to the complete tracked Rust
-and host-build input set. A Rust runtime change must therefore commit the browser bytes and
-manifest regenerated by `npm run build:wasm-hosts`; a Git dependency cannot silently ship an older
-embedded engine. The manifest uses hashes rather than comparing a macOS artifact byte-for-byte
-with a Linux build, because LLVM output need not be identical across build hosts.
+## Verify a change
 
-The compatibility job converts a pinned real POTX and validates its PPTX output with the
-Microsoft Open XML SDK wrapper under `tools/openxml-validator`. It also resolves slides
-from the generated output and the pinned real-world Apache POI `SampleShow.pptx` fixture.
-The security-and-corpus job verifies fixture provenance, compiles all fuzz surfaces, and
-exercises stable parser limits and preservation policies. Browser integration publishes a
-per-slide report under `target/visual-report`; release ground truth uses the controlled
-PowerPoint, LibreOffice, and Keynote workflow described in [compatibility gates](compatibility.md).
-The performance-contract job publishes native, browser, and workerd raw samples and enforces the
-budgets and correctness rules in the [performance contract](performance.md).
+The [root scripts](../package.json) are the executable definitions of the local gates:
 
-The host-adapter job also regenerates the canonical automatic-layout fixture, executes it seven
-times per host, and publishes `target/deck-gates/report.json`. That report combines exact
-native/browser/workerd byte parity with plan-quality invariants and a real Chrome Canvas render of
-every physical page. Native planning and Chrome rendering also publish and compare raw per-image
-display axes, visible geometry, aspect error, and crop loss for the canonical media-context matrix.
-Update the fixture generator, checked-in corpus files, and the semantic-layout contract together
-whenever automatic layout or pagination behavior changes.
+| When | Command | Scope |
+| --- | --- | --- |
+| Before every handoff or commit | `npm run precommit` | Staged whitespace, format/lint, types, contracts, docs graph, offline Rust library and host-free package tests |
+| Before pushing | `npm run prepush` | Workspace check/Clippy/tests/doctests/Wasm, package tests including workerd, dependency policy |
+| Host/render/performance changes | `npm run prepush:full` | Push gate plus Wasm build, Chromium, Pages, and native performance budgets |
+| Core coverage changes | `npm run coverage:core` | Coverage ratchet; install cargo-llvm-cov and `llvm-tools-preview` first |
+| Documentation changes | `awiki lint -root docs` | Flat documentation graph; included in precommit |
 
-`npm run build:pages` assembles the static dogfood application under `target/pages` from the
-checked-in Wasm host bindings, browser package, and two dogfood POTX templates. `npm run test:pages`
-serves that directory and uses real Chrome to apply one editor delta to both templates, render both
-previews, and save both generated PPTX files under `target/pages-downloads`. CI validates those
-exact browser downloads with the Microsoft Open XML SDK before publishing the Pages artifact.
-The Pages build derives and copies the complete local ESM import, re-export, and dynamic-import
-closure from its browser entry points; a missing dependency fails assembly instead of surfacing as
-a browser-only 404. Non-module assets remain explicit entry points in that same checked closure.
-CI reuses the single revision-bound Wasm artifact for this gate and deploys the exact tested static
-directory to GitHub Pages on `main`. See the [browser dogfood playground](playground.md).
+`prepush` requires cargo-deny and cargo-machete already installed. `prepush:full` additionally
+requires the matching `wasm-bindgen` CLI, Chromium, and comparison inputs. Install Chromium with
+`npx playwright install chromium`; prepare benchmark inputs using [performance reproduction](performance.md#reproduce).
+The [quality guide](quality.md) explains CI ownership and release-only checks.
 
-Run the package parser fuzz target separately with `cargo-fuzz`:
+For focused Rust work, run the relevant crate tests and Clippy first. CI also checks the primary
+and optional-module MSRVs independently using the commands in its `msrv` job. Native doctests run
+separately from nextest. For fuzzing, use the pinned nightly and cargo-fuzz from the
+[scheduled checks](quality.md#scheduled-deep-checks), then select a target:
 
 ```sh
 cargo fuzz run --fuzz-dir crates/wasmppt-opc/fuzz open_package
 cargo fuzz run --fuzz-dir crates/wasmppt-opc/fuzz package_graph
 ```
 
-## Related documents
+## Evidence and troubleshooting
 
-- Return to the [documentation index](index.md) for the complete project map.
-- Read the [OPC and ZIP substrate](opc.md) contract before changing package I/O.
-- Read the [loss-aware OOXML graph](ooxml.md) contract before changing XML or
-  relationship handling.
-- Follow the [documentation guide](metadoc.md) when changing development documentation.
+- Missing offline Cargo dependency: run `cargo fetch --locked` before retrying the hook.
+- Generated-artifact drift: run the host build and review its manifest and binding changes.
+- Documentation example failure: `npm run check:doc-examples` type-checks the actual TypeScript
+  blocks in [browser integration](browser.md) and the [R2 example](hosts.md#r2-request-example).
+- Browser/Pages failure: inspect `target/visual-report` and `target/pages-downloads`; the
+  [playground guide](playground.md) describes static assembly and deployment.
+- Cross-host or semantic-layout failure: follow the [deck gate](deck-gates.md) and
+  [compatibility guide](compatibility.md) to regenerate and compare revision-bound evidence.
+- Benchmark regression: retain raw reports and inspect [budget margins](performance.md#release-budgets)
+  before changing a threshold.
+
+CI reuses one revision-bound Wasm artifact across host and performance jobs. It never substitutes
+an artifact from another revision. The Pages job deploys the exact tested static output on `main`.
+Office consumers and full corpus checks have separate [quality tiers](quality.md).
+
+A broken local environment is not permission to weaken a check. If an exceptional local hook
+bypass is necessary, disclose it in the PR and reproduce the gate after repair; CI remains
+required. Documentation changes follow the [documentation guide](metadoc.md).

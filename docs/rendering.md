@@ -24,7 +24,7 @@ both a diagnostic API and a regression-test surface for lazy behavior.
 
 ## Resolution semantics
 
-The first resolver implements:
+The resolver implements:
 
 - slide size in integer English Metric Units (EMU);
 - theme color schemes, master/override color maps, `srgbClr`, `sysClr`, and
@@ -36,7 +36,7 @@ The first resolver implements:
 - source-layer z-order, transforms, flips and 1/60000-degree rotation;
 - solid/no, linear/radial gradient and pattern fills, line color, width, dash and line ends, image
   relationships and source crops;
-- nineteen common preset geometries including polygons, stars, arrows, plus and chevron;
+- common preset geometries including polygons, stars, arrows, plus and chevron;
 - paragraph/run-preserving text with mixed font size, Latin/East-Asian/complex-script
   families, color and emphasis; bullets, indentation, spacing and alignment; and
   RTL, tabs, character spacing, baseline shifts, decoration, vertical flow, text-frame
@@ -89,25 +89,19 @@ theme, layout, master, media, chart, or other reachable dependency. See
 - optional stable 128-bit semantic IDs and exact source ranges used by deck authoring hit tests;
 - resolver diagnostics shared without reinterpretation by every rendering backend.
 
-WPDL version 11 carries resolved hyperlinks on the exact rich-text runs that own them, while
-shape-owned links remain semantic-element metadata. WPDL version 10 adds explicit reading order
-and optional source-backed semantic identity and range records. WPDL version 9 distinguishes
-source-faithful normal-AutoFit hints from live-edited
-recomputation.
-WPDL version 8 separates inner text shadows from outer shadows while retaining the complete v7
-contract. WPDL version 7 adds typed paragraph spacing, authored normal-AutoFit hints, shape-resize AutoFit,
-columns, embedded-font resources, and common editable-text effects including outlines, shadows,
-glow, blur, soft edges, and reflection. Character and common automatic
-numbering markers remain semantic paragraph data; picture bullets carry their lazy image
-relationship and use the same bounded media resolver as ordinary images. Positioned runs expose
-paragraph-local UTF-16 source ranges to selection and accessibility consumers. It retains the RTL/tab/vertical
-text metadata, decoration and spacing, curved custom paths, radial gradients, patterns, and the
-expanded preset set introduced by version 5. WPDL version 4 adds
-paragraph/run-preserving rich text, linear gradients, bounded custom
-paths, outer shadows, connectors, and arrowheads. Version 3 extends `DrawText` with the
-effective text-frame style and adds an
-explicit preserved-graphic placeholder command. Version 1 and 2 scenes still decode
-with documented defaults. SmartArt with one picture fallback provably paired by
+WPDL version 11 is the current wire format. It carries run-owned hyperlinks separately from
+shape-owned semantic links, stable source identity and reading order, resolver diagnostics,
+paragraph/run-preserving text, typed spacing, authored versus live-edited AutoFit, columns,
+embedded-font references, and common 2D text paint. Character and automatic numbering remain
+semantic paragraph data; picture bullets use the same lazy image path as other images. Positioned
+browser runs expose paragraph-local UTF-16 ranges for selection and accessibility.
+
+The [Rust encoder](../crates/wasmppt-display/src/lib.rs) and
+[TypeScript decoder](../packages/wasmppt/src/canvas.ts) own exact field ordering and defaults.
+The decoder retains v1-v10 compatibility, filling fields absent from older scenes. Contract-sync
+checks keep encoder, decoder, capability matrix, and these format claims aligned.
+
+SmartArt with one picture fallback provably paired by
 `mc:AlternateContent` lowers to the ordinary image command, so Canvas and DOM/SVG share its
 bounds, crop, z-order, lazy resource policy, and failure fallback. SmartArt without that authored
 association, OLE, and unknown graphic frames remain labeled placeholders with diagnostics and an

@@ -149,7 +149,7 @@ parts, content-type declarations for removed parts, package digital signatures, 
 macro Action attributes. It converts POTX, POTM, and macro-enabled presentation main
 content types to the PPTX presentation main content type. The library never executes VBA.
 `macroPolicy: 'reject'` instead rejects a package containing those artifacts or a macro action
-during preparation with the stable `WasmpptMacroPresentError` name. Macro-preserving PPTM output
+during preparation with the stable `template/macro-present` error code. Macro-preserving PPTM output
 is not exposed until its package semantics can be implemented and validated end to end.
 
 Unknown parts and unsupported XML are not normalized. If an unrelated entry is not dirty,
@@ -173,8 +173,8 @@ multi-slide continuation, notes edits, and buffered/streaming parity.
 CI also downloads [Apache POI's](https://github.com/apache/poi) Apache-licensed
 `bug59273.potx` at a pinned SHA-256,
 converts it through the forward-only CLI path, validates ZIP and relationship structure,
-and runs Microsoft `DocumentFormat.OpenXml` 3.5.1 validation over the resulting PPTX and a
-dogfood-template output whose five rows continue across three authored table slides. The validator
+and runs the pinned Microsoft `DocumentFormat.OpenXml` validator over the resulting PPTX and a
+dogfood-template output with repeated rows continuing across authored table slides. The validator
 wrapper is in `tools/openxml-validator`.
 
 Local commands are:

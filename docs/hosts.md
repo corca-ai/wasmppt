@@ -9,6 +9,9 @@ That gate retains the complete output from all three hosts and requires identica
 SHA-256, and bytes. A mismatch report identifies the first differing ZIP entry and classifies
 headers, metadata, compressed payload, or central-directory drift.
 
+For runnable examples, start with [getting started](getting-started.md) or
+[browser integration](browser.md). This page defines ownership and transport contracts.
+
 ## Native
 
 `wasmppt-native` owns filesystem capabilities. `FileSource` implements bounded,
@@ -131,7 +134,7 @@ rejects with `WasmpptError`, whose `domain`, `code`, and `envelope` are public. 
 the familiar JavaScript name `AbortError` while its stable code is `runtime/cancelled`. Unknown
 opaque handles use `runtime/unknown-handle`; a revision mismatch uses `runtime/stale-revision`.
 The client continues to decode v6 `name`/`message` error and cancellation responses during the
-protocol migration, assigning legacy errors `runtime/legacy-error`; new requests always use v7.
+protocol migration, assigning legacy errors `runtime/legacy-error`; new requests always use v8.
 
 `createLiveSession`, `applyLiveDelta`, `resolveLiveSlide`, and `generateLiveStream` operate on one
 Worker-owned session. Exact revision checks make stale work observable. Changed binding IDs, parts,
@@ -165,23 +168,16 @@ response. `x-wasmppt-live-revision` identifies the streamed revision. The endpoi
 batch primitive, not a cross-request remote editor session. `encodeLiveEditBundle` creates the
 binary request body from already encoded WPPD payloads.
 
-The default explicitly accounted ceiling is 96.25 MiB:
+`WorkerMemoryBudget` bounds template input, payload, dirty output, chunk size, immutable cache,
+and R2 range reads. [DEFAULT_WORKER_MEMORY_BUDGET and its validator](../packages/wasmppt-worker/src/index.ts)
+are the source of default values and the adapter's configuration ceiling.
 
-| Component | Limit |
-| --- | ---: |
-| Request or R2 input | 16 MiB |
-| Structured injection payload | 16 MiB |
-| Dirty-entry working set / output safety ceiling | 32 MiB |
-| Immutable prepared-plan cache | 32 MiB |
-| Output chunk | 256 KiB |
-
-The completed archive is never retained by the adapter. The 32 MiB output limit is nevertheless
-counted conservatively because dirty entry bytes may coexist when a generation cursor starts.
-Configuration rejects an input + payload + dirty output + chunk + cache total at or above 128 MiB. Cloudflare
-documents 128 MB per isolate including JavaScript and WebAssembly memory, so the accounted
-budget deliberately leaves headroom for runtime and transient allocations. The response
-exposes the accounted ceiling in `x-wasmppt-accounted-memory-bytes` for integration tests.
-See [Workers limits](https://developers.cloudflare.com/workers/platform/limits/).
+The completed archive is never retained by the adapter. The output limit is counted
+conservatively because dirty entry bytes may coexist when a generation cursor starts. The
+accounted ceiling sums input, payload, dirty output, chunk, and cache budgets, leaving headroom
+for runtime/transient allocations; it is not a measured process peak. The response exposes it in
+`x-wasmppt-accounted-memory-bytes`. Recheck the actual
+[Workers limits](https://developers.cloudflare.com/workers/platform/limits/) when changing budgets.
 
 The byte-budgeted LRU stores only immutable prepared handles. It is an optimization:
 eviction or a miss recompiles the template and cannot change correctness. All input bytes,
@@ -194,15 +190,49 @@ only by evicted leases.
 R2 ranged reads follow the official
 [Workers R2 API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/).
 Mutable `LiveSession` handles are also request-local by contract and are never inserted into this
-cache. The current HTTP adapter exposes one-shot streaming generation; a future multi-edit request
-adapter must create and release its live handle inside `fetch` rather than retain it globally.
+cache. The `/v1/live-generate` adapter creates and releases each multi-edit live handle inside
+`fetch` rather than retaining it globally.
 
 `wrangler.jsonc` is the configuration source of truth. `wrangler types` generates `Env`
 from the R2 binding, and CI checks it for drift. Runtime tests use Cloudflare's
 [Vitest integration](https://developers.cloudflare.com/workers/testing/vitest-integration/),
 which executes inside `workerd`.
 
+## R2 request example
+
+The configured [Worker entry point](../packages/wasmppt-worker/src/worker.ts) uses the
+`TEMPLATES` R2 binding from [wrangler.jsonc](../packages/wasmppt-worker/wrangler.jsonc).
+After provisioning that binding and storing `templates/report.potx`, call the endpoint with a
+WPPD payload. The template must have a `title` [binding](bindings.md#authoring-bindings).
+The endpoint argument is your deployed Worker's `/v1/generate` URL.
+
+```ts
+import { encodeInjectionData, WasmpptError } from '@corca-ai/wasmppt'
+
+export async function generateFromR2(endpoint: string): Promise<ArrayBuffer> {
+  const url = new URL(endpoint)
+  url.searchParams.set('r2', 'templates/report.potx')
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/vnd.corca.wasmppt.injection-v2' },
+    body: encodeInjectionData({ text: { title: 'Quarterly report' } }),
+  })
+  if (!response.ok) {
+    const body = await response.json() as { error: ConstructorParameters<typeof WasmpptError>[0] }
+    throw new WasmpptError(body.error)
+  }
+  return response.arrayBuffer()
+}
+```
+
+This buffers the completed response for convenience. Consume `response.body` directly for
+streaming integrations. Browser cross-origin access and authentication are the embedding
+application's responsibility.
+
 ## Verification
+
+Prepare Chromium and the comparator inputs using [performance reproduction](performance.md#reproduce)
+before running browser integration. The following commands exercise the host adapters:
 
 ```sh
 npm run build:wasm-hosts

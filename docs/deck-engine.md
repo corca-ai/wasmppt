@@ -21,10 +21,9 @@ template compiler -> DeckTemplatePlan
                               PresentationML composer
 ```
 
-The implemented contract types are independent of each future implementation stage.
-An authoring adapter can create and validate `DeckSpec` before a planner exists, and a
-planner can be tested with synthetic `DeckTemplatePlan` values without opening an OPC
-package.
+The contract types are independent of package I/O. An authoring adapter can validate `DeckSpec`
+without running the planner, and planner tests can supply synthetic `DeckTemplatePlan` values
+without opening an OPC package.
 
 ## DeckSpec
 
@@ -125,7 +124,7 @@ them to a misleading older meaning.
 
 ## Binary boundary and limits
 
-The little-endian envelopes are:
+The [binary codecs](../crates/wasmppt-deck/src/wire.rs) implement these little-endian envelopes:
 
 | Magic | Version | Value |
 | --- | ---: | --- |

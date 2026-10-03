@@ -185,8 +185,10 @@ with an intentionally empty in-progress item, multi-page tables and code, mixed 
 ten-item galleries with captions, quotes, sections, display math, definitions, statements, and a
 hidden page. It also crosses 4:1, 16:9, 1:1, 3:4, and 1:4 resources with image-only, caption,
 short-copy, long-prose, and 2/3/5/9 related media/text contexts, plus JPEG EXIF orientations six
-and eight. Those cases produce 117 independently identified quality images. The fixture generator
-is the source of truth; CI regenerates all four files and fails on byte drift.
+and eight. Each quality image has a stable identity. The
+[fixture generator](../crates/wasmppt-deck/examples/write_gate_fixtures.rs) is the source of truth;
+CI regenerates the inputs and manifest and fails on byte drift. The [deck gate](deck-gates.md)
+defines reproduction and cross-host comparisons.
 
 The native gate rejects lost or duplicate source coverage, overlapping geometry, type below the
 readable floor, empty or badly imbalanced selected columns, singleton final-page orphans,

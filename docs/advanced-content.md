@@ -16,7 +16,7 @@ fill, stroke, and text primitives used
 by ordinary shapes, so Canvas and SVG do not own table layout logic. Template generation retains
 the compiled repeated-row mechanism: it clones the original `a:tr`, patches bound cell text, and
 preserves unsupported cell and row extension markup. Generation exposes transactional `fail`,
-bounded `clip`, height-preserving `shrink`, and capacity-driven `continue` overflow policies.
+bounded `clip`, row-height-scaling `shrink`, and capacity-driven `continue` overflow policies.
 Continuation partitions rows without browser font measurement and clones the complete authored
 source slide through the same deterministic topology path as explicit slide copies. It rejects a
 second continuation table or an explicit copy request on the same source slide before emission.
@@ -24,8 +24,9 @@ second continuation table or an explicit copy request on the same source slide b
 Deck composition creates native tables directly from planned row slices. It repeats declared
 header rows only on derived slices and derives a restrained, contrast-safe table treatment from
 the compiled theme: dark text, a lightly tinted and bold header, subtle banding and borders, padded
-cells, and vertical centering. Equal deterministic row and column allocation is the explicit
-fallback because the semantic deck contract carries no author-invented row or column measurements.
+cells, and vertical centering. Column widths follow visible text demand and declared alignment; row heights follow wrapped-cell
+demand. The [composer](deck-compose.md#editable-semantics) allocates those weights within the exact
+planned frame without asking the host for row or column measurements.
 
 ## Charts
 

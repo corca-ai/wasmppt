@@ -1,13 +1,13 @@
 # Compatibility corpus and fidelity scorecard
 
-`fixtures/corpus.json` is the single fixture registry. It records a stable ID, source or local
+The [fixture registry](../fixtures/corpus.json) is the single source of corpus membership. It records a stable ID, source or local
 path, SHA-256, producer/provenance, license, redistribution policy, execution tier, feature tags,
 expected diagnostics, executable scorecard declarations, and independent open/preserve/edit/render
 outcomes. Each scored presentation declares its slide indices, feature regions, preservation parts,
 and one text binding edit. A fixture may enter the
 pull-request tier only when it is small and deterministic; larger or slower cases remain scheduled.
 
-The repository contains 50 independently generated multilingual presentations. They cross common
+The generated corpus contains multilingual presentations produced by the checked-in generator. They cross common
 preset geometry, theme/gradient fill, text decoration, RTL, vertical text, rotation, and spacing.
 Pinned Apache POI files add independently produced POTX/PPTX cases. Controlled PowerPoint,
 LibreOffice, and Keynote runners publish desktop-consumer evidence; Google Slides, python-pptx,
@@ -21,7 +21,7 @@ node scripts/update-generated-corpus.mjs
 node --test scripts/corpus.test.mjs
 ```
 
-The fast scorecard executes the ten pull-request fixtures. The scheduled workflow executes all
+The fast scorecard executes fixtures assigned to the pull-request tier. The scheduled workflow executes all
 local PPTX fixtures and publishes raw JSON. `open` validates the source package; `preserve` performs
 an unrelated binding edit and compares every other raw compressed entry plus the declared unknown
 XML, relationship, and opaque parts; `edit` performs the declared edit, validates the result,

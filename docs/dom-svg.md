@@ -2,7 +2,8 @@
 
 Status: output-only standalone document serialization implemented
 
-The secondary browser backend consumes the same decoded `DisplayScene` as Canvas. It does not
+The secondary browser backend consumes the same decoded `DisplayScene` as [Canvas](canvas.md).
+For a working export example, see [browser integration](browser.md#export-a-semantic-deck-to-html). It does not
 parse PresentationML, resolve themes, inherit placeholders, or calculate geometry independently.
 Inline SVG projects the resolved graphic commands, while positioned HTML projects semantic text
 and interaction metadata. Cortex interactive preview, presentation, and storyboard surfaces remain
@@ -10,22 +11,11 @@ Canvas-only; DOM/SVG exists for offline HTML and browser PDF output.
 
 ## Semantic WPDL boundary
 
-WPDL version 2 added two side tables without changing Canvas drawing commands:
-
-- semantic elements map a source shape ID and reading order to an exact command range, resolved
-  bounds, name, alternative description, and hyperlink;
-- diagnostics carry the same stable code, source part, optional shape ID, and message emitted by
-  the Rust resolver.
-
-WPDL version 3 added effective text-frame styling and preserved-graphic placeholders. WPDL
-version 4 adds paragraph/run-preserving rich text, linear gradients, bounded move/line/close
-custom paths, outer shadows, and connector line ends. WPDL version 7 adds typed spacing, authored
-normal-AutoFit hints, shape-resize bounds, columns, lazy embedded fonts, and editable 2D text
-outlines, outer shadows, glow, blur, soft edges, and reflection. WPDL version 8 separates inner
-shadow paint from outer shadow paint. WPDL version 9 distinguishes source-faithful AutoFit from
-live-edited recomputation. WPDL version 10 adds explicit reading order and optional source-backed
-semantic identity and ranges. WPDL version 11 keeps hyperlinks on their owning rich-text runs
-instead of promoting descendant links to the whole shape. The decoder retains v1-v10 compatibility.
+The renderer consumes WPDL version 11 and retains v1-v10 decoding through the shared
+[display-list decoder](rendering.md#binary-display-list). Semantic elements map source shape IDs,
+reading order, bounds, alternative descriptions, and links to command ranges. Source-backed IDs
+and ranges support authoring selection; diagnostics retain the resolver's code, part, and shape
+context. Rich-text links remain attached to their owning runs rather than the whole shape.
 
 The resolver reads shape hyperlinks from `cNvPr` and run hyperlinks from the run's direct `rPr`.
 External links are retained in the scene at that ownership boundary. The browser exposes clickable `http`, `https`, `mailto`, and
@@ -106,7 +96,7 @@ stale work, and `dispose()` removes every mounted slide and cached scene.
 
 ## Deliberate limits
 
-Optional exact font-byte shaping is supplied by the separately loaded Rustybuzz Wasm module and
+Optional exact font-byte shaping is supplied by the separately loaded HarfRust Wasm module and
 retained on the same positioned run plan used by Canvas. An unambiguously associated SmartArt
 picture fallback is emitted through the same image command as Canvas. General effect DAGs and
 native SmartArt layout and rendering remain unsupported.

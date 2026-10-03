@@ -1,7 +1,8 @@
 # Template Bindings and TemplatePlan
 
-This document is the version 2 authoring and caching contract for compiled PowerPoint
-templates.
+This is the authoring and caching contract for compiled PowerPoint templates. Start with
+[browser generation](browser.md#generate-from-a-template) for a runnable API example. The manifest,
+plan, and payload have independent versions described below.
 
 ## Authoring bindings
 

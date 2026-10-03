@@ -328,7 +328,7 @@ export async function serializeOfflineHtmlDocument(
     widthEmu,
     heightEmu,
     pageIds: Object.freeze(pages.map((page) => page.page.pageId)),
-    resourceCount: resources.size,
+    resourceCount: resources.size + inputs.definitions.length,
     resourceBytes,
   })
 }
@@ -508,10 +508,14 @@ function throwIfAborted(signal: AbortSignal): void {
 /** Content-derived family aliases prevent simultaneous snapshots from selecting each other's fonts. */
 export async function prepareInputFonts(fonts: readonly { readonly family: string; readonly bytes: Uint8Array }[]) {
   const definitions: WebFontDefinition[] = []
+  const registeredFamilies = new Set<string>()
   const substitutions: Record<string, string> = Object.create(null)
   for (const font of fonts) {
     const family = `wasmppt-${await digestHex(font.bytes)}`
-    definitions.push({ family, source: ownedBuffer(font.bytes) })
+    if (!registeredFamilies.has(family)) {
+      registeredFamilies.add(family)
+      definitions.push({ family, source: ownedBuffer(font.bytes) })
+    }
     substitutions[font.family] = family
   }
   return { definitions, substitutions }

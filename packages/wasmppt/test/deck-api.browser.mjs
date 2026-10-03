@@ -41,7 +41,7 @@ export async function checkDeckBrowserApi(page) {
         cancelled: await cancelled, hitKey: hit?.nodeKey, hitRevision: hit?.revision,
         width: view.canvas.width, height: view.canvas.height,
         text: rendered.scene.commands.filter(command => command.kind === 'draw-rich-text').flatMap(command => command.frame.paragraphs.flatMap(paragraph => paragraph.runs.map(run => run.text))).join(''),
-        selected, htmlPages: html.pageIds, htmlRevision: html.revision,
+        selected, htmlPages: html.pageIds, htmlRevision: html.revision, htmlResourceCount: html.resourceCount,
         htmlText: documentCopy.body.textContent, hasEmbeddedFont: /@font-face/.test(html.html) && /data:font\//.test(html.html),
         invalidSelection, duplicateSelection, registeredFontsRemaining: document.fonts.size,
       }
@@ -58,6 +58,7 @@ export async function checkDeckBrowserApi(page) {
   assert.ok(facts.text.includes('After'))
   assert.deepEqual(facts.htmlPages, facts.selected)
   assert.equal(facts.htmlRevision, 0)
+  assert.equal(facts.htmlResourceCount, 1, 'identical registered font bytes embed once and count as a resource')
   assert.ok(facts.htmlText.includes('Before'))
   assert.equal(facts.hasEmbeddedFont, true)
   assert.equal(facts.invalidSelection, true)

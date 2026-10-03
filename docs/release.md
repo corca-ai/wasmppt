@@ -49,5 +49,7 @@ package, or host artifact. Pre-alpha workspace builds are not releases and make 
 - [ ] Assign release owners and complete a post-publication install and smoke test from public
   registries.
 
-See the [compatibility gates](compatibility.md), [performance contract](performance.md), and
-[runtime host adapters](hosts.md) for the evidence behind this checklist.
+Use [compatibility gates](compatibility.md) for validation and Office evidence, the
+[performance contract](performance.md) for reproducible budgets, and [host adapters](hosts.md) for
+ownership and error contracts. The [quality policy](quality.md#quarantine-and-release-policy)
+defines release-blocking checks; [getting started](getting-started.md) documents pre-alpha use.

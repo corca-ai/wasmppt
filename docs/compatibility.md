@@ -8,7 +8,7 @@ controlled self-hosted machines.
 
 ## Corpus and provenance
 
-`fixtures/corpus.json` records a stable ID, SHA-256, provenance, SPDX license, and redistribution
+The [fixture registry](corpus.md) records a stable ID, SHA-256, provenance, SPDX license, and redistribution
 policy for every committed or downloaded deck. Generated fixtures include their exact generator
 command. Third-party Apache POI fixtures are fetch-only and pinned by commit plus hash. Run
 `node scripts/fetch-corpus.mjs target/corpus` to fetch and verify them from the manifest. A Node test
@@ -96,10 +96,11 @@ and contract drift; they do not establish visual equivalence to PowerPoint or re
 baseline and controlled desktop-consumer gates. System-font substitution can change pixel hashes
 between machines; repeatability compares only two renders within one execution.
 
-On the controlled PowerPoint runner, both Canvas PNGs and 640-by-360 PowerPoint exports are compared
-with ImageMagick. The JSON report publishes different-pixel count, total pixels, ratio, the 5%
-per-channel fuzz rule, and the current 35% whole-slide tolerance. A checked-in manifest pins the
-fixture hash, export size, metric, redistribution statement, and baseline owner. PowerPoint emits
+On the controlled PowerPoint runner, Canvas PNGs and PowerPoint exports are compared with
+ImageMagick. The JSON report publishes different-pixel count, total pixels, ratio, and the
+configured per-channel fuzz and whole-slide tolerance. The
+[baseline manifest](../fixtures/render/powerpoint-baseline.json) owns fixture hash, export size,
+metric, tolerances, redistribution statement, and baseline owner. PowerPoint emits
 its version, platform, fixture hash, and font inventory; missing or stale provenance fails closed.
 The controlled-runner self-test changes exactly one pixel at zero tolerance and requires the
 comparison script to emit a failed JSON row and difference image. The Chromium gate likewise
@@ -114,7 +115,7 @@ compatibility change, and exceeding it blocks a release.
 publication, or manual dispatch:
 
 - PowerPoint opens the deck read-only with automation security forced to disable active content,
-  exports slides and PDF, and must complete inside a 15-minute timeout without a repair/error modal;
+  exports slides and PDF, and must complete inside the workflow timeout without a repair/error modal;
 - LibreOffice Impress and Keynote each open and export the same deck on labeled controlled runners;
 - all outputs are retained as immutable workflow artifacts.
 

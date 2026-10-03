@@ -17,7 +17,7 @@
     "build": "npm run build --workspaces --if-present",
     "build:pages": "npm run build --workspace @corca-ai/wasmppt && node scripts/build-pages.mjs",
     "build:wasm-hosts": "sh scripts/build-wasm-hosts.sh",
-    "check": "npm run check --workspaces --if-present && npm run check:core-boundary && npm run check:contracts",
+    "check": "npm run check --workspaces --if-present && npm run check:core-boundary && npm run check:contracts && npm run check:doc-examples",
     "check:fast": "cargo fmt --all --check && npm run lint && npm run check && npm run lint:docs",
     "check:contracts": "node scripts/check-contract-sync.mjs",
     "check:core-boundary": "node scripts/check-core-boundary.mjs",
@@ -36,7 +36,8 @@
     "prepush:rust": "cargo check --workspace --all-targets --all-features --locked --offline && cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings && cargo test --workspace --all-features --locked --offline --lib --tests && cargo test --workspace --all-features --locked --offline --doc && cargo check --workspace --all-features --locked --offline --target wasm32-unknown-unknown",
     "test:pages": "node packages/wasmppt/test/pages-smoke.mjs",
     "test": "node --test scripts/*.test.mjs && npm run test --workspaces --if-present",
-    "test:fast": "cargo test --workspace --lib --all-features --locked --offline && node --test scripts/*.test.mjs && npm run test:unit --workspaces --if-present"
+    "test:fast": "cargo test --workspace --lib --all-features --locked --offline && node --test scripts/*.test.mjs && npm run test:unit --workspaces --if-present",
+    "check:doc-examples": "node scripts/check-doc-examples.mjs"
   },
   "devDependencies": {
     "es-module-lexer": "2.3.1",

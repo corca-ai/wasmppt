@@ -76,13 +76,15 @@ The bounded cache layers are:
 
 - compiled templates, keyed by template and compiler identity;
 - shared patched overlay parts, retained only by current and in-flight immutable revisions;
-- 16 MiB Wasm display-list cache, keyed by slide index and dependency fingerprint;
-- 32 MiB browser resource cache, keyed by exact content fingerprint and conversion kind;
-- 32 MiB decoded-image LRU, keyed by the same content identity;
-- 4 MiB text-measurement LRU, keyed by resolved CSS font and text; and
-- 8 MiB rich-text layout LRU, keyed by resolver identity and the complete run tree, bounds,
+- Wasm display-list cache, keyed by slide index and dependency fingerprint;
+- browser resource cache, keyed by exact content fingerprint and conversion kind;
+- decoded-image LRU, keyed by the same content identity;
+- text-measurement LRU, keyed by resolved CSS font and text; and
+- rich-text layout LRU, keyed by resolver identity and the complete run tree, bounds,
   wrapping, margins, and flow encoded in the display command.
 
+Defaults live in the [Wasm engine](../crates/wasmppt-wasm/src/lib.rs),
+[Worker client](../packages/wasmppt/src/worker-client.ts), and [renderer](../packages/wasmppt/src/canvas.ts).
 Returning from content A to B and then A reuses A's resource and decoded-image entries while they
 remain within budget. Cache telemetry exposes residency, peak bytes, hits, misses, and evictions.
 Releasing a session prevents an in-flight resource from repopulating its cache mapping.
@@ -104,17 +106,16 @@ offscreen canvases are unmounted, and a slide is resolved again only when its de
 fingerprint changed or it becomes visible without a mounted canvas. Existing canvases survive
 unrelated edits. Resource reads and display lists cross the Worker boundary as transferables.
 
-Resolving a display list and fetching every lazy image or SVG resource for that display list is one
-exact-revision read transaction. Browser hosts use `withDeckSessionRevision` around that complete
-render operation. A deck update takes the corresponding exclusive transaction, so it cannot remove
+The separate semantic-deck session API provides an exact-revision read transaction for resolving a
+display list and fetching its lazy resources. Hosts using `createDeckSession` wrap that complete
+operation in `withDeckSessionRevision`; this helper does not accept `LiveSession` handles. A deck update takes the corresponding exclusive transaction, so it cannot remove
 or replace a logical package part between scene resolution and resource decoding. Reads already
 queued behind the update re-check their requested revision and end as `runtime/stale-revision`
 instead of painting mixed-revision pixels. Release uses the same exclusive boundary.
 
 The current implementation redraws an invalidated slide as one Canvas unit. Shape-level dirty
-rectangles are intentionally gated: the 10/50/200-slide browser benchmark shows that exact
-slide-level invalidation is within the release budget, while partial clearing would need new proof
-for overlap, effects, group transforms, text reflow, and z-order. It should be added only if a
+rectangles would need new proof for overlap, effects, group transforms, text reflow, and z-order.
+The [browser benchmark](performance.md) checks slide-level invalidation against the release budget. It should be added only if a
 profile demonstrates a material remaining bottleneck and visual tests can prove equivalence.
 
 ## Current-revision download

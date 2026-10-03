@@ -50,7 +50,7 @@ publishes that artifact through GitHub's official Pages workflow.
 
 This is a focused dogfood and comparison surface, not a general template uploader or hosted
 document service. It intentionally has no analytics, persistence, remote template fetch, or
-server-side generation. The public browser API still accepts caller-provided templates; only this
+server-side generation. The [browser API](browser.md) still accepts caller-provided templates; only this
 playground removes the upload UI to make the live-editing path immediately understandable.
 
 Browser memory limits still apply. Applications processing large decks should consume

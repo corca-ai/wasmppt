@@ -1,8 +1,9 @@
 # Quality Gates
 
 Quality is layered so ordinary edits get fast feedback while expensive compatibility and runtime
-evidence remains authoritative before release. Tool versions and action revisions are reviewed by
-Dependabot rather than floating during a workflow run.
+evidence remains authoritative before release. Workflow actions are pinned to full commits and managed through
+[Dependabot configuration](../.github/dependabot.yml); tool-version changes are reviewed in the
+[CI workflow](../.github/workflows/ci.yml) and [scheduled workflow](../.github/workflows/rust-deep-quality.yml).
 
 ## Gate ownership
 
@@ -22,17 +23,18 @@ merge blockers.
 
 ## Pinned Rust quality tools
 
-- cargo-nextest 0.9.143 runs native unit and integration tests in pull requests. Doctests remain a
+- cargo-nextest runs native unit and integration tests in pull requests. Doctests remain a
   separate `cargo test --doc` step because nextest does not execute them.
-- cargo-llvm-cov 0.8.7 writes JSON and LCOV evidence for the nine host-agnostic core crates.
-- cargo-machete 0.9.2 rejects unused dependencies. An ignore is allowed only with an adjacent
+- cargo-llvm-cov writes JSON and LCOV evidence; [the coverage script](../scripts/coverage-core.sh)
+  selects the core crates to measure.
+- cargo-machete rejects unused dependencies. An ignore is allowed only with an adjacent
   manifest comment or issue explaining the false positive and its removal condition.
-- cargo-deny 0.19.8 exclusively owns Rust advisories, license allowlists, duplicate versions, and
+- cargo-deny exclusively owns Rust advisories, license allowlists, duplicate versions, and
   dependency sources. Do not add a second advisory scanner with a conflicting policy.
-- cargo-fuzz 0.13.2 runs all five checked-in targets for 30 seconds each on the scheduled workflow.
-  Crashes and corpus hashes are retained for 30 days.
+- cargo-fuzz runs the checked-in targets with bounded execution time; the scheduled workflow
+  defines the time budget and artifact retention.
 
-Install these exact local versions when using the corresponding optional commands. Hooks never
+Install the workflow-pinned local versions when using the corresponding optional commands. Hooks never
 install tools or dependencies.
 
 ## Coverage ratchet
@@ -40,7 +42,7 @@ install tools or dependencies.
 Run `npm run coverage:core` after installing cargo-llvm-cov and the `llvm-tools-preview` component.
 The checked-in [coverage baseline](../quality/coverage-baseline.json) records line, function, and
 region percentages rather than imposing an arbitrary aspirational threshold. Pull requests may not
-lower any metric by more than 0.01 percentage points. A baseline update must include the generated
+lower metrics beyond the tolerance in [the coverage checker](../scripts/check-coverage.mjs). A baseline update must include the generated
 summary artifact and explain why a measured increase should become the new floor; decreases require
 an explicit maintainer-approved exception.
 
@@ -48,7 +50,7 @@ an explicit maintainer-approved exception.
 
 The Miri subset is intentionally limited to XML token integration tests and template payload unit
 tests. These modules are deterministic, host-agnostic, and do not require filesystem, browser, or
-Wasm behavior. The workflow pins `nightly-2026-08-01` and enables strict provenance. Add a test to
+Wasm behavior. The scheduled workflow pins its nightly toolchain and enables strict provenance. Add a test to
 this subset only after it succeeds under the pinned nightly; record a concrete incompatibility in a
 GitHub issue rather than silently skipping it.
 
@@ -57,7 +59,7 @@ fuzz job invokes `scripts/run-fuzz-ci.sh`, which enumerates every target explici
 must update both the script and its contract test.
 
 Mutation testing is not yet a standing gate. The XML/package parsers already have property tests,
-five fuzz surfaces, limit tests, and a coverage ratchet; a mutation pilot would currently add high
+fuzz surfaces, limit tests, and a coverage ratchet; a mutation pilot would currently add high
 runtime for overlapping signal. Reconsider a narrowly scoped parser-policy pilot when a production
 escape or repeated review ambiguity identifies a mutation class that these gates miss.
 

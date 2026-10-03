@@ -25,11 +25,10 @@ diagnostics, and enough content for automatic continuation pages. Its media-qual
 related pairs, with two JPEG EXIF display-axis cases. `atomic-overflow.wdsf` is a valid contract
 that cannot fit at the readable floor.
 
-The 18-row table is expected to remain at the template's comfortable type size and continue across
-three physical pages. Each page contains one native editable table and continued pages repeat the
-single header row as chrome. Together with the media matrix, the portable topology evidence fixes
-the resulting 73-page deck and 72-page presentable set. Intrinsic contain placement keeps extreme
-portrait-only cases on the legal media bleed instead of adding provisional overflow pages.
+The continuation table must retain comfortable type, one editable table per physical page, and
+repeated header rows on continued pages. Exact input and topology expectations live in the
+[corpus manifest](../fixtures/deck-gates/corpus.json) and executable gate. Intrinsic contain
+placement keeps extreme portrait-only cases on the legal media bleed when they fit.
 
 Regenerate and compare the fixtures with:
 
@@ -39,6 +38,7 @@ cargo run --locked -p wasmppt-deck --example write_gate_fixtures -- "$fixture_di
 cmp fixtures/deck-gates/starter.potx "$fixture_dir/starter.potx"
 cmp fixtures/deck-gates/deck-spec.wdsf "$fixture_dir/deck-spec.wdsf"
 cmp fixtures/deck-gates/atomic-overflow.wdsf "$fixture_dir/atomic-overflow.wdsf"
+cmp fixtures/deck-gates/corpus.json "$fixture_dir/corpus.json"
 ```
 
 The generator validates the WDSF and asserts the complete supported-role set. Table row/cell/column
@@ -49,20 +49,36 @@ semantic nodes.
 
 The `Hosts / byte and visual parity` job creates `target/deck-gates/report.json` and retains the
 input hashes, page topology, per-host sizes and SHA-256 values, and raw timings for every host. Each
-host records seven plan, all-page resolution, and export samples; the first plan sample is cold and
-the remaining six produce the enforced warm p50/p95 summary. The gate:
+host records plan, all-page resolution, and export samples; the first plan sample is cold and
+subsequent samples produce the enforced warm p50/p95 summary. The gate:
 
 - executes planning and composition independently in native, Chromium Worker, and workerd;
 - compares exact compiled-template plans, physical plans, every resolved display list, and PPTX;
 - compares slide count, presentable indices, physical/logical ownership, hidden state, and
   continuation metadata returned by the host APIs;
-- renders every physical page through real Chrome Canvas and compares all 117 images' decoded
+- renders every physical page through real Chrome Canvas and compares every declared image's decoded
   display axes, visible frames, aspect error, and crop loss against the host-neutral native plan;
 - mutates every renderable semantic role independently and requires a changed native plan,
   display list, or package, then flips one plan byte and proves the cross-host comparator notices;
 - rejects a truncated WDSF with the stable `payload/invalid-deck-spec` envelope; and
-- rejects atomic overflow with `layout/deck-planning-failed` before exposing a session, plan,
+- rejects atomic overflow with `layout/plan-atomic-overflow` before exposing a session, plan,
   preview, or partial package.
+
+To reproduce the parity comparison locally, first prepare Chromium and comparator inputs using
+[performance reproduction](performance.md#reproduce). Then generate each host's evidence:
+
+```sh
+cargo run --locked -p wasmppt-wasm --example deck_gate_native -- fixtures/deck-gates target/deck-gates
+mkdir -p target/host-parity
+set -o pipefail
+npm test --workspace @corca-ai/wasmppt-worker 2>&1 | tee target/host-parity/workerd.log
+npm run test:browser --workspace @corca-ai/wasmppt
+node scripts/deck-gates.mjs --workerd-log=target/host-parity/workerd.log
+```
+
+Run the pipeline commands in Bash or Zsh so a workerd test failure is not hidden by `tee`.
+The [CI host job](../.github/workflows/ci.yml) additionally compares regenerated fixture bytes
+before running this sequence.
 
 The Open XML compatibility job validates the generated PPTX with Microsoft's Open XML SDK. The
 controlled PowerPoint workflow opens the same browser-generated deck without a repair dialog and
@@ -78,7 +94,7 @@ plus planning, warm plan p95, all-page resolution p95, and current-revision PPTX
 browser, and workerd raw samples and p50/p95 summaries are stored in the compatibility report. The
 existing performance job additionally owns scalar Wasm
 size, first-visible latency, incremental edit-to-pixels, background export, cache residency, peak
-memory, and the 1,000-page visibility stress test. A deck result is eligible only after the exact
+memory, and the bounded visibility stress test. A deck result is eligible only after the exact
 correctness comparisons pass.
 
 Package/XML count, inflation, compression-ratio, payload, string, collection, node, nesting,

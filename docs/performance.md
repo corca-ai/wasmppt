@@ -18,6 +18,8 @@ npm ci --prefix benchmarks/comparisons/pptxgenjs --ignore-scripts
 npm ci --prefix benchmarks/comparisons/pptx-browser --ignore-scripts
 node benchmarks/prepare-browser-comparator.mjs
 node benchmarks/comparisons/pptxgenjs/run.mjs 10 10 target/benchmarks/pptxgenjs-text-10.pptx
+npm run build --workspace @corca-ai/wasmppt
+node benchmarks/comparisons/run-equivalent.mjs --iterations=3
 npm run test:browser --workspace @corca-ai/wasmppt
 npm test --workspace @corca-ai/wasmppt-worker
 node scripts/deck-gates.mjs --workerd-log=target/host-parity/workerd.log
@@ -126,6 +128,54 @@ reported as excluded rather than silently replaced or assigned a fabricated timi
 Version 4.1.4 loads the pinned deck but catches internal failures for the required text shapes.
 Its raw timings remain visible with `eligible: false`; they cannot
 beat a renderer that produced the required pixels.
+
+### Equivalent editable-text output
+
+`benchmarks/comparisons/text-workload.mjs` defines `generated-text-10-v1`: ten wide slides with
+eight text boxes each, fixed positions, Arial 10-point black text, white backgrounds, and the same
+generated Korean, Arabic, emoji, and XML-sensitive text. This contract is separate from the native
+budget corpus. PptxGenJS authors a token-bound POTX once outside measurement; wasmppt fills that
+template with the requested text. The comparator authors the same requested deck from scratch.
+
+Run `node benchmarks/comparisons/run-equivalent.mjs --iterations=3` for a smoke comparison after
+installing the isolated PptxGenJS dependencies and building the browser package. The additional
+prerequisite is .NET SDK 8 for the pinned Microsoft Open XML validator. Set `WASMPPT_DOTNET` to an
+explicit executable path when it is not on `PATH`. Local defaults are 30 iterations in one fresh
+Node process; `--process-runs=N` adds independent processes. `--ci` fixes three fresh processes
+with ten iterations each and cannot be weakened by local sample-count flags.
+
+The report retains four phases under one schema: unprepared scalar-Wasm template generation
+including preparation and handle cleanup (`cold`), prepared template reuse (`warm`), PptxGenJS
+authoring plus the declared schema-order correction (`author`), and unmodified PptxGenJS authoring
+(`raw-author`). Each measured sample includes ZIP serialization and complete output-buffer
+assembly. Module/Wasm initialization and one-time warm preparation are recorded separately.
+Common text input construction, template construction, disk I/O, validation, and rendering are
+outside the timed interval. Both libraries consume the same preconstructed input values.
+Libraries run under the same Node version, and sample execution order alternates each iteration.
+
+PptxGenJS 4.0.1 places `notesMasterIdLst` after `sldIdLst`, which the Microsoft validator rejects.
+The committed adapter moves that one list before `sldIdLst`; its ZIP loading and DEFLATE
+reserialization costs are included in `author`. The same correction is applied to the off-clock
+template. This is explicitly a PptxGenJS-plus-adapter pipeline, not an unmodified-library speed
+result. Raw outputs, their timings, and the validator errors remain visible and ineligible.
+
+Every timed PPTX is retained and validated with Microsoft `DocumentFormat.OpenXml` 3.5.1. The
+scalar engine independently opens it, checks the exact slide count, resolves all ten slides,
+and checks ordered painted text, text-box geometry, font family/size/color, page dimensions,
+white background, and absence of resolver diagnostics. Empty trailing style runs are not painted
+text and do not affect typography eligibility. A failed check, invalid timing, missing process,
+or missing/duplicate iteration excludes that participant from comparison; successful structural
+resolution never substitutes for the full Open XML gate.
+
+`target/benchmarks/equivalent.json` retains versions, CPU/RAM/OS/runtime, source revision and dirty
+state, contract/template/engine/output hashes, every timing, nearest-rank p50/p95, process startup
+and preparation samples, validation commands/stdout/stderr, per-slide checks, and eligibility.
+The report is written on failure. CI uploads it alongside the template and all timed output files
+under `target/benchmarks/equivalent`. It publishes ratios only between eligible unprepared-template
+generation and corrected new-deck authoring. Warm reuse has no equivalent comparator operation,
+so its timings remain context with no ratio. Output equivalence here covers declared editable
+text and geometry; it does not prove pixel fidelity or make the operations semantically identical.
+Existing non-equivalent numbers remain available with explicit exclusion from comparative claims.
 
 No “world's fastest” or unqualified “fastest” claim is permitted until a committed raw comparison
 for a bounded workload beats named current versions on declared hardware and passes all correctness

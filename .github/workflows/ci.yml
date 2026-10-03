@@ -494,6 +494,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 8.0.x
       - uses: dtolnay/rust-toolchain@85c23e28f7ccc75a9a153d45d385d94a85464876 # dtolnay/rust-toolchain@1.85.1
         with:
           targets: wasm32-unknown-unknown
@@ -518,6 +521,10 @@ jobs:
             | tee target/benchmarks/pptxgenjs.json
           cargo run --locked -p wasmppt-cli -- validate target/benchmarks/pptxgenjs-text-10.pptx
           cargo run --locked -p wasmppt-cli -- resolve target/benchmarks/pptxgenjs-text-10.pptx 0
+      - name: Compare equivalent text output with full validation outside timed samples
+        run: |
+          npm run build --workspace @corca-ai/wasmppt
+          node benchmarks/comparisons/run-equivalent.mjs --ci
       - name: Enforce browser scalar-Wasm budgets and preserve raw samples
         run: npm run test:browser --workspace @corca-ai/wasmppt
       - name: Enforce Cloudflare workerd budgets and preserve raw samples
@@ -534,6 +541,8 @@ jobs:
             target/benchmarks/*.json
             target/benchmarks/*.pptx
             target/benchmark-fixtures/*.potx
+            target/benchmarks/equivalent/template.potx
+            target/benchmarks/equivalent/process-*/*.pptx
           if-no-files-found: error
       - name: Summarize performance evidence
         if: always()

@@ -35,13 +35,13 @@ pub(crate) fn prepare_media(
         (ResourceKind::RasterImage, "image/png") => Ok(PreparedMedia {
             part_name: format!("ppt/media/deck-{stem}.png"),
             content_type: "image/png",
-            bytes: resource.bytes.clone().into(),
+            bytes: resource.bytes.clone(),
             size: inspect_media_size(resource),
         }),
         (ResourceKind::RasterImage, "image/jpeg" | "image/jpg") => Ok(PreparedMedia {
             part_name: format!("ppt/media/deck-{stem}.jpg"),
             content_type: "image/jpeg",
-            bytes: resource.bytes.clone().into(),
+            bytes: resource.bytes.clone(),
             size: inspect_media_size(resource),
         }),
         (ResourceKind::RasterImage, "image/gif") => {
@@ -58,7 +58,7 @@ pub(crate) fn prepare_media(
             Ok(PreparedMedia {
                 part_name: format!("ppt/media/deck-{stem}.svg"),
                 content_type: "image/svg+xml",
-                bytes: resource.bytes.clone().into(),
+                bytes: resource.bytes.clone(),
                 size: inspect_media_size(resource),
             })
         }
@@ -400,7 +400,7 @@ mod tests {
             id: StableId::from_bytes([1; 16]),
             kind: ResourceKind::Svg,
             media_type: "image/svg+xml".to_owned(),
-            bytes: bytes.to_vec(),
+            bytes: bytes.to_vec().into(),
             intrinsic_size: None,
         }
     }
@@ -447,7 +447,7 @@ mod tests {
             id: StableId::from_bytes([2; 16]),
             kind: ResourceKind::RasterImage,
             media_type: "image/jpeg".to_owned(),
-            bytes,
+            bytes: bytes.into(),
             intrinsic_size: Some(PixelSize {
                 width: 800,
                 height: 300,

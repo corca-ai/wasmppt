@@ -1135,7 +1135,7 @@ impl<'a> Reader<'a> {
             id,
             kind,
             media_type,
-            bytes,
+            bytes: bytes.into(),
             intrinsic_size,
         })
     }

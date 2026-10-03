@@ -12,6 +12,10 @@ headers, metadata, compressed payload, or central-directory drift.
 For runnable examples, start with [getting started](getting-started.md) or
 [browser integration](browser.md). This page defines ownership and transport contracts.
 
+For semantic authoring, prefer the [typed SDK](semantic-sdk.md). It wraps the transport below
+with copied inputs, registered assets/fonts, structured template descriptions and immutable
+snapshots. The Node adapter uses that same dispatch in process.
+
 ## Native
 
 `wasmppt-native` owns filesystem capabilities. `FileSource` implements bounded,
@@ -74,7 +78,7 @@ terminates the Worker and rejects; callers therefore cannot enqueue requests aga
 that will never become ready. Consuming bundlers own Worker and Wasm URL emission. Installation
 does not compile Rust, publish an npm artifact, or move browser APIs into the Rust core.
 
-Protocol version 8 uses monotonically allocated request IDs and discriminated messages
+Protocol version 9 uses monotonically allocated request IDs and discriminated messages
 for prepare, generate, release, cancel, progress, chunk, success, and error events. The
 main thread transfers the input `ArrayBuffer`, so ownership moves to the module Worker
 instead of paying a structured-clone copy. Generation data uses the versioned `WPPD` binary
@@ -83,7 +87,7 @@ The protocol also carries revisioned delta, live-slide resolution, cache telemet
 content-fingerprinted resource reads, and EMF/WMF-to-SVG requests; the latter fails explicitly
 when a host chooses not to install the optional converter.
 
-The v8 `deck-*` operations compile or restore a POTX plan, create and update complete WDSF
+The lower-level `deck-*` operations compile or restore a POTX plan, create and update complete WDSF
 revisions, and return the current WDPL v4, hidden-filtered presentable page indices, and an ordered
 page inventory with stable page, logical-slide, hidden, and continuation metadata. Reading that
 inventory does not resolve or copy any WPDL. Creation and every successful update also return the
@@ -99,7 +103,12 @@ source crop, so native, browser, and workerd consumers do not independently fit 
 Hidden pages remain addressable by authoring index and carry PresentationML `show="0"`; the
 presentable/export page-index set omits them without constructing a second preview revision.
 
-A browser host that resolves a page and then fetches its lazy resources must wrap the complete
+Protocol v9 also carries SDK registration, immutable snapshot creation, template inspection and
+pull-driven output requests. Accepted snapshots have distinct handles and shared immutable bytes;
+source metadata joins package dependency fingerprints for scene reuse. The SDK owns their
+reference-counted lifetimes and retained-state admission budget.
+
+A lower-level mutable-session host that resolves a page and then fetches its lazy resources must wrap the complete
 sequence in `WasmpptWorkerClient.withDeckSessionRevision(handle, revision, operation)`. The read
 transaction keeps that exact revision current until `operation` settles. Session updates and
 release wait behind it; a read queued behind an accepted update fails with the stable
@@ -108,7 +117,7 @@ The callback must remain bounded to one render or export and must not nest anoth
 transaction for the same session.
 
 `serializeDeckSessionToHtml` consumes only those presentable indices, exact-revision WPDL results,
-and `deckSessionResource` bytes. The Cortex host does not provide a URL loader or HTML fragment:
+and `deckSessionResource` bytes. The host does not provide a URL loader or HTML fragment:
 it authorizes package-part reads, and the serializer owns sanitization, deterministic data-URL
 inlining, GIF first-frame freezing, embedded-font permission checks, page metadata, print CSS, and
 a deny-by-default Content Security Policy. A stale revision, unresolved resource, active SVG, font
@@ -129,12 +138,12 @@ informational, may change, and MUST NOT be parsed. Rust compile, generation, and
 are non-exhaustive. Their adapters preserve lower-level OPC and XML codes in `causeCode` instead of
 embedding the only copy in prose.
 
-Browser protocol v8 `error` and `cancelled` responses carry this envelope. `WasmpptWorkerClient`
+Browser protocol v9 `error` and `cancelled` responses carry this envelope. `WasmpptWorkerClient`
 rejects with `WasmpptError`, whose `domain`, `code`, and `envelope` are public. Cancellation keeps
 the familiar JavaScript name `AbortError` while its stable code is `runtime/cancelled`. Unknown
 opaque handles use `runtime/unknown-handle`; a revision mismatch uses `runtime/stale-revision`.
 The client continues to decode v6 `name`/`message` error and cancellation responses during the
-protocol migration, assigning legacy errors `runtime/legacy-error`; new requests always use v8.
+protocol migration, assigning legacy errors `runtime/legacy-error`; new requests always use v9.
 
 `createLiveSession`, `applyLiveDelta`, `resolveLiveSlide`, and `generateLiveStream` operate on one
 Worker-owned session. Exact revision checks make stale work observable. Changed binding IDs, parts,

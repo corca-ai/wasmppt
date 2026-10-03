@@ -75,7 +75,7 @@ fn factual_media_text_relations_round_trip_and_validate() {
             id: id(5),
             kind: ResourceKind::RasterImage,
             media_type: "image/png".to_owned(),
-            bytes: vec![1],
+            bytes: vec![1].into(),
             intrinsic_size: Some(PixelSize {
                 width: 1_600,
                 height: 900,
@@ -669,7 +669,7 @@ fn rich_spec() -> DeckSpec {
                 id: image_id,
                 kind: ResourceKind::RasterImage,
                 media_type: "image/png".to_owned(),
-                bytes: vec![1, 2, 3, 4],
+                bytes: vec![1, 2, 3, 4].into(),
                 intrinsic_size: Some(PixelSize {
                     width: 640,
                     height: 360,
@@ -679,14 +679,14 @@ fn rich_spec() -> DeckSpec {
                 id: svg_id,
                 kind: ResourceKind::Svg,
                 media_type: "image/svg+xml".to_owned(),
-                bytes: b"<svg/>".to_vec(),
+                bytes: b"<svg/>".to_vec().into(),
                 intrinsic_size: None,
             },
             DeckResource {
                 id: svg_fallback_id,
                 kind: ResourceKind::RasterImage,
                 media_type: "image/png".to_owned(),
-                bytes: vec![137, 80, 78, 71],
+                bytes: vec![137, 80, 78, 71].into(),
                 intrinsic_size: Some(PixelSize {
                     width: 1,
                     height: 1,

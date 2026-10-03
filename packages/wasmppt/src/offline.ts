@@ -1,3 +1,5 @@
+import type { FontByteShaper } from './shaper.js'
+import { digestHex, ownedBuffer } from './deck/encode.js'
 import {
   decodeOoxmlObfuscatedFont,
   decodeDisplayList,
@@ -40,6 +42,8 @@ export type OfflineResourceResolver = (
 ) => Promise<ArrayBuffer | Uint8Array>
 
 export interface OfflineHtmlOptions {
+  readonly fonts?: readonly { readonly family: string; readonly bytes: Uint8Array }[]
+  readonly shaper?: FontByteShaper
   readonly title?: string
   readonly language?: string
   readonly signal?: AbortSignal
@@ -190,8 +194,18 @@ export async function serializeOfflineHtmlDocument(
   }
 
   const fontHost = new ScopedFontLoadingHost()
-  const fontResolver = new FontResolver({ host: fontHost })
+  const inputs = await prepareInputFonts(options.fonts ?? [])
+  const fontResolver = new FontResolver({ host: fontHost, webFonts: inputs.definitions, substitutions: inputs.substitutions, shaper: options.shaper })
   const fontRules: string[] = []
+  for (const definition of inputs.definitions) {
+    const bytes = new Uint8Array(definition.source as ArrayBuffer)
+    if (bytes.length > maximumResourceBytes || resourceBytes + bytes.length > maximumTotalResourceBytes) {
+      throw new OfflineDocumentError('resource-limit', 'registered fonts exceed offline resource limits')
+    }
+    if (!inspectOpenTypeEmbedding(bytes).permitted) throw new OfflineDocumentError('unsafe-resource', 'registered font does not permit offline embedding')
+    resourceBytes += bytes.length
+    fontRules.push(`@font-face{font-family:${cssString(definition.family)};src:url("${dataUrl(fontMediaType(bytes), bytes)}");font-display:block}`)
+  }
   const seenFonts = new Set<string>()
   for (let pageOffset = 0; pageOffset < pages.length; pageOffset += 1) {
     const page = pages[pageOffset]!
@@ -450,7 +464,7 @@ function base64(bytes: Uint8Array): string {
   return output.join('')
 }
 
-class ScopedFontLoadingHost implements FontLoadingHost {
+export class ScopedFontLoadingHost implements FontLoadingHost {
   readonly #faces: FontFace[] = []
 
   async load(definition: WebFontDefinition): Promise<void> {
@@ -489,4 +503,16 @@ function escapeAttribute(value: string): string {
 
 function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw new DOMException('offline document serialization was cancelled', 'AbortError')
+}
+
+/** Content-derived family aliases prevent simultaneous snapshots from selecting each other's fonts. */
+export async function prepareInputFonts(fonts: readonly { readonly family: string; readonly bytes: Uint8Array }[]) {
+  const definitions: WebFontDefinition[] = []
+  const substitutions: Record<string, string> = Object.create(null)
+  for (const font of fonts) {
+    const family = `wasmppt-${await digestHex(font.bytes)}`
+    definitions.push({ family, source: ownedBuffer(font.bytes) })
+    substitutions[font.family] = family
+  }
+  return { definitions, substitutions }
 }

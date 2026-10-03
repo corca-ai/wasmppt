@@ -7,7 +7,8 @@ own detailed contracts, while source/configuration files own changing inventorie
 
 1. Read [getting started](getting-started.md) to choose binding injection, semantic deck generation,
    or presentation viewing and install a pinned source revision.
-2. Follow [browser integration](browser.md) for Worker startup, generation, rendering, HTML export,
+2. Follow the [semantic SDK](semantic-sdk.md) for typed deck authoring and snapshots,
+   [browser integration](browser.md) for Worker startup, generation, rendering, HTML export,
    and cleanup, or [host adapters](hosts.md) for native and Cloudflare integration.
 3. Read the relevant [subsystem contract](#subsystem-contracts) before relying on feature semantics.
    Check [advanced-content support](advanced-content.md) and [release readiness](release.md) for
@@ -34,7 +35,7 @@ Read each row from left to right when learning that pipeline.
 | --- | --- |
 | Package core | [OPC/ZIP](opc.md) for bounded I/O and raw copies → [OOXML graph](ooxml.md) for source ranges, relationships, and conformance |
 | Authored templates | [Bindings](bindings.md) for authoring and plan identity → [injection](injection.md) for generation operations → [live editing](live-editing.md) for revisions and invalidation |
-| Semantic decks | [Deck contracts](deck-engine.md) for source and wire types → [Starter compiler](deck-template.md) for POTX profiles → [layout](deck-layout.md) for measurement/pagination → [composition](deck-compose.md) for editable output |
+| Semantic decks | [Semantic SDK](semantic-sdk.md) for host APIs and snapshots → [Deck contracts](deck-engine.md) for source and wire types → [Starter compiler](deck-template.md) for POTX profiles → [layout](deck-layout.md) for measurement/pagination → [composition](deck-compose.md) for editable output |
 | Rendering | [Slide resolution](rendering.md) for inheritance and WPDL → [Canvas](canvas.md) for interactive drawing → [DOM/SVG](dom-svg.md) for accessible standalone HTML and browser PDF input |
 | Feature limits | [Advanced content](advanced-content.md) for table/chart semantics, fallbacks, and the capability matrix |
 | Integration | [Host adapters](hosts.md) for ownership and protocols → [playground](playground.md) for a complete example and static deployment |

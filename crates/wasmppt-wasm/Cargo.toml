@@ -16,6 +16,7 @@ crate-type = ["cdylib", "rlib"]
 default = []
 
 [dependencies]
+sha2.workspace = true
 js-sys.workspace = true
 wasm-bindgen.workspace = true
 wasmppt-opc.workspace = true
@@ -26,6 +27,7 @@ wasmppt-deck-layout.workspace = true
 wasmppt-deck-compose.workspace = true
 wasmppt-layout.workspace = true
 wasmppt-template.workspace = true
+wasmppt-shaper.workspace = true
 
 [lints]
 workspace = true

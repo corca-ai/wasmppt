@@ -807,7 +807,7 @@ mod tests {
             id: id(1),
             kind,
             media_type: media_type.to_owned(),
-            bytes,
+            bytes: bytes.into(),
             intrinsic_size: hint,
         }
     }

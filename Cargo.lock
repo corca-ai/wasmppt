@@ -751,6 +751,7 @@ name = "wasmppt-wasm"
 version = "0.0.0"
 dependencies = [
  "js-sys",
+ "sha2",
  "wasm-bindgen",
  "wasmppt-deck",
  "wasmppt-deck-compose",
@@ -759,6 +760,7 @@ dependencies = [
  "wasmppt-display",
  "wasmppt-layout",
  "wasmppt-opc",
+ "wasmppt-shaper",
  "wasmppt-template",
 ]
 

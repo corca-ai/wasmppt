@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
-const documents = ['docs/browser.md', 'docs/hosts.md']
+const documents = ['docs/browser.md', 'docs/hosts.md', 'docs/semantic-sdk.md']
 await mkdir(resolve(root, 'target'), { recursive: true })
 const directory = await mkdtemp(resolve(root, 'target/doc-examples-'))
 try {
@@ -25,7 +25,10 @@ try {
     compilerOptions: {
       noEmit: true,
       rootDir: root,
-      paths: { '@corca-ai/wasmppt': [resolve(root, 'packages/wasmppt/src/index.ts')] },
+      paths: {
+        '@corca-ai/wasmppt': [resolve(root, 'packages/wasmppt/src/index.ts')],
+        '@corca-ai/wasmppt/*': [resolve(root, 'packages/wasmppt/src/*')],
+      },
     },
     include: files,
   }))

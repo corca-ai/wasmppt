@@ -288,7 +288,7 @@ test('an unknown Worker response cannot consume a live request ID', async () => 
   client.terminate()
 })
 
-test('machine-readable errors survive Wasm, protocol v8, and the browser client', async () => {
+test('machine-readable errors survive Wasm, protocol v9, and the browser client', async () => {
   const worker = new FakeWorker()
   const client = new WasmpptWorkerClient(worker)
   const pending = client.prepare(new ArrayBuffer(4))
@@ -319,7 +319,7 @@ test('machine-readable errors survive Wasm, protocol v8, and the browser client'
   client.terminate()
 })
 
-test('protocol v8 client decodes legacy v6 errors without treating messages as codes', async () => {
+test('protocol v9 client decodes legacy v6 errors without treating messages as codes', async () => {
   const worker = new FakeWorker()
   const client = new WasmpptWorkerClient(worker)
   const pending = client.prepare(new ArrayBuffer(4))

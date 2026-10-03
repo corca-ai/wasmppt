@@ -1,6 +1,7 @@
+import type { DeckOperation, DeckOperationResult } from './deck/transport.js'
 import type { WasmpptErrorEnvelope } from './error.js'
 
-export const WORKER_PROTOCOL_VERSION = 8 as const
+export const WORKER_PROTOCOL_VERSION = 9 as const
 export const LEGACY_WORKER_PROTOCOL_VERSION = 6 as const
 
 export type TextBindings = Readonly<Record<string, string>>
@@ -80,6 +81,7 @@ export interface DeckPageMetadata {
 }
 
 export type WorkerRequest =
+  | { readonly version: typeof WORKER_PROTOCOL_VERSION; readonly id: number; readonly type: 'deck-api'; readonly operation: DeckOperation }
   | {
       readonly version: typeof WORKER_PROTOCOL_VERSION
       readonly id: number
@@ -271,6 +273,7 @@ export type WorkerRequest =
     }
 
 export type WorkerResponse =
+  | { readonly version: typeof WORKER_PROTOCOL_VERSION; readonly id: number; readonly type: 'deck-api-result'; readonly result: DeckOperationResult }
   | {
       readonly version: typeof WORKER_PROTOCOL_VERSION
       readonly id: number
@@ -515,6 +518,14 @@ export type WorkerResponse =
     }
 
 export interface WorkerEngine {
+  configure_deck_budget(maximumBytes: number): void
+  register_deck_asset(bytes: Uint8Array): number
+  register_deck_font(family: string, faceIndex: number, bytes: Uint8Array): number
+  release_deck_input(handle: number): boolean
+  create_deck_snapshot(template: number, spec: Uint8Array, assets: Uint32Array, fonts: Uint32Array, previous: number): number
+  describe_deck_template(handle: number): unknown[]
+  deck_accounted_bytes(): number
+  deck_snapshot_sources(handle: number, revision: number): unknown[]
   prepare_deck_template(template: Uint8Array): number
   prepare_deck_template_with_plan(template: Uint8Array, plan: Uint8Array): number
   deck_template_plan(handle: number): Uint8Array

@@ -1,3 +1,5 @@
+import { decodeDeckDiagnostics, decodeDeckPageMetadata } from './deck/metadata.js'
+import { executeDeckOperation } from './deck/runtime.js'
 import {
   WORKER_PROTOCOL_VERSION,
   type WorkerEngine,
@@ -51,6 +53,12 @@ export function installWorkerRuntime(
         return
       }
       switch (message.type) {
+        case 'deck-api': {
+          const result = executeDeckOperation(engine, message.operation)
+          scope.postMessage(response({ id: message.id, type: 'deck-api-result', result }),
+            result.kind === 'chunk' ? [result.bytes] : [])
+          return
+        }
         case 'prepare-deck-template': {
           progress(scope, message.id, 'prepare', 0, 1)
           const template = new Uint8Array(message.template)
@@ -579,7 +587,7 @@ function isWorkerRequest(value: unknown): value is WorkerRequest {
     candidate.version === WORKER_PROTOCOL_VERSION &&
     Number.isSafeInteger(candidate.id) &&
     (candidate.id as number) >= 0 &&
-    (candidate.type === 'prepare-deck-template' ||
+    (candidate.type === 'deck-api' || candidate.type === 'prepare-deck-template' ||
       candidate.type === 'create-deck-session' ||
       candidate.type === 'update-deck-session' ||
       candidate.type === 'generate-deck-session' ||
@@ -680,25 +688,6 @@ function decodeLiveUpdate(rows: unknown[]): Omit<
   }
 }
 
-function decodeDeckPageMetadata(rows: unknown[]): import('./protocol.js').DeckPageMetadata {
-  if (rows.length !== 6) throw new TypeError('invalid deck page metadata')
-  const [pageId, logicalSlideId, hidden, continuationOrdinal, continuationTotal, continuationLabel] = rows
-  if (!isStableId(pageId) || !isStableId(logicalSlideId) || typeof hidden !== 'boolean' ||
-    !isPositiveInteger(continuationOrdinal) || !isPositiveInteger(continuationTotal) ||
-    continuationOrdinal > continuationTotal ||
-    !(continuationLabel === null || typeof continuationLabel === 'string')) {
-    throw new TypeError('invalid deck page metadata')
-  }
-  return {
-    pageId,
-    logicalSlideId,
-    hidden,
-    continuationOrdinal,
-    continuationTotal,
-    ...(continuationLabel === null ? {} : { continuationLabel }),
-  }
-}
-
 function decodeDeckPageInventory(
   engine: WorkerEngine,
   sessionHandle: number,
@@ -719,47 +708,6 @@ function decodeDeckPageInventory(
     throw new TypeError('deck page inventory does not match presentable slides')
   }
   return pages
-}
-
-function decodeDeckDiagnostics(
-  rows: unknown[],
-): import('./protocol.js').DeckDiagnostic[] {
-  return rows.map((value) => {
-    if (!Array.isArray(value) || value.length !== 7) {
-      throw new TypeError('invalid deck diagnostic metadata')
-    }
-    const [code, name, severity, message, rawSource, nodeId, pageId] = value
-    const source = rawSource === null ? undefined : decodeDeckDiagnosticSource(rawSource)
-    if (!isNonNegativeInteger(code) || code > 0xffff ||
-      !(name === null || typeof name === 'string') ||
-      !(severity === 'info' || severity === 'warning' || severity === 'error') ||
-      typeof message !== 'string' ||
-      !(nodeId === null || typeof nodeId === 'string') ||
-      !(pageId === null || typeof pageId === 'string')) {
-      throw new TypeError('invalid deck diagnostic metadata')
-    }
-    return {
-      code,
-      ...(name === null ? {} : { name }),
-      severity,
-      message,
-      ...(source === undefined ? {} : { source }),
-      ...(nodeId === null ? {} : { nodeId }),
-      ...(pageId === null ? {} : { pageId }),
-    }
-  })
-}
-
-function decodeDeckDiagnosticSource(value: unknown) {
-  if (!Array.isArray(value) || value.length !== 3) {
-    throw new TypeError('invalid deck diagnostic source metadata')
-  }
-  const [source, start, end] = value
-  if (typeof source !== 'string' || source.length === 0 ||
-    !isNonNegativeInteger(start) || !isNonNegativeInteger(end) || start > end) {
-    throw new TypeError('invalid deck diagnostic source metadata')
-  }
-  return { source, start, end }
 }
 
 function decodeDeckUpdate(
@@ -821,14 +769,6 @@ function decodeCacheTelemetry(rows: unknown[]): {
 
 function isNonNegativeInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0
-}
-
-function isPositiveInteger(value: unknown): value is number {
-  return Number.isSafeInteger(value) && (value as number) > 0
-}
-
-function isStableId(value: unknown): value is string {
-  return typeof value === 'string' && /^[0-9a-f]{32}$/u.test(value)
 }
 
 function normalizeError(error: unknown): {

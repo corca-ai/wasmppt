@@ -64,6 +64,7 @@
     },
     {
       "id": "apache-poi-with-master-pptx",
+      "producer": { "name": "Microsoft Office PowerPoint", "version": "14.0000", "evidence": "docProps/app.xml Application and AppVersion" },
       "url": "https://raw.githubusercontent.com/apache/poi/fe4184d649c0f7950e3a610c7dbc0591b7a52e3e/test-data/slideshow/WithMaster.pptx",
       "sha256": "54ae7677fd2813a815160cc72bd8960a4e482690dfc369b392868521c9b61549",
       "provenance": "apache-poi-test-data-pinned-commit",
@@ -72,6 +73,7 @@
     },
     {
       "id": "apache-poi-bar-chart-pptx",
+      "producer": { "name": "Microsoft Macintosh PowerPoint", "version": "15.0033", "evidence": "docProps/app.xml Application and AppVersion" },
       "url": "https://raw.githubusercontent.com/apache/poi/fe4184d649c0f7950e3a610c7dbc0591b7a52e3e/test-data/slideshow/bar-chart.pptx",
       "sha256": "79e1d218bfb2903e8dc8425a6b1997d9c1976f5a5f025bada85b0c47b5777969",
       "provenance": "apache-poi-test-data-pinned-commit",

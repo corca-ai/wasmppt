@@ -125,11 +125,21 @@ and explicit unsupported diagnostics. `fixtures/render/corpus.json` pins the fea
 by Chromium visual reports. The pinned Apache POI
 `SampleShow.pptx` fixture supplies an independent real-world resolution check in CI.
 
+The same manifest separately declares external pixel smoke for Apache POI's `WithMaster.pptx`
+and `bar-chart.pptx`. The browser gate uses the public self-initializing scalar-Wasm module Worker
+and Canvas renderer, verifies page geometry, required commands and diagnostics, rejects blank
+pixels, and records repeated-render hashes and actual PNGs for every declared slide. Its
+`external-report.json` is separate from the generated `report.json` baseline; neither external
+smoke success nor structural resolution implies PowerPoint pixel fidelity. See
+[compatibility gates](compatibility.md) for provenance and metric policy.
+
 ```sh
 cargo test -p wasmppt-layout -p wasmppt-display
 cargo run -p wasmppt-cli -- resolve fixtures/render/basic.pptx 0
 npm run build:wasm-hosts
 npm run test:browser --workspace @corca-ai/wasmppt
+node scripts/fetch-corpus.mjs target/corpus apache-poi-with-master-pptx apache-poi-bar-chart-pptx
+npm run test:browser:external --workspace @corca-ai/wasmppt
 ```
 
 The CLI prints command, diagnostic, parsed-part, and structural-signature counts so corpus

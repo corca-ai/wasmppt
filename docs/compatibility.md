@@ -69,13 +69,32 @@ orientation before decode and enforce both compressed-byte and decoded-pixel lim
 ## Visual reports
 
 The real Chromium integration writes `target/visual-report/report.json` plus one actual PNG per
-slide. Schema 2 also records scored regions for text, shapes, raster images, charts, metafiles,
+slide, labeled `generated-baseline`. Schema 2 also records scored regions for text, shapes, raster images, charts, metafiles,
 AutoFit modes, Unicode wrapping, paragraph metrics, columns, and text effects;
 each feature has an explicit metric, tolerance, actual value, and pass/fail state. Each slide records
 its pixel fingerprint. Slide one has zero tolerance for stable sampled background, group-fill, and
 cropped-image colors. Slide two requires a declared minimum amount of non-background output for its
 table and chart commands. CI uploads this directory as a revision-addressed artifact and fails when
 the report or screenshots are absent.
+
+`fixtures/render/corpus.json` also declares independent external smoke cases by canonical corpus
+ID. The first cases are Apache POI's hash-pinned `WithMaster.pptx` (Microsoft Office PowerPoint
+14.0000) and `bar-chart.pptx` (Microsoft Macintosh PowerPoint 15.0033); producer values come from
+their `docProps/app.xml`, not from the repository that hosts them. Both remain fetch-only.
+`npm run test:browser:external --workspace @corca-ai/wasmppt` rechecks each input hash, opens it
+through the real scalar-Wasm module Worker, and renders its declared slides with the public Canvas
+renderer at 640-by-480. It requires exact page dimensions and slide count, non-empty required
+commands, finite bounds, exact diagnostic codes, successful required image loads, declared minimum
+non-background pixels, and identical pixel hashes on two renders in the same browser.
+
+The separate `target/visual-report/external-report.json` is labeled `external-pixel-smoke` and
+retains producer/license/source metadata, input and engine hashes, source revision, runtime versions,
+raw scene and pixel evidence, assertion failures, and PNG names and hashes. CI fetches only the
+declared inputs, runs this gate, and uploads visual evidence even on failure. External PNGs are
+derived fetch-only CI evidence, not committed reference images. These checks detect blank output
+and contract drift; they do not establish visual equivalence to PowerPoint or replace the generated
+baseline and controlled desktop-consumer gates. System-font substitution can change pixel hashes
+between machines; repeatability compares only two renders within one execution.
 
 On the controlled PowerPoint runner, both Canvas PNGs and 640-by-360 PowerPoint exports are compared
 with ImageMagick. The JSON report publishes different-pixel count, total pixels, ratio, the 5%

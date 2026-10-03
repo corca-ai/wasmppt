@@ -1639,6 +1639,7 @@ try {
   ).length
   const visualReport = {
     schema: 2,
+    evidence: 'generated-baseline',
     engine: 'chromium-canvas2d',
     fixture: {
       id: renderCorpus.presentations[0].id,

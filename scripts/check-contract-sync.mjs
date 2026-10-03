@@ -1,6 +1,7 @@
 import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
 import { readFile } from 'node:fs/promises'
+import { externalVisualCases } from './external-visual.mjs'
 
 const root = new URL('../', import.meta.url)
 
@@ -383,6 +384,7 @@ export async function readRepositoryContracts() {
 
 export async function checkRepositoryContracts() {
   const inputs = await readRepositoryContracts()
+  externalVisualCases(inputs.corpus, inputs.renderCorpus)
   const errors = [
     ...contractErrors(inputs),
     ...qualityGateErrors(inputs),

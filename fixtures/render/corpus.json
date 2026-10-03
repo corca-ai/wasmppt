@@ -20,5 +20,26 @@
         { "id": "text-effects", "slideIndex": 2, "region": [20, 230, 595, 95] }
       ]
     }
+  ],
+  "externalPresentations": [
+    {
+      "fixtureId": "apache-poi-with-master-pptx",
+      "slideCount": 2,
+      "sizeEmu": [9144000, 6858000],
+      "viewport": { "width": 640, "height": 480 },
+      "slides": [
+        { "slideIndex": 0, "minimumCommands": 2, "requiredCommandKinds": ["draw-rich-text"], "expectedDiagnostics": [], "background": [255, 255, 255, 255], "minimumNonBackgroundPixels": 100 },
+        { "slideIndex": 1, "minimumCommands": 2, "requiredCommandKinds": ["draw-rich-text"], "expectedDiagnostics": [], "background": [255, 255, 255, 255], "minimumNonBackgroundPixels": 100 }
+      ]
+    },
+    {
+      "fixtureId": "apache-poi-bar-chart-pptx",
+      "slideCount": 1,
+      "sizeEmu": [9144000, 6858000],
+      "viewport": { "width": 640, "height": 480 },
+      "slides": [
+        { "slideIndex": 0, "minimumCommands": 2, "requiredCommandKinds": ["draw-rich-text", "fill-preset"], "expectedDiagnostics": [], "background": [255, 255, 255, 255], "minimumNonBackgroundPixels": 1000 }
+      ]
+    }
   ]
 }

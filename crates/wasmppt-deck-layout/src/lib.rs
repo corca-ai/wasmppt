@@ -547,6 +547,44 @@ impl DeckPlanner {
                 Some(request.slide_id),
             ));
         }
+        // A zero-reduction one-page solution is globally optimal in the first two score
+        // dimensions (readability, then page count). Evaluate every whole-page topology once
+        // before exploring tails; sentence opportunities must not create unreachable DP work.
+        let mut comfortable = None::<Solution>;
+        for pattern in Pattern::ALL {
+            let Some(candidate) = self.fit_candidate(
+                pattern,
+                request.groups,
+                request.region,
+                request.relations,
+                measurer,
+                candidate_count,
+            )?
+            else {
+                continue;
+            };
+            if candidate.score.readability_band != 0 {
+                continue;
+            }
+            diagnostics.extend(candidate.font_risks.into_iter().map(font_risk));
+            let solution = Solution::default().prepend(CandidatePage {
+                end: request.groups.len(),
+                score: candidate.score,
+                flow_units: flow_load(request.groups) as u64,
+                demand: candidate.demand,
+                topology: pattern.topology(candidate.slot_count),
+                placements: candidate.placements,
+            });
+            if comfortable
+                .as_ref()
+                .is_none_or(|current| solution.score < current.score)
+            {
+                comfortable = Some(solution);
+            }
+        }
+        if let Some(solution) = comfortable {
+            return Ok(solution.pages);
+        }
         let mut best = vec![None::<Solution>; request.groups.len() + 1];
         best[request.groups.len()] = Some(Solution::default());
         for start in (0..request.groups.len()).rev() {
@@ -602,7 +640,7 @@ impl DeckPlanner {
                     candidate_count,
                 )?
                 else {
-                    if pattern.prefix_closed() {
+                    if pattern.prefix_closed(&request.groups[start..end], &request.groups[end..]) {
                         break;
                     }
                     continue;
@@ -611,20 +649,20 @@ impl DeckPlanner {
                 pages.push(CandidatePage {
                     end,
                     score: candidate.score,
-                    flow_units: request.groups[start..end]
-                        .iter()
-                        .map(|group| u64::try_from(group.units.len()).unwrap_or(u64::MAX))
-                        .sum(),
+                    flow_units: flow_load(&request.groups[start..end]) as u64,
                     demand: candidate.demand,
                     topology: pattern.topology(candidate.slot_count),
                     placements: candidate.placements,
                 });
-                if pages.len() == self.policy.limits.max_candidates_per_position {
-                    break;
+                // Retain the best candidate for each source end before applying the bound.
+                // Duplicate topologies must not exhaust capacity and starve later patterns.
+                pages.sort_by_key(|page| (page.end, page.score, page.topology.slot_count));
+                pages.dedup_by_key(|page| page.end);
+                if pages.len() > self.policy.limits.max_candidates_per_position {
+                    // Keep the furthest endings: physically fitting source should not be forced
+                    // onto another page merely because it has many legal break opportunities.
+                    pages.remove(0);
                 }
-            }
-            if pages.len() == self.policy.limits.max_candidates_per_position {
-                break;
             }
         }
         pages.sort_by_key(|page| (page.end, page.score, page.topology.slot_count));
@@ -656,7 +694,7 @@ impl DeckPlanner {
         let collapsed_table = (pattern == Pattern::TableWide).then(|| FlowGroup {
             units: groups
                 .iter()
-                .flat_map(|group| group.units.iter().copied())
+                .flat_map(|group| group.units.iter().cloned())
                 .collect(),
         });
         let related_cards = if pattern == Pattern::RelatedCards {
@@ -676,7 +714,74 @@ impl DeckPlanner {
         };
         let mut selected = None::<FittedCandidate>;
         for frames in self.frame_variants(pattern, region, search_groups, measurer)? {
-            for assignment in pattern.assignments(search_groups, frames.len()) {
+            // Reject ineligible topologies before measuring any text. Defer continuous
+            // two-column partitions until their geometry-derived frontier is available.
+            let structural = (pattern != Pattern::FlowColumns2)
+                .then(|| pattern.assignments(search_groups, frames.len(), None));
+            if structural.as_ref().is_some_and(Vec::is_empty) {
+                continue;
+            }
+            // An aggregate measurement at the widest lane and type floor is a lower bound:
+            // splitting adds line rounding/insets, and narrower lanes cannot reduce demand.
+            if search_groups
+                .iter()
+                .flat_map(|group| &group.units)
+                .all(|unit| {
+                    matches!(
+                        unit.node.content,
+                        SemanticContent::Text(_)
+                            | SemanticContent::List(_)
+                            | SemanticContent::Code(_)
+                    )
+                })
+            {
+                let frame = EmuRect {
+                    width: frames.iter().map(|frame| frame.width).max().unwrap_or(1),
+                    height: region.frame.height,
+                    ..region.frame
+                };
+                let merged = rendering_runs(search_groups, &vec![0; search_groups.len()]);
+                let mut height = 0i64;
+                for unit in merged.iter().flat_map(|(group, _)| &group.units) {
+                    height = height.saturating_add(
+                        measurer
+                            .measure(
+                                unit.node,
+                                unit.slice,
+                                region,
+                                frame,
+                                self.policy.readable_floor,
+                                0,
+                            )
+                            .map_err(|failure| measure_error(failure, unit.node.id))?
+                            .height,
+                    );
+                }
+                if height > frames.iter().map(|frame| frame.height).sum::<i64>() {
+                    continue;
+                }
+            }
+            let needs_frontier = match pattern {
+                Pattern::FlowColumns2 => {
+                    !search_groups.iter().any(FlowGroup::is_media)
+                        && !peer_collection(search_groups)
+                }
+                Pattern::FlowColumns3 => search_groups.iter().all(FlowGroup::is_code),
+                Pattern::WeightedStart | Pattern::WeightedEnd => {
+                    have_distinct_nodes(search_groups, 2)
+                        && have_distinct_roles(search_groups)
+                        && !mixed_media(search_groups)
+                }
+                _ => false,
+            };
+            let cuts = needs_frontier
+                .then(|| continuous_cut_frontier(search_groups, &frames, region, measurer));
+            let assignments = if cuts.is_some() {
+                pattern.assignments(search_groups, frames.len(), cuts.as_ref())
+            } else {
+                structural.unwrap_or_else(|| pattern.assignments(search_groups, frames.len(), None))
+            };
+            for assignment in assignments {
                 *candidate_count = candidate_count.saturating_add(1);
                 if *candidate_count > self.policy.limits.max_candidate_assignments {
                     return Err(error(
@@ -766,7 +871,9 @@ impl DeckPlanner {
         let mut reductions = Vec::new();
         let mut width_loss = 0u64;
         let mut font_risks = BTreeSet::new();
-        for (group, slot) in groups.iter().zip(assignment.iter().copied()) {
+        let rendering_groups = rendering_runs(groups, assignment);
+        for (group, slot) in &rendering_groups {
+            let slot = *slot;
             if !pattern.accepts_group(group, slot) {
                 return Ok(None);
             }
@@ -1117,7 +1224,7 @@ impl DeckPlanner {
                     failed = true;
                     break;
                 }
-                items.push((*unit, measured, intrinsic, width, height, leading_space));
+                items.push((unit, measured, intrinsic, width, height, leading_space));
             }
 
             if !failed {
@@ -1423,7 +1530,7 @@ impl DeckPlanner {
 }
 
 fn contiguous_table_group<'a>(group: &FlowGroup<'a>) -> Option<(&'a SemanticNode, FragmentSlice)> {
-    let first = *group.units.first()?;
+    let first = group.units.first()?;
     let FragmentSlice::TableRows {
         start,
         end: mut previous_end,
@@ -1609,11 +1716,19 @@ impl Pattern {
         }
     }
 
-    fn prefix_closed(self) -> bool {
-        matches!(
-            self,
-            Self::Stack | Self::FlowColumns2 | Self::FlowColumns3 | Self::TableWide
-        )
+    fn prefix_closed(self, prefix: &[FlowGroup<'_>], remaining: &[FlowGroup<'_>]) -> bool {
+        match self {
+            Self::Stack => {
+                // Adding an atomic block can relax the all-breakable stack load limit;
+                // adding a non-peer can relax a peer-only topology requirement.
+                !(prefix.iter().all(FlowGroup::is_breakable_flow)
+                    && remaining.iter().any(|group| !group.is_breakable_flow())
+                    || peer_collection(prefix) && remaining.iter().any(|group| !group.is_peer()))
+            }
+            Self::FlowColumns2 | Self::FlowColumns3 => false,
+            Self::TableWide => true,
+            _ => false,
+        }
     }
 
     fn frame_variants(self, frame: EmuRect, gap: Emu, groups: usize) -> Vec<Vec<EmuRect>> {
@@ -1717,14 +1832,19 @@ impl Pattern {
         }
     }
 
-    fn assignments(self, groups: &[FlowGroup<'_>], slots: usize) -> Vec<Vec<usize>> {
+    fn assignments(
+        self,
+        groups: &[FlowGroup<'_>],
+        slots: usize,
+        cuts: Option<&BTreeSet<usize>>,
+    ) -> Vec<Vec<usize>> {
         if self != Self::TableWide && groups.iter().any(FlowGroup::is_table) {
             return Vec::new();
         }
         match self {
             Self::Stack => {
                 if semantic_slots_required(groups)
-                    || (groups.len() > Self::MAX_STANDARD_FLOW_PER_SLOT
+                    || (flow_load(groups) > Self::MAX_STANDARD_FLOW_PER_SLOT
                         && groups.iter().all(FlowGroup::is_breakable_flow))
                 {
                     Vec::new()
@@ -1736,20 +1856,12 @@ impl Pattern {
                 if groups.iter().any(FlowGroup::is_media) || peer_collection(groups) {
                     Vec::new()
                 } else {
-                    bounded_contiguous_assignments(
-                        groups.len(),
-                        slots,
-                        Self::MAX_STANDARD_FLOW_PER_SLOT,
-                    )
+                    bounded_flow_assignments(groups, slots, Self::MAX_STANDARD_FLOW_PER_SLOT, cuts)
                 }
             }
             Self::FlowColumns3 => {
                 if groups.iter().all(FlowGroup::is_code) {
-                    bounded_contiguous_assignments(
-                        groups.len(),
-                        slots,
-                        Self::MAX_CODE_FLOW_PER_SLOT,
-                    )
+                    bounded_flow_assignments(groups, slots, Self::MAX_CODE_FLOW_PER_SLOT, cuts)
                 } else {
                     Vec::new()
                 }
@@ -1760,7 +1872,7 @@ impl Pattern {
                     && !mixed_media(groups)
                     && !groups.iter().all(FlowGroup::is_media)
                 {
-                    contiguous_assignments(groups.len(), slots)
+                    contiguous_assignments_at_cuts(groups.len(), slots, cuts)
                 } else {
                     Vec::new()
                 }
@@ -1906,7 +2018,7 @@ fn related_media_text_groups<'a>(
         cards.push(FlowGroup {
             units: pair
                 .iter()
-                .flat_map(|group| group.units.iter().copied())
+                .flat_map(|group| group.units.iter().cloned())
                 .collect(),
         });
     }
@@ -2029,6 +2141,97 @@ fn aspect_packed_frame_variants(
     variants
 }
 
+fn ends_in_hard_break(unit: &FlowUnit<'_>) -> bool {
+    let (SemanticContent::Text(text), FragmentSlice::Text { end, .. }) =
+        (&unit.node.content, unit.slice)
+    else {
+        return false;
+    };
+    let mut offset = 0usize;
+    for run in &text.runs {
+        let run_end = offset + run.text.len();
+        if end as usize > offset && end as usize <= run_end {
+            return run.text[..end as usize - offset]
+                .chars()
+                .next_back()
+                .is_some_and(|character| {
+                    matches!(character, '\n' | '\r' | '\u{2028}' | '\u{2029}')
+                });
+        }
+        offset = run_end;
+    }
+    false
+}
+
+fn continuous_cut_frontier(
+    groups: &[FlowGroup<'_>],
+    frames: &[EmuRect],
+    region: &TemplateRegion,
+    measurer: &mut Measurer<'_>,
+) -> BTreeSet<usize> {
+    let mut cuts = BTreeSet::new();
+    let width = frames
+        .iter()
+        .map(|frame| frame.width)
+        .min()
+        .unwrap_or(1)
+        .saturating_sub(region.margins.left)
+        .saturating_sub(region.margins.right)
+        .max(1);
+    let size = region
+        .text_levels
+        .first()
+        .and_then(|level| level.font_size)
+        .unwrap_or(2_000);
+    let mut start = 0;
+    while start < groups.len() {
+        let mut end = start + 1;
+        while end < groups.len() && continues_text(&groups[end - 1], &groups[end]) {
+            end += 1;
+        }
+        if end > start + 1 {
+            let mut positions = Vec::with_capacity(end - start);
+            let mut advance = 0i64;
+            let mut line = 0;
+            for (offset, group) in groups[start..end].iter().enumerate() {
+                let unit = group.units.last().expect("flow groups are nonempty");
+                advance = advance.saturating_add(
+                    measurer.inline_text_width(unit.node, unit.slice, region, size),
+                );
+                let cut = start + offset + 1;
+                if cut < end {
+                    positions.push((cut, advance));
+                    if ends_in_hard_break(unit) {
+                        cuts.insert(cut);
+                    }
+                    if advance / width > line {
+                        cuts.insert(cut);
+                        line = advance / width;
+                    }
+                }
+            }
+            // Include demand-balanced cuts before enumeration is bounded. Sentence count is
+            // not geometric demand; a long first sentence should not bias the sampled frontier.
+            for slot in 1..frames.len() {
+                let target = advance.saturating_mul(slot as i64) / frames.len().max(1) as i64;
+                if let Some((cut, _)) = positions
+                    .iter()
+                    .min_by_key(|(cut, value)| (value.abs_diff(target), std::cmp::Reverse(*cut)))
+                {
+                    cuts.insert(*cut);
+                }
+            }
+            cuts.insert(start + 1);
+            cuts.insert(end - 1);
+        }
+        if end < groups.len() {
+            cuts.insert(end);
+        }
+        start = end;
+    }
+    cuts
+}
+
 fn assignment_ranges(assignment: &[usize], slots: usize) -> Vec<std::ops::Range<usize>> {
     (0..slots)
         .filter_map(|slot| {
@@ -2051,39 +2254,205 @@ fn unique_assignment(groups: usize, slots: usize) -> Vec<Vec<usize>> {
 }
 
 fn contiguous_assignments(groups: usize, slots: usize) -> Vec<Vec<usize>> {
+    contiguous_assignments_at_cuts(groups, slots, None)
+}
+
+fn contiguous_assignments_at_cuts(
+    groups: usize,
+    slots: usize,
+    allowed: Option<&BTreeSet<usize>>,
+) -> Vec<Vec<usize>> {
     if groups == 0 || slots == 0 {
         return Vec::new();
     }
     let used_slots = slots.min(groups);
     let mut output = Vec::new();
     let mut cuts = Vec::with_capacity(used_slots.saturating_sub(1));
-    enumerate_cuts(groups, used_slots, 1, &mut cuts, &mut output);
+    enumerate_cuts(groups, used_slots, 1, allowed, &mut cuts, &mut output);
     output
 }
 
+fn bounded_flow_assignments(
+    groups: &[FlowGroup<'_>],
+    slots: usize,
+    maximum_per_slot: usize,
+    allowed: Option<&BTreeSet<usize>>,
+) -> Vec<Vec<usize>> {
+    // Prefix counts make checking a cut constant-time, even for long continuous prose.
+    let mut prefix = vec![0usize];
+    let mut continuation = vec![false; groups.len()];
+    for (index, group) in groups.iter().enumerate() {
+        continuation[index] = index > 0 && continues_text(&groups[index - 1], group);
+        prefix.push(
+            prefix[index] + flow_load(std::slice::from_ref(group))
+                - usize::from(continuation[index]),
+        );
+    }
+    bounded_partitions(
+        groups.len(),
+        slots,
+        maximum_per_slot,
+        allowed,
+        |start, end| prefix[end] - prefix[start] + usize::from(continuation[start]),
+    )
+}
+
+#[cfg(test)]
 fn bounded_contiguous_assignments(
     groups: usize,
     slots: usize,
     maximum_per_slot: usize,
 ) -> Vec<Vec<usize>> {
-    contiguous_assignments(groups, slots)
-        .into_iter()
-        .filter(|assignment| {
-            (0..slots).all(|slot| {
-                assignment
-                    .iter()
-                    .filter(|assigned| **assigned == slot)
-                    .count()
-                    <= maximum_per_slot
-            })
-        })
-        .collect()
+    bounded_partitions(groups, slots, maximum_per_slot, None, |start, end| {
+        end - start
+    })
+}
+
+fn bounded_partitions(
+    groups: usize,
+    slots: usize,
+    maximum: usize,
+    allowed: Option<&BTreeSet<usize>>,
+    load: impl Fn(usize, usize) -> usize,
+) -> Vec<Vec<usize>> {
+    fn visit(
+        groups: usize,
+        slots: usize,
+        maximum: usize,
+        load: &impl Fn(usize, usize) -> usize,
+        allowed: Option<&BTreeSet<usize>>,
+        cuts: &mut Vec<usize>,
+        output: &mut Vec<Vec<usize>>,
+    ) {
+        const MAX_PARTITIONS: usize = 256;
+        if output.len() == MAX_PARTITIONS {
+            return;
+        }
+        let start = cuts.last().copied().unwrap_or(0);
+        let remaining = slots - cuts.len();
+        if load(start, groups) > maximum.saturating_mul(remaining) {
+            return;
+        }
+        if remaining == 1 {
+            let mut previous = 0;
+            let mut assignment = Vec::with_capacity(groups);
+            for (slot, end) in cuts.iter().copied().chain([groups]).enumerate() {
+                assignment.extend(std::iter::repeat_n(slot, end - previous));
+                previous = end;
+            }
+            output.push(assignment);
+            return;
+        }
+        let mut ends = (start + 1..=groups - (remaining - 1))
+            .filter(|end| allowed.is_none_or(|allowed| allowed.contains(end)))
+            .collect::<Vec<_>>();
+        let balanced = start + (groups - start).div_ceil(remaining);
+        ends.sort_by_key(|end| (end.abs_diff(balanced), std::cmp::Reverse(*end)));
+        for end in ends {
+            if load(start, end) > maximum {
+                continue;
+            }
+            if load(end, groups) > maximum.saturating_mul(remaining - 1) {
+                continue;
+            }
+            cuts.push(end);
+            visit(groups, slots, maximum, load, allowed, cuts, output);
+            cuts.pop();
+            if output.len() == MAX_PARTITIONS {
+                break;
+            }
+        }
+    }
+    if groups == 0 || slots == 0 {
+        return Vec::new();
+    }
+    let mut output = Vec::new();
+    visit(
+        groups,
+        slots.min(groups),
+        maximum,
+        &load,
+        allowed,
+        &mut Vec::new(),
+        &mut output,
+    );
+    output
+}
+
+fn continues_text(left: &FlowGroup<'_>, right: &FlowGroup<'_>) -> bool {
+    match (left.units.last(), right.units.first()) {
+        (Some(left), Some(right)) => {
+            left.node.id == right.node.id
+                && matches!((left.slice, right.slice),
+                (FragmentSlice::Text { end, .. }, FragmentSlice::Text { start, .. }) if end == start)
+        }
+        _ => false,
+    }
+}
+
+fn flow_load(groups: &[FlowGroup<'_>]) -> usize {
+    let mut total = 0usize;
+    let mut previous: Option<&FlowUnit<'_>> = None;
+    for unit in groups.iter().flat_map(|group| &group.units) {
+        total += match unit.slice {
+            FragmentSlice::Text { start, .. }
+                if previous.is_some_and(|left| {
+                    left.node.id == unit.node.id
+                        && matches!(left.slice, FragmentSlice::Text { end, .. } if end == start)
+                }) =>
+            {
+                0
+            }
+            FragmentSlice::ListItems { start, end }
+            | FragmentSlice::CodeLines { start, end }
+            | FragmentSlice::TableRows { start, end } => (end - start) as usize,
+            _ => 1,
+        };
+        previous = Some(unit);
+    }
+    total
+}
+
+fn rendering_runs<'a>(
+    groups: &[FlowGroup<'a>],
+    assignment: &[usize],
+) -> Vec<(FlowGroup<'a>, usize)> {
+    let mut output = Vec::<(FlowGroup<'a>, usize)>::new();
+    for (group, slot) in groups.iter().zip(assignment.iter().copied()) {
+        let merge =
+            output.last().is_some_and(|(previous, previous_slot)| {
+                *previous_slot == slot
+                    && previous.units.last().zip(group.units.first()).is_some_and(
+                        |(left, right)| {
+                            left.node.id == right.node.id
+                                && contiguous_slice(left.slice, right.slice).is_some()
+                        },
+                    )
+            });
+        if !merge {
+            output.push((FlowGroup { units: Vec::new() }, slot));
+        }
+        let rendering = &mut output.last_mut().expect("a rendering group exists").0;
+        for unit in &group.units {
+            if let Some(previous) = rendering.units.last_mut() {
+                if previous.node.id == unit.node.id {
+                    if let Some(slice) = contiguous_slice(previous.slice, unit.slice) {
+                        previous.slice = slice;
+                        continue;
+                    }
+                }
+            }
+            rendering.units.push(unit.clone());
+        }
+    }
+    output
 }
 
 fn enumerate_cuts(
     groups: usize,
     slots: usize,
     next: usize,
+    allowed: Option<&BTreeSet<usize>>,
     cuts: &mut Vec<usize>,
     output: &mut Vec<Vec<usize>>,
 ) {
@@ -2103,9 +2472,15 @@ fn enumerate_cuts(
     }
     let remaining_cuts = slots.saturating_sub(cuts.len() + 1);
     let last = groups.saturating_sub(remaining_cuts);
-    for cut in next..=last {
+    let start = cuts.last().copied().unwrap_or(0);
+    let balanced = start + (groups - start).div_ceil(slots - cuts.len());
+    let mut candidates = (next..=last)
+        .filter(|cut| allowed.is_none_or(|allowed| allowed.contains(cut)))
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|cut| (cut.abs_diff(balanced), std::cmp::Reverse(*cut)));
+    for cut in candidates {
         cuts.push(cut);
-        enumerate_cuts(groups, slots, cut + 1, cuts, output);
+        enumerate_cuts(groups, slots, cut + 1, allowed, cuts, output);
         cuts.pop();
         if output.len() == MAX_PARTITIONS {
             break;
@@ -2226,7 +2601,7 @@ fn divide(frame: EmuRect, gap: Emu, weights: &[i64], horizontal: bool) -> Vec<Em
 
 #[derive(Clone)]
 struct FlowGroup<'a> {
-    units: Vec<&'a FlowUnit<'a>>,
+    units: Vec<FlowUnit<'a>>,
 }
 
 #[derive(Clone, Copy)]
@@ -2523,16 +2898,18 @@ fn semantic_node_is_media_only(node: &SemanticNode) -> bool {
     }
 }
 
-fn group_units<'a>(units: &'a [FlowUnit<'a>]) -> Vec<FlowGroup<'a>> {
+fn group_units<'a>(units: &[FlowUnit<'a>]) -> Vec<FlowGroup<'a>> {
     let mut groups = Vec::<FlowGroup<'a>>::new();
     for unit in units {
         if let Some(group) = groups.last_mut() {
             if group.units[0].group == unit.group {
-                group.units.push(unit);
+                group.units.push(unit.clone());
                 continue;
             }
         }
-        groups.push(FlowGroup { units: vec![unit] });
+        groups.push(FlowGroup {
+            units: vec![unit.clone()],
+        });
     }
     groups
 }
@@ -2767,7 +3144,7 @@ fn candidate_score(input: CandidateScoreInput<'_, '_>) -> CandidateScore {
     let used = used_heights.iter().sum::<u64>().min(available);
     let whitespace_ratio = available.saturating_sub(used).saturating_mul(1_000) / available;
     let whitespace = whitespace_ratio.saturating_mul(whitespace_ratio);
-    let orphaning = u64::from(groups.len() == 1 && groups[0].is_breakable_flow());
+    let orphaning = u64::from(flow_load(groups) == 1 && groups[0].is_breakable_flow());
     let readability_band = reductions
         .iter()
         .copied()
@@ -3272,7 +3649,7 @@ fn plan_id(
     limits: &DeckLimits,
 ) -> StableId {
     let mut digest = Sha256::new();
-    digest.update(b"wasmppt/deck-layout/plan/v4\0");
+    digest.update(b"wasmppt/deck-layout/plan/v5\0");
     match spec.encode(limits) {
         Ok(encoded) => digest.update(Sha256::digest(encoded)),
         Err(_) => digest.update(spec.id.as_bytes()),
@@ -3463,7 +3840,7 @@ mod tests {
             role: SemanticRole::Prose,
             split: SplitPolicy::Children,
             content: SemanticContent::Children(vec![
-                text_node(5, SemanticRole::Prose, SplitPolicy::Never, "A "),
+                text_node(5, SemanticRole::Prose, SplitPolicy::Text, "A "),
                 SemanticNode {
                     id: id(6),
                     source: range(42),
@@ -3501,7 +3878,7 @@ mod tests {
         let plan = DeckPlanner::default()
             .plan(
                 &spec,
-                &template(5_500_000),
+                &template(500_000),
                 &FontCatalog::default(),
                 &limits(),
             )
@@ -3529,7 +3906,7 @@ mod tests {
             pair[0].y.abs_diff(pair[1].y)
                 <= u64::try_from(pair[0].height.max(pair[1].height)).unwrap_or(u64::MAX)
         }));
-        assert!(validate_deck_plan(&spec, &template(5_500_000), &plan, &limits()).is_valid());
+        assert!(validate_deck_plan(&spec, &template(500_000), &plan, &limits()).is_valid());
     }
 
     #[test]
@@ -3626,8 +4003,8 @@ mod tests {
         ] {
             let units = build_flow(&nodes, &[], 16).unwrap();
             let groups = group_units(&units);
-            let start = Pattern::MediaStart.assignments(&groups, 2);
-            let end = Pattern::MediaEnd.assignments(&groups, 2);
+            let start = Pattern::MediaStart.assignments(&groups, 2, None);
+            let end = Pattern::MediaEnd.assignments(&groups, 2, None);
 
             assert_eq!(start.len(), 1);
             assert_eq!(end.len(), 1);
@@ -4517,22 +4894,48 @@ mod tests {
         let groups = group_units(&units);
         assert_eq!(groups.len(), 1);
         for pattern in [Pattern::WeightedStart, Pattern::WeightedEnd] {
-            assert!(pattern.assignments(&groups, 2).is_empty());
+            assert!(pattern.assignments(&groups, 2, None).is_empty());
         }
     }
 
     #[test]
     fn different_role_content_can_use_weighted_columns() {
-        let spec = unequal_paragraph_demand(SemanticRole::Caption, SplitPolicy::Text);
-        let template = template(2_800_000);
-        let plan = DeckPlanner::default()
-            .plan(&spec, &template, &FontCatalog::default(), &limits())
-            .unwrap();
+        let spec = spec(vec![
+            text_node(3, SemanticRole::Title, SplitPolicy::Never, "Mixed roles"),
+            text_node(
+                4,
+                SemanticRole::Prose,
+                SplitPolicy::Text,
+                &"continuous content ".repeat(8),
+            ),
+            text_node(
+                5,
+                SemanticRole::Credit,
+                SplitPolicy::Never,
+                "Author and institution",
+            ),
+        ]);
+        let template = template(5_500_000);
+        let units = build_flow(&spec.logical_slides[0].nodes[1..], &[], 100).unwrap();
+        let groups = group_units(&units);
+        let planner = DeckPlanner::default();
+        let fonts = FontCatalog::default();
+        let mut measurer = Measurer::new(&fonts, &spec, &planner.policy.limits);
+        let mut work = 0;
         assert!(
-            plan.pages
-                .iter()
-                .any(|page| page.topology.kind == LayoutTopology::WeightedSplit)
+            planner
+                .fit_candidate(
+                    Pattern::WeightedStart,
+                    &groups,
+                    &template.regions[1],
+                    &[],
+                    &mut measurer,
+                    &mut work
+                )
+                .unwrap()
+                .is_some()
         );
+        let plan = planner.plan(&spec, &template, &fonts, &limits()).unwrap();
         assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
     }
 
@@ -4796,6 +5199,273 @@ mod tests {
             assert_eq!(content[0].slice, expected);
             assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
         }
+    }
+
+    #[test]
+    fn text_measurement_reuses_width_across_remaining_frame_heights() {
+        let spec = spec(vec![text_node(
+            4,
+            SemanticRole::Prose,
+            SplitPolicy::Text,
+            "Reusable text.",
+        )]);
+        let template = template(5_500_000);
+        let fonts = FontCatalog::default();
+        let limits = PlannerLimits {
+            max_measurements: 1,
+            ..PlannerLimits::default()
+        };
+        let mut measurer = Measurer::new(&fonts, &spec, &limits);
+        let body = &template.regions[1];
+        let node = &spec.logical_slides[0].nodes[0];
+        let initial = measurer
+            .measure(node, FragmentSlice::Whole, body, body.frame, 2_000, 0)
+            .unwrap();
+        let smaller = EmuRect {
+            height: body.frame.height / 2,
+            ..body.frame
+        };
+        assert_eq!(
+            measurer
+                .measure(node, FragmentSlice::Whole, body, smaller, 2_000, 0)
+                .unwrap()
+                .height,
+            initial.height
+        );
+    }
+
+    #[test]
+    fn code_and_formula_adjacent_code_share_measured_width_contracts() {
+        let mut inline = text_node(
+            4,
+            SemanticRole::Prose,
+            SplitPolicy::Text,
+            "iiiiiiiiiiiiiiiiiiii",
+        );
+        if let SemanticContent::Text(text) = &mut inline.content {
+            text.runs[0].marks.inline_code = true;
+        }
+        let spec = spec(vec![inline, code_node(5, "WWWWWWWWWW")]);
+        let template = template(5_500_000);
+        let fonts = FontCatalog::default();
+        let planner = DeckPlanner::default();
+        let mut measurer = Measurer::new(&fonts, &spec, &planner.policy.limits);
+        let body = &template.regions[1];
+        let node = &spec.logical_slides[0].nodes[0];
+        assert_eq!(
+            measurer.inline_text_width(node, FragmentSlice::Whole, body, 2_000),
+            3_048_000
+        );
+        let measured = measurer
+            .measure(node, FragmentSlice::Whole, body, body.frame, 2_000, 0)
+            .unwrap();
+        assert_eq!(measured.width.min, 3_048_000);
+        let code = &spec.logical_slides[0].nodes[1];
+        assert_eq!(
+            measurer
+                .measure(code, FragmentSlice::Whole, body, body.frame, 2_000, 0)
+                .unwrap()
+                .width
+                .min,
+            1_524_000
+        );
+    }
+
+    #[test]
+    fn nested_list_indentation_is_included_in_wrapping_width() {
+        let mut node = list_node(4, 1);
+        if let SemanticContent::List(list) = &mut node.content {
+            let mut child = list.items[0].clone();
+            child.id = id(10);
+            child.blocks = vec![text_node(
+                11,
+                SemanticRole::ListItem,
+                SplitPolicy::Text,
+                "aaaaaaaaa aaaaaaaaa",
+            )];
+            list.items[0].children.push(wasmppt_deck::ListContent {
+                ordered: false,
+                start: 1,
+                items: vec![child],
+            });
+        }
+        let spec = spec(vec![node]);
+        let template = template(5_500_000);
+        let mut body = template.regions[1].clone();
+        body.text_levels[0].margin_left = None;
+        let frame = EmuRect {
+            width: 2_800_000,
+            ..body.frame
+        };
+        let fonts = FontCatalog::default();
+        let planner = DeckPlanner::default();
+        let mut measurer = Measurer::new(&fonts, &spec, &planner.policy.limits);
+        let measured = measurer
+            .measure(
+                &spec.logical_slides[0].nodes[0],
+                FragmentSlice::Whole,
+                &body,
+                frame,
+                2_000,
+                0,
+            )
+            .unwrap();
+        assert_eq!(measured.height, measure::text_line_height(2_000) * 3);
+    }
+
+    #[test]
+    fn continuous_ranges_are_measured_as_the_composed_shape() {
+        for node in [
+            text_node(
+                4,
+                SemanticRole::Prose,
+                SplitPolicy::Text,
+                "A. Writer. B. Researcher. Journal. vol. 12. no. 3. pp. 100–120.",
+            ),
+            list_node(4, 4),
+            code_node(4, "one\ntwo\nthree\nfour\n"),
+        ] {
+            let spec = spec(vec![node]);
+            let template = template(5_500_000);
+            let fonts = FontCatalog::default();
+            let planner = DeckPlanner::default();
+            let plan = planner.plan(&spec, &template, &fonts, &limits()).unwrap();
+            let body = &template.regions[1];
+            let mut measurer = Measurer::new(&fonts, &spec, &planner.policy.limits);
+            for fragment in plan.pages.iter().flat_map(fragments) {
+                let measured = measurer
+                    .measure(
+                        &spec.logical_slides[0].nodes[0],
+                        fragment.slice,
+                        body,
+                        fragment.frame,
+                        fragment.type_choice.font_size,
+                        0,
+                    )
+                    .unwrap();
+                assert_eq!(
+                    fragment.frame.height, measured.height,
+                    "{:?}",
+                    fragment.slice
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn sentence_breaks_do_not_limit_a_physically_fitting_paragraph() {
+        let text = "A. ".repeat(200);
+        let spec = spec(vec![text_node(
+            4,
+            SemanticRole::Prose,
+            SplitPolicy::Text,
+            &text,
+        )]);
+        let template = template(5_500_000);
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert_eq!(plan.pages.len(), 1);
+        assert_eq!(fragments(&plan.pages[0]).count(), 1);
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn hard_line_breaks_keep_the_only_fitting_column_cut() {
+        let spec = spec(vec![text_node(
+            4,
+            SemanticRole::Prose,
+            SplitPolicy::Text,
+            "AAAAAAAAAA\n\na\n\nb\n\nc",
+        )]);
+        let mut template = template(measure::text_line_height(1_400) * 4);
+        template.regions[1].frame.width = 3_400_000;
+        template.regions[1].text_levels[0].font_size = Some(1_400);
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert_eq!(plan.pages.len(), 1);
+        assert_eq!(plan.pages[0].topology.kind, LayoutTopology::FlowColumns);
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn sentence_dense_continuations_stay_within_default_work_bounds() {
+        let text = "a. ".repeat(200);
+        let spec = spec(vec![text_node(
+            4,
+            SemanticRole::Prose,
+            SplitPolicy::Text,
+            &text,
+        )]);
+        let template = template(measure::text_line_height(2_000) * 2);
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert!(plan.pages.len() > 1);
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn an_atomic_tail_can_restore_a_stack_candidate() {
+        let mut nodes = (4..13)
+            .map(|index| text_node(index, SemanticRole::Prose, SplitPolicy::Text, "Short."))
+            .collect::<Vec<_>>();
+        nodes.push(text_node(
+            13,
+            SemanticRole::Credit,
+            SplitPolicy::Never,
+            "Atomic tail",
+        ));
+        let spec = spec(nodes);
+        let units = build_flow(&spec.logical_slides[0].nodes, &[], 100).unwrap();
+        let groups = group_units(&units);
+        let planner = DeckPlanner::default();
+        let fonts = FontCatalog::default();
+        let template = template(5_500_000);
+        let mut measurer = Measurer::new(&fonts, &spec, &planner.policy.limits);
+        let pages = planner
+            .candidate_pages(
+                PaginationRequest {
+                    groups: &groups,
+                    region: &template.regions[1],
+                    slide_id: id(2),
+                    relations: &[],
+                },
+                0,
+                &mut measurer,
+                &mut Vec::new(),
+                &mut 0,
+            )
+            .unwrap();
+        assert!(pages.iter().any(|page| page.end == groups.len() && page.topology.kind == LayoutTopology::Stack));
+    }
+
+    #[test]
+    fn bounded_flow_partitions_include_a_balanced_cut_for_long_text() {
+        let node = text_node(
+            4,
+            SemanticRole::Prose,
+            SplitPolicy::Text,
+            &"A. ".repeat(600),
+        );
+        let units = build_flow(std::slice::from_ref(&node), &[], 1_000).unwrap();
+        let groups = group_units(&units);
+        let assignments = bounded_flow_assignments(&groups, 2, 8, None);
+        assert_eq!(
+            assignments[0].iter().filter(|slot| **slot == 0).count(),
+            groups.len().div_ceil(2)
+        );
+        assert!(assignments.len() <= 256);
+    }
+
+    #[test]
+    fn bounded_partition_search_reaches_the_only_legal_three_column_cut() {
+        let assignments = bounded_contiguous_assignments(36, 3, 12);
+        assert_eq!(
+            assignments,
+            vec![(0..36).map(|index| index / 12).collect::<Vec<_>>()]
+        );
     }
 
     #[test]

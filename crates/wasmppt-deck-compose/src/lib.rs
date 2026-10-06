@@ -470,14 +470,15 @@ fn validate_contracts(
 
 fn ensure_editable_list(list: &wasmppt_deck::ListContent) -> Result<(), ComposeError> {
     for item in &list.items {
-        if item
-            .blocks
-            .iter()
-            .any(|block| !matches!(block.content, SemanticContent::Text(_)))
-        {
+        if item.blocks.iter().any(|block| {
+            !matches!(
+                block.content,
+                SemanticContent::Text(_) | SemanticContent::Code(_)
+            )
+        }) {
             return Err(ComposeError::new(
                 ComposeErrorCode::UnsupportedContent,
-                "list items must contain editable text blocks in this composition slice",
+                "list items must contain editable text or code blocks in this composition slice",
             ));
         }
         for child in &item.children {

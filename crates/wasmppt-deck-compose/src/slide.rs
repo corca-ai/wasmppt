@@ -664,18 +664,7 @@ impl SlideWriter<'_> {
         compact: bool,
     ) -> Result<(), ComposeError> {
         let level = paragraph.level.min(8);
-        let margin = if compact {
-            0
-        } else {
-            style
-                .and_then(|level| level.margin_left)
-                .unwrap_or(342_900 + i64::from(level) * 342_900)
-        };
-        let indent = if compact {
-            0
-        } else {
-            style.and_then(|level| level.indent).unwrap_or(-285_750)
-        };
+        let (margin, indent) = wasmppt_deck::paragraph_indentation(style, level, compact);
         let alignment = paragraph.alignment.map_or("", |alignment| match alignment {
             TableColumnAlignment::Start => " algn=\"l\"",
             TableColumnAlignment::Center => " algn=\"ctr\"",
@@ -730,7 +719,7 @@ impl SlideWriter<'_> {
                 }
             }
             let typeface = if run.marks.inline_code {
-                Some("Courier New")
+                Some(wasmppt_deck::CODE_TYPEFACE)
             } else {
                 style.and_then(|style| style.latin_typeface.as_deref())
             };
@@ -985,7 +974,9 @@ fn slice_rich_text(
 }
 
 fn slice_code(code: &str, slice: FragmentSlice) -> Result<Vec<String>, ComposeError> {
-    let lines = code.split('\n').map(ToOwned::to_owned).collect::<Vec<_>>();
+    let lines = wasmppt_deck::logical_code_lines(code)
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
     let (start, end) = match slice {
         FragmentSlice::Whole => (0, lines.len()),
         FragmentSlice::CodeLines { start, end } => (start as usize, end as usize),
@@ -1065,9 +1056,25 @@ fn append_list(
             });
         }
         for block in &item.blocks {
-            if let SemanticContent::Text(text) = &block.content {
+            let runs = match &block.content {
+                SemanticContent::Text(text) => vec![text.runs.clone()],
+                SemanticContent::Code(code) => wasmppt_deck::logical_code_lines(&code.code)
+                    .map(|line| {
+                        vec![RichTextRun {
+                            text: line.to_owned(),
+                            marks: wasmppt_deck::TextMarks {
+                                inline_code: true,
+                                ..Default::default()
+                            },
+                            hyperlink: None,
+                        }]
+                    })
+                    .collect(),
+                _ => continue,
+            };
+            for runs in runs {
                 output.push(Paragraph {
-                    runs: text.runs.clone(),
+                    runs,
                     level,
                     bullet: if first {
                         if ordered {
@@ -1083,6 +1090,7 @@ fn append_list(
                 first = false;
             }
         }
+
         for child in &item.children {
             append_list(
                 &child.items,
@@ -1291,6 +1299,41 @@ mod tests {
             split: wasmppt_deck::SplitPolicy::Never,
             content,
         }
+    }
+
+    #[test]
+    fn code_terminal_newline_is_a_terminator_not_an_extra_paragraph() {
+        assert_eq!(slice_code("a\n", FragmentSlice::Whole).unwrap(), ["a"]);
+        assert_eq!(
+            slice_code("a\n\n", FragmentSlice::Whole).unwrap(),
+            ["a", ""]
+        );
+        assert_eq!(slice_code("", FragmentSlice::Whole).unwrap(), [""]);
+    }
+
+    #[test]
+    fn list_code_blocks_retain_all_lines_and_monospace_marks() {
+        let list = ListContent {
+            ordered: false,
+            start: 1,
+            items: vec![wasmppt_deck::ListItem {
+                id: StableId::from_bytes([3; 16]),
+                source: wasmppt_deck::SourceRange::new("list.md", 0, 100),
+                blocks: vec![test_node(
+                    4,
+                    wasmppt_deck::SemanticRole::Code,
+                    SemanticContent::Code(wasmppt_deck::CodeContent {
+                        language: Some("js".into()),
+                        code: "a\nb\n".into(),
+                    }),
+                )],
+                children: vec![],
+            }],
+        };
+        let paragraphs = list_paragraphs(&list, FragmentSlice::Whole).unwrap();
+        assert_eq!(paragraphs.len(), 2);
+        assert_eq!(paragraphs[1].runs[0].text, "b");
+        assert!(paragraphs.iter().all(|p| p.runs[0].marks.inline_code));
     }
 
     #[test]

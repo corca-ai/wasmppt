@@ -613,6 +613,42 @@ fn validation_rejects_drifted_resolved_media_geometry() {
 }
 
 #[test]
+fn composes_list_code_lines_as_editable_monospace_paragraphs() {
+    let (bytes, mut spec, template, plan) = fixture();
+    let SemanticContent::List(list) = &mut spec.logical_slides[0].nodes[1].content else {
+        unreachable!()
+    };
+    let block = &mut list.items[0].blocks[0];
+    block.role = SemanticRole::Code;
+    block.split = SplitPolicy::Never;
+    block.content = SemanticContent::Code(wasmppt_deck::CodeContent {
+        language: Some("ts".to_owned()),
+        code: "const value = 1;\nconsole.log(value);\n".to_owned(),
+    });
+    let overlay = DeckComposer
+        .compose(
+            Arc::<[u8]>::from(bytes),
+            &spec,
+            &template,
+            &plan,
+            &DeckLimits::default(),
+            &ComposeLimits::default(),
+        )
+        .unwrap();
+    let xml = String::from_utf8(overlay.read_part("ppt/slides/slide1.xml").unwrap()).unwrap();
+    for line in ["const value = 1;", "console.log(value);"] {
+        let runs: Vec<_> = xml
+            .split("<a:r>")
+            .filter_map(|suffix| suffix.split_once("</a:r>").map(|(run, _)| run))
+            .filter(|run| run.contains(&format!("<a:t>{line}</a:t>")))
+            .collect();
+        assert_eq!(runs.len(), 1, "each code line must remain one editable run");
+        assert!(runs[0].contains("typeface=\"Courier New\""));
+    }
+    assert_eq!(xml.matches("startAt=\"3\"").count(), 1);
+}
+
+#[test]
 fn composes_an_empty_list_item_as_an_editable_bullet_paragraph() {
     let (bytes, mut spec, template, mut plan) = fixture();
     let SemanticContent::List(list) = &mut spec.logical_slides[0].nodes[1].content else {

@@ -4,7 +4,7 @@ use wasmppt_deck::{
     Emu, EmuRect, EmuSize, FragmentSlice, PixelSize, RegionRole, SemanticContent, SemanticNode,
     SemanticRole, StableId, TableColumnAlignment, TemplateRegion, inspect_media_size,
 };
-use wasmppt_shaper::{ShapeOptions, ShapedRun, shape};
+use wasmppt_shaper::{ShapeOptions, line_breaks, shape};
 
 use crate::{FontCatalog, PlannerLimits, flow::code_line};
 
@@ -37,6 +37,7 @@ pub(crate) struct Measurer<'a> {
     limits: &'a PlannerLimits,
     resources: BTreeMap<StableId, PixelSize>,
     cache: BTreeMap<MeasureKey, Measured>,
+    advances: BTreeMap<MeasureKey, Emu>,
     measurements: usize,
 }
 
@@ -76,6 +77,7 @@ impl<'a> Measurer<'a> {
                 .filter_map(|resource| inspect_media_size(resource).map(|size| (resource.id, size)))
                 .collect(),
             cache: BTreeMap::new(),
+            advances: BTreeMap::new(),
             measurements: 0,
         }
     }
@@ -95,7 +97,19 @@ impl<'a> Measurer<'a> {
             role: region.role,
             region: *region.id.as_bytes(),
             width: frame.width,
-            height: frame.height,
+            // Text/table demand is independent of the remaining allocation height.
+            // Media retains height because contain fitting depends on both dimensions.
+            height: if matches!(
+                node.content,
+                SemanticContent::Text(_)
+                    | SemanticContent::Code(_)
+                    | SemanticContent::List(_)
+                    | SemanticContent::Table(_)
+            ) {
+                0
+            } else {
+                frame.height
+            },
             font_size,
             repeat_table_header_rows,
         };
@@ -143,26 +157,66 @@ impl<'a> Measurer<'a> {
             _ => false,
         };
         let missing_requested_font = requested_family.is_some() && requested_font.is_none();
-        let font_risk =
-            (missing_requested_font || exact.is_none()) && (!text.is_empty() || table_has_text);
+        let font_risk = ((missing_requested_font || exact.is_none())
+            && (!text.is_empty() || table_has_text))
+            || (self.fonts.font(wasmppt_deck::CODE_TYPEFACE).is_none() && uses_code(node));
         let line_height = font_size_to_emu(font_size).saturating_mul(6) / 5;
-        let lines = if text.is_empty() {
-            0
-        } else if let Some(font) = exact {
-            shaped_lines(
-                font.bytes.as_ref(),
-                font.face_index,
-                &text,
-                usable_width,
-                font_size,
+        let paragraph_width = |level| {
+            let (margin, indent) =
+                wasmppt_deck::paragraph_indentation(region.text_levels.first(), level, false);
+            usable_width
+                .saturating_sub(margin.max(margin.saturating_add(indent)).max(0))
+                .max(1)
+        };
+        let code_font = self.fonts.font(wasmppt_deck::CODE_TYPEFACE);
+        let paragraph_lines = |block: &SemanticNode, slice: FragmentSlice, level: u8| {
+            let width = paragraph_width(level);
+            match &block.content {
+                SemanticContent::Text(text) => {
+                    rich_lines(text, slice, width, exact, code_font, font_size)
+                }
+                SemanticContent::Code(code) => {
+                    let (start, end) = match slice {
+                        FragmentSlice::CodeLines { start, end } => (start as usize, end as usize),
+                        _ => (0, usize::MAX),
+                    };
+                    wasmppt_deck::logical_code_lines(&code.code)
+                        .skip(start)
+                        .take(end - start)
+                        .map(|line| {
+                            wrapped_lines(line, width, |range| {
+                                Some(code_advance(&line[range], code_font, font_size))
+                            })
+                            .unwrap_or(1)
+                        })
+                        .fold(0, u32::saturating_add)
+                }
+                _ => 0,
+            }
+        };
+        let lines = if let SemanticContent::List(list) = &node.content {
+            let (start, end) = match slice {
+                FragmentSlice::ListItems { start, end } => (start as usize, end as usize),
+                _ => (0, list.items.len()),
+            };
+            list_lines(
+                list.items.get(start..end).unwrap_or(&[]),
+                0,
+                &paragraph_lines,
             )
-            .unwrap_or_else(|| approximate_lines(&text, usable_width, font_size))
         } else {
-            approximate_lines(&text, usable_width, font_size)
+            paragraph_lines(node, slice, 0)
         };
         let text_height = line_height.saturating_mul(i64::from(lines));
         let block_height = line_height.saturating_mul(i64::from(blocks));
-        let width = measure_width_demand(node, slice, exact, font_size, line_height, aspect);
+        let width = measure_width_demand(
+            node,
+            slice,
+            (exact, code_font),
+            font_size,
+            line_height,
+            aspect,
+        );
         let table_height = match &node.content {
             SemanticContent::Table(table) => {
                 let column_widths =
@@ -227,15 +281,59 @@ impl<'a> Measurer<'a> {
     }
 
     pub(crate) fn inline_text_width(
-        &self,
+        &mut self,
         node: &SemanticNode,
         slice: FragmentSlice,
         region: &TemplateRegion,
         font_size: u32,
     ) -> Emu {
+        let key = MeasureKey {
+            node: *node.id.as_bytes(),
+            slice: slice.into(),
+            role: region.role,
+            region: *region.id.as_bytes(),
+            width: 0,
+            height: 0,
+            font_size,
+            repeat_table_header_rows: 0,
+        };
+        if let Some(width) = self.advances.get(&key) {
+            return *width;
+        }
         let (text, _, _, _) = self.measure_content(node, slice);
-        let text = text.trim_start_matches(is_inline_soft_whitespace);
-        self.inline_text_advance(text, region, font_size).max(1)
+        let trimmed = text.trim_start_matches(is_inline_soft_whitespace);
+        let start = match slice {
+            FragmentSlice::Text { start, .. } => start as usize,
+            _ => 0,
+        };
+        let offset = start + text.len() - trimmed.len();
+        let font = self.region_font(region);
+        let code_font = self.fonts.font(wasmppt_deck::CODE_TYPEFACE);
+        let mut line_start = offset;
+        let width = trimmed
+            .split('\n')
+            .map(|line| {
+                let width = match &node.content {
+                    SemanticContent::Text(rich) => rich_advance(
+                        rich,
+                        line_start..line_start + line.len(),
+                        font,
+                        code_font,
+                        font_size,
+                    ),
+                    SemanticContent::Code(_) => code_advance(line, code_font, font_size),
+                    _ => text_advance(line, font, font_size),
+                };
+                line_start += line.len() + 1;
+                width
+            })
+            .max()
+            .unwrap_or(0)
+            .max(1);
+        if self.advances.len() < self.limits.max_measurements {
+            self.advances.insert(key, width);
+        }
+        width
     }
 
     pub(crate) fn inline_leading_space_width(
@@ -246,35 +344,39 @@ impl<'a> Measurer<'a> {
         font_size: u32,
     ) -> Emu {
         let (text, _, _, _) = self.measure_content(node, slice);
-        if text.starts_with(is_inline_soft_whitespace) {
-            self.inline_text_advance(" ", region, font_size).max(1)
+        if !text.starts_with(is_inline_soft_whitespace) {
+            return 0;
+        }
+        let start = match slice {
+            FragmentSlice::Text { start, .. } => start as usize,
+            _ => 0,
+        };
+        if let SemanticContent::Text(rich) = &node.content {
+            rich_advance(
+                rich,
+                start..start + text.chars().next().map_or(0, char::len_utf8),
+                self.region_font(region),
+                self.fonts.font(wasmppt_deck::CODE_TYPEFACE),
+                font_size,
+            )
+            .max(1)
         } else {
-            0
+            text_advance(" ", self.region_font(region), font_size).max(1)
         }
     }
 
-    fn inline_text_advance(&self, text: &str, region: &TemplateRegion, font_size: u32) -> Emu {
-        let requested_family = region
+    fn region_font(&self, region: &TemplateRegion) -> Option<&crate::FontFace> {
+        region
             .text_levels
             .first()
-            .and_then(|level| level.latin_typeface.as_deref());
-        let exact = requested_family
+            .and_then(|level| level.latin_typeface.as_deref())
             .and_then(|family| self.fonts.font(family))
             .or_else(|| {
                 self.fonts
                     .default_family
                     .as_deref()
                     .and_then(|family| self.fonts.font(family))
-            });
-        text.split('\n')
-            .map(|line| {
-                exact.map_or_else(
-                    || approximate_inline_text_advance(line, font_size),
-                    |font| text_advance(line, Some(font), font_size),
-                )
             })
-            .max()
-            .unwrap_or(0)
     }
 
     pub(crate) fn intrinsic_size(&self, node: &SemanticNode) -> Option<PixelSize> {
@@ -361,11 +463,12 @@ fn measure_table_rows(
 fn measure_width_demand(
     node: &SemanticNode,
     slice: FragmentSlice,
-    font: Option<&crate::FontFace>,
+    fonts: (Option<&crate::FontFace>, Option<&crate::FontFace>),
     font_size: u32,
     line_height: Emu,
     aspect: Option<(u32, u32)>,
 ) -> WidthDemand {
+    let (font, code_font) = fonts;
     if let SemanticContent::Table(table) = &node.content {
         return table_width_demand(table, slice, font, font_size, line_height);
     }
@@ -390,8 +493,33 @@ fn measure_width_demand(
             max: preferred.saturating_mul(2),
         };
     }
-    let (text, _, _, _) = measure_content(node, slice);
-    text_width_demand(&text, font, font_size, line_height)
+    match &node.content {
+        SemanticContent::Text(text) => {
+            marked_width_demand(text, slice, font, code_font, font_size, line_height)
+        }
+        SemanticContent::Code(_) => {
+            let (text, _, _, _) = measure_content(node, slice);
+            width_demand(&text, line_height, |range| {
+                code_advance(&text[range], code_font, font_size)
+            })
+        }
+        SemanticContent::List(list) => {
+            let (start, end) = match slice {
+                FragmentSlice::ListItems { start, end } => (start as usize, end as usize),
+                _ => (0, list.items.len()),
+            };
+            list_width_demand(
+                list.items.get(start..end).unwrap_or(&[]),
+                fonts,
+                font_size,
+                line_height,
+            )
+        }
+        _ => {
+            let (text, _, _, _) = measure_content(node, slice);
+            text_width_demand(&text, font, font_size, line_height)
+        }
+    }
 }
 
 pub(crate) fn display_math_natural_size(size: PixelSize, font_size: u32) -> EmuSize {
@@ -564,10 +692,7 @@ fn text_advance(text: &str, font: Option<&crate::FontFace>, font_size: u32) -> E
             )
         }))
     })
-    .unwrap_or_else(|| {
-        let average = font_size_to_emu(font_size).saturating_mul(11) / 20;
-        average.saturating_mul(i64::try_from(text.chars().count()).unwrap_or(i64::MAX))
-    })
+    .unwrap_or_else(|| approximate_inline_text_advance(text, font_size))
 }
 
 fn approximate_inline_text_advance(text: &str, font_size: u32) -> Emu {
@@ -679,6 +804,7 @@ fn list_text(list: &wasmppt_deck::ListContent, start: u32, end: u32) -> String {
 fn collect_list_item_text(item: &wasmppt_deck::ListItem, output: &mut Vec<String>) {
     output.extend(item.blocks.iter().filter_map(|node| match &node.content {
         SemanticContent::Text(text) => Some(text.plain_text()),
+        SemanticContent::Code(code) => Some(code.code.clone()),
         _ => None,
     }));
     for children in &item.children {
@@ -686,6 +812,56 @@ fn collect_list_item_text(item: &wasmppt_deck::ListItem, output: &mut Vec<String
             collect_list_item_text(child, output);
         }
     }
+}
+
+fn list_width_demand(
+    items: &[wasmppt_deck::ListItem],
+    fonts: (Option<&crate::FontFace>, Option<&crate::FontFace>),
+    size: u32,
+    line_height: Emu,
+) -> WidthDemand {
+    let mut demand = WidthDemand::default();
+    let mut include = |next: WidthDemand| {
+        demand.min = demand.min.max(next.min);
+        demand.preferred = demand.preferred.max(next.preferred);
+        demand.max = demand.max.max(next.max);
+    };
+    for item in items {
+        for block in &item.blocks {
+            include(measure_width_demand(
+                block,
+                FragmentSlice::Whole,
+                fonts,
+                size,
+                line_height,
+                None,
+            ));
+        }
+        for child in &item.children {
+            include(list_width_demand(&child.items, fonts, size, line_height));
+        }
+    }
+    demand
+}
+
+fn list_lines(
+    items: &[wasmppt_deck::ListItem],
+    level: u8,
+    lines: &impl Fn(&SemanticNode, FragmentSlice, u8) -> u32,
+) -> u32 {
+    items.iter().fold(0u32, |total, item| {
+        let paragraphs = item
+            .blocks
+            .iter()
+            .map(|block| lines(block, FragmentSlice::Whole, level))
+            .fold(0, u32::saturating_add)
+            .max(1);
+        item.children
+            .iter()
+            .fold(total.saturating_add(paragraphs), |total, child| {
+                total.saturating_add(list_lines(&child.items, level.saturating_add(1), lines))
+            })
+    })
 }
 
 fn list_block_count(list: &wasmppt_deck::ListContent, start: u32, end: u32) -> u32 {
@@ -712,49 +888,228 @@ fn shaped_lines(
     width: Emu,
     font_size: u32,
 ) -> Option<u32> {
-    let mut lines = 0u32;
-    for line in text.split_terminator('\n') {
-        if line.is_empty() {
-            lines = lines.saturating_add(1);
-            continue;
-        }
+    wrapped_lines(text, width, |range| {
+        let segment = &text[range];
         let shaped = shape(
             bytes,
-            line,
+            segment,
             ShapeOptions {
                 face_index,
                 ..ShapeOptions::default()
             },
         )
         .ok()?;
-        lines = lines.saturating_add(lines_from_shape(&shaped, width, font_size));
+        let units = i64::from(shaped.units_per_em).max(1);
+        Some(shaped.glyphs.iter().fold(0i64, |total, glyph| {
+            total.saturating_add(
+                i64::from(glyph.x_advance.abs()).saturating_mul(font_size_to_emu(font_size))
+                    / units,
+            )
+        }))
+    })
+}
+
+fn approximate_lines(text: &str, width: Emu, font_size: u32) -> u32 {
+    wrapped_lines(text, width, |range| {
+        Some(approximate_inline_text_advance(&text[range], font_size))
+    })
+    .unwrap_or(1)
+}
+
+// Word/UAX #14 boundaries are wrapping opportunities, not permission to pack arbitrary glyphs.
+// Only a token wider than the entire line may use the emergency character fallback.
+fn wrapped_lines(
+    text: &str,
+    width: Emu,
+    measure: impl Fn(std::ops::Range<usize>) -> Option<Emu>,
+) -> Option<u32> {
+    let width = width.max(1);
+    let mut lines = 0u32;
+    let mut line_start = 0usize;
+    for line in text.split_terminator('\n') {
+        let mut count = 1u32;
+        let mut advance = 0i64;
+        let mut start = 0usize;
+        for opportunity in line_breaks(line, line.len()).ok()? {
+            let end = opportunity.offset as usize;
+            let token_start = line_start + start;
+            let token = &line[start..end];
+            start = end;
+            let word = token.trim_end_matches(is_inline_soft_whitespace);
+            let trailing = &token[word.len()..];
+            let token_width = measure(token_start..token_start + word.len())?;
+            if advance > 0 && advance.saturating_add(token_width) > width {
+                count = count.saturating_add(1);
+                advance = 0;
+            }
+            if token_width <= width {
+                advance = advance.saturating_add(token_width);
+            } else {
+                for (offset, character) in word.char_indices() {
+                    let character_width =
+                        measure(token_start + offset..token_start + offset + character.len_utf8())?;
+                    if advance > 0 && advance.saturating_add(character_width) > width {
+                        count = count.saturating_add(1);
+                        advance = 0;
+                    }
+                    advance = advance.saturating_add(character_width);
+                }
+            }
+            let whitespace = measure(token_start + word.len()..line_start + end)?;
+            if !trailing.is_empty() && advance > 0 {
+                if advance.saturating_add(whitespace) > width {
+                    // A trailing space ends the current line but does not create an empty final line.
+                    advance = width;
+                } else {
+                    advance = advance.saturating_add(whitespace);
+                }
+            }
+        }
+        lines = lines.saturating_add(count);
+        line_start += line.len() + 1;
     }
     Some(lines.max(1))
 }
 
-fn lines_from_shape(shaped: &ShapedRun, width: Emu, font_size: u32) -> u32 {
-    let scale = font_size_to_emu(font_size);
-    let units = i64::from(shaped.units_per_em);
-    let mut lines = 1u32;
-    let mut advance = 0i64;
-    for glyph in &shaped.glyphs {
-        let glyph_width = i64::from(glyph.x_advance.abs()).saturating_mul(scale) / units;
-        if advance > 0 && advance.saturating_add(glyph_width) > width {
-            lines = lines.saturating_add(1);
-            advance = 0;
-        }
-        advance = advance.saturating_add(glyph_width);
+fn uses_code(node: &SemanticNode) -> bool {
+    match &node.content {
+        SemanticContent::Code(_) => true,
+        SemanticContent::Text(text) => text.runs.iter().any(|run| run.marks.inline_code),
+        SemanticContent::List(list) => list.items.iter().any(|item| {
+            item.blocks.iter().any(uses_code) || item.children.iter().any(list_uses_code)
+        }),
+        _ => false,
     }
-    lines
 }
 
-fn approximate_lines(text: &str, width: Emu, font_size: u32) -> u32 {
-    let average = font_size_to_emu(font_size).saturating_mul(11) / 20;
-    let per_line = usize::try_from((width / average.max(1)).max(1)).unwrap_or(usize::MAX);
-    text.split_terminator('\n')
-        .map(|line| line.chars().count().max(1).div_ceil(per_line) as u32)
-        .sum::<u32>()
-        .max(1)
+fn list_uses_code(list: &wasmppt_deck::ListContent) -> bool {
+    list.items
+        .iter()
+        .any(|item| item.blocks.iter().any(uses_code) || item.children.iter().any(list_uses_code))
+}
+
+fn code_advance(text: &str, font: Option<&crate::FontFace>, size: u32) -> Emu {
+    font.map_or_else(
+        || {
+            let units = text.chars().fold(0i64, |total, character| {
+                total.saturating_add(if character.is_ascii() { 600 } else { 1_000 })
+            });
+            font_size_to_emu(size).saturating_mul(units) / 1_000
+        },
+        |font| text_advance(text, Some(font), size),
+    )
+}
+
+fn rich_advance(
+    text: &wasmppt_deck::RichText,
+    range: std::ops::Range<usize>,
+    font: Option<&crate::FontFace>,
+    code_font: Option<&crate::FontFace>,
+    size: u32,
+) -> Emu {
+    let mut offset = 0usize;
+    let mut advance = 0i64;
+    for run in &text.runs {
+        let end = offset + run.text.len();
+        let left = range.start.max(offset);
+        let right = range.end.min(end);
+        if left < right {
+            let segment = &run.text[left - offset..right - offset];
+            advance = advance.saturating_add(if run.marks.inline_code {
+                code_advance(segment, code_font, size)
+            } else {
+                text_advance(segment, font, size)
+            });
+        }
+        offset = end;
+        if offset >= range.end {
+            break;
+        }
+    }
+    advance
+}
+
+fn marked_width_demand(
+    text: &wasmppt_deck::RichText,
+    slice: FragmentSlice,
+    font: Option<&crate::FontFace>,
+    code_font: Option<&crate::FontFace>,
+    size: u32,
+    line_height: Emu,
+) -> WidthDemand {
+    let plain = text.plain_text();
+    let (start, end) = match slice {
+        FragmentSlice::Text { start, end } => (start as usize, end as usize),
+        _ => (0, plain.len()),
+    };
+    let selected = plain.get(start..end).unwrap_or("");
+    width_demand(selected, line_height, |range| {
+        rich_advance(
+            text,
+            start + range.start..start + range.end,
+            font,
+            code_font,
+            size,
+        )
+    })
+}
+
+fn width_demand(
+    text: &str,
+    line_height: Emu,
+    advance: impl Fn(std::ops::Range<usize>) -> Emu,
+) -> WidthDemand {
+    let mut min = line_height.saturating_mul(2);
+    let mut preferred = min;
+    let mut offset = 0;
+    for line in text.split('\n') {
+        preferred = preferred.max(advance(offset..offset + line.len()));
+        let mut word_start = None;
+        for (index, character) in line
+            .char_indices()
+            .chain(std::iter::once((line.len(), ' ')))
+        {
+            if character.is_whitespace() {
+                if let Some(start) = word_start.take() {
+                    min = min.max(advance(offset + start..offset + index));
+                }
+            } else if word_start.is_none() {
+                word_start = Some(index);
+            }
+        }
+        offset += line.len() + 1;
+    }
+    WidthDemand {
+        min,
+        preferred: preferred.max(min),
+        max: preferred.max(min).saturating_mul(2),
+    }
+}
+
+fn rich_lines(
+    text: &wasmppt_deck::RichText,
+    slice: FragmentSlice,
+    width: Emu,
+    font: Option<&crate::FontFace>,
+    code_font: Option<&crate::FontFace>,
+    size: u32,
+) -> u32 {
+    let plain = text.plain_text();
+    let (start, end) = match slice {
+        FragmentSlice::Text { start, end } => (start as usize, end as usize),
+        _ => (0, plain.len()),
+    };
+    let selected = plain.get(start..end).unwrap_or("");
+    wrapped_lines(selected, width, |range| {
+        Some(rich_advance(
+            text,
+            start + range.start..start + range.end,
+            font,
+            code_font,
+            size,
+        ))
+    })
+    .unwrap_or(1)
 }
 
 fn font_size_to_emu(font_size: u32) -> Emu {
@@ -810,6 +1165,35 @@ mod tests {
             bytes: bytes.into(),
             intrinsic_size: hint,
         }
+    }
+
+    #[test]
+    fn code_and_inline_code_use_the_composed_monospace_width() {
+        let em = font_size_to_emu(2_000);
+        let mut text = rich("iiiiiiiiiiiiiiiiiiii");
+        assert_eq!(
+            rich_lines(&text, FragmentSlice::Whole, em * 6, None, None, 2_000),
+            1
+        );
+        text.runs[0].marks.inline_code = true;
+        assert_eq!(
+            rich_lines(&text, FragmentSlice::Whole, em * 6, None, None, 2_000),
+            2
+        );
+        assert_eq!(code_advance("iiii", None, 2_000), em * 24 / 10);
+    }
+
+    #[test]
+    fn fallback_wrapping_preserves_words_and_full_width_characters() {
+        let em = font_size_to_emu(2_000);
+        assert_eq!(
+            approximate_lines("aaaaaaaaa aaaaaaaaa aaaaaaaaa", em * 15 * 52 / 100, 2_000),
+            3
+        );
+        assert_eq!(
+            approximate_lines("日本語日本語日本語日本語", em * 4, 2_000),
+            3
+        );
     }
 
     #[test]

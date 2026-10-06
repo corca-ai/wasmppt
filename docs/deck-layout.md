@@ -69,9 +69,18 @@ headings are page chrome metadata rather than duplicate source fragments, so exa
 validation still proves complete, ordered, single coverage.
 
 Adjacent prose ranges, list items, table rows, and code lines assigned to the same page lane are
-coalesced back into one contiguous source slice. The planner keeps legal break opportunities
-between these ranges during search, but the composer receives one editable text box, list, table,
-or code block for each final contiguous run.
+coalesced into one contiguous source slice **before fitting and measuring** a candidate lane.
+Legal break opportunities remain available between these ranges during search. Body padding,
+line rounding, and inter-block gaps apply once to the resulting editable shape, rather than once
+per sentence, item, or code line. Prose load counts source text runs; list items and code lines
+retain their authored load counts. Punctuation and the bounded text chunk size therefore do not
+create additional visual blocks.
+
+Text wraps at Unicode line-break opportunities, retaining complete words that fit a line and
+using emergency character breaks only for an oversized token. Deterministic fallback advances
+account for full-width Unicode text. Code and inline-code runs use the composed Courier New typeface, or observable deterministic
+monospace fallback metrics when its bytes are missing. Paragraph indentation uses the same helper as editable
+composition; nested list paragraphs are measured at their own hierarchy level.
 
 On a title layout only the title is a fixed header. Every following subtitle, prose, or credit
 block flows through the subtitle region in source order. The same bounded candidate search places
@@ -83,7 +92,26 @@ For each source position the planner evaluates explicit stack, two- and three-co
 mirrored weighted split, mirrored media/text, related media/text cards, two/four/six-peer grid,
 lead/supporting, two/four/six-item gallery, table-wide, and comparison topologies. Each topology
 owns a finite slot set. Continuous prose, list, code, and weighted splits enumerate bounded
-contiguous partitions. Same-role continuous content uses equal-width flow columns; weighted splits
+contiguous partitions. Authored block boundaries remain candidate cuts. Within a continuous text run, a measured
+advance frontier retains explicit hard-break boundaries, line-width crossings, demand-balanced
+cuts and run endpoints rather than
+performing a quadratic search over punctuation. Balanced cuts are evaluated before consuming
+the finite partition capacity.
+Per-slot load constraints prune illegal cuts before the partition bound
+is applied, so invalid early cuts cannot hide a later legal partition. Candidate retention chooses
+the best topology per source end before applying its bound and retains the furthest fitting ends;
+duplicate topologies never consume the retained capacity or prevent other topologies from being
+evaluated. The total assignment and measurement work limits still bound the complete search.
+A whole-slide page at the initial type size is optimal in the leading readability and page-count
+score dimensions. The planner evaluates every whole-page topology first and returns the best such
+comfortable page without exploring its unused continuation states. If no comfortable whole page
+exists, bounded dynamic programming still compares continuations against compressed candidates.
+Sampled column failures never trigger prefix pruning. Stack search also accounts for later
+atomic blocks or non-peer content that can restore its eligibility.
+Text advances are cached by source slice, region and type size. Text/table height measurements
+reuse width-dependent results across remaining frame heights; media retains both dimensions in
+its cache key because contain fitting depends on height. Both caches retain explicit bounds.
+Same-role continuous content uses equal-width flow columns; weighted splits
 require separate content groups with distinct semantic roles. Peer and gallery groups
 occupy distinct slots; and media/text candidates
 assign by semantic role rather than assuming source order is visual order. Adjacent weak

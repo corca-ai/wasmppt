@@ -83,7 +83,9 @@ For each source position the planner evaluates explicit stack, two- and three-co
 mirrored weighted split, mirrored media/text, related media/text cards, two/four/six-peer grid,
 lead/supporting, two/four/six-item gallery, table-wide, and comparison topologies. Each topology
 owns a finite slot set. Continuous prose, list, code, and weighted splits enumerate bounded
-contiguous partitions; peer and gallery groups occupy distinct slots; and media/text candidates
+contiguous partitions. Same-role continuous content uses equal-width flow columns; weighted splits
+require separate content groups with distinct semantic roles. Peer and gallery groups
+occupy distinct slots; and media/text candidates
 assign by semantic role rather than assuming source order is visual order. Adjacent weak
 media/text relations may additionally form one, two, or three source-ordered cards for one candidate;
 they remain separable in every other candidate, so unrelated prose is not pulled into a card.

@@ -110,6 +110,11 @@ first/visible/all-slide latency, logical memory, and RSS ceilings are enforced i
 superlinear scaling. The checked-in ceilings include variance observed across repeated release
 processes; CI refuses reports with fewer than three processes or ten timing samples per process.
 
+The `wasm-release` profile uses size-oriented optimization for the bounded semantic
+layout crate while retaining speed-oriented optimization for the remaining scalar
+runtime. The same browser and workerd deck latency gates qualify this tradeoff;
+size optimization does not relax any latency or correctness ceiling.
+
 The scalar browser artifact has its own raw-Wasm ceiling in
 [budgets.json](../benchmarks/budgets.json). Optional artifact costs are reported separately;
 changes to the scalar feature boundary must still pass that ceiling.

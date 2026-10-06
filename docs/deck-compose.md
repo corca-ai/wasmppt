@@ -30,7 +30,10 @@ operate on the same logical revision that export later serializes.
 Text is emitted as DrawingML paragraphs and runs rather than flattened pictures. Bold, italic,
 strikethrough, inline-code typeface, explicit template-derived font size/typeface/color, and safe
 external web, mail, and telephone hyperlinks remain editable. Nested lists preserve source order,
-hierarchy level, ordered start value, and deterministic indentation. An empty list item remains one
+hierarchy level, ordered start value, and deterministic indentation shared with measurement.
+Code blocks inside a list preserve each logical line as editable monospace text. A terminal code
+newline terminates the preceding paragraph; it does not create another paragraph. Empty code owns
+one empty paragraph, consistently in validation, flow, measurement, and composition. An empty list item remains one
 editable bullet or numbered paragraph, so an in-progress authoring line does not invalidate the
 deck or disappear from export. Source-anchor links stay non-active until an explicit internal-slide
 target contract exists.

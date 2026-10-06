@@ -301,7 +301,7 @@ fn nearest_boundary(text: &str, mut offset: usize) -> usize {
 }
 
 pub(crate) fn logical_line_count(text: &str) -> u32 {
-    u32::try_from(text.split_inclusive('\n').count().max(1)).unwrap_or(u32::MAX)
+    u32::try_from(wasmppt_deck::logical_code_lines(text).count()).unwrap_or(u32::MAX)
 }
 
 pub(crate) fn code_line(text: &str, index: u32) -> &str {

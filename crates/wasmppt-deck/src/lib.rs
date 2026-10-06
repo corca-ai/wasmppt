@@ -561,6 +561,35 @@ pub struct TemplateTextLevel {
     pub indent: Option<Emu>,
 }
 
+/// Typeface used for authored code in editable paragraphs.
+pub const CODE_TYPEFACE: &str = "Courier New";
+
+/// The paragraph indentation emitted by editable deck composition.
+#[must_use]
+pub fn paragraph_indentation(
+    style: Option<&TemplateTextLevel>,
+    level: u8,
+    compact: bool,
+) -> (Emu, Emu) {
+    if compact {
+        return (0, 0);
+    }
+    let level = level.min(8);
+    (
+        style
+            .and_then(|style| style.margin_left)
+            .unwrap_or(342_900 + i64::from(level) * 342_900),
+        style.and_then(|style| style.indent).unwrap_or(-285_750),
+    )
+}
+
+/// Logical code paragraphs: a terminal newline ends a line; empty code owns one empty line.
+pub fn logical_code_lines(text: &str) -> impl Iterator<Item = &str> {
+    text.split_inclusive('\n')
+        .map(|line| line.strip_suffix('\n').unwrap_or(line))
+        .chain(std::iter::once("").take(usize::from(text.is_empty())))
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TemplateTextColor {
     pub scheme: Option<String>,

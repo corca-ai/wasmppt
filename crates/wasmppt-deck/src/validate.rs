@@ -1262,7 +1262,7 @@ fn split_matches(node: &SemanticNode) -> bool {
 }
 
 fn logical_line_count(text: &str) -> u32 {
-    u32::try_from(text.split_inclusive('\n').count().max(1)).unwrap_or(u32::MAX)
+    u32::try_from(crate::logical_code_lines(text).count()).unwrap_or(u32::MAX)
 }
 
 fn index_semantic_nodes<'a>(

@@ -1756,6 +1756,7 @@ impl Pattern {
             }
             Self::WeightedStart | Self::WeightedEnd => {
                 if have_distinct_nodes(groups, 2)
+                    && have_distinct_roles(groups)
                     && !mixed_media(groups)
                     && !groups.iter().all(FlowGroup::is_media)
                 {
@@ -2139,6 +2140,16 @@ fn have_distinct_nodes(groups: &[FlowGroup<'_>], minimum: usize) -> bool {
         .collect::<BTreeSet<_>>()
         .len()
         >= minimum
+}
+
+fn have_distinct_roles(groups: &[FlowGroup<'_>]) -> bool {
+    let mut roles = groups
+        .iter()
+        .flat_map(|group| &group.units)
+        .map(|unit| unit.node.role);
+    roles
+        .next()
+        .is_some_and(|first| roles.any(|role| role != first))
 }
 
 fn mixed_media(groups: &[FlowGroup<'_>]) -> bool {
@@ -3261,7 +3272,7 @@ fn plan_id(
     limits: &DeckLimits,
 ) -> StableId {
     let mut digest = Sha256::new();
-    digest.update(b"wasmppt/deck-layout/plan/v3\0");
+    digest.update(b"wasmppt/deck-layout/plan/v4\0");
     match spec.encode(limits) {
         Ok(encoded) => digest.update(Sha256::digest(encoded)),
         Err(_) => digest.update(spec.id.as_bytes()),
@@ -4435,6 +4446,115 @@ mod tests {
         assert!(loads.len() >= 2);
         assert!(loads.iter().max().unwrap() - loads.iter().min().unwrap() <= 1);
         assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn same_role_paragraphs_do_not_use_weighted_columns() {
+        for split in [SplitPolicy::Text, SplitPolicy::Never] {
+            let spec = unequal_paragraph_demand(SemanticRole::Prose, split);
+            let template = template(2_800_000);
+            let plan = DeckPlanner::default()
+                .plan(&spec, &template, &FontCatalog::default(), &limits())
+                .unwrap();
+            assert!(
+                plan.pages
+                    .iter()
+                    .all(|page| page.topology.kind != LayoutTopology::WeightedSplit)
+            );
+            assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+        }
+    }
+
+    #[test]
+    fn separate_same_role_nodes_use_equal_width_flow() {
+        let mut nodes = vec![text_node(
+            3,
+            SemanticRole::Title,
+            SplitPolicy::Never,
+            "Sources",
+        )];
+        for index in 0..9u8 {
+            nodes.push(text_node(
+                index + 4,
+                SemanticRole::Prose,
+                SplitPolicy::Text,
+                "Continuous content flows across equal columns.",
+            ));
+        }
+        let spec = spec(nodes);
+        let template = template(5_500_000);
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert_eq!(plan.pages.len(), 1);
+        let page = &plan.pages[0];
+        assert_eq!(page.topology.kind, LayoutTopology::FlowColumns);
+        let mut widths = BTreeMap::new();
+        for region in &page.regions {
+            if let RegionPlacement::Slot(slot) = region.placement {
+                let previous = widths.insert(slot, region.frame.width);
+                assert!(previous.is_none_or(|width| width == region.frame.width));
+            }
+        }
+        let widths = widths.values().copied().collect::<Vec<_>>();
+        assert_eq!(widths.len(), 2);
+        assert!((widths[0] - widths[1]).abs() <= 1);
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn one_indivisible_relation_does_not_allocate_a_weighted_split() {
+        let nodes = vec![
+            text_node(
+                4,
+                SemanticRole::Quote,
+                SplitPolicy::Text,
+                "An authored quotation.",
+            ),
+            text_node(5, SemanticRole::Credit, SplitPolicy::Never, "Its author"),
+        ];
+        let units = build_flow(&nodes, &[], 100).unwrap();
+        let groups = group_units(&units);
+        assert_eq!(groups.len(), 1);
+        for pattern in [Pattern::WeightedStart, Pattern::WeightedEnd] {
+            assert!(pattern.assignments(&groups, 2).is_empty());
+        }
+    }
+
+    #[test]
+    fn different_role_content_can_use_weighted_columns() {
+        let spec = unequal_paragraph_demand(SemanticRole::Caption, SplitPolicy::Text);
+        let template = template(2_800_000);
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert!(
+            plan.pages
+                .iter()
+                .any(|page| page.topology.kind == LayoutTopology::WeightedSplit)
+        );
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    fn unequal_paragraph_demand(second_role: SemanticRole, split: SplitPolicy) -> DeckSpec {
+        let mut nodes = vec![text_node(
+            3,
+            SemanticRole::Title,
+            SplitPolicy::Never,
+            "Sources",
+        )];
+        for index in 0..9u8 {
+            let (role, repeats) = if index < 4 {
+                (SemanticRole::Prose, 15)
+            } else {
+                (second_role, 5)
+            };
+            let text = std::iter::repeat_n("continuous content", repeats)
+                .collect::<Vec<_>>()
+                .join(" ");
+            nodes.push(text_node(index + 4, role, split, &text));
+        }
+        spec(nodes)
     }
 
     #[test]

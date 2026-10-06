@@ -1452,9 +1452,10 @@ try {
     `${JSON.stringify(result.deckEvidence.visualQuality)}\n`,
   )
   assert.equal(result.deckEvidence.cacheable, true)
-  assert.equal(result.deckEvidence.topology.slideCount, 73)
-  assert.equal(result.deckEvidence.topology.presentableSlides.length, 72)
-  assert.equal(result.deckEvidence.visualQuality.renderedSlides, 73)
+  // Continuous prose fits one page without changing source coverage or hidden-page handling.
+  assert.equal(result.deckEvidence.topology.slideCount, 72)
+  assert.equal(result.deckEvidence.topology.presentableSlides.length, 71)
+  assert.equal(result.deckEvidence.visualQuality.renderedSlides, 72)
   assert(result.deckEvidence.visualQuality.sourceElements >= 30)
   assert(result.deckEvidence.topology.pages.some((deckPage) => deckPage.hidden))
   assert(

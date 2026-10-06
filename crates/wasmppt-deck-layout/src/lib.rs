@@ -441,6 +441,7 @@ impl DeckPlanner {
                 Some(slide.id),
             )
         })?;
+        let first_page_nodes = header_nodes.iter().map(|node| node.id).collect::<Vec<_>>();
         let mut candidates = 0usize;
         let body_pages = if groups.is_empty() {
             Vec::new()
@@ -451,6 +452,7 @@ impl DeckPlanner {
                     region: primary,
                     slide_id: slide.id,
                     relations: &slide.media_text_relations,
+                    first_page_nodes: &first_page_nodes,
                 },
                 measurer,
                 diagnostics,
@@ -631,6 +633,20 @@ impl DeckPlanner {
                 continue;
             }
             for end in start + 1..=request.groups.len() {
+                let groups = &request.groups[start..end];
+                if !preserves_media_relations(
+                    groups,
+                    request.relations,
+                    if start == 0 {
+                        request.first_page_nodes
+                    } else {
+                        &[]
+                    },
+                ) {
+                    // Adding source can restore a missing relation endpoint, so this is not
+                    // evidence that larger prefixes cannot fit this topology.
+                    continue;
+                }
                 let Some(candidate) = self.fit_candidate(
                     pattern,
                     &request.groups[start..end],
@@ -2610,6 +2626,7 @@ struct PaginationRequest<'groups, 'nodes> {
     region: &'groups TemplateRegion,
     slide_id: StableId,
     relations: &'groups [MediaTextRelation],
+    first_page_nodes: &'groups [StableId],
 }
 
 struct AssignmentRequest<'request, 'nodes> {
@@ -3254,6 +3271,23 @@ fn contain_whitespace_penalty(media: MediaPlacement) -> u64 {
         .saturating_mul(u128::try_from(media.visible_frame.height.max(1)).unwrap_or(u128::MAX));
     let unused = slot_area.saturating_sub(visible_area).saturating_mul(1_000) / slot_area.max(1);
     u64::try_from(unused).unwrap_or(u64::MAX)
+}
+
+fn preserves_media_relations(
+    groups: &[FlowGroup<'_>],
+    relations: &[MediaTextRelation],
+    first_page_nodes: &[StableId],
+) -> bool {
+    let contains = |id| {
+        first_page_nodes.contains(&id)
+            || groups
+                .iter()
+                .flat_map(|group| &group.units)
+                .any(|unit| unit.node.id == id)
+    };
+    relations
+        .iter()
+        .all(|relation| !contains(relation.media_node_id) || contains(relation.text_node_id))
 }
 
 fn relation_penalty(
@@ -4510,6 +4544,105 @@ mod tests {
     }
 
     #[test]
+    fn media_related_to_a_header_keeps_the_first_page_endpoint() {
+        let mut spec = spec_with_resources(vec![
+            text_node(3, SemanticRole::Title, SplitPolicy::Never, "Related title"),
+            figure_node(4, 90, "wide visual"),
+            text_node(5, SemanticRole::Prose, SplitPolicy::Text, &"Continuous prose fills the following pages while the image remains with its related heading. ".repeat(40)),
+        ], vec![DeckResource {
+            id: id(90), kind: ResourceKind::RasterImage, media_type: "image/png".to_owned(),
+            bytes: vec![1].into(), intrinsic_size: Some(PixelSize { width: 256, height: 64 }),
+        }]);
+        spec.logical_slides[0].media_text_relations = vec![MediaTextRelation {
+            media_node_id: id(4),
+            text_node_id: id(3),
+            proximity: MediaTextProximity::AdjacentBlocks,
+            text_side: MediaTextSide::BeforeMedia,
+            explicit_caption: false,
+        }];
+        let template = template(5_500_000);
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert!(plan.pages.len() > 1);
+        for node in [id(3), id(4)] {
+            assert!(
+                plan.pages[0]
+                    .regions
+                    .iter()
+                    .flat_map(|region| &region.fragments)
+                    .any(|fragment| fragment.source_node_id == node)
+            );
+        }
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn long_related_copy_continues_without_isolating_its_media() {
+        for text_side in [MediaTextSide::AfterMedia, MediaTextSide::BeforeMedia] {
+            let figure = figure_node(4, 90, "wide visual");
+            let mut copy = text_node(
+                5,
+                SemanticRole::Prose,
+                SplitPolicy::Text,
+                &"Long measured prose accompanies the wide visual while preserving readable type and useful media geometry. ".repeat(14),
+            );
+            if text_side == MediaTextSide::BeforeMedia {
+                copy.source = SourceRange::new("deck.md", 30, 39);
+            }
+            let nodes = if text_side == MediaTextSide::AfterMedia {
+                vec![figure, copy]
+            } else {
+                vec![copy, figure]
+            };
+            let mut spec = spec_with_resources(
+                nodes,
+                vec![DeckResource {
+                    id: id(90),
+                    kind: ResourceKind::RasterImage,
+                    media_type: "image/png".to_owned(),
+                    bytes: vec![1].into(),
+                    intrinsic_size: Some(PixelSize {
+                        width: 256,
+                        height: 64,
+                    }),
+                }],
+            );
+            spec.logical_slides[0].media_text_relations = vec![MediaTextRelation {
+                media_node_id: id(4),
+                text_node_id: id(5),
+                proximity: MediaTextProximity::AdjacentBlocks,
+                text_side,
+                explicit_caption: false,
+            }];
+            let template = template(5_500_000);
+            let plan = DeckPlanner::default()
+                .plan(&spec, &template, &FontCatalog::default(), &limits())
+                .unwrap();
+            assert!(plan.pages.len() > 1, "fixture must exercise continuation");
+            let media_page = plan
+                .pages
+                .iter()
+                .find(|page| {
+                    page.regions
+                        .iter()
+                        .flat_map(|region| &region.fragments)
+                        .any(|fragment| fragment.source_node_id == id(4))
+                })
+                .unwrap();
+            assert!(
+                media_page
+                    .regions
+                    .iter()
+                    .flat_map(|region| &region.fragments)
+                    .any(|fragment| fragment.source_node_id == id(5)),
+                "related media must share a page with some of its text: {text_side:?}"
+            );
+            assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+        }
+    }
+
+    #[test]
     fn extreme_portrait_and_short_related_copy_share_one_readable_page() {
         let mut spec = spec_with_resources(
             vec![
@@ -5431,6 +5564,7 @@ mod tests {
                     region: &template.regions[1],
                     slide_id: id(2),
                     relations: &[],
+                    first_page_nodes: &[],
                 },
                 0,
                 &mut measurer,

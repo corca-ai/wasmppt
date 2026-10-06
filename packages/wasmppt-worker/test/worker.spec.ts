@@ -553,8 +553,9 @@ describe('wasmppt workerd adapter', () => {
       invalidDeckSpec,
       atomicOverflow,
     }
-    expect(slideCount).toBe(73)
-    expect(presentableSlides).toHaveLength(72)
+    // The long-prose logical slide fits one page after contiguous paragraph measurement.
+    expect(slideCount).toBe(72)
+    expect(presentableSlides).toHaveLength(71)
     expect(
       pages.filter((page) => page.logicalSlideId === '46'.repeat(16)),
     ).toEqual([

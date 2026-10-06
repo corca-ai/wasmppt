@@ -245,3 +245,9 @@ npm run check:core-boundary
 - [Cortex Theme Starter compiler](deck-template.md) defines the POTX layout and region profile.
 - [System architecture](architecture.md) defines the host boundary and composition pipeline.
 - [Performance contract](performance.md) defines the repository-wide latency and memory gates.
+
+Pagination preserves authored media/text relations on the media page while
+allowing the remaining text to continue. The first page includes its separately
+placed headers when checking these relations. Missing relation endpoints make a
+partial page ineligible before candidate retention; they do not justify stopping
+prefix search.

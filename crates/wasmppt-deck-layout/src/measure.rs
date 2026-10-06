@@ -36,9 +36,15 @@ pub(crate) struct Measurer<'a> {
     fonts: &'a FontCatalog,
     limits: &'a PlannerLimits,
     resources: BTreeMap<StableId, PixelSize>,
-    cache: BTreeMap<MeasureKey, Measured>,
-    advances: BTreeMap<MeasureKey, Emu>,
+    cache: BTreeMap<MeasureKey, CachedMeasurement>,
     measurements: usize,
+    cached_advances: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct CachedMeasurement {
+    dimensions: Option<Measured>,
+    advance: Option<Emu>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -77,8 +83,8 @@ impl<'a> Measurer<'a> {
                 .filter_map(|resource| inspect_media_size(resource).map(|size| (resource.id, size)))
                 .collect(),
             cache: BTreeMap::new(),
-            advances: BTreeMap::new(),
             measurements: 0,
+            cached_advances: 0,
         }
     }
 
@@ -113,8 +119,8 @@ impl<'a> Measurer<'a> {
             font_size,
             repeat_table_header_rows,
         };
-        if let Some(measured) = self.cache.get(&key) {
-            return Ok(*measured);
+        if let Some(measured) = self.cache.get(&key).and_then(|value| value.dimensions) {
+            return Ok(measured);
         }
         if self.measurements == self.limits.max_measurements {
             return Err(MeasureError::WorkLimit);
@@ -184,7 +190,7 @@ impl<'a> Measurer<'a> {
                         .skip(start)
                         .take(end - start)
                         .map(|line| {
-                            wrapped_lines(line, width, |range| {
+                            wrapped_lines(line, width, &|range| {
                                 Some(code_advance(&line[range], code_font, font_size))
                             })
                             .unwrap_or(1)
@@ -276,7 +282,7 @@ impl<'a> Measurer<'a> {
             font_size,
             font_risk,
         };
-        self.cache.insert(key, measured);
+        self.cache.entry(key).or_default().dimensions = Some(measured);
         Ok(measured)
     }
 
@@ -297,8 +303,8 @@ impl<'a> Measurer<'a> {
             font_size,
             repeat_table_header_rows: 0,
         };
-        if let Some(width) = self.advances.get(&key) {
-            return *width;
+        if let Some(width) = self.cache.get(&key).and_then(|value| value.advance) {
+            return width;
         }
         let (text, _, _, _) = self.measure_content(node, slice);
         let trimmed = text.trim_start_matches(is_inline_soft_whitespace);
@@ -330,8 +336,9 @@ impl<'a> Measurer<'a> {
             .max()
             .unwrap_or(0)
             .max(1);
-        if self.advances.len() < self.limits.max_measurements {
-            self.advances.insert(key, width);
+        if self.cached_advances < self.limits.max_measurements {
+            self.cache.entry(key).or_default().advance = Some(width);
+            self.cached_advances += 1;
         }
         width
     }
@@ -499,7 +506,7 @@ fn measure_width_demand(
         }
         SemanticContent::Code(_) => {
             let (text, _, _, _) = measure_content(node, slice);
-            width_demand(&text, line_height, |range| {
+            width_demand(&text, line_height, &|range| {
                 code_advance(&text[range], code_font, font_size)
             })
         }
@@ -658,41 +665,14 @@ fn text_width_demand(
     font_size: u32,
     line_height: Emu,
 ) -> WidthDemand {
-    let mut min = line_height.saturating_mul(2);
-    let mut preferred = min;
-    for line in text.split('\n') {
-        preferred = preferred.max(text_advance(line, font, font_size));
-        for word in line.split_whitespace() {
-            min = min.max(text_advance(word, font, font_size));
-        }
-    }
-    WidthDemand {
-        min,
-        preferred: preferred.max(min),
-        max: preferred.max(min).saturating_mul(2),
-    }
+    width_demand(text, line_height, &|range| {
+        text_advance(&text[range], font, font_size)
+    })
 }
 
 fn text_advance(text: &str, font: Option<&crate::FontFace>, font_size: u32) -> Emu {
-    font.and_then(|face| {
-        let shaped = shape(
-            face.bytes.as_ref(),
-            text,
-            ShapeOptions {
-                face_index: face.face_index,
-                ..ShapeOptions::default()
-            },
-        )
-        .ok()?;
-        let units = i64::from(shaped.units_per_em).max(1);
-        Some(shaped.glyphs.iter().fold(0i64, |total, glyph| {
-            total.saturating_add(
-                i64::from(glyph.x_advance.abs()).saturating_mul(font_size_to_emu(font_size))
-                    / units,
-            )
-        }))
-    })
-    .unwrap_or_else(|| approximate_inline_text_advance(text, font_size))
+    font.and_then(|face| shaped_advance(&face.bytes, face.face_index, text, font_size))
+        .unwrap_or_else(|| approximate_inline_text_advance(text, font_size))
 }
 
 fn approximate_inline_text_advance(text: &str, font_size: u32) -> Emu {
@@ -888,29 +868,32 @@ fn shaped_lines(
     width: Emu,
     font_size: u32,
 ) -> Option<u32> {
-    wrapped_lines(text, width, |range| {
-        let segment = &text[range];
-        let shaped = shape(
-            bytes,
-            segment,
-            ShapeOptions {
-                face_index,
-                ..ShapeOptions::default()
-            },
-        )
-        .ok()?;
-        let units = i64::from(shaped.units_per_em).max(1);
-        Some(shaped.glyphs.iter().fold(0i64, |total, glyph| {
-            total.saturating_add(
-                i64::from(glyph.x_advance.abs()).saturating_mul(font_size_to_emu(font_size))
-                    / units,
-            )
-        }))
+    wrapped_lines(text, width, &|range| {
+        shaped_advance(bytes, face_index, &text[range], font_size)
     })
 }
 
+#[inline(never)]
+fn shaped_advance(bytes: &[u8], face_index: u32, text: &str, font_size: u32) -> Option<Emu> {
+    let shaped = shape(
+        bytes,
+        text,
+        ShapeOptions {
+            face_index,
+            ..ShapeOptions::default()
+        },
+    )
+    .ok()?;
+    let units = i64::from(shaped.units_per_em).max(1);
+    Some(shaped.glyphs.iter().fold(0i64, |total, glyph| {
+        total.saturating_add(
+            i64::from(glyph.x_advance.abs()).saturating_mul(font_size_to_emu(font_size)) / units,
+        )
+    }))
+}
+
 fn approximate_lines(text: &str, width: Emu, font_size: u32) -> u32 {
-    wrapped_lines(text, width, |range| {
+    wrapped_lines(text, width, &|range| {
         Some(approximate_inline_text_advance(&text[range], font_size))
     })
     .unwrap_or(1)
@@ -918,10 +901,12 @@ fn approximate_lines(text: &str, width: Emu, font_size: u32) -> u32 {
 
 // Word/UAX #14 boundaries are wrapping opportunities, not permission to pack arbitrary glyphs.
 // Only a token wider than the entire line may use the emergency character fallback.
+// Share this loop across body, rich-run, and code metrics instead of duplicating it in Wasm.
+#[inline(never)]
 fn wrapped_lines(
     text: &str,
     width: Emu,
-    measure: impl Fn(std::ops::Range<usize>) -> Option<Emu>,
+    measure: &dyn Fn(std::ops::Range<usize>) -> Option<Emu>,
 ) -> Option<u32> {
     let width = width.max(1);
     let mut lines = 0u32;
@@ -1043,7 +1028,7 @@ fn marked_width_demand(
         _ => (0, plain.len()),
     };
     let selected = plain.get(start..end).unwrap_or("");
-    width_demand(selected, line_height, |range| {
+    width_demand(selected, line_height, &|range| {
         rich_advance(
             text,
             start + range.start..start + range.end,
@@ -1054,10 +1039,12 @@ fn marked_width_demand(
     })
 }
 
+// Body, rich-run, code, and table demand share one scan and their own metric callback.
+#[inline(never)]
 fn width_demand(
     text: &str,
     line_height: Emu,
-    advance: impl Fn(std::ops::Range<usize>) -> Emu,
+    advance: &dyn Fn(std::ops::Range<usize>) -> Emu,
 ) -> WidthDemand {
     let mut min = line_height.saturating_mul(2);
     let mut preferred = min;
@@ -1100,7 +1087,7 @@ fn rich_lines(
         _ => (0, plain.len()),
     };
     let selected = plain.get(start..end).unwrap_or("");
-    wrapped_lines(selected, width, |range| {
+    wrapped_lines(selected, width, &|range| {
         Some(rich_advance(
             text,
             start + range.start..start + range.end,

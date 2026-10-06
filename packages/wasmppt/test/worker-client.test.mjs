@@ -455,12 +455,16 @@ test('a Worker crash rejects all outstanding promises', async () => {
   client.terminate()
 })
 
-test('runtime cancellation is observed between transferable output chunks', async () => {
+test('runtime cancellation is observed between transferable output chunks', { timeout: 2000 }, async () => {
+  const terminal = Promise.withResolvers()
   class Scope extends EventTarget {
     responses = []
 
     postMessage(message) {
       this.responses.push(message)
+      if (message.id === 42 && ['cancelled', 'generated', 'error'].includes(message.type)) {
+        terminal.resolve(message)
+      }
       if (message.type === 'chunk') {
         this.dispatchEvent(
           new MessageEvent('message', {
@@ -503,10 +507,10 @@ test('runtime cancellation is observed between transferable output chunks', asyn
       },
     }),
   )
-  await new Promise((resolve) => setTimeout(resolve, 30))
+  const result = await terminal.promise
   assert.equal(scope.responses.filter((message) => message.type === 'chunk').length, 1)
-  assert.equal(scope.responses.at(-1).type, 'cancelled')
-  assert.equal(scope.responses.at(-1).error.code, 'cancelled')
+  assert.equal(result.type, 'cancelled')
+  assert.equal(result.error.code, 'cancelled')
 })
 
 test('runtime preserves chart binding metadata returned by Wasm', async () => {

@@ -76,6 +76,11 @@ strip = true
 inherits = "release"
 lto = "fat"
 
+# Keep the bounded semantic planner compact while the scalar runtime retains speed optimization.
+# The same browser/workerd latency gates qualify this package-specific tradeoff.
+[profile.wasm-release.package.wasmppt-deck-layout]
+opt-level = "s"
+
 [profile.wasm-small]
 inherits = "release"
 opt-level = "s"

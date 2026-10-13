@@ -85,6 +85,11 @@ composition; nested list paragraphs are measured at their own hierarchy level.
 On a title layout only the title is a fixed header. Every following subtitle, prose, or credit
 block flows through the subtitle region in source order. The same bounded candidate search places
 those cover details without overlapping independently positioned header and body fragments.
+A title slide uses the title layout only when the layout has a region for every block after the
+heading. A title slide that also carries a list, table, figure, code or other body content is
+planned on the content envelope instead, with its title as the content heading, so that content
+paginates like any other content slide. A template without a content envelope keeps the title
+layout.
 
 ## Candidate search and cost
 

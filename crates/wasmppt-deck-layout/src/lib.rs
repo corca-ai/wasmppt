@@ -3387,14 +3387,41 @@ fn select_layout<'a>(
         TemplateLayoutCapability::Statement
     } else {
         match slide.kind {
-            LogicalSlideKind::Title => TemplateLayoutCapability::Title,
-            LogicalSlideKind::Content => TemplateLayoutCapability::ContentEnvelope,
+            LogicalSlideKind::Title
+                if title_layout_holds(slide, template)
+                    || !template.layouts.iter().any(|layout| {
+                        layout.capability == TemplateLayoutCapability::ContentEnvelope
+                    }) =>
+            {
+                TemplateLayoutCapability::Title
+            }
+            // A cover holds only its details; a title slide that also carries a
+            // list, table, figure or other body content is laid out as content.
+            LogicalSlideKind::Title | LogicalSlideKind::Content => {
+                TemplateLayoutCapability::ContentEnvelope
+            }
         }
     };
     template
         .layouts
         .iter()
         .find(|layout| layout.capability == role)
+}
+
+/// Whether every block after a title slide's heading has a cover-details
+/// region on the template's title layout.
+fn title_layout_holds(slide: &LogicalSlide, template: &DeckTemplatePlan) -> bool {
+    let Some(layout) = template
+        .layouts
+        .iter()
+        .find(|layout| layout.capability == TemplateLayoutCapability::Title)
+    else {
+        return true;
+    };
+    let regions = layout_regions(layout, template);
+    let (_, body) = split_headers(&slide.nodes, TemplateLayoutCapability::Title);
+    body.iter()
+        .all(|node| compatible_region(node, &regions).is_some())
 }
 
 fn layout_regions<'a>(
@@ -3771,6 +3798,88 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.code == DeckDiagnosticCode::PLAN_FONT_RISK)
         );
+    }
+
+    #[test]
+    fn a_long_titled_list_continues_across_pages_without_plan_drift() {
+        let source = range(40);
+        let list = SemanticNode {
+            id: id(4),
+            source: source.clone(),
+            role: SemanticRole::List,
+            split: SplitPolicy::ListItems,
+            content: SemanticContent::List(ListContent {
+                ordered: false,
+                start: 1,
+                items: (0..24u8)
+                    .map(|item| ListItem {
+                        id: id(100 + item),
+                        source: source.clone(),
+                        blocks: vec![SemanticNode {
+                            id: id(150 + item),
+                            source: source.clone(),
+                            role: SemanticRole::Prose,
+                            split: SplitPolicy::Never,
+                            content: SemanticContent::Text(RichText {
+                                runs: vec![RichTextRun {
+                                    text: format!(
+                                        "Finding {}: the measured result stayed within the expected operating range.",
+                                        item + 1
+                                    ),
+                                    marks: TextMarks::default(),
+                                    hyperlink: None,
+                                }],
+                            }),
+                        }],
+                        children: vec![],
+                    })
+                    .collect(),
+            }),
+        };
+        let mut spec = spec(vec![
+            text_node(
+                3,
+                SemanticRole::Title,
+                SplitPolicy::Never,
+                "Automatic pagination",
+            ),
+            list,
+        ]);
+        // A Markdown deck opens with an H1, so its first slide is a title slide.
+        spec.logical_slides[0].kind = LogicalSlideKind::Title;
+        let template = cover_and_content_template(850_000);
+
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        let report = validate_deck_plan(&spec, &template, &plan, &limits());
+
+        assert!(report.is_valid(), "{:?}", report.diagnostics);
+        assert!(plan.pages.len() > 1);
+        let content = template.layouts[0].id;
+        assert!(
+            plan.pages
+                .iter()
+                .all(|page| page.template_layout_id == content)
+        );
+    }
+
+    #[test]
+    fn a_title_slide_with_only_cover_details_keeps_the_cover_layout() {
+        let mut spec = spec(vec![
+            text_node(3, SemanticRole::Title, SplitPolicy::Never, "Title"),
+            text_node(4, SemanticRole::Subtitle, SplitPolicy::Text, "Alan Kang"),
+        ]);
+        spec.logical_slides[0].kind = LogicalSlideKind::Title;
+        let template = cover_and_content_template(850_000);
+
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+
+        assert_eq!(plan.pages.len(), 1);
+        assert_eq!(plan.pages[0].template_layout_id, id(130));
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
     }
 
     #[test]
@@ -6135,6 +6244,28 @@ mod tests {
             SemanticRole::Prose,
             SemanticRole::Credit,
         ];
+        template
+    }
+
+    /// A template with both a cover (`id(130)`) and the content envelope.
+    fn cover_and_content_template(body_height: Emu) -> DeckTemplatePlan {
+        let mut template = template(body_height);
+        let cover = title_template(2_500_000);
+        let cover_regions = cover.regions.iter().map(|region| TemplateRegion {
+            id: if region.role == RegionRole::Title {
+                id(131)
+            } else {
+                id(132)
+            },
+            layout_id: id(130),
+            ..region.clone()
+        });
+        template.regions.extend(cover_regions);
+        template.layouts.push(TemplateLayout {
+            id: id(130),
+            region_ids: vec![id(131), id(132)],
+            ..cover.layouts[0].clone()
+        });
         template
     }
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 const spec = text => ({ key: 'browser', slides: [
-        { key: 'cover', kind: 'title', nodes: [{ key: 'title', role: 'title', source: { source: 'deck.md', start: 0, end: 10 }, content: { kind: 'text', text: { runs: [{ text }] } } }] },
+        { key: 'cover', kind: 'content', nodes: [{ key: 'title', role: 'prose', source: { source: 'deck.md', start: 0, end: 10 }, content: { kind: 'text', text: { runs: [{text: text + '\nSecond paragraph'}] } } }] },
         { key: 'detail', kind: 'content', nodes: [{ key: 'body', role: 'prose', content: { kind: 'text', text: { runs: [{ text: 'Detail page' }] } } }] },
       ] })
 
@@ -21,7 +21,7 @@ export async function checkDeckBrowserApi(page) {
       const deck = engine.createDeck()
       const old = await deck.replace({ template, fonts, spec: before })
       const next = await deck.replace({ template, fonts, spec: after })
-      if (!old.ok || !next.ok) throw new Error('test deck was rejected')
+      if (!old.ok || !next.ok) throw new Error(JSON.stringify({old, next}))
       const first = old.value
       const second = next.value
       const cancelled = view.render(first, { pageId: first.pages[0].id, width: 800 }).then(() => false, error => error.name === 'AbortError')
@@ -32,12 +32,20 @@ export async function checkDeckBrowserApi(page) {
         x: rect.left + (source.bounds.x + source.bounds.width / 2) / rendered.scene.width * rect.width,
         y: rect.top + (source.bounds.y + source.bounds.height / 2) / rendered.scene.height * rect.height,
       })
+      const textGeometry = view.textGeometry()
+      const native = textGeometry.find(item => item.nodeKey === 'title')
+      const token = native?.ranges.find(item => item.start === 6)
+      const textHit = token && view.hitTest({
+        x: rect.left + (token.bounds.x + token.bounds.width / 2) / rendered.scene.width * rect.width,
+        y: rect.top + (token.bounds.y + token.bounds.height / 2) / rendered.scene.height * rect.height,
+      })
       const selected = [first.pages[1].id, first.pages[0].id]
       const html = await exportHtml(first, { pageIds: selected })
       const invalidSelection = await exportHtml(first, { pageIds: ['missing-page'] }).then(() => false, error => error instanceof RangeError)
       const duplicateSelection = await exportHtml(first, { pageIds: [selected[0], selected[0]] }).then(() => false, error => error instanceof RangeError)
       const documentCopy = new DOMParser().parseFromString(html.html, 'text/html')
       const result = {
+        nativeText: native?.text, nativeRange: textHit?.text, nativeFrozen: Object.isFrozen(textGeometry) && Object.isFrozen(native?.ranges),
         cancelled: await cancelled, hitKey: hit?.nodeKey, hitRevision: hit?.revision,
         width: view.canvas.width, height: view.canvas.height,
         text: rendered.scene.commands.filter(command => command.kind === 'draw-rich-text').flatMap(command => command.frame.paragraphs.flatMap(paragraph => paragraph.runs.map(run => run.text))).join(''),
@@ -50,6 +58,9 @@ export async function checkDeckBrowserApi(page) {
       return result
     } finally { await view.dispose(); view.canvas.remove(); engine.dispose() }
   }, { before: spec('Before'), after: spec('After') })
+  assert.equal(facts.nativeText, 'After\nSecond paragraph')
+  assert.deepEqual(facts.nativeRange, { value: 'After\nSecond paragraph', start: 6, end: 12 })
+  assert.equal(facts.nativeFrozen, true)
   assert.equal(facts.cancelled, true)
   assert.equal(facts.hitKey, 'title')
   assert.equal(facts.hitRevision, 1)

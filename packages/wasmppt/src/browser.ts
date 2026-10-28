@@ -3,7 +3,7 @@ import { initializeDeckEngine, type DeckEngine, type DeckEngineOptions } from '.
 
 export type * from './deck.js'
 export { CanvasView, exportHtml } from './deck/browser.js'
-export type { CanvasViewOptions, DeckHtmlOptions } from './deck/browser.js'
+export type { CanvasViewOptions, CanvasTextGeometry, DeckHtmlOptions } from './deck/browser.js'
 export type { OfflineHtmlResult } from './offline.js'
 
 export async function createBrowserEngine(

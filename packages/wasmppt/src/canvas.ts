@@ -1664,6 +1664,8 @@ export interface RenderTelemetry {
 }
 
 export interface CanvasRenderOptions {
+  /** Observe the native positioned plan; coordinates are CSS pixels at 96 dpi. */
+  readonly onTextLayout?: ((commandIndex: number, layout: RichTextLayoutPlan) => void) | undefined
   readonly signal?: AbortSignal | undefined
   readonly fontResolver?: FontResolver | undefined
   readonly imageResolver?: ImageResolver | undefined
@@ -1749,6 +1751,7 @@ export class CanvasDisplayListRenderer {
     const richTextLayoutsByCommand = new Map(
       richTextEntries.map((entry, index) => [entry.commandIndex, richTextLayouts[index]!] as const),
     )
+    for (const [index, layout] of richTextLayoutsByCommand) options.onTextLayout?.(index, layout)
     const resizedBoundsByCommand = new Map<number, EmuRect>()
     for (const semantic of scene.semantics) {
       const richCommandIndex = Array.from(

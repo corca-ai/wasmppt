@@ -135,3 +135,8 @@ Other unsupported preserved graphics render a labeled placeholder and retain the
 diagnostic instead of disappearing. Canvas output is a bitmap and therefore is not the
 accessibility surface; the secondary DOM/SVG backend owns selectable text, reading order, links,
 and alternative text.
+
+`CanvasRenderOptions.onTextLayout` observes the cached native positioned rich-text plan
+by scene command index during rendering. Coordinates are CSS pixels at 96 dpi. The
+callback does not imply frame publication; `CanvasView` publishes navigation geometry
+only after the complete frame succeeds.

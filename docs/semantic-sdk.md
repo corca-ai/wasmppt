@@ -109,6 +109,11 @@ and invalidates all its objects.
 `CanvasView.render` resolves one page and its resources lazily, paints a detached canvas, then
 publishes a complete frame. A newer render cancels the older pending render. `hitTest({ x, y })`
 accepts viewport client coordinates and returns semantic key, source, page, revision and bounds.
+`textGeometry()` returns immutable source-backed text tokens from the exact native positioned
+layout of that displayed frame, with UTF-16 offsets into each returned plain-text stream and
+bounds in scene EMU. `hitTest` adds the matching text token when the pointer intersects one.
+Rotated, warped or grouped text retains semantic shape navigation. Geometry is bounded to
+50,000 tokens and published atomically with the frame; dispose clears it.
 The displayed frame keeps small source metadata rather than retaining an entire old package.
 The host owns mounting, visibility, scrolling, pixel width and navigation.
 

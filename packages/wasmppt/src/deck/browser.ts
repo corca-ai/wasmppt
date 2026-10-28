@@ -1,6 +1,6 @@
 import {
   CanvasDisplayListRenderer, FontResolver, decodeRasterImage, decodeSvgImage,
-  hitTestDisplaySceneAtCanvasPoint, type DisplayScene, type RenderTelemetry,
+  hitTestDisplaySceneAtCanvasPoint, type DisplayScene, type RenderTelemetry, type RichTextLayoutPlan,
 } from '../canvas.js'
 import { serializeOfflineHtmlDocument, ScopedFontLoadingHost, prepareInputFonts,
   type OfflineHtmlOptions, type OfflineHtmlResult, type OfflineDeckPage } from '../offline.js'
@@ -31,12 +31,61 @@ async function shaper(engine: DeckEngine): Promise<WasmFontShaper> {
   return value.shaper
 }
 
+
+export interface CanvasTextGeometry {
+  readonly semanticId: string
+  readonly nodeKey: string
+  readonly source: NonNullable<ReturnType<DeckSnapshot['sourceIdentity']>>['source']
+  readonly text: string
+  readonly ranges: readonly { readonly start: number; readonly end: number; readonly bounds: { readonly x: number; readonly y: number; readonly width: number; readonly height: number } }[]
+}
+
+function canvasTextGeometry(scene: DisplayScene, layouts: ReadonlyMap<number, RichTextLayoutPlan>, snapshot: DeckSnapshot): readonly CanvasTextGeometry[] {
+  const grouped = new Set<number>()
+  let depth = 0
+  scene.commands.forEach((command, index) => {
+    if (command.kind === 'push-group') depth++
+    if (depth > 0) grouped.add(index)
+    if (command.kind === 'pop-group') depth--
+  })
+  const result: CanvasTextGeometry[] = []
+  let count = 0
+  for (const semantic of scene.semantics) {
+    if (semantic.source === undefined) continue
+    const identity = snapshot.sourceIdentity(semantic.source.semanticId)
+    if (identity === undefined) continue
+    const entries: [number, RichTextLayoutPlan][] = []
+    for (let index = semantic.firstCommand; index < semantic.firstCommand + semantic.commandCount; index++) {
+      const layout = layouts.get(index)
+      if (layout !== undefined) entries.push([index, layout])
+    }
+    // Keep one untransformed source stream; other shapes retain semantic hit testing.
+    if (entries.length !== 1) continue
+    const [index, layout] = entries[0]!
+    const command = scene.commands[index]
+    if (command?.kind !== 'draw-rich-text' || grouped.has(index) || layout.rotationDegrees !== 0 || command.frame.warp !== undefined) continue
+    const paragraphs = command.frame.paragraphs.map(paragraph => paragraph.runs.map(run => run.text).join(''))
+    const starts: number[] = []
+    let offset = 0
+    for (const paragraph of paragraphs) { starts.push(offset); offset += paragraph.length + 1 }
+    const text = paragraphs.join('\n')
+    const ranges = layout.runs.flatMap(run => run.sourceStart === undefined || run.sourceEnd === undefined || !run.text.trim() ? [] : [{
+      start: (starts[run.paragraphIndex] ?? 0) + run.sourceStart, end: (starts[run.paragraphIndex] ?? 0) + run.sourceEnd,
+      bounds: Object.freeze({ x: run.x * 9525, y: (run.baseline - run.fontSize * 0.82) * 9525, width: run.width * 9525, height: run.fontSize * 1.2 * 9525 }),
+    }])
+    count += ranges.length
+    if (count > 50_000) return []
+    result.push(Object.freeze({ semanticId: semantic.source.semanticId, nodeKey: identity.key, source: identity.source === undefined ? undefined : Object.freeze({ ...identity.source }), text, ranges: Object.freeze(ranges.map(item => Object.freeze(item))) }))
+  }
+  return Object.freeze(result)
+}
+
 export interface CanvasViewOptions { readonly pageId: string; readonly width?: number; readonly signal?: AbortSignal }
 
 /** One host-owned canvas. Visibility, scrolling and component mounting stay in the application. */
 export class CanvasView {
   #request: AbortController | undefined
-  #shown: { readonly identities: ReadonlyMap<string, ReturnType<DeckSnapshot['sourceIdentity']>>; readonly revision: number; readonly scene: DisplayScene; readonly pageId: string } | undefined
+  #shown: { readonly identities: ReadonlyMap<string, ReturnType<DeckSnapshot['sourceIdentity']>>; readonly revision: number; readonly scene: DisplayScene; readonly pageId: string; readonly text: readonly CanvasTextGeometry[] } | undefined
   #disposed = false
   constructor(readonly canvas: HTMLCanvasElement) {}
 
@@ -65,8 +114,9 @@ export class CanvasView {
         shaper: await shaper(state.engine),
       })
       const client = state.engine.client
+      const layouts = new Map<number, RichTextLayoutPlan>()
       const telemetry = await browserResources(state.engine).renderer.render(scene, context, {
-        signal, fontResolver,
+        signal, fontResolver, onTextLayout: (index, layout) => layouts.set(index, layout),
         imageCacheKey: async image => {
           if (!image.partName) throw new Error('image has no package part')
           return client.deckSessionResourceFingerprint(state.handle, state.revision, image.partName, { signal })
@@ -82,7 +132,7 @@ export class CanvasView {
       if (target === null) throw new Error('Canvas 2D is unavailable')
       this.canvas.width = width; this.canvas.height = height
       target.drawImage(scratch, 0, 0)
-      this.#shown = { scene, pageId: options.pageId, revision: held.revision,
+      this.#shown = { scene, text: canvasTextGeometry(scene, layouts, held), pageId: options.pageId, revision: held.revision,
         identities: new Map(scene.semantics.flatMap(item => item.source === undefined ? []
           : [[item.source.semanticId, held.sourceIdentity(item.source.semanticId)]])) }
       return { scene, telemetry }
@@ -92,6 +142,9 @@ export class CanvasView {
     }
   }
 
+  /** Source-backed native text tokens from the displayed frame, in scene EMU. */
+  textGeometry(): readonly CanvasTextGeometry[] { return this.#shown?.text ?? [] }
+
   hitTest(point: { readonly x: number; readonly y: number }) {
     const shown = this.#shown
     if (shown === undefined) return undefined
@@ -99,7 +152,14 @@ export class CanvasView {
     if (semantic?.source === undefined) return undefined
     const identity = shown.identities.get(semantic.source.semanticId)
     if (identity === undefined) return undefined
+    const rect = this.canvas.getBoundingClientRect()
+    const x = (point.x - rect.left) / rect.width * shown.scene.width
+    const y = (point.y - rect.top) / rect.height * shown.scene.height
+    const text = shown.text.find(item => item.semanticId === semantic.source!.semanticId)
+    const token = text?.ranges.find(item => x >= item.bounds.x && x <= item.bounds.x + item.bounds.width
+      && y >= item.bounds.y && y <= item.bounds.y + item.bounds.height)
     return { nodeKey: identity.key, source: identity.source, pageId: shown.pageId,
+      ...(token === undefined ? {} : { text: { value: text!.text, start: token.start, end: token.end } }),
       revision: shown.revision, bounds: semantic.bounds }
   }
   async dispose(): Promise<void> {

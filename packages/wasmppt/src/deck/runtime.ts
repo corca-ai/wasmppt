@@ -3,9 +3,10 @@ import type { DeckSemanticRole, DeckTemplateDescription } from './model.js'
 import { ROLE_CODES } from './encode.js'
 import type { DeckOperation, DeckOperationResult } from './transport.js'
 import { decodeDeckDiagnostics, decodeDeckPageMetadata } from './metadata.js'
+import type { InlineTextMeasure } from './inline-measure.js'
 
 /** One dispatch shared by real browser Workers and the Node in-process adapter. */
-export function executeDeckOperation(engine: WorkerEngine, operation: DeckOperation): DeckOperationResult {
+export function executeDeckOperation(engine: WorkerEngine, operation: DeckOperation, inlineTextMeasure?: InlineTextMeasure): DeckOperationResult {
   switch (operation.kind) {
     case 'configure': engine.configure_deck_budget(operation.maxRetainedBytes); return { kind: 'done' }
     case 'register-asset': return { kind: 'handle', handle: engine.register_deck_asset(new Uint8Array(operation.bytes)) }
@@ -26,7 +27,8 @@ export function executeDeckOperation(engine: WorkerEngine, operation: DeckOperat
       let handle: number
       try {
         handle = engine.create_deck_snapshot(operation.template, new Uint8Array(operation.spec),
-          new Uint32Array(operation.assets), new Uint32Array(operation.fonts), operation.previous)
+          new Uint32Array(operation.assets), new Uint32Array(operation.fonts), operation.previous,
+          operation.measureInlineText === true && operation.fonts.length === 0 ? inlineTextMeasure : undefined)
       } catch (error) {
         if (typeof error === 'object' && error !== null && 'diagnostics' in error && Array.isArray(error.diagnostics)) {
           return { kind: 'rejected', diagnostics: decodeDeckDiagnostics(error.diagnostics) }

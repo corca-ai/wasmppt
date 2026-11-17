@@ -583,6 +583,27 @@ export class FontResolver {
     const requested = requestedFamily ?? this.#themeFamily(script)
     const family = this.#substitutions[requested] ?? requested
     const loadedDefinitions = await this.#load(family, emphasis)
+    const available = this.resolveAvailable(text, sizePixels, requestedFamily, emphasis)
+    const byteDefinition = available.exact
+      ? loadedDefinitions.find((definition) => definition.source instanceof ArrayBuffer)
+      : undefined
+    return Object.freeze({ ...available,
+      ...(byteDefinition?.source instanceof ArrayBuffer
+        ? {
+            shapingKey: `${family}\0${byteDefinition.faceIndex ?? 0}\0${emphasis.bold === true ? 1 : 0}${emphasis.italic === true ? 1 : 0}`,
+            fontBytes: new Uint8Array(byteDefinition.source),
+            faceIndex: byteDefinition.faceIndex ?? 0,
+          }
+        : {}),
+    })
+  }
+
+  /** Resolve already available host fonts synchronously, without loading web-font bytes. */
+  resolveAvailable(text: string, sizePixels: number, requestedFamily?: string,
+    emphasis: { readonly bold?: boolean; readonly italic?: boolean } = {}): ResolvedFont {
+    const script = detectFontScript(text)
+    const requested = requestedFamily ?? this.#themeFamily(script)
+    const family = this.#substitutions[requested] ?? requested
     const prefix = `${emphasis.italic === true ? 'italic' : 'normal'} ${emphasis.bold === true ? '700' : '400'}`
     const css = `${prefix} ${sizePixels}px ${quoteFontFamily(family)}`
     const exact = this.#host.check(css, representativeText(script, text))
@@ -591,9 +612,6 @@ export class FontResolver {
     const cssFamily = exact
       ? `${quoteFontFamily(family)}, ${quoteFontFamily(fallbackFamily)}`
       : quoteFontFamily(fallbackFamily)
-    const byteDefinition = exact
-      ? loadedDefinitions.find((definition) => definition.source instanceof ArrayBuffer)
-      : undefined
     return Object.freeze({
       requestedFamily: requested,
       family: resolvedFamily,
@@ -601,13 +619,6 @@ export class FontResolver {
       exact,
       css: `${prefix} ${sizePixels}px ${cssFamily}`,
       sizePixels,
-      ...(byteDefinition?.source instanceof ArrayBuffer
-        ? {
-            shapingKey: `${family}\0${byteDefinition.faceIndex ?? 0}\0${emphasis.bold === true ? 1 : 0}${emphasis.italic === true ? 1 : 0}`,
-            fontBytes: new Uint8Array(byteDefinition.source),
-            faceIndex: byteDefinition.faceIndex ?? 0,
-          }
-        : {}),
     })
   }
 
@@ -2818,7 +2829,7 @@ function quoteFontFamily(family: string): string {
   return `"${family.replaceAll('"', '\\"')}"`
 }
 
-function lineBreakTokens(text: string): readonly string[] {
+export function lineBreakTokens(text: string): readonly string[] {
   const tokens: string[] = []
   let latin = ''
   let whitespace = ''

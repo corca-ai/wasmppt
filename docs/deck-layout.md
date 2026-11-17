@@ -177,6 +177,11 @@ scales each formula from its natural CSS-pixel extent at that same size, packs t
 order, and wraps only between atoms. Atoms on one row are vertically centered against the row's
 maximum extent. Inline text uses font advances when the requested font is available and a
 character-class advance estimate otherwise; it does not inherit the block-flow minimum width.
+Hosts may supply `DeckPlanner::plan_with_inline_measurer` with the same font resolver and advances
+used for painting. Theme font tokens resolve to the composed run's concrete family before host
+measurement. The measured advances, including template emphasis and inline-code faces, enter
+the plan identity and determine formula placement and wrapping. Such plans conservatively use
+full planning rather than reusing pages under an unverified host-font identity.
 Leading soft whitespace after a formula becomes one measured word-space gap in the fragment
 geometry instead of relying on a consumer to paint whitespace at the start of a separate text
 box. The same whitespace collapses when its atom starts a wrapped row.

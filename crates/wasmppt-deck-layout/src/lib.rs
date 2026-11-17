@@ -26,6 +26,20 @@ use wasmppt_deck::{
     validate_deck_spec,
 };
 
+/// Host-resolved advance for one editable inline run, in EMU. Returning `None` retains
+/// the ordinary exact-font/observable fallback path. Hosts must use their paint font resolver.
+pub type InlineTextMeasurer<'a> = dyn Fn(&str, InlineTextStyle<'_>) -> Option<Emu> + 'a;
+
+#[derive(Clone, Copy, Debug)]
+pub struct InlineTextStyle<'a> {
+    pub font_size: u32,
+    /// Resolved family emitted on the editable run. Script-specific faces are not emitted
+    /// by compact composition; the paint resolver selects its script fallback if absent.
+    pub typeface: Option<&'a str>,
+    pub bold: bool,
+    pub italic: bool,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FontFace {
     pub family: String,
@@ -145,6 +159,19 @@ impl DeckPlanner {
         fonts: &FontCatalog,
         contract_limits: &DeckLimits,
     ) -> Result<DeckPlan, PlanError> {
+        self.plan_with_inline_measurer(spec, template, fonts, contract_limits, None)
+    }
+
+    /// Plan with host font measurement for formula-adjacent text. Resolved advances enter
+    /// the plan identity; measured plans conservatively use full planning on subsequent edits.
+    pub fn plan_with_inline_measurer(
+        &self,
+        spec: &DeckSpec,
+        template: &DeckTemplatePlan,
+        fonts: &FontCatalog,
+        contract_limits: &DeckLimits,
+        inline_measurer: Option<&InlineTextMeasurer<'_>>,
+    ) -> Result<DeckPlan, PlanError> {
         let font_bytes = fonts
             .faces
             .iter()
@@ -181,6 +208,8 @@ impl DeckPlanner {
         let mut diagnostics = Vec::new();
         let mut pages = Vec::new();
         let mut measurer = Measurer::new(fonts, spec, &self.policy.limits);
+        measurer.inline_measurer = inline_measurer;
+        measurer.inline_theme = Some(&template.theme);
         for slide in &spec.logical_slides {
             let layout = select_layout(slide, template).ok_or_else(|| {
                 error(
@@ -208,6 +237,14 @@ impl DeckPlanner {
             pages,
             diagnostics,
         };
+        if inline_measurer.is_some() {
+            let mut digest = Sha256::new();
+            digest.update(b"wasmppt/host-inline-advances/v1\0");
+            digest.update(plan.id.as_bytes());
+            digest.update(measurer.inline_digest.into_inner().finalize());
+            let bytes: [u8; 32] = digest.finalize().into();
+            plan.id = StableId::from_bytes(bytes[..16].try_into().expect("16-byte prefix"));
+        }
         let report = validate_deck_plan(spec, template, &plan, contract_limits);
         if !report.is_valid() {
             return Err(PlanError {
@@ -4050,6 +4087,64 @@ mod tests {
                 <= u64::try_from(pair[0].height.max(pair[1].height)).unwrap_or(u64::MAX)
         }));
         assert!(validate_deck_plan(&spec, &template(500_000), &plan, &limits()).is_valid());
+
+        // A host's real advances must own the formula's horizontal position, rather than
+        // accumulating the deterministic character estimate along Latin or Korean prefixes.
+        for prefix in ["Longer English prefix ", "한글로 길게 작성한 문장 "] {
+            let SemanticContent::Children(children) = &mut spec.logical_slides[0].nodes[1].content
+            else {
+                unreachable!();
+            };
+            let SemanticContent::Text(text) = &mut children[0].content else {
+                unreachable!();
+            };
+            text.runs[0].text = prefix.to_owned();
+            let measure = |text: &str, style: InlineTextStyle<'_>| {
+                Some(text.chars().count() as i64 * i64::from(style.font_size) * 20)
+            };
+            let measured = DeckPlanner::default()
+                .plan_with_inline_measurer(
+                    &spec,
+                    &template(500_000),
+                    &FontCatalog::default(),
+                    &limits(),
+                    Some(&measure),
+                )
+                .unwrap();
+            let first = fragments(&measured.pages[0])
+                .find(|fragment| fragment.source_node_id == id(5))
+                .unwrap();
+            let formula = fragments(&measured.pages[0])
+                .find(|fragment| fragment.source_node_id == id(6))
+                .unwrap();
+            assert_eq!(
+                formula.frame.x - first.frame.x,
+                prefix.chars().count() as i64 * i64::from(first.type_choice.font_size) * 20
+            );
+            let repeated = DeckPlanner::default()
+                .plan_with_inline_measurer(
+                    &spec,
+                    &template(500_000),
+                    &FontCatalog::default(),
+                    &limits(),
+                    Some(&measure),
+                )
+                .unwrap();
+            assert_eq!(measured, repeated);
+            let other = DeckPlanner::default()
+                .plan_with_inline_measurer(
+                    &spec,
+                    &template(500_000),
+                    &FontCatalog::default(),
+                    &limits(),
+                    Some(&|text, style| measure(text, style).map(|width| width + 1)),
+                )
+                .unwrap();
+            assert_ne!(
+                measured.id, other.id,
+                "host advance changes invalidate plan identity"
+            );
+        }
     }
 
     #[test]

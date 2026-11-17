@@ -1,5 +1,6 @@
 import { decodeDeckDiagnostics, decodeDeckPageMetadata } from './deck/metadata.js'
 import { executeDeckOperation } from './deck/runtime.js'
+import type { InlineTextMeasure } from './deck/inline-measure.js'
 import {
   WORKER_PROTOCOL_VERSION,
   type WorkerEngine,
@@ -20,6 +21,7 @@ export interface WorkerRuntimeScope {
 }
 
 export interface WorkerRuntimeOptions {
+  readonly inlineTextMeasure?: InlineTextMeasure | undefined
   /** Optional lazy converter kept outside the primary presentation-engine Wasm module. */
   readonly metafileToSvg?: (input: Uint8Array) => Promise<Uint8Array>
 }
@@ -54,7 +56,7 @@ export function installWorkerRuntime(
       }
       switch (message.type) {
         case 'deck-api': {
-          const result = executeDeckOperation(engine, message.operation)
+          const result = executeDeckOperation(engine, message.operation, options.inlineTextMeasure)
           scope.postMessage(response({ id: message.id, type: 'deck-api-result', result }),
             result.kind === 'chunk' ? [result.bytes] : [])
           return

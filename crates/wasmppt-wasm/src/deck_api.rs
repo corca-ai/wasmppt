@@ -113,6 +113,7 @@ impl WasmpptEngine {
         assets: &[u32],
         fonts: &[u32],
         previous_handle: u32,
+        inline_text_measure: Option<js_sys::Function>,
     ) -> Result<u32, JsValue> {
         let limits = DeckLimits::default();
         let mut spec = DeckSpec::decode(spec, &limits)
@@ -139,7 +140,34 @@ impl WasmpptEngine {
         } else {
             Some(self.deck_session(previous_handle)?)
         };
-        let plan = plan_snapshot(&spec, &template, &fonts, previous)?;
+        let plan = if let Some(measure) = inline_text_measure {
+            DeckPlanner::default()
+                .plan_with_inline_measurer(
+                    &spec,
+                    &template.plan,
+                    &fonts,
+                    &limits,
+                    Some(&|text, style| {
+                        let args = Array::new();
+                        args.push(&JsValue::from_str(text));
+                        args.push(&JsValue::from_f64(f64::from(style.font_size)));
+                        args.push(&style.typeface.map_or(JsValue::UNDEFINED, JsValue::from_str));
+                        args.push(&JsValue::from_bool(style.bold));
+                        args.push(&JsValue::from_bool(style.italic));
+                        measure
+                            .apply(&JsValue::UNDEFINED, &args)
+                            .ok()?
+                            .as_f64()
+                            .filter(|width| {
+                                width.is_finite() && *width >= 0.0 && *width <= f64::from(i32::MAX)
+                            })
+                            .map(|width| width.round() as i64)
+                    }),
+                )
+                .map_err(deck_layout_error)?
+        } else {
+            plan_snapshot(&spec, &template, &fonts, previous)?
+        };
         let overlay = DeckComposer
             .compose(
                 template.bytes.clone(),

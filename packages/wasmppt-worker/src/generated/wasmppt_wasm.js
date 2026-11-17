@@ -186,9 +186,10 @@ export class WasmpptEngine {
      * @param {Uint32Array} assets
      * @param {Uint32Array} fonts
      * @param {number} previous_handle
+     * @param {Function | null} [inline_text_measure]
      * @returns {number}
      */
-    create_deck_snapshot(template_handle, spec, assets, fonts, previous_handle) {
+    create_deck_snapshot(template_handle, spec, assets, fonts, previous_handle, inline_text_measure) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
             const ptr0 = passArray8ToWasm0(spec, wasm.__wbindgen_export);
@@ -197,7 +198,7 @@ export class WasmpptEngine {
             const len1 = WASM_VECTOR_LEN;
             const ptr2 = passArray32ToWasm0(fonts, wasm.__wbindgen_export);
             const len2 = WASM_VECTOR_LEN;
-            wasm.wasmpptengine_create_deck_snapshot(retptr, this.__wbg_ptr, template_handle, ptr0, len0, ptr1, len1, ptr2, len2, previous_handle);
+            wasm.wasmpptengine_create_deck_snapshot(retptr, this.__wbg_ptr, template_handle, ptr0, len0, ptr1, len1, ptr2, len2, previous_handle, isLikeNone(inline_text_measure) ? 0 : addHeapObject(inline_text_measure));
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -1367,6 +1368,12 @@ function __wbg_get_imports() {
             const ret = Error(getStringFromWasm0(arg0, arg1));
             return addHeapObject(ret);
         },
+        __wbg___wbindgen_number_get_136b9679cab35cfb: function(arg0, arg1) {
+            const obj = getObject(arg1);
+            const ret = typeof(obj) === 'number' ? obj : undefined;
+            getDataViewMemory0().setFloat64(arg0 + 8 * 1, isLikeNone(ret) ? 0 : ret, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, !isLikeNone(ret), true);
+        },
         __wbg___wbindgen_string_get_d154f1e671052120: function(arg0, arg1) {
             const obj = getObject(arg1);
             const ret = typeof(obj) === 'string' ? obj : undefined;
@@ -1378,6 +1385,10 @@ function __wbg_get_imports() {
         __wbg___wbindgen_throw_bb96b2010945f0bc: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
+        __wbg_apply_cb180996ed7fdae9: function() { return handleError(function (arg0, arg1, arg2) {
+            const ret = getObject(arg0).apply(getObject(arg1), getObject(arg2));
+            return addHeapObject(ret);
+        }, arguments); },
         __wbg_get_c0c8f8d7da0c03dd: function(arg0, arg1) {
             const ret = getObject(arg0)[arg1 >>> 0];
             return addHeapObject(ret);

@@ -8,6 +8,10 @@ is required. Arbitrary authored templates use the separate [binding API](browser
 For formula-adjacent prose without registered font bytes, browser hosts can enable
 `createBrowserEngine({ worker, measureInlineText: true })`. The module Worker measures inline
 text with OffscreenCanvas using the Canvas renderer's font resolution and tokenization. The
+measurement module loads on the first requested snapshot without exact font bytes; default
+generation, exact-font snapshots, and Worker startup do not load it. Concurrent requests share
+that module load. Worker protocol cancellation while loading prevents speculative snapshot
+creation; SDK aborts retain their existing pre-publication discard behavior. The
 accepted snapshot retains those horizontal positions for Canvas, HTML and PPTX; longer Latin or
 Korean prefixes therefore do not accumulate estimated-character-width gaps before formulas.
 Exact registered font sets retain core shaping. Node, workerd, and browsers without OffscreenCanvas

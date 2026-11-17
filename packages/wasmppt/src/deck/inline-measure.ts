@@ -1,4 +1,5 @@
-import { FontResolver, lineBreakTokens, type FontLoadingHost } from '../canvas.js'
+import { lineBreakTokens, type FontLoadingHost } from '../canvas.js'
+import { defaultFontFamily, detectFontScript, resolveAvailableFont } from '../font-resolution.js'
 
 /** Private synchronous Wasm callback. Font sizes are hundredths of a point; widths are EMU. */
 export type InlineTextMeasure = (text: string, size: number, family: string | undefined,
@@ -8,9 +9,9 @@ export function createInlineTextMeasurer(
   context: Pick<OffscreenCanvasRenderingContext2D, 'font' | 'measureText'>,
   host: FontLoadingHost,
 ): InlineTextMeasure {
-  const resolver = new FontResolver({ host })
   return (text, size, family, bold, italic) => {
-    const font = resolver.resolveAvailable(text, size / 100 * 96 / 72, family, { bold, italic })
+    const requested = family ?? defaultFontFamily(detectFontScript(text))
+    const font = resolveAvailableFont(text, size / 100 * 96 / 72, requested, requested, 'sans-serif', { bold, italic }, host)
     context.font = font.css
     // Match the paint planner's token measurements, including CJK grapheme breaks and soft hyphens.
     const width = lineBreakTokens(text).reduce((total, token) =>

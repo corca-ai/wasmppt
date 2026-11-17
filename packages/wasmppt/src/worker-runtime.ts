@@ -22,6 +22,8 @@ export interface WorkerRuntimeScope {
 
 export interface WorkerRuntimeOptions {
   readonly inlineTextMeasure?: InlineTextMeasure | undefined
+  /** Load optional browser measurement only for a snapshot that requests it. */
+  readonly loadInlineTextMeasure?: () => Promise<InlineTextMeasure | undefined>
   /** Optional lazy converter kept outside the primary presentation-engine Wasm module. */
   readonly metafileToSvg?: (input: Uint8Array) => Promise<Uint8Array>
 }
@@ -34,6 +36,7 @@ export function installWorkerRuntime(
 ): void {
   const cancelled = new Set<number>()
   const active = new Set<number>()
+  let inlineTextMeasure: Promise<InlineTextMeasure | undefined> | undefined
   scope.addEventListener('message', (event) => {
     const message = event.data
     if (!isWorkerRequest(message)) return
@@ -56,7 +59,15 @@ export function installWorkerRuntime(
       }
       switch (message.type) {
         case 'deck-api': {
-          const result = executeDeckOperation(engine, message.operation, options.inlineTextMeasure)
+          const operation = message.operation
+          let measure = options.inlineTextMeasure
+          if (operation.kind === 'snapshot' && operation.measureInlineText === true && operation.fonts.length === 0
+            && measure === undefined && options.loadInlineTextMeasure !== undefined) {
+            inlineTextMeasure ??= options.loadInlineTextMeasure()
+            measure = await inlineTextMeasure
+            if (cancelled.delete(message.id)) { postCancelled(scope, message.id); return }
+          }
+          const result = executeDeckOperation(engine, operation, measure)
           scope.postMessage(response({ id: message.id, type: 'deck-api-result', result }),
             result.kind === 'chunk' ? [result.bytes] : [])
           return

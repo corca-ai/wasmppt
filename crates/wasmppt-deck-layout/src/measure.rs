@@ -33,6 +33,9 @@ pub(crate) struct WidthDemand {
 }
 
 pub(crate) struct Measurer<'a> {
+    pub(crate) inline_measurer: Option<&'a crate::InlineTextMeasurer<'a>>,
+    pub(crate) inline_theme: Option<&'a wasmppt_deck::TemplateTheme>,
+    pub(crate) inline_digest: std::cell::RefCell<sha2::Sha256>,
     fonts: &'a FontCatalog,
     limits: &'a PlannerLimits,
     resources: BTreeMap<StableId, PixelSize>,
@@ -75,6 +78,9 @@ impl<'a> Measurer<'a> {
         limits: &'a PlannerLimits,
     ) -> Self {
         Self {
+            inline_measurer: None,
+            inline_theme: None,
+            inline_digest: std::cell::RefCell::new(sha2::Sha256::default()),
             fonts,
             limits,
             resources: spec
@@ -320,11 +326,10 @@ impl<'a> Measurer<'a> {
             .split('\n')
             .map(|line| {
                 let width = match &node.content {
-                    SemanticContent::Text(rich) => rich_advance(
+                    SemanticContent::Text(rich) => self.inline_rich_advance(
                         rich,
                         line_start..line_start + line.len(),
-                        font,
-                        code_font,
+                        region,
                         font_size,
                     ),
                     SemanticContent::Code(_) => code_advance(line, code_font, font_size),
@@ -359,16 +364,98 @@ impl<'a> Measurer<'a> {
             _ => 0,
         };
         if let SemanticContent::Text(rich) = &node.content {
-            rich_advance(
+            self.inline_rich_advance(
                 rich,
                 start..start + text.chars().next().map_or(0, char::len_utf8),
-                self.region_font(region),
-                self.fonts.font(wasmppt_deck::CODE_TYPEFACE),
+                region,
                 font_size,
             )
             .max(1)
         } else {
             text_advance(" ", self.region_font(region), font_size).max(1)
+        }
+    }
+
+    fn inline_rich_advance(
+        &self,
+        text: &wasmppt_deck::RichText,
+        range: std::ops::Range<usize>,
+        region: &TemplateRegion,
+        size: u32,
+    ) -> Emu {
+        use sha2::Digest;
+        let font = self.region_font(region);
+        let code_font = self.fonts.font(wasmppt_deck::CODE_TYPEFACE);
+        let style = region.text_levels.first();
+        let mut offset = 0;
+        let mut advance = 0i64;
+        for run in &text.runs {
+            let end = offset + run.text.len();
+            let left = range.start.max(offset);
+            let right = range.end.min(end);
+            if left < right {
+                let segment = &run.text[left - offset..right - offset];
+                let code = run.marks.inline_code;
+                let family = if code {
+                    Some(wasmppt_deck::CODE_TYPEFACE)
+                } else {
+                    style.and_then(|level| level.latin_typeface.as_deref())
+                };
+                let measured = self
+                    .inline_measurer
+                    .and_then(|measure| {
+                        measure(
+                            segment,
+                            crate::InlineTextStyle {
+                                font_size: size,
+                                typeface: self.inline_typeface(family),
+                                bold: run.marks.bold
+                                    || style.and_then(|level| level.bold).unwrap_or(false),
+                                italic: run.marks.italic
+                                    || style.and_then(|level| level.italic).unwrap_or(false),
+                            },
+                        )
+                    })
+                    .filter(|width| *width >= 0 && *width <= i64::from(i32::MAX));
+                let width = measured.unwrap_or_else(|| {
+                    if code {
+                        code_advance(segment, code_font, size)
+                    } else {
+                        text_advance(segment, font, size)
+                    }
+                });
+                self.inline_digest.borrow_mut().update(width.to_le_bytes());
+                advance = advance.saturating_add(width);
+            }
+            offset = end;
+            if offset >= range.end {
+                break;
+            }
+        }
+        advance
+    }
+
+    fn inline_typeface<'b>(&'b self, family: Option<&'b str>) -> Option<&'b str> {
+        let family = family?;
+        let Some(theme) = self.inline_theme else {
+            return Some(family);
+        };
+        match family {
+            "+mj-lt" => theme.major_fonts.latin.as_deref().or(Some("Arial")),
+            "+mn-lt" => theme.minor_fonts.latin.as_deref().or(Some("Arial")),
+            "+mj-ea" => theme.major_fonts.east_asian.as_deref().or(Some("Arial")),
+            "+mn-ea" => theme.minor_fonts.east_asian.as_deref().or(Some("Arial")),
+            "+mj-cs" => theme
+                .major_fonts
+                .complex_script
+                .as_deref()
+                .or(Some("Arial")),
+            "+mn-cs" => theme
+                .minor_fonts
+                .complex_script
+                .as_deref()
+                .or(Some("Arial")),
+            _ => Some(family),
         }
     }
 

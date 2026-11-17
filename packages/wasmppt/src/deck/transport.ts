@@ -8,7 +8,7 @@ export type DeckOperation =
   | { readonly kind: 'register-font'; readonly family: string; readonly bytes: ArrayBuffer }
   | { readonly kind: 'release-input'; readonly handle: number }
   | { readonly kind: 'describe-template'; readonly handle: number }
-  | { readonly kind: 'snapshot'; readonly template: number; readonly spec: ArrayBuffer; readonly assets: readonly number[]; readonly fonts: readonly number[]; readonly previous: number }
+  | { readonly kind: 'snapshot'; readonly template: number; readonly spec: ArrayBuffer; readonly assets: readonly number[]; readonly fonts: readonly number[]; readonly previous: number; readonly measureInlineText?: boolean }
   | { readonly kind: 'output-start'; readonly handle: number; readonly revision: number }
   | { readonly kind: 'output-pull'; readonly handle: number; readonly chunkBytes: number }
   | { readonly kind: 'output-release'; readonly handle: number }

@@ -522,7 +522,7 @@ export interface WorkerEngine {
   register_deck_asset(bytes: Uint8Array): number
   register_deck_font(family: string, faceIndex: number, bytes: Uint8Array): number
   release_deck_input(handle: number): boolean
-  create_deck_snapshot(template: number, spec: Uint8Array, assets: Uint32Array, fonts: Uint32Array, previous: number): number
+  create_deck_snapshot(template: number, spec: Uint8Array, assets: Uint32Array, fonts: Uint32Array, previous: number, inlineTextMeasure?: import('./deck/inline-measure.js').InlineTextMeasure): number
   describe_deck_template(handle: number): unknown[]
   deck_accounted_bytes(): number
   deck_snapshot_sources(handle: number, revision: number): unknown[]

@@ -5,6 +5,15 @@ Canvas and HTML, and `/node` for an in-process Node engine. Both engines expose 
 API over the checked-in Rust/Wasm implementation. The [Starter POTX contract](deck-template.md)
 is required. Arbitrary authored templates use the separate [binding API](browser.md).
 
+For formula-adjacent prose without registered font bytes, browser hosts can enable
+`createBrowserEngine({ worker, measureInlineText: true })`. The module Worker measures inline
+text with OffscreenCanvas using the Canvas renderer's font resolution and tokenization. The
+accepted snapshot retains those horizontal positions for Canvas, HTML and PPTX; longer Latin or
+Korean prefixes therefore do not accumulate estimated-character-width gaps before formulas.
+Exact registered font sets retain core shaping. Node, workerd, and browsers without OffscreenCanvas
+retain observable fallback metrics. This opt-in uses conservative full planning on edits and
+does not promise identical geometry across different installed system fonts.
+
 ## Authoring boundary
 
 `DeckSpec` contains a document `key` and ordered `slides`. Slides, nodes, list items, table rows,

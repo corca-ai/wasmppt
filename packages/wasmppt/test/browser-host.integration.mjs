@@ -44,6 +44,9 @@ function structuralTextPassed(structure) {
 }
 
 const benchmarkFixtureDirectory = join(workspaceDirectory, 'target/benchmark-fixtures')
+execFileSync('cargo', ['run', '--quiet', '--locked', '-p', 'wasmppt-deck', '--example',
+  'write_gate_fixtures', '--', 'target/inline-math-monospace', '--inline-math-monospace'],
+{ cwd: workspaceDirectory, stdio: 'inherit' })
 await mkdir(benchmarkFixtureDirectory, { recursive: true })
 for (const slides of [10, 50, 200]) {
   const fixture = join(benchmarkFixtureDirectory, `mixed-${slides}.potx`)
@@ -67,6 +70,7 @@ for (const slides of [10, 50, 200]) {
 }
 
 const routes = new Map([
+  ['/inline-math-monospace.potx', [join(workspaceDirectory, 'target/inline-math-monospace/starter.potx'), 'application/octet-stream']],
   ['/dist/worker-client.js', [join(packageDirectory, 'dist/worker-client.js'), 'text/javascript']],
   ['/dist/injection.js', [join(packageDirectory, 'dist/injection.js'), 'text/javascript']],
   ['/dist/protocol.js', [join(packageDirectory, 'dist/protocol.js'), 'text/javascript']],

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { checkInlineMathBrowserApi } from './inline-math.browser.mjs'
 
 const spec = text => ({ key: 'browser', slides: [
         { key: 'cover', kind: 'content', nodes: [{ key: 'title', role: 'prose', source: { source: 'deck.md', start: 0, end: 10 }, content: { kind: 'text', text: { runs: [{text: text + '\nSecond paragraph'}] } } }] },
@@ -8,6 +9,8 @@ const spec = text => ({ key: 'browser', slides: [
 
 /** Browser-owned contracts: font registration, paint publication, hit testing and closed HTML. */
 export async function checkDeckBrowserApi(page) {
+  await checkInlineMathBrowserApi(page)
+  await checkInlineMathBrowserApi(page, true, '/inline-math-monospace.potx')
   const facts = await page.evaluate(async ({ before, after }) => {
     const { createBrowserEngine, CanvasView, exportHtml } = await import('/dist/browser.js')
     const engine = await createBrowserEngine({ worker: new Worker('/dist/browser-worker.js', { type: 'module' }) })

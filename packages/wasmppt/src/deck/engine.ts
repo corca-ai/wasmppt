@@ -8,7 +8,7 @@ import type {
   DeckTemplateDescription,
 } from './model.js'
 
-export interface DeckEngineOptions { readonly maxRetainedBytes?: number }
+export interface DeckEngineOptions { readonly maxRetainedBytes?: number; readonly measureInlineText?: boolean }
 export interface DeckOperationOptions { readonly signal?: AbortSignal }
 export interface DeckInput { readonly template: DeckTemplate; readonly spec: DeckSpec; readonly assets?: ReadonlyMap<string, DeckAsset>; readonly fonts?: DeckFonts }
 export interface DeckPage {
@@ -97,7 +97,7 @@ export class DeckEngine {
   readonly #registering = new Map<string, Promise<Resource<number>>>()
   #disposed = false
   /** @internal */
-  constructor(readonly client: WasmpptWorkerClient) {}
+  constructor(readonly client: WasmpptWorkerClient, readonly measureInlineText = false) {}
   get isDisposed(): boolean { return this.#disposed }
   get signal(): AbortSignal { return this.#lifetime.signal }
   /** @internal */
@@ -241,6 +241,7 @@ export class Deck {
         })
         abort(options.signal)
         const result = await this.engine.client.deckOperation({ kind: 'snapshot', template: captured.template,
+          measureInlineText: this.engine.measureInlineText,
           spec: encoded.bytes.buffer, assets, fonts: captured.fonts.map(font => font.handle),
           previous: this.#current === undefined ? 0 : accessSnapshot(this.#current).handle })
         if (result.kind === 'rejected') return { ok: false, diagnostics: diagnostics(result.diagnostics, encoded.identities) }
@@ -412,6 +413,6 @@ export async function initializeDeckEngine(client: WasmpptWorkerClient, options:
       }
       await client.deckOperation({ kind: 'configure', maxRetainedBytes: options.maxRetainedBytes })
     }
-    return new DeckEngine(client)
+    return new DeckEngine(client, options.measureInlineText)
   } catch (error) { client.terminate(); throw error }
 }

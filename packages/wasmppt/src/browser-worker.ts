@@ -10,6 +10,7 @@ import {
   installWorkerRuntime,
   type WorkerRuntimeScope,
 } from './worker-runtime.js'
+import { createInlineTextMeasurer } from './deck/inline-measure.js'
 
 const scope = self as unknown as WorkerRuntimeScope
 const startupScope = self as unknown as {
@@ -34,7 +35,12 @@ async function metafileToSvg(input: Uint8Array): Promise<Uint8Array> {
 
 try {
   await init()
-  installWorkerRuntime(scope, new WasmpptEngine(), { metafileToSvg })
+  const context = typeof OffscreenCanvas === 'undefined' ? null : new OffscreenCanvas(1, 1).getContext('2d')
+  const inlineTextMeasure = context === null ? undefined : createInlineTextMeasurer(context, {
+    load: async () => {},
+    check: (css, text) => (self as unknown as { readonly fonts: FontFaceSet }).fonts.check(css, text),
+  })
+  installWorkerRuntime(scope, new WasmpptEngine(), { metafileToSvg, inlineTextMeasure })
   startupScope.postMessage({ type: WASMPPT_BROWSER_WORKER_READY })
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error)

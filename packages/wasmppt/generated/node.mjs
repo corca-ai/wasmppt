@@ -1751,7 +1751,7 @@ function encodeAsset(id, asset) {
 }
 
 // packages/wasmppt/src/deck/runtime.ts
-function executeDeckOperation(engine, operation) {
+function executeDeckOperation(engine, operation, inlineTextMeasure) {
   switch (operation.kind) {
     case "configure":
       engine.configure_deck_budget(operation.maxRetainedBytes);
@@ -1787,7 +1787,8 @@ function executeDeckOperation(engine, operation) {
           new Uint8Array(operation.spec),
           new Uint32Array(operation.assets),
           new Uint32Array(operation.fonts),
-          operation.previous
+          operation.previous,
+          operation.measureInlineText === true && operation.fonts.length === 0 ? inlineTextMeasure : void 0
         );
       } catch (error) {
         if (typeof error === "object" && error !== null && "diagnostics" in error && Array.isArray(error.diagnostics)) {
@@ -1882,7 +1883,7 @@ function installWorkerRuntime(scope, engine, options = {}) {
       }
       switch (message.type) {
         case "deck-api": {
-          const result = executeDeckOperation(engine, message.operation);
+          const result = executeDeckOperation(engine, message.operation, options.inlineTextMeasure);
           scope.postMessage(
             response({ id: message.id, type: "deck-api-result", result }),
             result.kind === "chunk" ? [result.bytes] : []
@@ -3396,10 +3397,12 @@ var DeckFonts = class {
 };
 var DeckEngine = class {
   /** @internal */
-  constructor(client) {
+  constructor(client, measureInlineText = false) {
     this.client = client;
+    this.measureInlineText = measureInlineText;
   }
   client;
+  measureInlineText;
   #disposal = /* @__PURE__ */ new Set();
   #lifetime = new AbortController();
   #assets = /* @__PURE__ */ new Map();
@@ -3573,6 +3576,7 @@ var Deck = class {
         const result = await this.engine.client.deckOperation({
           kind: "snapshot",
           template: captured.template,
+          measureInlineText: this.engine.measureInlineText,
           spec: encoded.bytes.buffer,
           assets,
           fonts: captured.fonts.map((font) => font.handle),
@@ -3770,7 +3774,7 @@ async function initializeDeckEngine(client, options) {
       }
       await client.deckOperation({ kind: "configure", maxRetainedBytes: options.maxRetainedBytes });
     }
-    return new DeckEngine(client);
+    return new DeckEngine(client, options.measureInlineText);
   } catch (error) {
     client.terminate();
     throw error;

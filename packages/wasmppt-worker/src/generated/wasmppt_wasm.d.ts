@@ -49,7 +49,7 @@ export class WasmpptEngine {
      * Fork from a previous accepted snapshot without ever modifying it. The new handle is
      * published only after validation, planning, composition and retained-budget checks pass.
      */
-    create_deck_snapshot(template_handle: number, spec: Uint8Array, assets: Uint32Array, fonts: Uint32Array, previous_handle: number): number;
+    create_deck_snapshot(template_handle: number, spec: Uint8Array, assets: Uint32Array, fonts: Uint32Array, previous_handle: number, inline_text_measure?: Function | null): number;
     /**
      * Create a revision-zero live session from one prepared template and complete
      * initial generation data. The logical package is opened directly, without a
@@ -202,7 +202,7 @@ export interface InitOutput {
     readonly wasmpptengine_configure_deck_budget: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_create_deck_session: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmpptengine_create_deck_session_with_plan: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-    readonly wasmpptengine_create_deck_snapshot: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => void;
+    readonly wasmpptengine_create_deck_snapshot: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => void;
     readonly wasmpptengine_create_live_session_payload: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmpptengine_deck_accounted_bytes: (a: number) => number;
     readonly wasmpptengine_deck_session_cache_telemetry: (a: number, b: number, c: number) => void;

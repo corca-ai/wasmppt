@@ -1862,6 +1862,7 @@ function describe(values) {
 function installWorkerRuntime(scope, engine, options = {}) {
   const cancelled = /* @__PURE__ */ new Set();
   const active = /* @__PURE__ */ new Set();
+  let inlineTextMeasure;
   scope.addEventListener("message", (event) => {
     const message = event.data;
     if (!isWorkerRequest(message)) return;
@@ -1883,7 +1884,17 @@ function installWorkerRuntime(scope, engine, options = {}) {
       }
       switch (message.type) {
         case "deck-api": {
-          const result = executeDeckOperation(engine, message.operation, options.inlineTextMeasure);
+          const operation = message.operation;
+          let measure = options.inlineTextMeasure;
+          if (operation.kind === "snapshot" && operation.measureInlineText === true && operation.fonts.length === 0 && measure === void 0 && options.loadInlineTextMeasure !== void 0) {
+            inlineTextMeasure ??= options.loadInlineTextMeasure();
+            measure = await inlineTextMeasure;
+            if (cancelled.delete(message.id)) {
+              postCancelled(scope, message.id);
+              return;
+            }
+          }
+          const result = executeDeckOperation(engine, operation, measure);
           scope.postMessage(
             response({ id: message.id, type: "deck-api-result", result }),
             result.kind === "chunk" ? [result.bytes] : []
@@ -2593,6 +2604,13 @@ function decodeDiagnostics(rows) {
     };
   });
 }
+
+// packages/wasmppt/src/font-resolution.ts
+var DEFAULT_THEME_FONTS = Object.freeze({
+  latin: "Arial",
+  eastAsian: "Noto Sans CJK KR",
+  complexScript: "Noto Sans Arabic"
+});
 
 // packages/wasmppt/src/image.ts
 var PNG_SIGNATURE = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10);

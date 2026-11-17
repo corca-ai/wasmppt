@@ -1,3 +1,4 @@
+import { DEFAULT_THEME_FONTS, detectFontScript, resolveAvailableFont } from './font-resolution.js'
 import type { FontByteShaper, ShapedFontRun } from './shaper.js'
 import type { DecodedImage } from './image.js'
 import { ByteBudgetLru } from './cache/byte-budget-lru.js'
@@ -535,9 +536,9 @@ export class FontResolver {
 
   constructor(options: FontResolverOptions = {}) {
     this.#theme = {
-      latin: options.theme?.latin ?? 'Arial',
-      eastAsian: options.theme?.eastAsian ?? 'Noto Sans CJK KR',
-      complexScript: options.theme?.complexScript ?? 'Noto Sans Arabic',
+      latin: options.theme?.latin ?? DEFAULT_THEME_FONTS.latin,
+      eastAsian: options.theme?.eastAsian ?? DEFAULT_THEME_FONTS.eastAsian,
+      complexScript: options.theme?.complexScript ?? DEFAULT_THEME_FONTS.complexScript,
     }
     this.#substitutions = Object.freeze({ ...options.substitutions })
     for (const font of options.webFonts ?? []) this.registerWebFont(font)
@@ -604,22 +605,7 @@ export class FontResolver {
     const script = detectFontScript(text)
     const requested = requestedFamily ?? this.#themeFamily(script)
     const family = this.#substitutions[requested] ?? requested
-    const prefix = `${emphasis.italic === true ? 'italic' : 'normal'} ${emphasis.bold === true ? '700' : '400'}`
-    const css = `${prefix} ${sizePixels}px ${quoteFontFamily(family)}`
-    const exact = this.#host.check(css, representativeText(script, text))
-    const fallbackFamily = this.#fallback[script]
-    const resolvedFamily = exact ? family : fallbackFamily
-    const cssFamily = exact
-      ? `${quoteFontFamily(family)}, ${quoteFontFamily(fallbackFamily)}`
-      : quoteFontFamily(fallbackFamily)
-    return Object.freeze({
-      requestedFamily: requested,
-      family: resolvedFamily,
-      script,
-      exact,
-      css: `${prefix} ${sizePixels}px ${cssFamily}`,
-      sizePixels,
-    })
+    return resolveAvailableFont(text, sizePixels, requested, family, this.#fallback[script], emphasis, this.#host)
   }
 
   /** Shapes from exact registered font bytes when the optional shaper is configured. */
@@ -2805,28 +2791,6 @@ function semanticKind(code: number): SceneSemanticElement['kind'] {
   if (code === 3) return 'table'
   if (code === 4) return 'chart'
   return 'preserved-graphic'
-}
-
-function detectFontScript(text: string): FontScript {
-  if (/\p{Script=Hangul}|\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}/u.test(text)) {
-    return 'east-asian'
-  }
-  if (/\p{Script=Arabic}|\p{Script=Hebrew}|\p{Script=Devanagari}|\p{Script=Thai}|\p{Script=Lao}|\p{Script=Khmer}/u.test(text)) {
-    return 'complex'
-  }
-  return 'latin'
-}
-
-function representativeText(script: FontScript, text: string): string {
-  if (text !== '') return text
-  if (script === 'east-asian') return '한국語'
-  if (script === 'complex') return 'العربية'
-  return 'Aa'
-}
-
-function quoteFontFamily(family: string): string {
-  if (/^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/i.test(family)) return family
-  return `"${family.replaceAll('"', '\\"')}"`
 }
 
 export function lineBreakTokens(text: string): readonly string[] {

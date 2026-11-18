@@ -224,6 +224,7 @@ fn reports_each_plan_integrity_failure_with_a_stable_code() {
     );
 
     let mut bleed_template = template.clone();
+    bleed_template.regions[0].generation_frame = Some(bleed_template.regions[0].frame);
     bleed_template.regions[0].bleed_frame = Some(EmuRect {
         x: 0,
         y: 0,

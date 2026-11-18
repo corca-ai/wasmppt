@@ -75,7 +75,10 @@ ordinal; fragment IDs use the complete source node ID and fragment slice.
 `DeckTemplatePlan` contains the compiled template identity and SHA-256, exact page size,
 deterministic cache key, theme fonts and colors, title, statement, and content-envelope layouts,
 semantic regions, and preserved assets. Each region has a safe EMU frame and may have a larger
-media-only bleed frame, plus a standard placeholder type/index, resolved text margins and
+media-only bleed frame. Generation bounds and media bleed are independent authorizations:
+a media-only region may occupy either, while text stays inside the generation bounds or safe
+frame. Declaring text generation bounds never masks an existing bleed area. Regions also carry
+a standard placeholder type/index, resolved text margins and
 hierarchy, a role, accepted semantic roles, and a required marker.
 Assets retain their original package part and exact XML source range so a later composer can
 copy unknown markup from the hash-matched POTX rather than reconstructing it. Visible layout

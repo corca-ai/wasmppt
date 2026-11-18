@@ -733,11 +733,14 @@ fn validate_pages(
                     "planned region belongs to a different template layout",
                 );
             }
-            let composition_frame = template_region
+            let generation_frame = template_region
                 .generation_frame
-                .or(template_region.bleed_frame)
                 .unwrap_or(template_region.frame);
-            if !planned_region.frame.is_within(composition_frame)
+            let within_generation = planned_region.frame.is_within(generation_frame);
+            let within_bleed = template_region
+                .bleed_frame
+                .is_some_and(|frame| planned_region.frame.is_within(frame));
+            if !(within_generation || within_bleed)
                 || !planned_region.frame.is_within(context.page_bounds)
             {
                 plan_error(
@@ -748,16 +751,14 @@ fn validate_pages(
                     "planned region is outside its template composition frame or page",
                 );
             }
-            if !planned_region.frame.is_within(
-                template_region
-                    .generation_frame
-                    .unwrap_or(template_region.frame),
-            ) && planned_region.fragments.iter().any(|fragment| {
-                context
-                    .nodes
-                    .get(&fragment.source_node_id)
-                    .is_none_or(|indexed| !is_media_role(indexed.node.role))
-            }) {
+            if !within_generation
+                && planned_region.fragments.iter().any(|fragment| {
+                    context
+                        .nodes
+                        .get(&fragment.source_node_id)
+                        .is_none_or(|indexed| !is_media_role(indexed.node.role))
+                })
+            {
                 plan_error(
                     report,
                     DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,

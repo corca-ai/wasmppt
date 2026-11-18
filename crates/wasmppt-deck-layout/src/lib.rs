@@ -4504,6 +4504,9 @@ mod tests {
             height: 6_000_000,
         };
         template.regions[1].bleed_frame = Some(bleed);
+        // Bundled POTX profiles also declare text generation bounds. These must
+        // not mask the wider, independently authorized media-only area.
+        template.regions[1].generation_frame = Some(safe);
         let body_id = template.regions[1].id;
 
         let media_plan = DeckPlanner::default()

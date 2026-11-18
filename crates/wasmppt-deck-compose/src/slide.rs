@@ -40,15 +40,24 @@ struct SlideWriter<'a> {
     inline_text_nodes: BTreeSet<StableId>,
 }
 
+pub(crate) struct SlideChrome<'a> {
+    pub page_size: EmuSize,
+    pub repeated_heading: Option<&'a wasmppt_deck::PlannedFragment>,
+}
+
 pub(crate) fn compose_slide(
     page: &PhysicalPage,
+    chrome: SlideChrome<'_>,
     layout: &TemplateLayout,
-    page_size: EmuSize,
     theme: &TemplateTheme,
     regions: &BTreeMap<StableId, &TemplateRegion>,
     nodes: &BTreeMap<StableId, &SemanticNode>,
     media: &BTreeMap<PreparedMediaKey, PreparedMedia>,
 ) -> Result<ComposedSlide, ComposeError> {
+    let SlideChrome {
+        page_size,
+        repeated_heading,
+    } = chrome;
     let visibility = if page.hidden { " show=\"0\"" } else { "" };
     let mut writer = SlideWriter {
         xml: format!(
@@ -91,12 +100,16 @@ pub(crate) fn compose_slide(
                         },
                         |region| region.frame,
                     );
+                    let frame = repeated_heading.map_or(frame, |fragment| fragment.frame);
                     writer.text_shape(
                         frame,
                         "Continuation heading",
                         &[Paragraph::rich(text.runs.clone(), 0)],
                         continuation_region,
-                        Some(2_400),
+                        Some(
+                            repeated_heading
+                                .map_or(2_400, |fragment| fragment.type_choice.font_size),
+                        ),
                     )?;
                 }
             }
@@ -644,7 +657,7 @@ impl SlideWriter<'_> {
             margins(region)
         };
         self.xml.push_str(&format!(
-            "<p:sp><p:nvSpPr><p:cNvPr id=\"{shape_id}\" name=\"{}\"/><p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x=\"{}\" y=\"{}\"/><a:ext cx=\"{}\" cy=\"{}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr{} wrap=\"square\"/><a:lstStyle>",
+            "<p:sp><p:nvSpPr><p:cNvPr id=\"{shape_id}\" name=\"{}\"/><p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x=\"{}\" y=\"{}\"/><a:ext cx=\"{}\" cy=\"{}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr{} wrap=\"square\"><a:noAutofit/></a:bodyPr><a:lstStyle>",
             xml_attr(name), frame.x, frame.y, frame.width, frame.height,
             body_margins
         ));
@@ -1407,7 +1420,7 @@ mod tests {
 
         assert!(
             writer.xml.contains(
-                "<a:bodyPr lIns=\"0\" tIns=\"0\" rIns=\"0\" bIns=\"0\" wrap=\"square\"/>"
+                "<a:bodyPr lIns=\"0\" tIns=\"0\" rIns=\"0\" bIns=\"0\" wrap=\"square\"><a:noAutofit/></a:bodyPr>"
             )
         );
         assert!(
@@ -1476,6 +1489,8 @@ mod tests {
                 height: 100,
             },
             bleed_frame: None,
+            generation_frame: None,
+            minimum_font_size: 0,
             margins: Default::default(),
             text_levels: vec![TemplateTextLevel::default()],
             accepts: vec![role],

@@ -33,7 +33,7 @@ const LAYOUT_TYPE: &str =
 const PML_NS: &str = "http://schemas.openxmlformats.org/presentationml/2006/main";
 const STRICT_PML_NS: &str = "http://purl.oclc.org/ooxml/presentationml/main";
 const POLICY: &str = "cortex-theme-starter-v3";
-const VALIDATOR_VERSION: u32 = 4;
+const VALIDATOR_VERSION: u32 = 5;
 
 #[derive(Clone, Copy)]
 struct CapabilityContract {
@@ -318,6 +318,13 @@ fn report_layout_geometry(
                     None,
                 ));
             }
+            if region.generation_frame.is_some_and(|frame| {
+                !rect_within_page(frame, page_size) || !region.frame.is_within(frame)
+            }) || region.minimum_font_size > 40_000
+            {
+                diagnostics.push(diagnostic(DeckDiagnosticCode::TEMPLATE_INVALID_PLACEHOLDER,
+                    "generation bounds must contain the preferred frame and remain on the slide; minimum type must be bounded".to_owned(), None));
+            }
             if let Some(bleed) = region.bleed_frame {
                 if !rect_within_page(bleed, page_size) || !region.frame.is_within(bleed) {
                     diagnostics.push(diagnostic(
@@ -359,7 +366,10 @@ fn report_layout_geometry(
                 continue;
             };
             for region in &layout_regions {
-                let envelope = region.bleed_frame.unwrap_or(region.frame);
+                let envelope = region
+                    .generation_frame
+                    .or(region.bleed_frame)
+                    .unwrap_or(region.frame);
                 if rects_overlap(asset_frame, envelope) {
                     diagnostics.push(diagnostic(
                         DeckDiagnosticCode::TEMPLATE_INVALID_PLACEHOLDER,
@@ -500,6 +510,10 @@ impl LayoutCompiler<'_> {
                 continue;
             };
             *role_counts.entry(region_role).or_default() += 1;
+            if placeholder.invalid_generation {
+                self.diagnostics.push(diagnostic(DeckDiagnosticCode::TEMPLATE_INVALID_PLACEHOLDER,
+                    "generation metadata must have one complete bounded region and a positive type minimum".to_owned(), Some(placeholder.source.clone())));
+            }
             let inherited = master_placeholders
                 .iter()
                 .find(|master| master.identity == placeholder.identity);
@@ -560,6 +574,8 @@ impl LayoutCompiler<'_> {
                 } else {
                     None
                 },
+                generation_frame: placeholder.generation_frame,
+                minimum_font_size: placeholder.minimum_font_size,
                 margins,
                 text_levels,
                 accepts: accepted_roles(region_role),
@@ -791,6 +807,9 @@ struct PlaceholderFacts {
     identity: PlaceholderIdentity,
     frame: Option<EmuRect>,
     margins: PartialMargins,
+    generation_frame: Option<EmuRect>,
+    minimum_font_size: u32,
+    invalid_generation: bool,
     text_levels: Vec<TemplateTextLevel>,
     source: SourceRange,
 }
@@ -810,7 +829,40 @@ fn placeholder_facts(
                     .and_then(|value| value.parse().ok())
                     .unwrap_or(0),
             };
+            let generation = elements.descendants(shape).find(|element| {
+                element.local == "region"
+                    && element.namespace.as_deref() == Some("urn:wasmppt:deck:generation:1")
+            });
+            let generation_count = elements
+                .descendants(shape)
+                .filter(|element| {
+                    element.local == "region"
+                        && element.namespace.as_deref() == Some("urn:wasmppt:deck:generation:1")
+                })
+                .count();
+            let invalid_generation = generation_count > 1
+                || generation.is_some_and(|element| {
+                    ["x", "y", "cx", "cy"]
+                        .iter()
+                        .any(|name| parse_i64(element, name).is_none())
+                        || attr(element, "minFontSize")
+                            .and_then(|value| value.parse::<u32>().ok())
+                            .is_none_or(|size| size == 0 || size > 40_000)
+                });
             Some(PlaceholderFacts {
+                invalid_generation,
+                generation_frame: generation.and_then(|element| {
+                    Some(EmuRect {
+                        x: parse_i64(element, "x")?,
+                        y: parse_i64(element, "y")?,
+                        width: parse_i64(element, "cx")?,
+                        height: parse_i64(element, "cy")?,
+                    })
+                }),
+                minimum_font_size: generation
+                    .and_then(|element| attr(element, "minFontSize"))
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(0),
                 identity,
                 frame: parse_frame(elements, shape),
                 margins: parse_margins(elements, shape),

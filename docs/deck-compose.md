@@ -40,6 +40,7 @@ target contract exists.
 
 Each shape and relationship receives a deterministic source-order identifier. Hidden state is
 written on the physical slide. Derived continuation pages add only the planned repeated heading;
+the first physical page's explicit frame and type size are reused without another fit pass;
 ordinal, total, and label remain plan metadata for navigation and accessibility. The composer does
 not compete with template-owned slide-number fields by materializing another visible counter.
 
@@ -141,3 +142,8 @@ its nested workbook.
 - [Cortex Theme Starter compiler](deck-template.md) defines layout discovery and template policy.
 - [Semantic layout and pagination](deck-layout.md) defines physical page and fragment planning.
 - [OPC and ZIP substrate](opc.md) defines immutable overlays and exact streaming export.
+
+Generated text boxes explicitly use `a:noAutofit`: the resolved font size and
+shape bounds already encode the semantic planner's decision. No renderer-only
+geometry correction is allowed. A partial plan composes ready pages solely for
+preview; the Wasm generation entrypoint and public SDK refuse its export.

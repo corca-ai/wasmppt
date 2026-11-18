@@ -171,6 +171,7 @@ pub(crate) fn encode_plan(plan: &DeckPlan, limits: &DeckLimits) -> Result<Vec<u8
     writer.id(plan.template_id)?;
     writer.emu_size(plan.page_size)?;
     writer.vec(&plan.pages, |writer, page| writer.physical_page(page))?;
+    writer.vec(&plan.failed_slides, |writer, id| writer.id(*id))?;
     writer.vec(&plan.diagnostics, |writer, diagnostic| {
         writer.diagnostic(diagnostic)
     })?;
@@ -202,6 +203,7 @@ pub(crate) fn decode_plan(bytes: &[u8], limits: &DeckLimits) -> Result<DeckPlan,
         template_id,
         page_size,
         pages,
+        failed_slides: reader.vec("failed slides", Reader::id)?,
         diagnostics: reader.vec("plan diagnostics", Reader::diagnostic)?,
     };
     reader.finish()?;
@@ -549,6 +551,11 @@ impl<'a> Writer<'a> {
         if let Some(frame) = region.bleed_frame {
             self.rect(frame)?;
         }
+        self.bool(region.generation_frame.is_some())?;
+        if let Some(frame) = region.generation_frame {
+            self.rect(frame)?;
+        }
+        self.u32(region.minimum_font_size)?;
         self.text_margins(region.margins)?;
         self.vec(&region.text_levels, |writer, level| {
             writer.template_text_level(level)
@@ -1171,6 +1178,12 @@ impl<'a> Reader<'a> {
             } else {
                 None
             },
+            generation_frame: if self.bool()? {
+                Some(self.rect()?)
+            } else {
+                None
+            },
+            minimum_font_size: self.u32()?,
             margins: self.text_margins()?,
             text_levels: self.vec("template text levels", Reader::template_text_level)?,
             accepts: self.vec("accepted semantic roles", |reader| {

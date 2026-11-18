@@ -350,7 +350,7 @@ fn compiles_the_v3_envelope_contract_deterministically() {
         second.plan.encode(&DeckLimits::default()).unwrap()
     );
     assert_eq!(first.plan.compiler_policy, "cortex-theme-starter-v3");
-    assert_eq!(first.plan.validator_version, 4);
+    assert_eq!(first.plan.validator_version, 5);
 }
 
 #[test]
@@ -627,4 +627,56 @@ fn rejects_an_exact_embedded_package_relationship() {
         diagnostic.code == DeckDiagnosticCode::TEMPLATE_UNSAFE_CONTENT
             && diagnostic.message.contains("package.xml.rels")
     }));
+}
+
+#[test]
+fn generation_metadata_has_explicit_bounds_and_type_minimums() {
+    let extension = r#"<p:extLst><p:ext uri="urn:wasmppt:deck:generation:1"><w:region xmlns:w="urn:wasmppt:deck:generation:1" x="500000" y="200000" cx="9000000" cy="4800000" minFontSize="2400"/></p:ext></p:extLst>"#;
+    let title = placeholder(21, "title", 3, false, "Generation")
+        .replace("</p:nvPr>", &format!("{extension}</p:nvPr>"));
+    let bytes = starter_with_content(
+        "Generation",
+        vec![],
+        Some(vec![title, placeholder(22, "body", 4, true, "Generation")]),
+    );
+    let compiled = ThemeTemplateCompiler::default().compile(bytes).unwrap();
+    assert!(compiled.cacheable, "{:?}", compiled.plan.diagnostics);
+    let title = compiled
+        .plan
+        .regions
+        .iter()
+        .find(|region| region.placeholder.index == 3)
+        .unwrap();
+    assert_eq!(title.minimum_font_size, 2400);
+    assert_eq!(title.generation_frame.unwrap().height, 4800000);
+}
+
+#[test]
+fn malformed_generation_metadata_cannot_silently_become_a_fixed_template() {
+    for attrs in [
+        r#"x="0" y="0" cx="1" minFontSize="2400""#,
+        r#"x="0" y="0" cx="999999999" cy="999999999" minFontSize="2400""#,
+        r#"x="0" y="0" cx="9000000" cy="4800000" minFontSize="invalid""#,
+    ] {
+        let extension = format!(
+            r#"<p:extLst><p:ext uri="urn:wasmppt:deck:generation:1"><w:region xmlns:w="urn:wasmppt:deck:generation:1" {attrs}/></p:ext></p:extLst>"#
+        );
+        let title = placeholder(21, "title", 3, false, "Invalid")
+            .replace("</p:nvPr>", &format!("{extension}</p:nvPr>"));
+        let bytes = starter_with_content(
+            "Invalid",
+            vec![],
+            Some(vec![title, placeholder(22, "body", 4, true, "Invalid")]),
+        );
+        let compiled = ThemeTemplateCompiler::default().compile(bytes).unwrap();
+        assert!(!compiled.cacheable);
+        assert!(
+            compiled
+                .plan
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code
+                    == DeckDiagnosticCode::TEMPLATE_INVALID_PLACEHOLDER)
+        );
+    }
 }

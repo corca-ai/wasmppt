@@ -5,7 +5,7 @@ Canvas and HTML, and `/node` for an in-process Node engine. Both engines expose 
 API over the checked-in Rust/Wasm implementation. The [Starter POTX contract](deck-template.md)
 is required. Arbitrary authored templates use the separate [binding API](browser.md).
 
-For formula-adjacent prose without registered font bytes, browser hosts can enable
+For headers and formula-adjacent prose without registered font bytes, browser hosts can enable
 `createBrowserEngine({ worker, measureInlineText: true })`. The module Worker measures inline
 text with OffscreenCanvas using the Canvas renderer's font resolution and tokenization. The
 measurement module loads on the first requested snapshot without exact font bytes; default
@@ -186,3 +186,19 @@ remain governed by [composition](deck-compose.md) and [architecture](architectur
 registered resources, exact fonts, Unicode mapping and retained budgets. The
 [browser contract test](../packages/wasmppt/test/deck-api.browser.mjs) runs with the normal browser
 host gate and checks concurrent paint publication, hit mapping and selected offline output.
+
+## Partial revisions
+
+A recoverable `plan-atomic-overflow` accepts an immutable snapshot containing
+ready physical `pages`, source-mapped diagnostics, and `failedSlides` entries
+with `logicalSlideKey` and `hidden`. Hosts merge that inventory with their
+ordered input to show an error card at the authored slide position. Error cards
+are host UI and never synthetic PPTX pages. `pages[index]` remains the native
+physical page index, including after a failed logical slide. A deck with only
+failed slides has an empty physical page inventory. Subsequent edits can recover
+without changing retained older snapshots. Invalid input, invalid templates,
+resource failures and work limits still reject the revision globally.
+
+`assertComplete()`, `exportPptx()` and `exportHtml()` reject an incomplete
+snapshot, including explicit page selections. A partial preview cannot silently
+become a downloadable deck with missing authored content.

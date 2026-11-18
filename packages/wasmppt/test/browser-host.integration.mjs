@@ -573,16 +573,12 @@ try {
     } catch (error) {
       invalidDeckSpecError = error.envelope
     }
-    let atomicOverflowError
-    try {
-      await client.createDeckSession(
-        deckTemplate.handle,
-        await fetch('/deck-gate-atomic-overflow.wdsf')
-          .then((response) => response.arrayBuffer()),
-      )
-    } catch (error) {
-      atomicOverflowError = error.envelope
-    }
+    const partial = await client.createDeckSession(
+      deckTemplate.handle,
+      await fetch('/deck-gate-atomic-overflow.wdsf').then(response => response.arrayBuffer()),
+    )
+    const atomicOverflow = partial.diagnostics
+    await client.releaseDeckSession(partial.handle)
     const deckEvidence = {
       cacheable: deckTemplate.cacheable,
       templatePlanBase64: encodeBase64(deckTemplate.plan),
@@ -611,7 +607,7 @@ try {
       },
       visualQuality: deckVisualQuality,
       invalidDeckSpecError,
-      atomicOverflowError,
+      atomicOverflow,
     }
     await client.releaseDeckSession(deckSession.handle)
     await client.releaseDeckTemplate(deckTemplate.handle)
@@ -1472,8 +1468,7 @@ try {
   )
   assert.equal(result.deckEvidence.invalidDeckSpecError.domain, 'payload')
   assert.equal(result.deckEvidence.invalidDeckSpecError.code, 'invalid-deck-spec')
-  assert.equal(result.deckEvidence.atomicOverflowError.domain, 'layout')
-  assert.equal(result.deckEvidence.atomicOverflowError.code, 'plan-atomic-overflow')
+  assert.ok(result.deckEvidence.atomicOverflow.some(item => item.name === 'plan-atomic-overflow' && item.severity === 'error'))
   assert(
     result.deckEvidence.timings.summary.coldPlanMs
       <= performanceBudgets.browserScalarWasm.maximumDeckPlanMs,

@@ -323,6 +323,21 @@ impl WasmpptEngine {
         self.deck_retained_bytes() as f64
     }
 
+    /// Failed logical slides remain source-owned even though they produce no PPTX pages.
+    pub fn deck_snapshot_failed_slides(
+        &self,
+        handle: u32,
+        revision: u32,
+    ) -> Result<Array, JsValue> {
+        let record = self.deck_session(handle)?;
+        require_deck_revision(record, revision)?;
+        let result = Array::new();
+        for id in &record.plan.failed_slides {
+            result.push(&JsValue::from(id.to_string()));
+        }
+        Ok(result)
+    }
+
     /// WPDL semantic IDs identify physical fragments; retain their semantic-node ownership.
     pub fn deck_snapshot_sources(&self, handle: u32, revision: u32) -> Result<Array, JsValue> {
         let record = self.deck_session(handle)?;

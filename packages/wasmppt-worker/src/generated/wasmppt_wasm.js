@@ -474,6 +474,27 @@ export class WasmpptEngine {
         }
     }
     /**
+     * Failed logical slides remain source-owned even though they produce no PPTX pages.
+     * @param {number} handle
+     * @param {number} revision
+     * @returns {Array<any>}
+     */
+    deck_snapshot_failed_slides(handle, revision) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.wasmpptengine_deck_snapshot_failed_slides(retptr, this.__wbg_ptr, handle, revision);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return takeObject(r0);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * WPDL semantic IDs identify physical fragments; retain their semantic-node ownership.
      * @param {number} handle
      * @param {number} revision

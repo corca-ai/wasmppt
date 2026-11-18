@@ -172,3 +172,42 @@ test('template registration respects the retained budget and rejects invalid num
   await assert.rejects(engine.prepareDeckTemplate(templateBytes), error => error.code === 'limit-exceeded')
   assert.equal(await engine.accountedBytes(), 0)
 })
+
+
+test('recoverable layout failures keep neighboring slides, source diagnostics and immutable recovery', async t => {
+  const { deck, template } = await fixture(t)
+  const input = spec()
+  const broken = structuredClone(input.slides[0])
+  broken.key = 'broken'
+  broken.nodes[0].key = 'broken-heading'
+  broken.nodes[0].content.text.runs[0].text = 'Cannot fit\n'.repeat(200)
+  const after = structuredClone(input.slides[0])
+  after.key = 'after'
+  after.nodes[0].key = 'after-heading'
+  after.nodes[0].content.text.runs[0].text = 'After failure'
+  input.slides.push(broken, after)
+  const partial = await replace(deck, template, input)
+  assert.deepEqual(partial.failedSlides, [{ logicalSlideKey: 'broken', hidden: false }])
+  assert.deepEqual(partial.pages.map(page => page.logicalSlideKey), ['cover', 'after'])
+  assert.ok(partial.diagnostics.some(item => item.code === 'plan-atomic-overflow' && item.nodeKey === 'broken-heading' && item.source?.source === 'slides.md'))
+  assert.throws(() => partial.exportPptx(), /failed logical slides/)
+  const { exportHtml } = await import('../dist/browser.js')
+  await assert.rejects(exportHtml(partial), /failed logical slides/)
+  assert.ok((await partial.resolvePage(partial.pages[1].id)).commands.some(command => command.kind === 'draw-rich-text' && command.frame.paragraphs.some(paragraph => paragraph.runs.some(run => run.text === 'After failure'))))
+  input.slides[1].nodes[0].content.text.runs[0].text = 'Repaired'
+  const recovered = await replace(deck, template, input)
+  assert.deepEqual(recovered.failedSlides, [])
+  assert.equal(recovered.pages.length, 3)
+  assert.ok((await pptx(recovered)).length > 0)
+  assert.equal(partial.failedSlides.length, 1, 'repair does not mutate a retained revision')
+  await partial.dispose(); await recovered.dispose()
+})
+
+test('an entirely unplaceable deck still has a source-owned failed inventory', async t => {
+  const { deck, template } = await fixture(t)
+  const failed = await replace(deck, template, spec('Impossible\n'.repeat(200)))
+  assert.equal(failed.pages.length, 0)
+  assert.deepEqual(failed.failedSlides, [{ logicalSlideKey: 'cover', hidden: false }])
+  assert.throws(() => failed.exportPptx(), /failed logical slides/)
+  await failed.dispose()
+})

@@ -693,14 +693,14 @@ async function updateAccessibleOverlay(
           ? 'below 0 linear-gradient(transparent, rgba(0, 0, 0, 0.22))'
           : 'initial',
       })
-      span.dataset.paragraphIndex = String(run.paragraphIndex)
-      if (run.hyperlink !== undefined) span.dataset.hyperlink = run.hyperlink
+      span.dataset['paragraphIndex'] = String(run.paragraphIndex)
+      if (run.hyperlink !== undefined) span.dataset['hyperlink'] = run.hyperlink
       if (span instanceof HTMLAnchorElement && runHref !== undefined) {
         span.href = runHref
         span.style.pointerEvents = 'auto'
       }
-      if (run.sourceStart !== undefined) span.dataset.sourceStart = String(run.sourceStart)
-      if (run.sourceEnd !== undefined) span.dataset.sourceEnd = String(run.sourceEnd)
+      if (run.sourceStart !== undefined) span.dataset['sourceStart'] = String(run.sourceStart)
+      if (run.sourceEnd !== undefined) span.dataset['sourceEnd'] = String(run.sourceEnd)
       return span
     }))
     wrapper.replaceChildren(...runElements)

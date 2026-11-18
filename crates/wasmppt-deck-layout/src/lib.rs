@@ -207,6 +207,7 @@ impl DeckPlanner {
 
         let mut diagnostics = Vec::new();
         let mut pages = Vec::new();
+        let mut failed_slides = Vec::new();
         let mut measurer = Measurer::new(fonts, spec, &self.policy.limits);
         measurer.inline_measurer = inline_measurer;
         measurer.inline_theme = Some(&template.theme);
@@ -218,9 +219,14 @@ impl DeckPlanner {
                     Some(slide.id),
                 )
             })?;
-            let mut planned =
-                self.plan_slide(slide, layout, template, &mut measurer, &mut diagnostics)?;
-            pages.append(&mut planned);
+            match self.plan_slide(slide, layout, template, &mut measurer, &mut diagnostics) {
+                Ok(mut planned) => pages.append(&mut planned),
+                Err(failure) if failure.code == DeckDiagnosticCode::PLAN_ATOMIC_OVERFLOW => {
+                    failed_slides.push(slide.id);
+                    diagnostics.extend(failure.diagnostics);
+                }
+                Err(failure) => return Err(failure),
+            }
         }
         if pages.len() > contract_limits.max_physical_pages {
             return Err(error(
@@ -235,6 +241,7 @@ impl DeckPlanner {
             template_id: template.id,
             page_size: template.page_size,
             pages,
+            failed_slides,
             diagnostics,
         };
         if inline_measurer.is_some() {
@@ -288,7 +295,8 @@ impl DeckPlanner {
             &self.policy,
             contract_limits,
         );
-        if previous_plan.id != expected_previous_id
+        if !previous_plan.failed_slides.is_empty()
+            || previous_plan.id != expected_previous_id
             || previous_plan.spec_id != previous_spec.id
             || previous_plan.template_id != template.id
         {
@@ -374,7 +382,22 @@ impl DeckPlanner {
                 )
             })?;
             let planned =
-                self.plan_slide(slide, layout, template, &mut measurer, &mut diagnostics)?;
+                match self.plan_slide(slide, layout, template, &mut measurer, &mut diagnostics) {
+                    Ok(planned) => planned,
+                    Err(failure) if failure.code == DeckDiagnosticCode::PLAN_ATOMIC_OVERFLOW => {
+                        let mut incompatible = previous_plan.clone();
+                        incompatible.failed_slides.push(slide.id);
+                        return self.replan(
+                            previous_spec,
+                            &incompatible,
+                            next_spec,
+                            template,
+                            fonts,
+                            contract_limits,
+                        );
+                    }
+                    Err(failure) => return Err(failure),
+                };
             invalidated_pages.extend(planned.iter().map(|page| page.id));
             pages.extend(planned);
         }
@@ -407,6 +430,7 @@ impl DeckPlanner {
             template_id: template.id,
             page_size: template.page_size,
             pages,
+            failed_slides: Vec::new(),
             diagnostics,
         };
         let report = validate_deck_plan(next_spec, template, &plan, contract_limits);
@@ -451,13 +475,146 @@ impl DeckPlanner {
         diagnostics: &mut Vec<DeckDiagnostic>,
     ) -> Result<Vec<PhysicalPage>, PlanError> {
         let regions = layout_regions(layout, template);
+        let (headers, _) = split_headers(&slide.nodes, layout.capability);
+        let header_region = headers
+            .first()
+            .and_then(|node| compatible_region(node, &regions));
+        let floor = header_region.map_or(self.policy.readable_floor, |region| {
+            if region.minimum_font_size == 0 {
+                self.policy.readable_floor
+            } else {
+                region.minimum_font_size
+            }
+        });
+        let mut font_size = header_region
+            .and_then(|region| region.text_levels.first())
+            .and_then(|level| level.font_size)
+            .unwrap_or(2_400)
+            .max(floor);
+        loop {
+            let mut attempt_diagnostics = Vec::new();
+            match self.plan_slide_at_size(
+                slide,
+                layout,
+                template,
+                measurer,
+                &mut attempt_diagnostics,
+                font_size,
+            ) {
+                Ok(pages) => {
+                    diagnostics.extend(attempt_diagnostics);
+                    return Ok(pages);
+                }
+                Err(failure)
+                    if failure.code == DeckDiagnosticCode::PLAN_ATOMIC_OVERFLOW
+                        && font_size > floor =>
+                {
+                    // Once the preferred header frame suffices, shrinking the title cannot
+                    // release more body space. Do not repeat an identical pagination search.
+                    let can_release_space =
+                        if let (Some(node), Some(region)) = (headers.first(), header_region) {
+                            measurer
+                                .measure(
+                                    node,
+                                    FragmentSlice::Whole,
+                                    region,
+                                    region.frame,
+                                    font_size,
+                                    0,
+                                )
+                                .map_err(|failure| measure_error(failure, node.id))?
+                                .height
+                                > region.frame.height
+                        } else {
+                            false
+                        };
+                    if !can_release_space {
+                        return Err(failure);
+                    }
+                    font_size = font_size
+                        .saturating_sub(self.policy.font_step.max(1))
+                        .max(floor);
+                }
+                Err(failure) => return Err(failure),
+            }
+        }
+    }
+
+    fn plan_slide_at_size(
+        &self,
+        slide: &LogicalSlide,
+        layout: &TemplateLayout,
+        template: &DeckTemplatePlan,
+        measurer: &mut Measurer<'_>,
+        diagnostics: &mut Vec<DeckDiagnostic>,
+        header_font_size: u32,
+    ) -> Result<Vec<PhysicalPage>, PlanError> {
+        let mut owned_regions = layout_regions(layout, template)
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>();
         let (header_nodes, body_nodes) = split_headers(&slide.nodes, layout.capability);
+        if let Some(node) = header_nodes.first() {
+            let refs = owned_regions.iter().collect::<Vec<_>>();
+            if let Some(header) = compatible_region(node, &refs) {
+                let measured = measurer
+                    .measure(
+                        node,
+                        FragmentSlice::Whole,
+                        header,
+                        header.frame,
+                        header_font_size,
+                        0,
+                    )
+                    .map_err(|failure| measure_error(failure, node.id))?;
+                let height = measured.height.max(header.frame.height);
+                let expanded = EmuRect {
+                    height,
+                    ..header.frame
+                };
+                if !expanded.is_within(header.generation_frame.unwrap_or(header.frame)) {
+                    return Err(error(
+                        DeckDiagnosticCode::PLAN_ATOMIC_OVERFLOW,
+                        "title cannot fit inside the template generation bounds at this type size",
+                        Some(node.id),
+                    ));
+                }
+                let id = header.id;
+                let old_bottom = header.frame.y.saturating_add(header.frame.height);
+                let delta = height - header.frame.height;
+                for region in &mut owned_regions {
+                    if region.id == id {
+                        region.frame = expanded;
+                    } else if region.frame.y >= old_bottom && delta > 0 {
+                        region.frame.y = region.frame.y.saturating_add(delta);
+                        region.frame.height = region.frame.height.saturating_sub(delta);
+                        if let Some(bleed) = &mut region.bleed_frame {
+                            bleed.y = bleed.y.saturating_add(delta);
+                            bleed.height = bleed.height.saturating_sub(delta);
+                        }
+                        if !region.frame.is_positive() {
+                            return Err(error(
+                                DeckDiagnosticCode::PLAN_ATOMIC_OVERFLOW,
+                                "title leaves no usable body frame",
+                                Some(node.id),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        let regions = owned_regions.iter().collect::<Vec<_>>();
         let heading = header_nodes
             .iter()
             .find(|node| matches!(node.role, SemanticRole::Title | SemanticRole::Section))
             .map(|node| node.id);
-        let header_placements =
-            self.place_headers(&header_nodes, &regions, measurer, diagnostics)?;
+        let header_placements = self.place_headers(
+            &header_nodes,
+            &regions,
+            measurer,
+            diagnostics,
+            header_font_size,
+        )?;
         let units = build_flow(
             body_nodes,
             &slide.media_text_relations,
@@ -530,6 +687,7 @@ impl DeckPlanner {
         regions: &[&TemplateRegion],
         measurer: &mut Measurer<'_>,
         diagnostics: &mut Vec<DeckDiagnostic>,
+        font_size: u32,
     ) -> Result<Vec<PlannedRegion>, PlanError> {
         let mut placements = Vec::new();
         for node in nodes {
@@ -541,7 +699,14 @@ impl DeckPlanner {
                 ));
             };
             let measured = measurer
-                .measure(node, FragmentSlice::Whole, region, region.frame, 0, 0)
+                .measure(
+                    node,
+                    FragmentSlice::Whole,
+                    region,
+                    region.frame,
+                    font_size,
+                    0,
+                )
                 .map_err(|failure| measure_error(failure, node.id))?;
             if measured.height > region.frame.height {
                 return Err(error(
@@ -803,7 +968,7 @@ impl DeckPlanner {
                                 unit.slice,
                                 region,
                                 frame,
-                                self.policy.readable_floor,
+                                region.minimum_font_size.max(self.policy.readable_floor),
                                 0,
                             )
                             .map_err(|failure| measure_error(failure, unit.node.id))?
@@ -1017,7 +1182,12 @@ impl DeckPlanner {
             .first()
             .and_then(|level| level.font_size)
             .unwrap_or(2_000)
-            .max(self.policy.readable_floor);
+            .max(
+                target
+                    .region
+                    .minimum_font_size
+                    .max(self.policy.readable_floor),
+            );
         if let Some((node, slice)) = contiguous_table_group(group) {
             return self.fit_table_group(node, slice, lane_frame, initial_size, target, measurer);
         }
@@ -1187,12 +1357,20 @@ impl DeckPlanner {
                     bottom: cursor.saturating_sub(self.policy.gap),
                 }));
             }
-            if font_size <= self.policy.readable_floor {
+            if font_size
+                <= target
+                    .region
+                    .minimum_font_size
+                    .max(self.policy.readable_floor)
+            {
                 return Ok(None);
             }
-            font_size = font_size
-                .saturating_sub(self.policy.font_step.max(1))
-                .max(self.policy.readable_floor);
+            font_size = font_size.saturating_sub(self.policy.font_step.max(1)).max(
+                target
+                    .region
+                    .minimum_font_size
+                    .max(self.policy.readable_floor),
+            );
         }
     }
 
@@ -1362,12 +1540,20 @@ impl DeckPlanner {
                 }
             }
 
-            if font_size <= self.policy.readable_floor {
+            if font_size
+                <= target
+                    .region
+                    .minimum_font_size
+                    .max(self.policy.readable_floor)
+            {
                 return Ok(None);
             }
-            font_size = font_size
-                .saturating_sub(self.policy.font_step.max(1))
-                .max(self.policy.readable_floor);
+            font_size = font_size.saturating_sub(self.policy.font_step.max(1)).max(
+                target
+                    .region
+                    .minimum_font_size
+                    .max(self.policy.readable_floor),
+            );
         }
     }
 
@@ -1506,12 +1692,20 @@ impl DeckPlanner {
                         .max(text_bounds.y.saturating_add(text_bounds.height)),
                 }));
             }
-            if font_size <= self.policy.readable_floor {
+            if font_size
+                <= target
+                    .region
+                    .minimum_font_size
+                    .max(self.policy.readable_floor)
+            {
                 return Ok(None);
             }
-            font_size = font_size
-                .saturating_sub(self.policy.font_step)
-                .max(self.policy.readable_floor);
+            font_size = font_size.saturating_sub(self.policy.font_step).max(
+                target
+                    .region
+                    .minimum_font_size
+                    .max(self.policy.readable_floor),
+            );
         }
     }
 
@@ -1572,12 +1766,20 @@ impl DeckPlanner {
                     bottom: fragment_frame.y.saturating_add(fragment_frame.height),
                 }));
             }
-            if font_size <= self.policy.readable_floor {
+            if font_size
+                <= target
+                    .region
+                    .minimum_font_size
+                    .max(self.policy.readable_floor)
+            {
                 return Ok(None);
             }
-            font_size = font_size
-                .saturating_sub(self.policy.font_step.max(1))
-                .max(self.policy.readable_floor);
+            font_size = font_size.saturating_sub(self.policy.font_step.max(1)).max(
+                target
+                    .region
+                    .minimum_font_size
+                    .max(self.policy.readable_floor),
+            );
         }
     }
 }
@@ -3747,7 +3949,7 @@ fn plan_id(
     limits: &DeckLimits,
 ) -> StableId {
     let mut digest = Sha256::new();
-    digest.update(b"wasmppt/deck-layout/plan/v5\0");
+    digest.update(b"wasmppt/deck-layout/plan/v6\0");
     match spec.encode(limits) {
         Ok(encoded) => digest.update(Sha256::digest(encoded)),
         Err(_) => digest.update(spec.id.as_bytes()),
@@ -5833,16 +6035,144 @@ mod tests {
                 }),
             }],
         );
-        let failure = DeckPlanner::default()
+        let plan = DeckPlanner::default()
             .plan(
                 &spec,
                 &template(650_000),
                 &FontCatalog::default(),
                 &limits(),
             )
-            .unwrap_err();
+            .unwrap();
+        assert_eq!(plan.failed_slides, vec![spec.logical_slides[0].id]);
+        assert!(plan.pages.is_empty());
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == DeckDiagnosticCode::PLAN_ATOMIC_OVERFLOW)
+        );
+    }
 
-        assert_eq!(failure.code, DeckDiagnosticCode::PLAN_ATOMIC_OVERFLOW);
+    #[test]
+    fn measured_title_expansion_moves_body_without_shrinking_type() {
+        let spec = spec(vec![
+            text_node(
+                3,
+                SemanticRole::Title,
+                SplitPolicy::Never,
+                "A long measured title that deliberately wraps onto several lines without reducing the preferred title typography",
+            ),
+            text_node(4, SemanticRole::Prose, SplitPolicy::Text, "Body content"),
+        ]);
+        let mut template = template(3_000_000);
+        template.regions[0].frame.width = 4_500_000;
+        template.regions[0].generation_frame = Some(EmuRect {
+            height: 3_000_000,
+            ..template.regions[0].frame
+        });
+        template.regions[0].minimum_font_size = 2_400;
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert!(plan.failed_slides.is_empty());
+        let fragments = plan.pages[0]
+            .regions
+            .iter()
+            .flat_map(|region| &region.fragments)
+            .collect::<Vec<_>>();
+        let title = fragments
+            .iter()
+            .find(|fragment| fragment.source_node_id == id(3))
+            .unwrap();
+        let body = fragments
+            .iter()
+            .find(|fragment| fragment.source_node_id == id(4))
+            .unwrap();
+        assert_eq!(title.type_choice.font_size, 2_800);
+        assert!(title.frame.height > template.regions[0].frame.height);
+        assert!(body.frame.y >= title.frame.y + title.frame.height);
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn title_shrinks_only_when_generation_bounds_are_exhausted() {
+        let spec = spec(vec![text_node(
+            3,
+            SemanticRole::Title,
+            SplitPolicy::Never,
+            "First line\nSecond line",
+        )]);
+        let mut template = template(3_000_000);
+        template.regions[0].frame.height = 750_000;
+        template.regions[0].minimum_font_size = 2_400;
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert!(plan.failed_slides.is_empty());
+        let size = plan.pages[0].regions[0].fragments[0].type_choice.font_size;
+        assert!((2_400..2_800).contains(&size));
+    }
+
+    #[test]
+    fn failed_middle_slide_preserves_neighbors_and_recovers_on_edit() {
+        let mut spec = spec(vec![text_node(
+            3,
+            SemanticRole::Title,
+            SplitPolicy::Never,
+            "Before",
+        )]);
+        let mut failed = spec.logical_slides[0].clone();
+        failed.id = id(8);
+        failed.nodes = vec![text_node(
+            9,
+            SemanticRole::Title,
+            SplitPolicy::Never,
+            &"Impossible title\n".repeat(100),
+        )];
+        let mut after = spec.logical_slides[0].clone();
+        after.id = id(10);
+        after.nodes = vec![text_node(
+            11,
+            SemanticRole::Title,
+            SplitPolicy::Never,
+            "After",
+        )];
+        spec.logical_slides.extend([failed, after]);
+        let template = template(3_000_000);
+        let planner = DeckPlanner::default();
+        let plan = planner
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert_eq!(plan.failed_slides, vec![id(8)]);
+        assert_eq!(
+            plan.pages
+                .iter()
+                .map(|page| page.logical_slide_id)
+                .collect::<Vec<_>>(),
+            vec![spec.logical_slides[0].id, id(10)]
+        );
+        let mut next = spec.clone();
+        next.logical_slides[1].nodes = vec![text_node(
+            9,
+            SemanticRole::Title,
+            SplitPolicy::Never,
+            "Repaired",
+        )];
+        let update = planner
+            .replan(
+                &spec,
+                &plan,
+                &next,
+                &template,
+                &FontCatalog::default(),
+                &limits(),
+            )
+            .unwrap();
+        let full = planner
+            .plan(&next, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert_eq!(update.plan, full);
+        assert!(full.failed_slides.is_empty());
+        assert_eq!(full.pages.len(), 3);
     }
 
     #[test]
@@ -6279,6 +6609,8 @@ mod tests {
                         height: 700_000,
                     },
                     bleed_frame: None,
+                    generation_frame: None,
+                    minimum_font_size: 0,
                     margins: TextMargins::default(),
                     text_levels: vec![text_level(2_800)],
                     accepts: vec![SemanticRole::Title, SemanticRole::Section],
@@ -6299,6 +6631,8 @@ mod tests {
                         height: body_height,
                     },
                     bleed_frame: None,
+                    generation_frame: None,
+                    minimum_font_size: 0,
                     margins: TextMargins::default(),
                     text_levels: vec![text_level(2_000)],
                     accepts: vec![
@@ -6391,6 +6725,8 @@ mod tests {
                 height: body_height.min(PAGE.height - 1_000_000),
             },
             bleed_frame: None,
+            generation_frame: None,
+            minimum_font_size: 0,
             margins: TextMargins::default(),
             text_levels: vec![text_level(2_800)],
             accepts: vec![

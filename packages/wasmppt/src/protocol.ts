@@ -526,6 +526,7 @@ export interface WorkerEngine {
   describe_deck_template(handle: number): unknown[]
   deck_accounted_bytes(): number
   deck_snapshot_sources(handle: number, revision: number): unknown[]
+  deck_snapshot_failed_slides(handle: number, revision: number): unknown[]
   prepare_deck_template(template: Uint8Array): number
   prepare_deck_template_with_plan(template: Uint8Array, plan: Uint8Array): number
   deck_template_plan(handle: number): Uint8Array

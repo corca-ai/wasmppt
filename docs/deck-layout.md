@@ -168,8 +168,23 @@ collections reject stack or generic flow assignments that would discard their se
 table rows use only the table-wide topology. Source order, contiguous flow partitions, and authored
 relation groups are hard constraints rather than soft cost terms.
 
-Text may shrink only to `PlannerPolicy::readable_floor`. An atomic group that cannot fit any legal
-candidate at that floor fails with `PLAN_ATOMIC_OVERFLOW`; it is not clipped or silently split.
+Text may shrink only to its template minimum, bounded below by the planner's body
+readability policy. Header planning first measures the preferred type size and
+expands the title vertically inside its template generation envelope. The same
+height delta moves the body and media bleed down, reducing their remaining
+height; ordinary body pagination then runs in that resolved region. If this
+cannot fit, title type decreases by the bounded font step toward its own minimum.
+There is no page-percentage title cap. Every accepted fragment retains explicit
+geometry and typography. Continuation chrome uses the first page's exact title
+frame and type size.
+
+An atomic group that cannot fit any legal candidate at its floor produces
+`PLAN_ATOMIC_OVERFLOW`. Its logical slide enters `DeckPlan::failed_slides` with
+source diagnostics; other slides continue. Validation proves exact ordered
+coverage of ready slides and a unique, diagnosed, source-owned failed inventory
+with no physical output. Failed prior revisions conservatively use full
+replanning; unchanged complete revisions retain the dependency-proven fast path.
+Work limits and invalid inputs remain whole-revision errors.
 
 A `Prose` or `Subtitle` child sequence whose same-role leaves contain both text and SVG formulas is
 an inline formula flow. The planner measures each text span at the selected template type size,

@@ -290,6 +290,26 @@ impl DeckComposer {
         let slide_parts = (1..=plan.pages.len())
             .map(|index| format!("ppt/slides/slide{index}.xml"))
             .collect::<Vec<_>>();
+        let first_headings = plan
+            .pages
+            .iter()
+            .filter(|page| page.continuation.ordinal == 1)
+            .filter_map(|page| {
+                page.regions
+                    .iter()
+                    .flat_map(|region| &region.fragments)
+                    .find(|fragment| {
+                        nodes.get(&fragment.source_node_id).is_some_and(|node| {
+                            matches!(
+                                node.role,
+                                wasmppt_deck::SemanticRole::Title
+                                    | wasmppt_deck::SemanticRole::Section
+                            )
+                        })
+                    })
+                    .map(|fragment| (fragment.source_node_id, fragment))
+            })
+            .collect::<BTreeMap<_, _>>();
         let mut overrides = BTreeMap::new();
         let mut generated_content_types = BTreeMap::new();
         for (index, page) in plan.pages.iter().enumerate() {
@@ -302,10 +322,17 @@ impl DeckComposer {
                     ),
                 )
             })?;
+            let repeated_heading = page
+                .continuation
+                .repeated_heading_node_id
+                .and_then(|id| first_headings.get(&id).copied());
             let composed = compose_slide(
                 page,
+                slide::SlideChrome {
+                    page_size: template.page_size,
+                    repeated_heading,
+                },
                 layout,
-                template.page_size,
                 &template.theme,
                 &regions,
                 &nodes,

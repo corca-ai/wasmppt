@@ -11,6 +11,10 @@ import type {
 export interface DeckEngineOptions { readonly maxRetainedBytes?: number; readonly measureInlineText?: boolean }
 export interface DeckOperationOptions { readonly signal?: AbortSignal }
 export interface DeckInput { readonly template: DeckTemplate; readonly spec: DeckSpec; readonly assets?: ReadonlyMap<string, DeckAsset>; readonly fonts?: DeckFonts }
+export interface DeckFailedSlide {
+  readonly logicalSlideKey: string
+  readonly hidden: boolean
+}
 export interface DeckPage {
   readonly id: string
   readonly logicalSlideKey: string
@@ -260,6 +264,10 @@ export class Deck {
             return identity === undefined ? [] : [[fragment, identity] as const]
           })]), fonts: captured.fonts, releaseFonts, diagnostics: report,
           rawPages: result.pages,
+          failedSlides: Object.freeze(result.failedSlides.map(id => {
+            const key = encoded.identities.get(id)!.key
+            return Object.freeze({ logicalSlideKey: key, hidden: captured.spec.slides.find(slide => slide.key === key)?.hidden ?? false })
+          })),
           pages: Object.freeze(result.pages.map((page, index) => Object.freeze({ index, id: page.pageId,
             hidden: page.hidden, continuationOrdinal: page.continuationOrdinal, continuationTotal: page.continuationTotal,
             ...(page.continuationLabel === undefined ? {} : { continuationLabel: page.continuationLabel }),
@@ -286,6 +294,7 @@ interface SnapshotData {
   readonly handle: number
   readonly revision: number
   readonly rawPages: readonly DeckPageMetadata[]
+  readonly failedSlides: readonly DeckFailedSlide[]
   readonly pages: readonly DeckPage[]
   readonly diagnostics: readonly DeckDiagnostic[]
   readonly identities: ReadonlyMap<string, SourceIdentity>
@@ -306,6 +315,10 @@ export class DeckSnapshot {
   }
   get revision(): number { return accessSnapshot(this).revision }
   get pages(): readonly DeckPage[] { return accessSnapshot(this).pages }
+  get failedSlides(): readonly DeckFailedSlide[] { return accessSnapshot(this).failedSlides }
+  assertComplete(): void {
+    if (accessSnapshot(this).failedSlides.length > 0) throw new Error('cannot export a deck with failed logical slides')
+  }
   get diagnostics(): readonly DeckDiagnostic[] { return accessSnapshot(this).diagnostics }
   retain(): DeckSnapshot {
     const data = accessSnapshot(this)
@@ -336,6 +349,7 @@ export class DeckSnapshot {
   }
   /** Pull-driven output holds its own lease until the stream is consumed or cancelled. */
   exportPptx(options: DeckOperationOptions = {}): ReadableStream<Uint8Array> {
+    this.assertComplete()
     const held = this.retain()
     const state = accessSnapshot(held)
     const signal = AbortSignal.any([state.engine.signal, ...(options.signal === undefined ? [] : [options.signal])])

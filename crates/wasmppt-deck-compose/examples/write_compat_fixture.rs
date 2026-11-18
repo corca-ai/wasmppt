@@ -166,6 +166,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
             frame,
             bleed_frame: None,
+            generation_frame: None,
+            minimum_font_size: 0,
             margins: TextMargins::default(),
             text_levels: vec![TemplateTextLevel {
                 level: 0,
@@ -193,6 +195,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         spec_id: spec.id,
         template_id: template.id,
         page_size: template.page_size,
+        failed_slides: Vec::new(),
         pages: vec![PhysicalPage {
             id: slide_id.derive(b"physical-page", 1),
             logical_slide_id: slide_id,

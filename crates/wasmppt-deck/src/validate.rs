@@ -483,6 +483,7 @@ pub fn validate_deck_plan(
     limits: &DeckLimits,
 ) -> ValidationReport {
     let mut report = validate_deck_spec(spec, limits);
+    let failed = plan.failed_slides.iter().copied().collect::<BTreeSet<_>>();
     let mut nodes = BTreeMap::new();
     let mut coverage = Vec::new();
     let mut node_ids = BTreeSet::new();
@@ -490,6 +491,30 @@ pub fn validate_deck_plan(
         for node in &slide.nodes {
             index_node(node, slide.id, &mut nodes, &mut coverage, &mut node_ids);
         }
+    }
+
+    if failed.len() != plan.failed_slides.len()
+        || failed.iter().any(|id| {
+            !spec.logical_slides.iter().any(|slide| slide.id == *id)
+                || plan.pages.iter().any(|page| page.logical_slide_id == *id)
+                || !plan.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.severity == DiagnosticSeverity::Error
+                        && diagnostic.node_id.is_some_and(|node| {
+                            node == *id
+                                || nodes
+                                    .get(&node)
+                                    .is_some_and(|indexed| indexed.slide_id == *id)
+                        })
+                })
+        })
+    {
+        plan_error(
+            &mut report,
+            DeckDiagnosticCode::PLAN_TARGET_DRIFT,
+            None,
+            None,
+            "failed logical slide inventory must be unique, source-owned, diagnosed, and have no physical output",
+        );
     }
 
     if plan.spec_id != spec.id
@@ -539,7 +564,13 @@ pub fn validate_deck_plan(
         let valid_bleed = region
             .bleed_frame
             .is_none_or(|bleed| bleed.is_within(page_bounds) && region.frame.is_within(bleed));
-        if !region.frame.is_within(page_bounds) || !valid_bleed || region.accepts.is_empty() {
+        if !region.frame.is_within(page_bounds)
+            || !valid_bleed
+            || region.accepts.is_empty()
+            || region.generation_frame.is_some_and(|frame| {
+                !frame.is_within(page_bounds) || !region.frame.is_within(frame)
+            })
+        {
             plan_error(
                 &mut report,
                 DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
@@ -702,7 +733,10 @@ fn validate_pages(
                     "planned region belongs to a different template layout",
                 );
             }
-            let composition_frame = template_region.bleed_frame.unwrap_or(template_region.frame);
+            let composition_frame = template_region
+                .generation_frame
+                .or(template_region.bleed_frame)
+                .unwrap_or(template_region.frame);
             if !planned_region.frame.is_within(composition_frame)
                 || !planned_region.frame.is_within(context.page_bounds)
             {
@@ -714,14 +748,16 @@ fn validate_pages(
                     "planned region is outside its template composition frame or page",
                 );
             }
-            if !planned_region.frame.is_within(template_region.frame)
-                && planned_region.fragments.iter().any(|fragment| {
-                    context
-                        .nodes
-                        .get(&fragment.source_node_id)
-                        .is_none_or(|indexed| !is_media_role(indexed.node.role))
-                })
-            {
+            if !planned_region.frame.is_within(
+                template_region
+                    .generation_frame
+                    .unwrap_or(template_region.frame),
+            ) && planned_region.fragments.iter().any(|fragment| {
+                context
+                    .nodes
+                    .get(&fragment.source_node_id)
+                    .is_none_or(|indexed| !is_media_role(indexed.node.role))
+            }) {
                 plan_error(
                     report,
                     DeckDiagnosticCode::PLAN_INVALID_GEOMETRY,
@@ -791,6 +827,7 @@ fn validate_pages(
     let expected_slide_order = spec
         .logical_slides
         .iter()
+        .filter(|slide| !plan.failed_slides.contains(&slide.id))
         .map(|slide| slide.id)
         .collect::<Vec<_>>();
     if observed_slide_order != expected_slide_order {
@@ -813,6 +850,9 @@ fn validate_pages(
     }
 
     for slide in &spec.logical_slides {
+        if plan.failed_slides.contains(&slide.id) {
+            continue;
+        }
         let Some(pages) = grouped.get(&slide.id) else {
             plan_error(
                 report,
@@ -1095,6 +1135,9 @@ fn validate_coverage(
             .push(fragment.slice);
     }
     for id in expected {
+        if plan.failed_slides.contains(&nodes[id].slide_id) {
+            continue;
+        }
         let slices = by_node.remove(id).unwrap_or_default();
         match nodes[id].domain {
             CoverageDomain::Whole => validate_whole(*id, &slices, report),

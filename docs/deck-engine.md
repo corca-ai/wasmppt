@@ -134,8 +134,8 @@ The [binary codecs](../crates/wasmppt-deck/src/wire.rs) implement these little-e
 | Magic | Version | Value |
 | --- | ---: | --- |
 | `WDSF` | 5 | `DeckSpec`, SVG fallback references, source relations, and binary resources |
-| `WDTP` | 4 | `DeckTemplatePlan` |
-| `WDPL` | 4 | `DeckPlan` |
+| `WDTP` | 5 | `DeckTemplatePlan` |
+| `WDPL` | 5 | `DeckPlan` |
 
 Vectors and strings are length-prefixed. Media remains raw bytes rather than JSON or
 base64. Encoding order follows source and plan vector order, so equal values produce
@@ -145,7 +145,7 @@ and fragment limits before allocating the declared content.
 
 `DeckLimitCode` values are append-only and identify each bounded dimension. Callers may
 tighten `DeckLimits` for a host but MUST NOT turn a limit failure into partial content.
-Checked-in hexadecimal fixtures pin WDSF v5, WDTP v4, and WDPL v4. Older semantic-plan
+Checked-in hexadecimal fixtures pin WDSF v5, WDTP v5, and WDPL v5. Older semantic-plan
 payloads are intentionally unsupported because the planner boundary is replaced atomically.
 
 ## Verification

@@ -95,7 +95,7 @@ diagnostics and `cacheable = false`. Active-content-bearing input is never cache
 The cache key hashes the POTX bytes, Starter validator version, WDTP schema version, compiler and
 OPC engine versions, and policy identifier. Plan and child identities derive from that key or the
 template hash plus semantic identifiers, never collection positions or visible names. The same
-Rust implementation and WDTP v4 encoder compile for native and `wasm32-unknown-unknown`, giving
+Rust implementation and WDTP v5 encoder compile for native and `wasm32-unknown-unknown`, giving
 both hosts one deterministic cache boundary. Starter v2 is intentionally not decoded as v3.
 
 ## Verification
@@ -120,3 +120,17 @@ identity, and deterministic WDTP bytes.
 - [OPC and ZIP substrate](opc.md) defines package limits and graph safety.
 - [Loss-aware OOXML graph](ooxml.md) defines relationship and exact-source-range behavior.
 - [Template bindings](bindings.md) defines the separate repeated binding-injection workload.
+
+## Generation bounds and typography
+
+Semantic placeholders may carry a `p:nvPr/p:extLst/p:ext` extension with URI
+`urn:wasmppt:deck:generation:1` and a `region` element in that namespace. Its
+`x`, `y`, `cx`, and `cy` attributes specify an EMU generation envelope containing
+the preferred placeholder frame; `minFontSize` is in hundredths of a point.
+The envelope must remain on the page and avoid preserved decorations. Preferred
+placeholder frames remain disjoint; generation envelopes may overlap because
+the planner moves subsequent content before accepting the final geometry.
+Without an envelope a region retains its fixed frame. A zero minimum uses the
+planner policy. CorTeX's bundled templates declare title/statement 24pt and body
+14pt minima. This extension is a semantic generation instruction; ordinary PPTX
+rendering never enlarges a shape because of it.

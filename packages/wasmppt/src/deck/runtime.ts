@@ -44,6 +44,7 @@ export function executeDeckOperation(engine: WorkerEngine, operation: DeckOperat
           return [string(fragment), string(node)] as const
         })
         return { kind: 'snapshot', handle, revision, pages, sources,
+          failedSlides: engine.deck_snapshot_failed_slides(handle, revision).map(string),
           diagnostics: decodeDeckDiagnostics(engine.deck_session_diagnostics(handle, revision)) }
       } catch (error) { engine.release_deck_session(handle); throw error }
     }

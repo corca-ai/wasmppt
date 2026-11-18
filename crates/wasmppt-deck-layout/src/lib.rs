@@ -162,7 +162,7 @@ impl DeckPlanner {
         self.plan_with_inline_measurer(spec, template, fonts, contract_limits, None)
     }
 
-    /// Plan with host font measurement for formula-adjacent text. Resolved advances enter
+    /// Plan with host font measurement for headers and formula-adjacent text. Resolved advances enter
     /// the plan identity; measured plans conservatively use full planning on subsequent edits.
     pub fn plan_with_inline_measurer(
         &self,
@@ -6091,6 +6091,55 @@ mod tests {
         assert!(title.frame.height > template.regions[0].frame.height);
         assert!(body.frame.y >= title.frame.y + title.frame.height);
         assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn host_header_advances_determine_wrapping_and_body_clearance() {
+        let spec = spec(vec![
+            text_node(
+                3,
+                SemanticRole::Title,
+                SplitPolicy::Never,
+                "A bold title with wider host glyphs must reserve its actual wrapped line count",
+            ),
+            text_node(4, SemanticRole::Prose, SplitPolicy::Text, "Body"),
+        ]);
+        let mut template = template(3_000_000);
+        template.regions[0].generation_frame = Some(EmuRect {
+            height: 4_000_000,
+            ..template.regions[0].frame
+        });
+        template.regions[0].text_levels[0].bold = Some(true);
+        template.regions[0].text_levels[0].latin_typeface = Some("+mj-lt".to_owned());
+        template.theme.major_fonts.latin = Some("Host face".to_owned());
+        let planner = DeckPlanner::default();
+        let fallback = planner
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        let measured = planner
+            .plan_with_inline_measurer(
+                &spec,
+                &template,
+                &FontCatalog::default(),
+                &limits(),
+                Some(&|text, style| {
+                    assert!(style.bold);
+                    assert_eq!(style.typeface, Some("Host face"));
+                    Some(text.chars().count() as i64 * i64::from(style.font_size) * 127)
+                }),
+            )
+            .unwrap();
+        assert!(measured.failed_slides.is_empty());
+        let title = &measured.pages[0].regions[0].fragments[0];
+        assert!(title.frame.height > fallback.pages[0].regions[0].fragments[0].frame.height);
+        let body = measured.pages[0]
+            .regions
+            .iter()
+            .flat_map(|region| &region.fragments)
+            .find(|fragment| fragment.source_node_id == id(4))
+            .unwrap();
+        assert!(body.frame.y >= title.frame.y + title.frame.height);
+        assert_ne!(measured.id, fallback.id);
     }
 
     #[test]

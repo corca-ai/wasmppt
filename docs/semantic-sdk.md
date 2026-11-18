@@ -5,7 +5,7 @@ Canvas and HTML, and `/node` for an in-process Node engine. Both engines expose 
 API over the checked-in Rust/Wasm implementation. The [Starter POTX contract](deck-template.md)
 is required. Arbitrary authored templates use the separate [binding API](browser.md).
 
-For formula-adjacent prose without registered font bytes, browser hosts can enable
+For headers and formula-adjacent prose without registered font bytes, browser hosts can enable
 `createBrowserEngine({ worker, measureInlineText: true })`. The module Worker measures inline
 text with OffscreenCanvas using the Canvas renderer's font resolution and tokenization. The
 measurement module loads on the first requested snapshot without exact font bytes; default

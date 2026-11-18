@@ -170,7 +170,9 @@ relation groups are hard constraints rather than soft cost terms.
 
 Text may shrink only to its template minimum, bounded below by the planner's body
 readability policy. Header planning first measures the preferred type size and
-expands the title vertically inside its template generation envelope. The same
+expands the title vertically inside its template generation envelope. With host
+measurement enabled and no exact font bytes, header wrapping uses the same
+resolved family, bold/italic style and measured token advances as Canvas. The same
 height delta moves the body and media bleed down, reducing their remaining
 height; ordinary body pagination then runs in that resolved region. If this
 cannot fit, title type decreases by the bounded font step toward its own minimum.

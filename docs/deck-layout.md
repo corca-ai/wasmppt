@@ -119,7 +119,9 @@ its cache key because contain fitting depends on height. Both caches retain expl
 Same-role continuous content uses equal-width flow columns; weighted splits
 require separate content groups with distinct semantic roles. Peer and gallery groups
 occupy distinct slots; and media/text candidates
-assign by semantic role rather than assuming source order is visual order. Adjacent weak
+assign by semantic role rather than assuming source order is visual order. Display equations
+remain in the source-ordered text flow; they are not media lanes that can be collected
+separately from the surrounding explanation. Adjacent weak
 media/text relations may additionally form one, two, or three source-ordered cards for one candidate;
 they remain separable in every other candidate, so unrelated prose is not pulled into a card.
 Candidates never infer layout from example slides or visible shape names. The selected topology

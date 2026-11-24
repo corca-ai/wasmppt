@@ -3074,7 +3074,6 @@ impl FlowGroup<'_> {
                     | SemanticRole::Gallery
                     | SemanticRole::Chart
                     | SemanticRole::Diagram
-                    | SemanticRole::DisplayMath
             )
         })
     }
@@ -4431,6 +4430,89 @@ mod tests {
         assert_eq!(slots.len(), 2);
         assert_ne!(plan.pages[0].topology.kind, LayoutTopology::Stack);
         assert!(validate_deck_plan(&spec, &template(5_500_000), &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn prose_and_display_equations_retain_source_reading_order() {
+        let equation = |identity| SemanticNode {
+            id: id(identity),
+            source: range(u32::from(identity) * 10),
+            role: SemanticRole::DisplayMath,
+            split: SplitPolicy::Never,
+            content: SemanticContent::Svg(wasmppt_deck::SvgContent {
+                resource_id: id(90),
+                fallback_resource_id: None,
+                source_text: Some("x=(A^TA)^{-1}A^Tb".to_owned()),
+            }),
+        };
+        let spec = spec_with_resources(
+            vec![
+                text_node(
+                    3,
+                    SemanticRole::Title,
+                    SplitPolicy::Never,
+                    "Least squares is a projection",
+                ),
+                text_node(
+                    4,
+                    SemanticRole::Prose,
+                    SplitPolicy::Text,
+                    "For noisy data, solve",
+                ),
+                equation(5),
+                text_node(
+                    6,
+                    SemanticRole::Prose,
+                    SplitPolicy::Text,
+                    "The residual is orthogonal to the column space, so",
+                ),
+                equation(7),
+            ],
+            vec![DeckResource {
+                id: id(90),
+                kind: ResourceKind::Svg,
+                media_type: "image/svg+xml".to_owned(),
+                bytes: br#"<svg xmlns="http://www.w3.org/2000/svg"/>"#.to_vec().into(),
+                intrinsic_size: Some(PixelSize {
+                    width: 240,
+                    height: 36,
+                }),
+            }],
+        );
+        let template = template(5_500_000);
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert_eq!(plan.pages.len(), 1);
+        let places = [4, 5, 6, 7].map(|node| {
+            let region = plan.pages[0]
+                .regions
+                .iter()
+                .find(|region| {
+                    region
+                        .fragments
+                        .iter()
+                        .any(|f| f.source_node_id == id(node))
+                })
+                .unwrap();
+            let fragment = region
+                .fragments
+                .iter()
+                .find(|f| f.source_node_id == id(node))
+                .unwrap();
+            (
+                match region.placement {
+                    RegionPlacement::Fixed => 0,
+                    RegionPlacement::Slot(slot) => slot,
+                },
+                fragment.frame.y,
+            )
+        });
+        assert!(
+            places.windows(2).all(|pair| pair[0] <= pair[1]),
+            "Equation/prose reading order changed: {places:?}"
+        );
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
     }
 
     #[test]

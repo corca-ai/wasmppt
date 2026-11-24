@@ -2622,7 +2622,7 @@ function decodeDisplayList(input) {
   const reader = new BinaryReader(bytes);
   if (reader.ascii(4) !== "WPDL") throw new Error("display list has an invalid magic value");
   const version = reader.u16();
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8 && version !== 9 && version !== 10 && version !== 11) {
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8 && version !== 9 && version !== 10 && version !== 11 && version !== 12) {
     throw new Error(`unsupported display-list version ${version}`);
   }
   if (reader.u16() !== 0) throw new Error("display-list reserved flags are non-zero");
@@ -2928,7 +2928,9 @@ function readCommand(reader, version, inlineImages = [], declaredImageCount = 0)
           const eastAsianFontFamily = reader.utf8Blob();
           const complexScriptFontFamily = reader.utf8Blob();
           const hyperlink = version >= 11 ? reader.utf8Blob() : "";
+          const preserveWhitespace = version >= 12 && reader.u8() !== 0;
           runs.push({
+            ...preserveWhitespace ? { preserveWhitespace: true } : {},
             text,
             style,
             eastAsianFontFamily: eastAsianFontFamily || void 0,

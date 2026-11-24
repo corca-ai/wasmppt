@@ -69,7 +69,7 @@ test('display-list decoder rejects corruption and decodes a bounded scene', () =
   assert.deepEqual(scene.commands, [
     { kind: 'clear', color: { red: 255, green: 255, blue: 255, alpha: 255 } },
   ])
-  for (const version of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) {
+  for (const version of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
     assert.equal(decodeDisplayList(minimalDisplayList(version)).version, version)
   }
   assert.throws(() => decodeDisplayList(bytes.slice(0, -1)), /truncated/)
@@ -158,6 +158,19 @@ test('rich-text layout wraps Latin titles inside the text frame', async () => {
   assert.equal(words.contentWidth, 10)
   assert.equal(new Set(longWord.runs.map((run) => run.baseline)).size, 3)
   assert.equal(longWord.contentWidth, 5)
+  const indentedCommand = command('    first\n        second', 30)
+  indentedCommand.frame.paragraphs[0].runs[0].preserveWhitespace = true
+  const indented = await buildRichTextLayout(context, indentedCommand)
+  assert.equal(indented.runs.find(run => run.text === 'first').x, 4)
+  assert.equal(indented.runs.find(run => run.text === 'second').x, 8)
+  assert.equal(indented.runs.find(run => run.text === 'second').sourceStart, 18)
+  const wrappedCommand = command('    alpha      beta', 10)
+  wrappedCommand.frame.paragraphs[0].runs[0].preserveWhitespace = true
+  const wrapped = await buildRichTextLayout(context, wrappedCommand)
+  assert.equal(wrapped.runs.find(run => run.text === 'alpha').x, 4)
+  assert.equal(wrapped.runs.find(run => run.text === 'beta').x, 0)
+  const compact = await buildRichTextLayout(context, command(' after formula', 30))
+  assert.equal(compact.runs.find(run => run.text === 'after').x, 0)
 })
 
 test('shrink-text autofit reflows at the largest font scale that fits', async () => {

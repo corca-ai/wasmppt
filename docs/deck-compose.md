@@ -56,10 +56,11 @@ with explicit zero insets because the planner has already applied the parent reg
 Consecutive text spans on the same planned row are rejoined into one native text box between
 formula pictures so PowerPoint performs normal word spacing inside the sentence; the composer
 otherwise consumes the planned horizontal frames without repeating baseline, wrapping, or
-formula-size decisions. DrawingML text runs whose source starts or ends in whitespace use
-`xml:space="preserve"`, so the leading space after a formula picture and the trailing space before
-one survive round trips, while the planner-owned fragment offset provides the visible leading gap
-without depending on PowerPoint to paint whitespace at a text-box boundary. `planned_shapes`
+formula-size decisions. Ordinary DrawingML runs whose source starts or ends in whitespace use
+`xml:space="preserve"`; the resolved run carries that intent to Canvas and HTML so code indentation
+survives. Compact inline-formula text retains its source characters without that preservation
+flag: the planner-owned fragment offset supplies its visible boundary gap, avoiding duplicate
+word spaces when the renderer honors explicit whitespace preservation. `planned_shapes`
 exposes that exact coalesced shape inventory to the Wasm
 display-list projection, so browser preview, offline HTML, and PPTX use the same shape identifiers
 and unioned bounds rather than comparing a merged text box with its pre-merge fragments. Formula

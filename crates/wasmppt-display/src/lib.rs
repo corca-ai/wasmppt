@@ -9,7 +9,7 @@ use wasmppt_layout::{
     TextVerticalAlignment, Transform,
 };
 
-pub const DISPLAY_LIST_VERSION: u16 = 11;
+pub const DISPLAY_LIST_VERSION: u16 = 12;
 const MAGIC: &[u8; 4] = b"WPDL";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1650,6 +1650,7 @@ fn encode_command(output: &mut Vec<u8>, command: &DisplayCommand) {
                         output,
                         run.hyperlink.as_deref().unwrap_or_default().as_bytes(),
                     );
+                    output.push(u8::from(run.preserve_whitespace));
                 }
             }
         }

@@ -11,7 +11,7 @@ Canvas-only; DOM/SVG exists for offline HTML and browser PDF output.
 
 ## Semantic WPDL boundary
 
-The renderer consumes WPDL version 11 and retains v1-v10 decoding through the shared
+The renderer consumes WPDL version 12 and retains v1-v11 decoding through the shared
 [display-list decoder](rendering.md#binary-display-list). Semantic elements map source shape IDs,
 reading order, bounds, alternative descriptions, and links to command ranges. Source-backed IDs
 and ranges support authoring selection; diagnostics retain the resolver's code, part, and shape

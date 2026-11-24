@@ -745,8 +745,9 @@ impl SlideWriter<'_> {
                     .push_str(&format!("<a:hlinkClick r:id=\"{}\"/>", xml_attr(&id)));
             }
             self.xml.push_str(
-                if run.text.starts_with(char::is_whitespace)
-                    || run.text.ends_with(char::is_whitespace)
+                if !compact
+                    && (run.text.starts_with(char::is_whitespace)
+                        || run.text.ends_with(char::is_whitespace))
                 {
                     "</a:rPr><a:t xml:space=\"preserve\">"
                 } else {
@@ -1380,7 +1381,7 @@ mod tests {
     }
 
     #[test]
-    fn inline_text_shape_uses_zero_insets_and_preserves_boundary_spaces() {
+    fn inline_text_shape_uses_zero_insets_and_geometry_owned_boundary_spaces() {
         let nodes = BTreeMap::new();
         let media = BTreeMap::new();
         let theme = TemplateTheme::default();
@@ -1428,11 +1429,7 @@ mod tests {
                 .xml
                 .contains("<a:pPr lvl=\"0\" marL=\"0\" indent=\"0\"")
         );
-        assert!(
-            writer
-                .xml
-                .contains("<a:t xml:space=\"preserve\"> stretches them</a:t>")
-        );
+        assert!(writer.xml.contains("<a:t> stretches them</a:t>"));
     }
 
     #[test]
@@ -1558,16 +1555,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(writer.xml.matches("<p:sp>").count(), 1);
-        assert!(
-            writer
-                .xml
-                .contains("<a:t xml:space=\"preserve\">The </a:t>")
-        );
-        assert!(
-            writer
-                .xml
-                .contains("<a:t xml:space=\"preserve\">unit </a:t>")
-        );
+        assert!(writer.xml.contains("<a:t>The </a:t>"));
+        assert!(writer.xml.contains("<a:t>unit </a:t>"));
         assert!(writer.xml.contains("<a:ext cx=\"650\" cy=\"400\"/>"));
     }
 }

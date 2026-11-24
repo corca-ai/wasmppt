@@ -90,6 +90,7 @@ export interface SceneTextStyle {
 
 export interface SceneTextRun {
   readonly text: string
+  readonly preserveWhitespace?: boolean
   readonly style: SceneTextStyle
   readonly eastAsianFontFamily?: string | undefined
   readonly complexScriptFontFamily?: string | undefined
@@ -322,7 +323,7 @@ export function decodeDisplayList(input: ArrayBuffer | Uint8Array): DisplayScene
   const reader = new BinaryReader(bytes)
   if (reader.ascii(4) !== 'WPDL') throw new Error('display list has an invalid magic value')
   const version = reader.u16()
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8 && version !== 9 && version !== 10 && version !== 11) {
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8 && version !== 9 && version !== 10 && version !== 11 && version !== 12) {
     throw new Error(`unsupported display-list version ${version}`)
   }
   if (reader.u16() !== 0) throw new Error('display-list reserved flags are non-zero')
@@ -1092,6 +1093,7 @@ export async function buildRichTextLayout(
       let lineWidth = 0
       let lineHeight = 0
       let firstLine = true
+      let softWrappedLine = false
       const baseLineHeight = paragraph.runs.reduce(
         (height, run) => Math.max(
           height,
@@ -1153,6 +1155,7 @@ export async function buildRichTextLayout(
         for (const [tokenIndex, rawToken] of tokens.entries()) {
           if (rawToken === '\n') {
             finishLine(0)
+            softWrappedLine = false
             if (!isBullet) runSourceOffset += rawToken.length
             continue
           }
@@ -1188,7 +1191,8 @@ export async function buildRichTextLayout(
           for (const token of fragments) {
             const width = token === rawToken ? rawWidth : measureToken(token)
             const softWhitespace = isSoftWhitespace(token)
-            if (command.frame.wrap && softWhitespace && lineRuns.length === 0) continue
+            if (command.frame.wrap && softWhitespace && lineRuns.length === 0 &&
+                (softWrappedLine || !run.preserveWhitespace)) continue
             if (command.frame.wrap && lineRuns.length > 0 && lineWidth + width > available) {
               while (lineRuns.length > 0 && isSoftWhitespace(lineRuns[lineRuns.length - 1]!.text)) {
                 lineWidth -= lineRuns.pop()!.width
@@ -1209,6 +1213,7 @@ export async function buildRichTextLayout(
                 lineWidth += hyphenWidth
               }
               finishLine(0)
+              softWrappedLine = true
               if (softWhitespace) continue
             }
             const fontSize = pointsToCssPixels(run.style.fontSize / 100) * scale
@@ -2378,7 +2383,9 @@ function readCommand(
           const eastAsianFontFamily = reader.utf8Blob()
           const complexScriptFontFamily = reader.utf8Blob()
           const hyperlink = version >= 11 ? reader.utf8Blob() : ''
+          const preserveWhitespace = version >= 12 && reader.u8() !== 0
           runs.push({
+            ...(preserveWhitespace ? { preserveWhitespace: true } : {}),
             text,
             style,
             eastAsianFontFamily: eastAsianFontFamily || undefined,

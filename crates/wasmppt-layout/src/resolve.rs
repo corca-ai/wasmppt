@@ -58,6 +58,7 @@ struct RawShape {
 #[derive(Clone, Debug, Default)]
 struct RawTextRun {
     text: String,
+    preserve_whitespace: bool,
     field_type: Option<String>,
     style: PartialTextStyle,
     east_asian_font_family: Option<String>,
@@ -1088,6 +1089,7 @@ fn resolve_text_frame(
                             } else {
                                 run.text.clone()
                             },
+                            preserve_whitespace: run.preserve_whitespace,
                             style: style.resolve(),
                             east_asian_font_family: run.east_asian_font_family.clone(),
                             complex_script_font_family: run.complex_script_font_family.clone(),
@@ -2772,6 +2774,7 @@ fn parse_rich_paragraph(
             let mut east_asian_font_family = None;
             let mut complex_script_font_family = None;
             let mut hyperlink_relationship_id = None;
+            let mut preserve_whitespace = false;
             for candidate in index..=run_end {
                 let TokenKind::Start {
                     name, attributes, ..
@@ -2793,6 +2796,15 @@ fn parse_rich_paragraph(
                                     .map(|attribute| attribute.value.clone()),
                                 _ => None,
                             });
+                } else if name.local == "t" {
+                    preserve_whitespace = attributes.iter().any(|attribute| {
+                        attribute.name.local == "space"
+                            && attribute.name.namespace.is_some_and(|namespace| {
+                                document.namespace(namespace)
+                                    == "http://www.w3.org/XML/1998/namespace"
+                            })
+                            && attribute.value == "preserve"
+                    });
                 } else if name.local == "ea" {
                     east_asian_font_family = plain(attributes, "typeface")
                         .map(|family| resolve_theme_font(family, theme));
@@ -2803,6 +2815,7 @@ fn parse_rich_paragraph(
             }
             paragraph.runs.push(RawTextRun {
                 text,
+                preserve_whitespace,
                 field_type: match &document.tokens()[index].kind {
                     TokenKind::Start {
                         name, attributes, ..
@@ -3931,6 +3944,22 @@ mod tests {
         assert_eq!(format_auto_number("alphaLcParenR", 27), "aa)");
         assert_eq!(format_auto_number("alphaUcParenBoth", 2), "(B)");
         assert_eq!(format_auto_number("romanLcPeriod", 14), "xiv.");
+    }
+
+    #[test]
+    fn text_runs_retain_explicit_xml_whitespace_preservation() {
+        let source = br#"<a:p xmlns:a="a" xmlns:other="urn:other"><a:r><a:t xml:space="preserve">    code</a:t></a:r><a:r><a:t> word</a:t></a:r><a:r><a:t other:space="preserve"> other</a:t></a:r></a:p>"#;
+        let document = XmlDocument::parse(source.as_slice()).unwrap();
+        let paragraph = parse_rich_paragraph(
+            &document,
+            0,
+            element_end(&document, 0).unwrap(),
+            &Theme::default(),
+        );
+        assert_eq!(paragraph.runs[0].text, "    code");
+        assert!(paragraph.runs[0].preserve_whitespace);
+        assert!(!paragraph.runs[1].preserve_whitespace);
+        assert!(!paragraph.runs[2].preserve_whitespace);
     }
 
     #[test]

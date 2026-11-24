@@ -262,6 +262,8 @@ pub struct TextWarp {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedTextRun {
     pub text: String,
+    /// Explicit DrawingML text whitespace preservation, including authored indentation.
+    pub preserve_whitespace: bool,
     pub style: ResolvedTextStyle,
     pub east_asian_font_family: Option<String>,
     pub complex_script_font_family: Option<String>,

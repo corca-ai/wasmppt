@@ -909,12 +909,6 @@ impl DeckPlanner {
             None
         };
         let region = bleed_region.as_ref().unwrap_or(region);
-        let collapsed_table = (pattern == Pattern::TableWide).then(|| FlowGroup {
-            units: groups
-                .iter()
-                .flat_map(|group| group.units.iter().cloned())
-                .collect(),
-        });
         let related_cards = if pattern == Pattern::RelatedCards {
             let Some(cards) = related_media_text_groups(groups, relations) else {
                 return Ok(None);
@@ -923,13 +917,7 @@ impl DeckPlanner {
         } else {
             None
         };
-        let search_groups = if let Some(cards) = related_cards.as_deref() {
-            cards
-        } else {
-            collapsed_table
-                .as_ref()
-                .map_or(groups, std::slice::from_ref)
-        };
+        let search_groups = related_cards.as_deref().unwrap_or(groups);
         let mut selected = None::<FittedCandidate>;
         for frames in self.frame_variants(pattern, region, search_groups, measurer)? {
             // Reject ineligible topologies before measuring any text. Defer continuous
@@ -1086,6 +1074,7 @@ impl DeckPlanner {
         }
         let mut cursors = frames.iter().map(|frame| frame.y).collect::<Vec<_>>();
         let mut placements = Vec::new();
+        let mut tables_on_page = BTreeSet::new();
         let mut reductions = Vec::new();
         let mut width_loss = 0u64;
         let mut font_risks = BTreeSet::new();
@@ -1095,7 +1084,6 @@ impl DeckPlanner {
             if !pattern.accepts_group(group, slot) {
                 return Ok(None);
             }
-            let repeat_table_header_rows = repeated_table_header_rows(group, &placements);
             let Some(fitted) = self.fit_group(
                 group,
                 &FitTarget {
@@ -1104,7 +1092,7 @@ impl DeckPlanner {
                     frames,
                     lane: slot,
                     y: cursors[slot],
-                    repeat_table_header_rows,
+                    tables_on_page: &tables_on_page,
                     center_single_statement: groups.len() == 1,
                 },
                 measurer,
@@ -1113,6 +1101,9 @@ impl DeckPlanner {
                 return Ok(None);
             };
             for placement in &fitted.placements {
+                if matches!(placement.node.content, SemanticContent::Table(_)) {
+                    tables_on_page.insert(placement.node.id);
+                }
                 if placement.font_risk {
                     font_risks.insert(placement.node.id);
                 }
@@ -1209,6 +1200,7 @@ impl DeckPlanner {
         loop {
             let mut cursor = target.y;
             let mut placements = Vec::new();
+            let mut tables_on_page = target.tables_on_page.clone();
             let mut overflow = false;
             for (unit_index, unit) in group.units.iter().enumerate() {
                 let frame = EmuRect {
@@ -1253,6 +1245,11 @@ impl DeckPlanner {
                     overflow = true;
                     break;
                 }
+                let repeat_table_header_rows =
+                    repeated_table_header_rows(unit.node, unit.slice, &tables_on_page);
+                if matches!(unit.node.content, SemanticContent::Table(_)) {
+                    tables_on_page.insert(unit.node.id);
+                }
                 let measured = measurer
                     .measure(
                         unit.node,
@@ -1260,7 +1257,7 @@ impl DeckPlanner {
                         target.region,
                         measurement_frame,
                         font_size,
-                        target.repeat_table_header_rows,
+                        repeat_table_header_rows,
                     )
                     .map_err(|failure| measure_error(failure, unit.node.id))?;
                 let usable_width = frame
@@ -1339,7 +1336,7 @@ impl DeckPlanner {
                     .saturating_add(media.map_or(0, contain_whitespace_penalty)),
                     font_risk: measured.font_risk,
                     media,
-                    repeat_table_header_rows: target.repeat_table_header_rows,
+                    repeat_table_header_rows,
                 });
                 cursor = fragment_frame
                     .y
@@ -1427,7 +1424,7 @@ impl DeckPlanner {
                         target.region,
                         remaining,
                         font_size,
-                        target.repeat_table_header_rows,
+                        0,
                     )
                     .map_err(|failure| measure_error(failure, unit.node.id))?;
                 let intrinsic = measurer.intrinsic_size(unit.node);
@@ -1527,7 +1524,7 @@ impl DeckPlanner {
                                 width_penalty: 0,
                                 font_risk: measured.font_risk,
                                 media,
-                                repeat_table_header_rows: target.repeat_table_header_rows,
+                                repeat_table_header_rows: 0,
                             });
                             x = x.saturating_add(visible_width).saturating_add(gap);
                         }
@@ -1649,7 +1646,7 @@ impl DeckPlanner {
                     target.region,
                     text_frame,
                     font_size,
-                    target.repeat_table_header_rows,
+                    0,
                 )
                 .map_err(|failure| measure_error(failure, text_unit.node.id))?;
             if measured.width.min <= usable_text_width && measured.height <= text_frame.height {
@@ -1668,7 +1665,7 @@ impl DeckPlanner {
                             width_penalty: contain_whitespace_penalty(media),
                             font_risk: false,
                             media: Some(media),
-                            repeat_table_header_rows: target.repeat_table_header_rows,
+                            repeat_table_header_rows: 0,
                         },
                         FittedPlacement {
                             node: text_unit.node,
@@ -1682,7 +1679,7 @@ impl DeckPlanner {
                             ),
                             font_risk: measured.font_risk,
                             media: None,
-                            repeat_table_header_rows: target.repeat_table_header_rows,
+                            repeat_table_header_rows: 0,
                         },
                     ],
                     bottom: media
@@ -1700,7 +1697,7 @@ impl DeckPlanner {
             {
                 return Ok(None);
             }
-            font_size = font_size.saturating_sub(self.policy.font_step).max(
+            font_size = font_size.saturating_sub(self.policy.font_step.max(1)).max(
                 target
                     .region
                     .minimum_font_size
@@ -1731,6 +1728,8 @@ impl DeckPlanner {
             .saturating_sub(target.region.margins.left)
             .saturating_sub(target.region.margins.right)
             .max(1);
+        let repeat_table_header_rows =
+            repeated_table_header_rows(node, slice, target.tables_on_page);
         let mut font_size = initial_size;
         loop {
             let measured = measurer
@@ -1740,7 +1739,7 @@ impl DeckPlanner {
                     target.region,
                     frame,
                     font_size,
-                    target.repeat_table_header_rows,
+                    repeat_table_header_rows,
                 )
                 .map_err(|failure| measure_error(failure, node.id))?;
             let fragment_frame = EmuRect {
@@ -1761,7 +1760,7 @@ impl DeckPlanner {
                         ),
                         font_risk: measured.font_risk,
                         media: None,
-                        repeat_table_header_rows: target.repeat_table_header_rows,
+                        repeat_table_header_rows,
                     }],
                     bottom: fragment_frame.y.saturating_add(fragment_frame.height),
                 }));
@@ -1965,7 +1964,6 @@ impl Pattern {
 
     fn accepts_first(self, group: &FlowGroup<'_>) -> bool {
         match self {
-            Self::TableWide => group.is_table(),
             Self::Gallery2 | Self::Gallery4 | Self::Gallery6 => group.is_media(),
             _ => true,
         }
@@ -1981,7 +1979,8 @@ impl Pattern {
                     || peer_collection(prefix) && remaining.iter().any(|group| !group.is_peer()))
             }
             Self::FlowColumns2 | Self::FlowColumns3 => false,
-            Self::TableWide => true,
+            // A leading explanation or section can precede the first table.
+            Self::TableWide => prefix.iter().any(FlowGroup::has_table),
             _ => false,
         }
     }
@@ -2093,7 +2092,7 @@ impl Pattern {
         slots: usize,
         cuts: Option<&BTreeSet<usize>>,
     ) -> Vec<Vec<usize>> {
-        if self != Self::TableWide && groups.iter().any(FlowGroup::is_table) {
+        if self != Self::TableWide && groups.iter().any(FlowGroup::has_table) {
             return Vec::new();
         }
         match self {
@@ -2191,7 +2190,7 @@ impl Pattern {
                 }
             }
             Self::TableWide => {
-                if groups.iter().all(FlowGroup::is_table) {
+                if groups.iter().any(FlowGroup::has_table) {
                     vec![vec![0; groups.len()]]
                 } else {
                     Vec::new()
@@ -2212,7 +2211,6 @@ impl Pattern {
             Self::MediaStart => group.is_media() == (slot == 0),
             Self::MediaEnd => group.is_media() == (slot == 1),
             Self::Gallery2 | Self::Gallery4 | Self::Gallery6 => group.is_media(),
-            Self::TableWide => group.is_table(),
             Self::Comparison => group.is_peer(),
             _ => true,
         }
@@ -2798,7 +2796,7 @@ fn semantic_slots_required(groups: &[FlowGroup<'_>]) -> bool {
     peer_collection(groups)
         || mixed_media(groups)
         || (groups.len() >= 2 && groups.iter().all(FlowGroup::is_media))
-        || groups.iter().all(FlowGroup::is_table)
+        || groups.iter().all(FlowGroup::has_table)
 }
 
 fn columns(frame: EmuRect, gap: Emu, weights: &[i64]) -> Vec<EmuRect> {
@@ -3061,7 +3059,7 @@ struct FitTarget<'a> {
     frames: &'a [EmuRect],
     lane: usize,
     y: Emu,
-    repeat_table_header_rows: u32,
+    tables_on_page: &'a BTreeSet<StableId>,
     center_single_statement: bool,
 }
 
@@ -3086,10 +3084,10 @@ impl FlowGroup<'_> {
                 .all(|unit| semantic_node_is_media_only(unit.node))
     }
 
-    fn is_table(&self) -> bool {
+    fn has_table(&self) -> bool {
         self.units
-            .first()
-            .is_some_and(|unit| unit.node.role == SemanticRole::Table)
+            .iter()
+            .any(|unit| matches!(unit.node.content, SemanticContent::Table(_)))
     }
 
     fn is_gallery_item(&self) -> bool {
@@ -3587,20 +3585,17 @@ fn fragment_frame(placements: &[PlannedRegion], node_id: StableId) -> Option<Emu
         .map(|fragment| fragment.frame)
 }
 
-fn repeated_table_header_rows(group: &FlowGroup<'_>, placements: &[PlannedRegion]) -> u32 {
-    let Some(unit) = group.units.first() else {
-        return 0;
-    };
+fn repeated_table_header_rows(
+    node: &SemanticNode,
+    slice: FragmentSlice,
+    tables_on_page: &BTreeSet<StableId>,
+) -> u32 {
     let (SemanticContent::Table(table), FragmentSlice::TableRows { start, .. }) =
-        (&unit.node.content, unit.slice)
+        (&node.content, slice)
     else {
         return 0;
     };
-    let already_on_page = placements
-        .iter()
-        .flat_map(|region| &region.fragments)
-        .any(|fragment| fragment.source_node_id == unit.node.id);
-    if !already_on_page && table.header_rows > 0 && start >= table.header_rows {
+    if !tables_on_page.contains(&node.id) && start >= table.header_rows {
         table.header_rows
     } else {
         0
@@ -3948,7 +3943,7 @@ fn plan_id(
     limits: &DeckLimits,
 ) -> StableId {
     let mut digest = Sha256::new();
-    digest.update(b"wasmppt/deck-layout/plan/v7\0");
+    digest.update(b"wasmppt/deck-layout/plan/v8\0");
     match spec.encode(limits) {
         Ok(encoded) => digest.update(Sha256::digest(encoded)),
         Err(_) => digest.update(spec.id.as_bytes()),
@@ -5201,6 +5196,51 @@ mod tests {
     }
 
     #[test]
+    fn zero_font_step_terminates_for_an_overflowing_portrait_caption() {
+        let spec = spec_with_resources(
+            vec![
+                text_node(3, SemanticRole::Title, SplitPolicy::Never, "Portrait"),
+                figure_node(4, 90, "portrait"),
+                text_node(
+                    5,
+                    SemanticRole::Caption,
+                    SplitPolicy::Never,
+                    &"Caption\n".repeat(200),
+                ),
+            ],
+            vec![DeckResource {
+                id: id(90),
+                kind: ResourceKind::RasterImage,
+                media_type: "image/png".to_owned(),
+                bytes: vec![1].into(),
+                intrinsic_size: Some(PixelSize {
+                    width: 64,
+                    height: 256,
+                }),
+            }],
+        );
+        let result = DeckPlanner::new(PlannerPolicy {
+            font_step: 0,
+            ..PlannerPolicy::default()
+        })
+        .plan(
+            &spec,
+            &template(5_500_000),
+            &FontCatalog::default(),
+            &limits(),
+        );
+        let plan = result.expect("a recoverable overflow keeps a complete failure inventory");
+        assert_eq!(plan.failed_slides, vec![id(2)]);
+        assert!(plan.pages.is_empty());
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == DeckDiagnosticCode::PLAN_ATOMIC_OVERFLOW)
+        );
+        assert!(validate_deck_plan(&spec, &template(5_500_000), &plan, &limits()).is_valid());
+    }
+
+    #[test]
     fn data_bearing_media_contains_while_gallery_photos_cover() {
         let mut spec = gallery_spec(&[(1_600, 900), (900, 1_600)]);
         let gallery = spec.logical_slides[0].nodes.pop().unwrap();
@@ -5729,6 +5769,139 @@ mod tests {
         }
         assert_eq!(expected_start, 6);
         assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn table_continuations_keep_adjacent_content_and_header_ownership() {
+        for row_count in [3, 8, 12] {
+            for header_rows in [0, 1, 2] {
+                for height in [1_300_000, 2_600_000, 5_500_000] {
+                    for before in [false, true] {
+                        let table = table_node(4, row_count, header_rows);
+                        let note = text_node(
+                            5,
+                            SemanticRole::Prose,
+                            SplitPolicy::Text,
+                            "부분집합을 실제로 복사해 출력한다면 원소 기록 비용도 별도로 고려해야 한다.",
+                        );
+                        let mut nodes = vec![text_node(
+                            3,
+                            SemanticRole::Title,
+                            SplitPolicy::Never,
+                            "Growth",
+                        )];
+                        if before {
+                            nodes.extend([note, table]);
+                        } else {
+                            nodes.extend([table, note]);
+                        }
+                        let spec = spec(nodes);
+                        let template = template(height);
+                        let plan = DeckPlanner::default()
+                        .plan(&spec, &template, &FontCatalog::default(), &limits())
+                        .unwrap_or_else(|error| {
+                            panic!(
+                                "headers={header_rows}, height={height}, before={before}: {error:?}"
+                            )
+                        });
+                        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+                        if height == 5_500_000 && row_count == 3 {
+                            assert_eq!(
+                                plan.pages.len(),
+                                1,
+                                "a short table and explanation fit together in either source order"
+                            );
+                        }
+                        for page in &plan.pages {
+                            assert!(
+                                fragments(page)
+                                    .filter(|fragment| fragment.source_node_id == id(4))
+                                    .count()
+                                    <= 1,
+                                "contiguous rows stay in one editable table per page"
+                            );
+                        }
+                        assert!(
+                            plan.pages
+                                .iter()
+                                .flat_map(fragments)
+                                .any(|fragment| fragment.source_node_id == id(5))
+                        );
+                        for fragment in plan.pages.iter().flat_map(fragments) {
+                            if fragment.source_node_id != id(4) {
+                                assert_eq!(fragment.repeat_table_header_rows, 0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn table_pages_support_lists_code_sections_and_independent_tables() {
+        for kind in ["list", "code", "section", "table"] {
+            let following = match kind {
+                "list" => list_node(5, 2),
+                "code" => code_node(5, "first line\nsecond line"),
+                "section" => {
+                    text_node(5, SemanticRole::Section, SplitPolicy::Never, "Next section")
+                }
+                _ => {
+                    let mut table = table_node(5, 8, 2);
+                    let SemanticContent::Table(content) = &mut table.content else {
+                        unreachable!()
+                    };
+                    content.columns[0].id = id(150);
+                    for (index, row) in content.rows.iter_mut().enumerate() {
+                        row.id = id(160 + index as u8);
+                        row.cells[0].id = id(170 + index as u8);
+                    }
+                    table
+                }
+            };
+            // A section keeps its first child in the same indivisible group.
+            let mut nodes = vec![
+                text_node(3, SemanticRole::Title, SplitPolicy::Never, "Mixed"),
+                table_node(4, 8, 1),
+            ];
+            nodes.push(following);
+            nodes.push(text_node(
+                6,
+                SemanticRole::Prose,
+                SplitPolicy::Text,
+                "Concluding explanation.",
+            ));
+            let spec = spec(nodes);
+            let template = template(2_600_000);
+            let plan = DeckPlanner::default()
+                .plan(&spec, &template, &FontCatalog::default(), &limits())
+                .unwrap_or_else(|error| panic!("{kind}: {error:?}"));
+            assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+            if kind == "table" {
+                assert!(
+                    plan.pages
+                        .iter()
+                        .flat_map(fragments)
+                        .any(|fragment| fragment.source_node_id == id(5)
+                            && fragment.repeat_table_header_rows == 2)
+                );
+            }
+            for page in &plan.pages {
+                for identity in [id(4), id(5)] {
+                    let table_fragments = fragments(page)
+                        .filter(|fragment| {
+                            fragment.source_node_id == identity
+                                && matches!(fragment.slice, FragmentSlice::TableRows { .. })
+                        })
+                        .count();
+                    assert!(
+                        table_fragments <= 1,
+                        "one native table per source table on each page"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -6689,7 +6862,7 @@ mod tests {
                         id: id(50 + row),
                         source: source.clone(),
                         cells: vec![TableCell {
-                            id: id(60 + row),
+                            id: id(80 + row),
                             source: source.clone(),
                             content: RichText {
                                 runs: vec![RichTextRun {

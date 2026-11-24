@@ -216,6 +216,11 @@ remain the sole owner of rendered slide numbering.
 The first continued fragment of a table on each page records its header-row repeat count. The
 planner coalesces every contiguous row range into exactly one native-table fragment per page, and
 the composer renders repeated-header metadata without creating additional source fragments.
+Table-wide pages may include explanations, lists, code, sections, media, and independent tables
+in source order. Adjacent rows coalesce only within the same source table; unrelated blocks keep
+their own fitted groups and type choices. Header repetition is tracked independently for each
+source table on each page, including tables inside authored relation groups. Non-table fragments
+always carry a zero repeat count.
 
 ## Bounds and failure policy
 

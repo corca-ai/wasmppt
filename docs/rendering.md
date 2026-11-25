@@ -89,7 +89,8 @@ theme, layout, master, media, chart, or other reachable dependency. See
 - optional stable 128-bit semantic IDs and exact source ranges used by deck authoring hit tests;
 - resolver diagnostics shared without reinterpretation by every rendering backend.
 
-WPDL version 11 is the current wire format. It carries run-owned hyperlinks separately from
+WPDL version 12 is the current wire format. It carries explicit text-run whitespace preservation
+for code indentation and run-owned hyperlinks separately from
 shape-owned semantic links, stable source identity and reading order, resolver diagnostics,
 paragraph/run-preserving text, typed spacing, authored versus live-edited AutoFit, columns,
 embedded-font references, and common 2D text paint. Character and automatic numbering remain
@@ -98,7 +99,7 @@ browser runs expose paragraph-local UTF-16 ranges for selection and accessibilit
 
 The [Rust encoder](../crates/wasmppt-display/src/lib.rs) and
 [TypeScript decoder](../packages/wasmppt/src/canvas.ts) own exact field ordering and defaults.
-The decoder retains v1-v10 compatibility, filling fields absent from older scenes. Contract-sync
+The decoder retains v1-v11 compatibility, filling fields absent from older scenes. Contract-sync
 checks keep encoder, decoder, capability matrix, and these format claims aligned.
 
 SmartArt with one picture fallback provably paired by

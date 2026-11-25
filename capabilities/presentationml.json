@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "displayListVersion": 11,
+  "displayListVersion": 12,
   "features": [
     { "id": "text", "read": "paragraph-run-v11-hyperlinks-autofit-unicode-columns-tabs-numbering-effects", "preserve": "yes", "edit": "text-binding", "render": "canvas-dom-shared-layout-autofit-columns-run-links" },
     { "id": "embedded-fonts", "read": "presentation-font-list-and-lazy-parts", "preserve": "yes", "edit": "no", "render": "permission-checked-fontface-and-optional-harfrust-shaping" },

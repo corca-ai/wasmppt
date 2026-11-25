@@ -185,7 +185,28 @@ impl<'a> Measurer<'a> {
             let width = paragraph_width(level);
             match &block.content {
                 SemanticContent::Text(text) => {
-                    rich_lines(text, slice, width, exact, code_font, font_size)
+                    if region.role == RegionRole::Title
+                        && exact.is_none()
+                        && self.inline_measurer.is_some()
+                    {
+                        let plain = text.plain_text();
+                        let (start, end) = match slice {
+                            FragmentSlice::Text { start, end } => (start as usize, end as usize),
+                            _ => (0, plain.len()),
+                        };
+                        let selected = plain.get(start..end).unwrap_or("");
+                        wrapped_lines(selected, width, &|range| {
+                            Some(self.inline_rich_advance(
+                                text,
+                                start + range.start..start + range.end,
+                                region,
+                                font_size,
+                            ))
+                        })
+                        .unwrap_or(1)
+                    } else {
+                        rich_lines(text, slice, width, exact, code_font, font_size)
+                    }
                 }
                 SemanticContent::Code(code) => {
                     let (start, end) = match slice {

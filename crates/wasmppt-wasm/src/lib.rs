@@ -760,6 +760,12 @@ impl WasmpptEngine {
         let cursor = {
             let record = self.deck_session(handle)?;
             require_deck_revision(record, revision)?;
+            if !record.plan.failed_slides.is_empty() {
+                return Err(coded_error(
+                    "WasmpptDeckPlanError",
+                    "cannot export a deck with failed logical slides",
+                ));
+            }
             record.overlay.generation_cursor()
         };
         let generation_handle = self.allocate_handle()?;
@@ -2069,6 +2075,8 @@ mod tests {
                 height: template_plan.page_size.height - 1_000_000,
             },
             bleed_frame: None,
+            generation_frame: None,
+            minimum_font_size: 0,
             margins: TextMargins::default(),
             text_levels: vec![],
             accepts: vec![SemanticRole::Prose, SemanticRole::Diagram],

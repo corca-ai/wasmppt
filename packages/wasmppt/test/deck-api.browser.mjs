@@ -56,6 +56,21 @@ export async function checkDeckBrowserApi(page) {
         htmlText: documentCopy.body.textContent, hasEmbeddedFont: /@font-face/.test(html.html) && /data:font\//.test(html.html),
         invalidSelection, duplicateSelection, registeredFontsRemaining: document.fonts.size,
       }
+      const codeText = 'def f():\n    return 1'
+      const code = await deck.replace({ template, spec: {key:'indentation',slides:[{key:'code-slide',kind:'content',nodes:[{
+        key:'code',role:'code',split:'code-lines',source:{source:'code.md',start:0,end:codeText.length},
+        content:{kind:'code',code:codeText,language:'python'},
+      }]}]} })
+      if (!code.ok) throw new Error(JSON.stringify(code.diagnostics))
+      await view.render(code.value, {pageId:code.value.pages[0].id,width:800})
+      const codeGeometry = view.textGeometry().find(item => item.nodeKey === 'code')
+      const definition = codeGeometry?.ranges.find(range => range.start === 0)
+      const returned = codeGeometry?.ranges.find(range => range.start === codeText.indexOf('return'))
+      result.codeIndentation = !!definition && !!returned && returned.bounds.x > definition.bounds.x
+      const codeScene = await code.value.resolvePage(code.value.pages[0].id)
+      result.preservedCodeRun = codeScene.commands.some(command => command.kind === 'draw-rich-text' &&
+        command.frame.paragraphs.some(paragraph => paragraph.runs.some(run => run.text.startsWith('    ') && run.preserveWhitespace)))
+      await code.value.dispose()
       await first.dispose(); await second.dispose(); await fonts.dispose(); await template.dispose(); await deck.dispose()
       result.accountedAfterRelease = await engine.accountedBytes()
       return result
@@ -79,5 +94,7 @@ export async function checkDeckBrowserApi(page) {
   assert.equal(facts.duplicateSelection, true)
   assert.equal(facts.registeredFontsRemaining, 0)
   assert.equal(facts.accountedAfterRelease, 0)
+  assert.equal(facts.codeIndentation, true)
+  assert.equal(facts.preservedCodeRun, true)
   console.log('Semantic SDK browser contracts passed')
 }

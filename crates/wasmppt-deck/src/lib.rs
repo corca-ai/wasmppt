@@ -459,7 +459,7 @@ pub struct DeckTemplatePlan {
 }
 
 impl DeckTemplatePlan {
-    pub const SCHEMA_VERSION: u32 = 4;
+    pub const SCHEMA_VERSION: u32 = 5;
 
     pub fn encode(&self, limits: &DeckLimits) -> Result<Vec<u8>, WireError> {
         wire::encode_template_plan(self, limits)
@@ -523,6 +523,10 @@ pub struct TemplateRegion {
     pub frame: EmuRect,
     /// Optional larger area available only to media-only composition.
     pub bleed_frame: Option<EmuRect>,
+    /// Template-authorized bounds for semantic generation (never an ordinary PPTX render rule).
+    pub generation_frame: Option<EmuRect>,
+    /// Minimum generated type size in hundredths of a point; zero uses planner policy.
+    pub minimum_font_size: u32,
     pub margins: TextMargins,
     pub text_levels: Vec<TemplateTextLevel>,
     pub accepts: Vec<SemanticRole>,
@@ -639,11 +643,13 @@ pub struct DeckPlan {
     pub template_id: StableId,
     pub page_size: EmuSize,
     pub pages: Vec<PhysicalPage>,
+    /// Logical slides whose recoverable layout failure has no physical output.
+    pub failed_slides: Vec<StableId>,
     pub diagnostics: Vec<DeckDiagnostic>,
 }
 
 impl DeckPlan {
-    pub const SCHEMA_VERSION: u32 = 4;
+    pub const SCHEMA_VERSION: u32 = 5;
 
     pub fn encode(&self, limits: &DeckLimits) -> Result<Vec<u8>, WireError> {
         wire::encode_plan(self, limits)

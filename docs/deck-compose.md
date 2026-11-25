@@ -40,6 +40,7 @@ target contract exists.
 
 Each shape and relationship receives a deterministic source-order identifier. Hidden state is
 written on the physical slide. Derived continuation pages add only the planned repeated heading;
+the first physical page's explicit frame and type size are reused without another fit pass;
 ordinal, total, and label remain plan metadata for navigation and accessibility. The composer does
 not compete with template-owned slide-number fields by materializing another visible counter.
 
@@ -55,10 +56,11 @@ with explicit zero insets because the planner has already applied the parent reg
 Consecutive text spans on the same planned row are rejoined into one native text box between
 formula pictures so PowerPoint performs normal word spacing inside the sentence; the composer
 otherwise consumes the planned horizontal frames without repeating baseline, wrapping, or
-formula-size decisions. DrawingML text runs whose source starts or ends in whitespace use
-`xml:space="preserve"`, so the leading space after a formula picture and the trailing space before
-one survive round trips, while the planner-owned fragment offset provides the visible leading gap
-without depending on PowerPoint to paint whitespace at a text-box boundary. `planned_shapes`
+formula-size decisions. Ordinary DrawingML runs whose source starts or ends in whitespace use
+`xml:space="preserve"`; the resolved run carries that intent to Canvas and HTML so code indentation
+survives. Compact inline-formula text retains its source characters without that preservation
+flag: the planner-owned fragment offset supplies its visible boundary gap, avoiding duplicate
+word spaces when the renderer honors explicit whitespace preservation. `planned_shapes`
 exposes that exact coalesced shape inventory to the Wasm
 display-list projection, so browser preview, offline HTML, and PPTX use the same shape identifiers
 and unioned bounds rather than comparing a merged text box with its pre-merge fragments. Formula
@@ -141,3 +143,8 @@ its nested workbook.
 - [Cortex Theme Starter compiler](deck-template.md) defines layout discovery and template policy.
 - [Semantic layout and pagination](deck-layout.md) defines physical page and fragment planning.
 - [OPC and ZIP substrate](opc.md) defines immutable overlays and exact streaming export.
+
+Generated text boxes explicitly use `a:noAutofit`: the resolved font size and
+shape bounds already encode the semantic planner's decision. No renderer-only
+geometry correction is allowed. A partial plan composes ready pages solely for
+preview; the Wasm generation entrypoint and public SDK refuse its export.

@@ -376,7 +376,7 @@ describe('wasmppt workerd adapter', () => {
       }),
     )
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ signature: '0fcb609b5b81f3c8' })
+    expect(await response.json()).toEqual({ signature: 'db53dc74b128d6b3' })
   })
 
   it('emits deterministic DeckSpec plan, preview, topology, and export evidence', () => {
@@ -519,12 +519,12 @@ describe('wasmppt workerd adapter', () => {
     } catch (error) {
       invalidDeckSpec = (error as Error & { wasmppt?: unknown }).wasmppt
     }
-    let atomicOverflow
-    try {
-      engine.create_deck_session(template, new Uint8Array(env.DECK_GATE_ATOMIC_OVERFLOW))
-    } catch (error) {
-      atomicOverflow = (error as Error & { wasmppt?: unknown }).wasmppt
-    }
+    const partial = engine.create_deck_session(template, new Uint8Array(env.DECK_GATE_ATOMIC_OVERFLOW))
+    const failedSlides = engine.deck_snapshot_failed_slides(partial, 0)
+    const atomicOverflow = engine.deck_session_diagnostics(partial, 0)
+    expect(failedSlides.length).toBeGreaterThan(0)
+    expect(() => engine.start_deck_session_generation(partial, 0)).toThrow(/failed logical slides/)
+    expect(engine.release_deck_session(partial)).toBe(true)
     const evidence = {
       templatePlan: bytesBase64(templatePlan),
       plan: bytesBase64(plan),
@@ -575,10 +575,9 @@ describe('wasmppt workerd adapter', () => {
       domain: 'payload',
       code: 'invalid-deck-spec',
     })
-    expect(atomicOverflow).toMatchObject({
-      domain: 'layout',
-      code: 'plan-atomic-overflow',
-    })
+    expect(atomicOverflow).toEqual(expect.arrayContaining([
+      expect.arrayContaining(['plan-atomic-overflow', 'error']),
+    ]))
     expect(evidence.timings.summary.coldPlanMs)
       .toBeLessThanOrEqual(env.DECK_GATE_PLAN_BUDGET_MS)
     expect(evidence.timings.summary.warmPlanP95Ms)

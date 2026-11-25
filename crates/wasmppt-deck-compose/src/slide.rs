@@ -40,15 +40,24 @@ struct SlideWriter<'a> {
     inline_text_nodes: BTreeSet<StableId>,
 }
 
+pub(crate) struct SlideChrome<'a> {
+    pub page_size: EmuSize,
+    pub repeated_heading: Option<&'a wasmppt_deck::PlannedFragment>,
+}
+
 pub(crate) fn compose_slide(
     page: &PhysicalPage,
+    chrome: SlideChrome<'_>,
     layout: &TemplateLayout,
-    page_size: EmuSize,
     theme: &TemplateTheme,
     regions: &BTreeMap<StableId, &TemplateRegion>,
     nodes: &BTreeMap<StableId, &SemanticNode>,
     media: &BTreeMap<PreparedMediaKey, PreparedMedia>,
 ) -> Result<ComposedSlide, ComposeError> {
+    let SlideChrome {
+        page_size,
+        repeated_heading,
+    } = chrome;
     let visibility = if page.hidden { " show=\"0\"" } else { "" };
     let mut writer = SlideWriter {
         xml: format!(
@@ -91,12 +100,16 @@ pub(crate) fn compose_slide(
                         },
                         |region| region.frame,
                     );
+                    let frame = repeated_heading.map_or(frame, |fragment| fragment.frame);
                     writer.text_shape(
                         frame,
                         "Continuation heading",
                         &[Paragraph::rich(text.runs.clone(), 0)],
                         continuation_region,
-                        Some(2_400),
+                        Some(
+                            repeated_heading
+                                .map_or(2_400, |fragment| fragment.type_choice.font_size),
+                        ),
                     )?;
                 }
             }
@@ -644,7 +657,7 @@ impl SlideWriter<'_> {
             margins(region)
         };
         self.xml.push_str(&format!(
-            "<p:sp><p:nvSpPr><p:cNvPr id=\"{shape_id}\" name=\"{}\"/><p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x=\"{}\" y=\"{}\"/><a:ext cx=\"{}\" cy=\"{}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr{} wrap=\"square\"/><a:lstStyle>",
+            "<p:sp><p:nvSpPr><p:cNvPr id=\"{shape_id}\" name=\"{}\"/><p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x=\"{}\" y=\"{}\"/><a:ext cx=\"{}\" cy=\"{}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr{} wrap=\"square\"><a:noAutofit/></a:bodyPr><a:lstStyle>",
             xml_attr(name), frame.x, frame.y, frame.width, frame.height,
             body_margins
         ));
@@ -732,8 +745,9 @@ impl SlideWriter<'_> {
                     .push_str(&format!("<a:hlinkClick r:id=\"{}\"/>", xml_attr(&id)));
             }
             self.xml.push_str(
-                if run.text.starts_with(char::is_whitespace)
-                    || run.text.ends_with(char::is_whitespace)
+                if !compact
+                    && (run.text.starts_with(char::is_whitespace)
+                        || run.text.ends_with(char::is_whitespace))
                 {
                     "</a:rPr><a:t xml:space=\"preserve\">"
                 } else {
@@ -1367,7 +1381,7 @@ mod tests {
     }
 
     #[test]
-    fn inline_text_shape_uses_zero_insets_and_preserves_boundary_spaces() {
+    fn inline_text_shape_uses_zero_insets_and_geometry_owned_boundary_spaces() {
         let nodes = BTreeMap::new();
         let media = BTreeMap::new();
         let theme = TemplateTheme::default();
@@ -1407,7 +1421,7 @@ mod tests {
 
         assert!(
             writer.xml.contains(
-                "<a:bodyPr lIns=\"0\" tIns=\"0\" rIns=\"0\" bIns=\"0\" wrap=\"square\"/>"
+                "<a:bodyPr lIns=\"0\" tIns=\"0\" rIns=\"0\" bIns=\"0\" wrap=\"square\"><a:noAutofit/></a:bodyPr>"
             )
         );
         assert!(
@@ -1415,11 +1429,7 @@ mod tests {
                 .xml
                 .contains("<a:pPr lvl=\"0\" marL=\"0\" indent=\"0\"")
         );
-        assert!(
-            writer
-                .xml
-                .contains("<a:t xml:space=\"preserve\"> stretches them</a:t>")
-        );
+        assert!(writer.xml.contains("<a:t> stretches them</a:t>"));
     }
 
     #[test]
@@ -1476,6 +1486,8 @@ mod tests {
                 height: 100,
             },
             bleed_frame: None,
+            generation_frame: None,
+            minimum_font_size: 0,
             margins: Default::default(),
             text_levels: vec![TemplateTextLevel::default()],
             accepts: vec![role],
@@ -1543,16 +1555,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(writer.xml.matches("<p:sp>").count(), 1);
-        assert!(
-            writer
-                .xml
-                .contains("<a:t xml:space=\"preserve\">The </a:t>")
-        );
-        assert!(
-            writer
-                .xml
-                .contains("<a:t xml:space=\"preserve\">unit </a:t>")
-        );
+        assert!(writer.xml.contains("<a:t>The </a:t>"));
+        assert!(writer.xml.contains("<a:t>unit </a:t>"));
         assert!(writer.xml.contains("<a:ext cx=\"650\" cy=\"400\"/>"));
     }
 }

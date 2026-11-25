@@ -20,7 +20,7 @@ the common display-list semantics on Canvas 2D:
 - preset paths, fills, strokes, rotation, flips, and nested group transforms;
 - linear/radial gradients, patterns, curved bounded custom paths, outer shadows, connectors, and line ends;
 - relationship-addressed images with PowerPoint source cropping;
-- shared WPDL v11 paragraph/run layout for mixed styles, run-owned hyperlinks, script-specific theme fonts,
+- shared WPDL v12 paragraph/run layout for mixed styles, run-owned hyperlinks, script-specific theme fonts,
   RTL, tabs, vertical flow, decoration, baseline/character spacing, bullets, indentation,
   wrapping, autofit, alignment and text-frame anchoring;
 - deterministic cache eviction and disposal for decoded images.
@@ -53,7 +53,9 @@ Supplied web fonts are loaded before canvas use through the
 font/text pairs before measuring them on the target
 canvas. Korean, Han, Hiragana, and Katakana text may wrap at character boundaries. Latin text
 wraps at whitespace first and falls back to character boundaries when one token exceeds the
-frame width; newlines remain deterministic. Tests cover an exact supplied-font host, documented
+frame width; newlines remain deterministic. Explicit `xml:space="preserve"` run metadata retains
+indentation at paragraph starts and after authored hard breaks. Whitespace introduced at a soft
+wrap still collapses. Compact formula-adjacent text uses its planned word-space geometry instead. Tests cover an exact supplied-font host, documented
 missing-font fallback, Korean and Latin wrapping, and mixed-order batched measurement.
 
 For `a:normAutofit`, the shared rich-text planner reflows at each candidate font scale and uses a
@@ -111,7 +113,7 @@ baselines and per-slide tolerance reports belong to the compatibility-gate slice
 
 ## Current boundary
 
-The renderer supports [WPDL v11 and legacy decoding](rendering.md#binary-display-list). Semantic
+The renderer supports [WPDL v12 and legacy decoding](rendering.md#binary-display-list). Semantic
 IDs, source ranges, reading order, and hit-test bounds support Canvas authoring. Live-edited text
 marks normal AutoFit for recomputation rather than retaining a stale authored hint.
 Embedded font relationships travel

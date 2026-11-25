@@ -714,11 +714,15 @@ fn assert_atomic_overflow(template: &[u8], spec: &[u8]) -> Result<(), Box<dyn st
     let limits = DeckLimits::default();
     let decoded = DeckSpec::decode(spec, &limits)?;
     let compiled = ThemeTemplateCompiler::default().compile(template.to_vec())?;
-    let failure = DeckPlanner::default()
-        .plan(&decoded, &compiled.plan, &FontCatalog::default(), &limits)
-        .expect_err("atomic overflow fixture unexpectedly produced a partial plan");
-    if failure.code != DeckDiagnosticCode::PLAN_ATOMIC_OVERFLOW {
-        return Err(format!("atomic overflow returned {:?}", failure.code).into());
+    let plan =
+        DeckPlanner::default().plan(&decoded, &compiled.plan, &FontCatalog::default(), &limits)?;
+    if plan.failed_slides.is_empty()
+        || !plan
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == DeckDiagnosticCode::PLAN_ATOMIC_OVERFLOW)
+    {
+        return Err("atomic overflow must retain a source-owned failed logical slide".into());
     }
     Ok(())
 }

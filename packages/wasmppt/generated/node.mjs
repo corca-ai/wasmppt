@@ -1809,6 +1809,7 @@ function executeDeckOperation(engine, operation, inlineTextMeasure) {
           revision,
           pages,
           sources,
+          failedSlides: engine.deck_snapshot_failed_slides(handle, revision).map(string),
           diagnostics: decodeDeckDiagnostics(engine.deck_session_diagnostics(handle, revision))
         };
       } catch (error) {
@@ -2621,7 +2622,7 @@ function decodeDisplayList(input) {
   const reader = new BinaryReader(bytes);
   if (reader.ascii(4) !== "WPDL") throw new Error("display list has an invalid magic value");
   const version = reader.u16();
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8 && version !== 9 && version !== 10 && version !== 11) {
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8 && version !== 9 && version !== 10 && version !== 11 && version !== 12) {
     throw new Error(`unsupported display-list version ${version}`);
   }
   if (reader.u16() !== 0) throw new Error("display-list reserved flags are non-zero");
@@ -2927,7 +2928,9 @@ function readCommand(reader, version, inlineImages = [], declaredImageCount = 0)
           const eastAsianFontFamily = reader.utf8Blob();
           const complexScriptFontFamily = reader.utf8Blob();
           const hyperlink = version >= 11 ? reader.utf8Blob() : "";
+          const preserveWhitespace = version >= 12 && reader.u8() !== 0;
           runs.push({
+            ...preserveWhitespace ? { preserveWhitespace: true } : {},
             text,
             style,
             eastAsianFontFamily: eastAsianFontFamily || void 0,
@@ -3621,6 +3624,10 @@ var Deck = class {
           releaseFonts,
           diagnostics: report,
           rawPages: result.pages,
+          failedSlides: Object.freeze(result.failedSlides.map((id) => {
+            const key = encoded.identities.get(id).key;
+            return Object.freeze({ logicalSlideKey: key, hidden: captured.spec.slides.find((slide) => slide.key === key)?.hidden ?? false });
+          })),
           pages: Object.freeze(result.pages.map((page, index) => Object.freeze({
             index,
             id: page.pageId,
@@ -3670,6 +3677,12 @@ var DeckSnapshot = class _DeckSnapshot {
   get pages() {
     return accessSnapshot(this).pages;
   }
+  get failedSlides() {
+    return accessSnapshot(this).failedSlides;
+  }
+  assertComplete() {
+    if (accessSnapshot(this).failedSlides.length > 0) throw new Error("cannot export a deck with failed logical slides");
+  }
   get diagnostics() {
     return accessSnapshot(this).diagnostics;
   }
@@ -3707,6 +3720,7 @@ var DeckSnapshot = class _DeckSnapshot {
   }
   /** Pull-driven output holds its own lease until the stream is consumed or cancelled. */
   exportPptx(options = {}) {
+    this.assertComplete();
     const held = this.retain();
     const state = accessSnapshot(held);
     const signal = AbortSignal.any([state.engine.signal, ...options.signal === void 0 ? [] : [options.signal]]);

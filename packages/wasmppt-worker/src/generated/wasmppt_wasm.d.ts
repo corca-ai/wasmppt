@@ -77,6 +77,10 @@ export class WasmpptEngine {
      */
     deck_session_slide_metadata(handle: number, revision: number, slide_index: number): Array<any>;
     /**
+     * Failed logical slides remain source-owned even though they produce no PPTX pages.
+     */
+    deck_snapshot_failed_slides(handle: number, revision: number): Array<any>;
+    /**
      * WPDL semantic IDs identify physical fragments; retain their semantic-node ownership.
      */
     deck_snapshot_sources(handle: number, revision: number): Array<any>;
@@ -215,6 +219,7 @@ export interface InitOutput {
     readonly wasmpptengine_deck_session_slide_count: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_deck_session_slide_fingerprint: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasmpptengine_deck_session_slide_metadata: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly wasmpptengine_deck_snapshot_failed_slides: (a: number, b: number, c: number, d: number) => void;
     readonly wasmpptengine_deck_snapshot_sources: (a: number, b: number, c: number, d: number) => void;
     readonly wasmpptengine_deck_template_cacheable: (a: number, b: number, c: number) => void;
     readonly wasmpptengine_deck_template_plan: (a: number, b: number, c: number) => void;

@@ -224,6 +224,7 @@ fn reports_each_plan_integrity_failure_with_a_stable_code() {
     );
 
     let mut bleed_template = template.clone();
+    bleed_template.regions[0].generation_frame = Some(bleed_template.regions[0].frame);
     bleed_template.regions[0].bleed_frame = Some(EmuRect {
         x: 0,
         y: 0,
@@ -392,15 +393,15 @@ fn golden_payloads_are_stable() {
         template_plan_with_unknown_diagnostic()
             .encode(&limits)
             .unwrap(),
-        "fixtures/deck-contracts/template-plan-v4.hex",
-        include_str!("../../../fixtures/deck-contracts/template-plan-v4.hex"),
+        "fixtures/deck-contracts/template-plan-v5.hex",
+        include_str!("../../../fixtures/deck-contracts/template-plan-v5.hex"),
     );
     assert_golden(
         valid_plan(&simple_spec(), &template_plan_with_unknown_diagnostic())
             .encode(&limits)
             .unwrap(),
-        "fixtures/deck-contracts/deck-plan-v4.hex",
-        include_str!("../../../fixtures/deck-contracts/deck-plan-v4.hex"),
+        "fixtures/deck-contracts/deck-plan-v5.hex",
+        include_str!("../../../fixtures/deck-contracts/deck-plan-v5.hex"),
     );
 }
 
@@ -777,6 +778,8 @@ fn template_plan() -> DeckTemplatePlan {
             },
             frame: FRAME,
             bleed_frame: None,
+            generation_frame: None,
+            minimum_font_size: 0,
             margins: TextMargins::default(),
             text_levels: vec![],
             accepts: vec![SemanticRole::Title, SemanticRole::Prose, SemanticRole::List],
@@ -811,6 +814,7 @@ fn valid_plan(spec: &DeckSpec, template: &DeckTemplatePlan) -> DeckPlan {
         spec_id: spec.id,
         template_id: template.id,
         page_size: PAGE,
+        failed_slides: Vec::new(),
         pages: vec![
             page(
                 title_slide,

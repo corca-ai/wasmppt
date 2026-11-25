@@ -306,6 +306,8 @@ fn fixture() -> (Vec<u8>, DeckSpec, DeckTemplatePlan, DeckPlan) {
                 height: 5_200_000,
             },
             bleed_frame: None,
+            generation_frame: None,
+            minimum_font_size: 0,
             margins: TextMargins::default(),
             text_levels: vec![TemplateTextLevel {
                 level: 0,
@@ -403,6 +405,7 @@ fn fixture() -> (Vec<u8>, DeckSpec, DeckTemplatePlan, DeckPlan) {
         spec_id: spec.id,
         template_id: template.id,
         page_size: template.page_size,
+        failed_slides: Vec::new(),
         pages: vec![PhysicalPage {
             id: id(2).derive(b"physical-page", 1),
             logical_slide_id: id(2),

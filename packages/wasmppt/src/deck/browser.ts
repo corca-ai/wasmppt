@@ -175,6 +175,7 @@ export interface DeckHtmlOptions extends Omit<OfflineHtmlOptions, 'fonts' | 'sha
 }
 
 export async function exportHtml(snapshot: DeckSnapshot, options: DeckHtmlOptions = {}): Promise<OfflineHtmlResult> {
+  snapshot.assertComplete()
   const held = snapshot.retain()
   try {
     const state = accessSnapshot(held)

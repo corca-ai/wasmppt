@@ -75,7 +75,7 @@ fn lowers_to_stable_compact_binary_commands_and_side_tables() {
         u16::from_le_bytes([encoded[4], encoded[5]]),
         DISPLAY_LIST_VERSION
     );
-    assert_eq!(display.structural_signature(), 0x0fcb_609b_5b81_f3c8);
+    assert_eq!(display.structural_signature(), 0xdb53_dc74_b128_d6b3);
 }
 
 #[test]

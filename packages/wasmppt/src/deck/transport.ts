@@ -27,5 +27,6 @@ export type DeckOperationResult =
       readonly handle: number
       readonly revision: number
       readonly pages: readonly DeckPageMetadata[]
+      readonly failedSlides: readonly string[]
       readonly diagnostics: readonly DeckDiagnostic[]
     }

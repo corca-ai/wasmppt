@@ -75,7 +75,10 @@ ordinal; fragment IDs use the complete source node ID and fragment slice.
 `DeckTemplatePlan` contains the compiled template identity and SHA-256, exact page size,
 deterministic cache key, theme fonts and colors, title, statement, and content-envelope layouts,
 semantic regions, and preserved assets. Each region has a safe EMU frame and may have a larger
-media-only bleed frame, plus a standard placeholder type/index, resolved text margins and
+media-only bleed frame. Generation bounds and media bleed are independent authorizations:
+a media-only region may occupy either, while text stays inside the generation bounds or safe
+frame. Declaring text generation bounds never masks an existing bleed area. Regions also carry
+a standard placeholder type/index, resolved text margins and
 hierarchy, a role, accepted semantic roles, and a required marker.
 Assets retain their original package part and exact XML source range so a later composer can
 copy unknown markup from the hash-matched POTX rather than reconstructing it. Visible layout
@@ -134,8 +137,8 @@ The [binary codecs](../crates/wasmppt-deck/src/wire.rs) implement these little-e
 | Magic | Version | Value |
 | --- | ---: | --- |
 | `WDSF` | 5 | `DeckSpec`, SVG fallback references, source relations, and binary resources |
-| `WDTP` | 4 | `DeckTemplatePlan` |
-| `WDPL` | 4 | `DeckPlan` |
+| `WDTP` | 5 | `DeckTemplatePlan` |
+| `WDPL` | 5 | `DeckPlan` |
 
 Vectors and strings are length-prefixed. Media remains raw bytes rather than JSON or
 base64. Encoding order follows source and plan vector order, so equal values produce
@@ -145,7 +148,7 @@ and fragment limits before allocating the declared content.
 
 `DeckLimitCode` values are append-only and identify each bounded dimension. Callers may
 tighten `DeckLimits` for a host but MUST NOT turn a limit failure into partial content.
-Checked-in hexadecimal fixtures pin WDSF v5, WDTP v4, and WDPL v4. Older semantic-plan
+Checked-in hexadecimal fixtures pin WDSF v5, WDTP v5, and WDPL v5. Older semantic-plan
 payloads are intentionally unsupported because the planner boundary is replaced atomically.
 
 ## Verification

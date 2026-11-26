@@ -193,7 +193,7 @@ impl DeckPlanner {
         scoped.plan_internal(spec, template, fonts, contract_limits, None)
     }
 
-    /// Plan with host font measurement for headers and formula-adjacent text. Resolved advances enter
+    /// Plan with host font measurement for text without exact font bytes. Resolved advances enter
     /// the plan identity; measured plans conservatively use full planning on subsequent edits.
     pub fn plan_with_inline_measurer(
         &self,
@@ -1536,14 +1536,31 @@ impl DeckPlanner {
         if !matches!(pattern, Pattern::MediaStart | Pattern::MediaEnd) {
             return Ok(pattern.frame_variants(region.frame, self.policy.gap, groups.len()));
         }
+        // Generated media/text columns reserve an editorial gutter independently of block gaps.
+        // Custom templates keep their explicit geometry and the caller's configured gap.
+        let column_gap = if region.generation_frame.is_some() {
+            self.policy.gap.max(320_040) // 0.35 inch
+        } else {
+            self.policy.gap
+        };
         let Some(demand) = media_text_demand(groups, region, measurer)? else {
-            return Ok(pattern.frame_variants(region.frame, self.policy.gap, groups.len()));
+            let horizontal = |frames: &Vec<EmuRect>| frames[0].y == frames[1].y;
+            let mut variants = pattern.frame_variants(region.frame, column_gap, groups.len());
+            variants.retain(horizontal);
+            variants.extend(
+                pattern
+                    .frame_variants(region.frame, self.policy.gap, groups.len())
+                    .into_iter()
+                    .filter(|frames| !horizontal(frames)),
+            );
+            return Ok(variants);
         };
         Ok(media_text_frame_variants(
             pattern,
             region.frame,
             region.margins,
             self.policy.gap,
+            column_gap,
             self.policy.readable_media_floor,
             demand,
         ))
@@ -3510,12 +3527,13 @@ fn media_text_frame_variants(
     frame: EmuRect,
     margins: wasmppt_deck::TextMargins,
     gap: Emu,
+    column_gap: Emu,
     media_floor: Emu,
     demand: MediaTextDemand,
 ) -> Vec<Vec<EmuRect>> {
     let horizontal_margins = margins.left.saturating_add(margins.right);
     let vertical_margins = margins.top.saturating_add(margins.bottom);
-    let available_width = frame.width.saturating_sub(gap).max(1);
+    let available_width = frame.width.saturating_sub(column_gap).max(1);
     let available_height = frame.height.saturating_sub(gap).max(1);
     let usable_height = frame
         .height
@@ -3552,7 +3570,7 @@ fn media_text_frame_variants(
         } else {
             available_width.saturating_sub(media_width)
         };
-        variants.push(split_pair(frame, gap, first_width, true));
+        variants.push(split_pair(frame, column_gap, first_width, true));
     }
 
     let usable_width = frame
@@ -4635,7 +4653,7 @@ fn plan_id(
     limits: &DeckLimits,
 ) -> StableId {
     let mut digest = Sha256::new();
-    digest.update(b"wasmppt/deck-layout/plan/v10\0");
+    digest.update(b"wasmppt/deck-layout/plan/v11\0");
     match spec.encode(limits) {
         Ok(encoded) => digest.update(Sha256::digest(encoded)),
         Err(_) => digest.update(spec.id.as_bytes()),
@@ -4765,6 +4783,129 @@ mod tests {
                 "reversed={reversed}: {text:?}, {image:?}"
             );
             assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+        }
+    }
+
+    #[test]
+    fn generated_image_list_gutters_fit_both_source_orders_and_preserve_custom_policy() {
+        for (width, height) in [(400, 100), (160, 90), (100, 100), (75, 100), (100, 400)] {
+            for image_first in [true, false] {
+                for generated in [true, false] {
+                    let mut nodes = vec![list_node(4, 2), figure_node(5, 9, "Figure")];
+                    if image_first {
+                        nodes.reverse();
+                    }
+                    let spec = spec_with_resources(
+                        nodes,
+                        vec![DeckResource {
+                            id: id(9),
+                            kind: ResourceKind::RasterImage,
+                            media_type: "image/png".into(),
+                            bytes: vec![1].into(),
+                            intrinsic_size: Some(PixelSize { width, height }),
+                        }],
+                    );
+                    let mut template = template(5_000_000);
+                    if generated {
+                        template.regions[1].generation_frame = Some(template.regions[1].frame);
+                    }
+                    let planner = DeckPlanner::default();
+                    let plan = planner
+                        .plan(&spec, &template, &FontCatalog::default(), &limits())
+                        .unwrap();
+                    assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+                    assert_eq!(plan.pages.len(), 1);
+                    let page = &plan.pages[0];
+                    let text = fragment_frame(&page.regions, id(4)).unwrap();
+                    let image = fragment_frame(&page.regions, id(5)).unwrap();
+                    let gap = if image_first {
+                        text.x - image.x - image.width
+                    } else {
+                        image.x - text.x - text.width
+                    };
+                    let minimum = if generated {
+                        320_040
+                    } else {
+                        planner.policy.gap
+                    };
+                    assert!(
+                        gap >= minimum,
+                        "{width}x{height} image_first={image_first} generated={generated}: {gap}"
+                    );
+                    if !generated {
+                        assert!(
+                            fragments(page)
+                                .filter(|fragment| fragment.source_node_id == id(4))
+                                .all(|fragment| fragment.type_choice.font_size == 2000)
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn serious_prose_uses_host_measurement_through_final_physical_lanes() {
+        let first = "I finally built something to replace Obsidian. I wanted something fast, without folders or tags. Two days after building it, I no longer use Obsidian. One reason this was possible, I think, is that I hardly used any Obsidian plugins.";
+        let repeated = "A personal wiki where I write whatever comes to mind: diaries, technology/programming, HCI/UX/design, philosophy/ethics, and more. Welcome :)";
+        for purpose in [
+            PresentationPurpose::Conference,
+            PresentationPurpose::Seminar,
+            PresentationPurpose::Handout,
+        ] {
+            let mut nodes = vec![text_node(
+                3,
+                SemanticRole::Title,
+                SplitPolicy::Never,
+                "Serious",
+            )];
+            nodes.extend(
+                std::iter::once(first)
+                    .chain(std::iter::repeat_n(repeated, 8))
+                    .enumerate()
+                    .map(|(index, copy)| {
+                        text_node(
+                            4 + index as u8,
+                            SemanticRole::Prose,
+                            SplitPolicy::Text,
+                            copy,
+                        )
+                    }),
+            );
+            let mut spec = spec(nodes);
+            spec.layout.presentation = purpose;
+            let mut template = template(5_000_000);
+            template.regions[1].generation_frame = Some(template.regions[1].frame);
+            let calls = std::cell::Cell::new(0usize);
+            // A wide host face must determine body geometry, not just the title.
+            let host = |text: &str, style: InlineTextStyle<'_>| {
+                if text.contains("wiki") {
+                    calls.set(calls.get() + 1);
+                }
+                Some(text.chars().count() as i64 * i64::from(style.font_size) * 80)
+            };
+            let plan = DeckPlanner::default()
+                .plan_with_inline_measurer(
+                    &spec,
+                    &template,
+                    &FontCatalog::default(),
+                    &limits(),
+                    Some(&host),
+                )
+                .unwrap();
+            assert!(plan.failed_slides.is_empty());
+            assert!(
+                calls.get() > 0,
+                "whole planner must measure ordinary prose with the host"
+            );
+            assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+            for page in &plan.pages {
+                let sizes = fragments(page)
+                    .filter(|fragment| fragment.source_node_id != id(3))
+                    .map(|fragment| fragment.type_choice.font_size)
+                    .collect::<BTreeSet<_>>();
+                assert_eq!(sizes.len(), 1, "comparable final body lanes share one font");
+            }
         }
     }
 
@@ -8215,8 +8356,12 @@ mod tests {
                 &FontCatalog::default(),
                 &limits(),
                 Some(&|text, style| {
-                    assert!(style.bold);
-                    assert_eq!(style.typeface, Some("Host face"));
+                    if text == "Body" {
+                        assert!(!style.bold);
+                    } else {
+                        assert!(style.bold);
+                        assert_eq!(style.typeface, Some("Host face"));
+                    }
                     Some(text.chars().count() as i64 * i64::from(style.font_size) * 127)
                 }),
             )

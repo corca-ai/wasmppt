@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { checkInlineMathBrowserApi } from './inline-math.browser.mjs'
+import { checkProseGutterBrowserApi } from './prose-gutter.browser.mjs'
 
 const spec = (text, presentation = 'seminar') => ({ key: 'browser', layout: { presentation, imageFit: 'contain' }, slides: [
         { key: 'cover', kind: 'content', nodes: [{ key: 'title', role: 'prose', source: { source: 'deck.md', start: 0, end: 10 }, content: { kind: 'text', text: { runs: [{text: text + '\nSecond paragraph'}] } } }] },
@@ -9,6 +10,7 @@ const spec = (text, presentation = 'seminar') => ({ key: 'browser', layout: { pr
 
 /** Browser-owned contracts: font registration, paint publication, hit testing and closed HTML. */
 export async function checkDeckBrowserApi(page) {
+  await checkProseGutterBrowserApi(page)
   await checkInlineMathBrowserApi(page)
   await checkInlineMathBrowserApi(page, true, '/inline-math-monospace.potx')
   const facts = await page.evaluate(async ({ before, after }) => {

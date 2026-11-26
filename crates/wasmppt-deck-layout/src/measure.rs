@@ -239,25 +239,15 @@ impl<'a> Measurer<'a> {
             };
             match &block.content {
                 SemanticContent::Text(text) => {
-                    if region.role == RegionRole::Title
-                        && exact.is_none()
-                        && self.inline_measurer.is_some()
+                    if (missing_requested_font || exact.is_none()) && self.inline_measurer.is_some()
                     {
-                        let plain = text.plain_text();
-                        let (start, end) = match slice {
-                            FragmentSlice::Text { start, end } => (start as usize, end as usize),
-                            _ => (0, plain.len()),
-                        };
-                        let selected = plain.get(start..end).unwrap_or("");
-                        wrapped_lines(selected, width, &|range| {
-                            Some(self.inline_rich_advance(
-                                text,
-                                start + range.start..start + range.end,
-                                region,
-                                font_size,
-                            ))
-                        })
-                        .unwrap_or(1)
+                        wrapped_rich_lines(
+                            text,
+                            slice,
+                            width,
+                            prefix.map(|text| (text, indent.saturating_neg().max(0))),
+                            &|rich, range| self.inline_rich_advance(rich, range, region, font_size),
+                        )
                     } else {
                         rich_lines(
                             text,
@@ -1125,6 +1115,16 @@ fn wrapped_lines(
         let mut start = 0usize;
         for opportunity in line_breaks(line, line.len()).ok()? {
             let end = opportunity.offset as usize;
+            // Canvas keeps punctuation inside an ASCII word (paths, slash compounds,
+            // hyphenated words) together. UAX #14 permits additional breaks there.
+            // Use their common conservative boundary so editable boxes cannot paint
+            // more rows than the source-owned allocation, with or without exact fonts.
+            if end < line.len()
+                && line.as_bytes()[end - 1].is_ascii_graphic()
+                && line.as_bytes()[end].is_ascii_graphic()
+            {
+                continue;
+            }
             let token_start = line_start + start;
             let token = &line[start..end];
             start = end;
@@ -1290,6 +1290,18 @@ fn rich_lines(
     size: u32,
     prefix: Option<(&str, Emu)>,
 ) -> u32 {
+    wrapped_rich_lines(text, slice, width, prefix, &|rich, range| {
+        rich_advance(rich, range, font, code_font, size)
+    })
+}
+
+fn wrapped_rich_lines(
+    text: &wasmppt_deck::RichText,
+    slice: FragmentSlice,
+    width: Emu,
+    prefix: Option<(&str, Emu)>,
+    advance: &dyn Fn(&wasmppt_deck::RichText, std::ops::Range<usize>) -> Emu,
+) -> u32 {
     let prefixed = prefix.map(|(label, _)| {
         let mut value = text.clone();
         value.runs.insert(
@@ -1307,9 +1319,7 @@ fn rich_lines(
     });
     let text = prefixed.as_ref().unwrap_or(text);
     let extra = prefix.map_or(0, |(label, minimum)| {
-        minimum
-            .saturating_sub(rich_advance(text, 0..label.len(), font, code_font, size))
-            .max(0)
+        minimum.saturating_sub(advance(text, 0..label.len())).max(0)
     });
     let plain = text.plain_text();
     let (start, end) = match slice {
@@ -1319,14 +1329,8 @@ fn rich_lines(
     let selected = plain.get(start..end).unwrap_or("");
     wrapped_lines(selected, width, &|range| {
         Some(
-            rich_advance(
-                text,
-                start + range.start..start + range.end,
-                font,
-                code_font,
-                size,
-            )
-            .saturating_add(if range.start == 0 { extra } else { 0 }),
+            advance(text, start + range.start..start + range.end)
+                .saturating_add(if range.start == 0 { extra } else { 0 }),
         )
     })
     .unwrap_or(1)
@@ -1567,6 +1571,25 @@ mod tests {
             2
         );
         assert_eq!(code_advance("iiii", None, 2_000), em * 24 / 10);
+    }
+
+    #[test]
+    fn ascii_compounds_keep_the_canvas_word_boundary() {
+        for word in [
+            "technology/programming",
+            "HCI/UX/design",
+            "philosophy/ethics",
+            "state-of-the-art",
+        ] {
+            let copy = format!("prefix {word} suffix");
+            // Each word fits the lane on its own, but not beside its neighbour.
+            let width = word.len().max(7) as i64;
+            assert_eq!(
+                wrapped_lines(&copy, width, &|range| Some(range.len() as i64)),
+                Some(3),
+                "{word}"
+            );
+        }
     }
 
     #[test]

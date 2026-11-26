@@ -5,7 +5,7 @@ Canvas and HTML, and `/node` for an in-process Node engine. Both engines expose 
 API over the checked-in Rust/Wasm implementation. The [Starter POTX contract](deck-template.md)
 is required. Arbitrary authored templates use the separate [binding API](browser.md).
 
-For headers and formula-adjacent prose without registered font bytes, browser hosts can enable
+For ordinary prose, lists, headers and formula-adjacent text without registered font bytes, browser hosts can enable
 `createBrowserEngine({ worker, measureInlineText: true })`. The module Worker measures inline
 text with OffscreenCanvas using the Canvas renderer's font resolution and tokenization. The
 measurement module loads on the first requested snapshot without exact font bytes; default
@@ -63,8 +63,9 @@ Caption sizes apply only to semantic caption nodes. Ordinary prose, lists and ta
 body typography. Ordinary body lanes adapt in half-point preferred steps using measured content
 and their final available region after pagination; sparse continuations can recover upward without
 adding pages. See the [layout policy](deck-layout.md#presentation-purpose) for eligibility and bounds.
-A body with one ordinary prose/list node and one figure image places text left and image right in
-either source order. Source ranges and reading order remain unchanged. Hosts supply purpose and factual semantic roles; the engine owns measured
+A body with one ordinary prose/list node and one figure image places its first source block on
+the left. Generated horizontal media/text lanes include a measured 0.35-inch minimum gutter;
+custom regions retain their configured geometry. Source ranges and reading order remain unchanged. Hosts supply purpose and factual semantic roles; the engine owns measured
 geometry, candidate selection and page breaks. A host parsing frontmatter reports an invalid
 purpose and supplies the seminar fallback. Invalid SDK enum values reject the edit.
 

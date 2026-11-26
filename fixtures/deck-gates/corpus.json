@@ -1,6 +1,6 @@
 {
-  "schema": 2,
-  "id": "autolayout-v3",
+  "schema": 3,
+  "id": "academic-autolayout-v4",
   "cases": [
     "title-variants", "long-prose", "long-list-with-live-empty-item",
     "table-continuation", "long-code", "mixed-media",
@@ -8,15 +8,16 @@
     "section", "display-math", "definition", "statement", "hidden-page",
     "media-aspects-4x1-16x9-1x1-3x4-1x4",
     "media-context-image-caption-short-long",
-    "media-pairs-2-3-5-9", "jpeg-exif-orientation-6-8"
+    "media-pairs-2-3-5-9", "captioned-peers-outside-gallery", "jpeg-exif-orientation-6-8",
+    "licensed-research-multipanel-landscape-portrait", "mixed-long-academic-heading", "measured-column-results"
   ],
   "invariants": [
     "exact-source-coverage", "no-overlap", "readable-type",
     "balanced-flow", "no-singleton-final-orphan", "bounded-media",
     "single-editable-table-per-slice", "canvas-pptx-geometry-parity",
     "cross-host-byte-determinism", "single-slide-invalidation",
-    "contain-aspect-fidelity", "bounded-cover-crop",
-    "media-text-cohesion", "gallery-page-balance",
+    "contain-aspect-fidelity", "zero-image-crop",
+    "media-text-cohesion", "gallery-page-balance", "uniform-peer-images",
     "jpeg-exif-display-axis"
   ]
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { LeasedImageCache } from '../dist/cache/leased-image-cache.js'
 
 import {
   ByteBudgetLru,
@@ -633,6 +634,72 @@ test('multi-column text flows lines into bounded column rectangles', async () =>
 })
 
 
+function imageScene(names, resources = names.map((_, index) => index)) {
+  return { version: 12, width: 9525, height: 9525, groups: [], strings: [], semantics: [], diagnostics: [], byteLength: 1,
+    images: names.map(name => ({ partName: name, relationshipId: name })),
+    commands: resources.map(resource => ({ kind: 'draw-image', resource, crop: [0, 0, 0, 0],
+      transform: { bounds: { x: 0, y: 0, width: 9525, height: 9525 }, rotation: 0, flipHorizontal: false, flipVertical: false } })),
+  }
+}
+
+function imageContext(draw = () => {}) {
+  return { canvas: { width: 1, height: 1 }, save() {}, restore() {}, setTransform() {}, transform() {},
+    drawImage(image) { assert.equal(image.closed, 0, 'drawImage received a closed image'); draw(image) },
+  }
+}
+
+function trackedImage() {
+  const source = { width: 1, height: 1, closed: 0 }
+  return { source, residentBytes: 8, close() { source.closed += 1 } }
+}
+
+test('oversized and zero-cache images stay open through duplicate draws and close after rendering', async () => {
+  for (const budget of [0, 4]) {
+    const renderer = new CanvasDisplayListRenderer(budget)
+    const image = trackedImage()
+    let decodes = 0
+    let draws = 0
+    await renderer.render(imageScene(['same', 'same']), imageContext(() => { draws += 1 }), {
+      imageResolver: async () => { decodes += 1; return image },
+    })
+    assert.equal(decodes, 1, 'duplicate resources share the pending decode')
+    assert.equal(draws, 2)
+    assert.equal(renderer.decodedImageBytes, 0)
+    assert.equal(image.source.closed, 1)
+    renderer.clear()
+    assert.equal(image.source.closed, 1)
+  }
+})
+
+test('image eviction and clear cannot close images borrowed by the current scene', async () => {
+  const renderer = new CanvasDisplayListRenderer(8)
+  const images = [trackedImage(), trackedImage(), trackedImage()]
+  await renderer.render(imageScene(['a', 'b', 'c'], [0, 1, 0, 2]), imageContext(image => {
+    renderer.clear()
+    assert.equal(image.closed, 0, 'clear preserves the active draw lease')
+  }), { imageResolver: async image => images[['a', 'b', 'c'].indexOf(image.partName)] })
+  assert.deepEqual(images.map(image => image.source.closed), [1, 1, 1])
+  assert.equal(renderer.decodedImageBytes, 0)
+})
+
+test('image leases release on cancellation, drawing failures and partial decode failures', async () => {
+  for (const failure of ['abort', 'draw', 'decode']) {
+    const renderer = new CanvasDisplayListRenderer(0)
+    const image = trackedImage()
+    const cancellation = new AbortController()
+    const options = { signal: cancellation.signal, imageResolver: async resource => {
+      if (resource.partName === 'bad') throw new Error('decode failed')
+      if (failure === 'abort') cancellation.abort()
+      return image
+    } }
+    const context = imageContext(() => { if (failure === 'draw') throw new Error('draw failed') })
+    const scene = imageScene(failure === 'decode' ? ['good', 'bad'] : ['good'])
+    await assert.rejects(renderer.render(scene, context, options), failure === 'abort' ? { name: 'AbortError' } : /failed/)
+    assert.equal(image.source.closed, 1, `${failure} releases the transient image once`)
+    assert.equal(renderer.decodedImageBytes, 0)
+  }
+})
+
 test('clearing a renderer disposes late image decodes without repopulating its cache', async () => {
   const renderer = new CanvasDisplayListRenderer()
   let resolveImage
@@ -678,6 +745,28 @@ test('clearing a renderer disposes late image decodes without repopulating its c
   assert.equal(closed, 1)
 })
 
+test('clear during asynchronous image-key resolution cannot admit an old decode', async () => {
+  const renderer = new CanvasDisplayListRenderer(8)
+  let completeKey
+  let started
+  let decodes = 0
+  const keyStarted = new Promise(resolve => { started = resolve })
+  const rendering = renderer.render(imageScene(['old']), imageContext(), {
+    imageCacheKey: () => {
+      started()
+      return new Promise(resolve => { completeKey = resolve })
+    },
+    imageResolver: async () => { decodes += 1; return trackedImage() },
+  })
+  const rejected = assert.rejects(rendering, { name: 'AbortError' })
+  await keyStarted
+  renderer.clear()
+  completeKey('old')
+  await rejected
+  assert.equal(decodes, 0)
+  assert.equal(renderer.decodedImageBytes, 0)
+})
+
 test('byte-budget LRU evicts and disposes deterministically', () => {
   const disposed = []
   const cache = new ByteBudgetLru(5, (value) => disposed.push(value))
@@ -693,6 +782,80 @@ test('byte-budget LRU evicts and disposes deterministically', () => {
   assert.equal(cache.residentBytes, 0)
   assert.equal(cache.hitRate, 0)
   assert.deepEqual(disposed, ['A', 'L', 'B'])
+})
+
+test('image cache eviction releases ownership only after the last paint lease', async () => {
+  const cache = new LeasedImageCache(4)
+  const closed = []
+  const load = name => async () => ({ source: {}, residentBytes: 4, close: () => closed.push(name) })
+  const first = await cache.acquire('first', load('first'))
+  const peer = await cache.acquire('first', () => assert.fail('cached image decoded again'))
+  const second = await cache.acquire('second', load('second'))
+  assert.equal(cache.residentBytes, 4)
+  assert.deepEqual(closed, [])
+  first.release()
+  first.release()
+  assert.deepEqual(closed, [])
+  peer.release()
+  assert.deepEqual(closed, ['first'])
+  cache.clear()
+  assert.equal(cache.residentBytes, 0)
+  assert.deepEqual(closed, ['first'])
+  second.release()
+  assert.deepEqual(closed, ['first', 'second'])
+})
+
+test('concurrent uncached image borrowers share decoding and dispose once', async () => {
+  const cache = new LeasedImageCache(0)
+  let complete
+  let decodes = 0
+  let closed = 0
+  const load = () => { decodes += 1; return new Promise(resolve => { complete = resolve }) }
+  const first = cache.acquire('large', load)
+  const second = cache.acquire('large', load)
+  await Promise.resolve()
+  complete({ source: {}, residentBytes: 4, close: () => { closed += 1 } })
+  const leases = await Promise.all([first, second])
+  assert.equal(decodes, 1)
+  assert.equal(closed, 0)
+  leases[0].release()
+  assert.equal(closed, 0)
+  leases[1].release()
+  assert.equal(closed, 1)
+  assert.equal(cache.residentBytes, 0)
+})
+
+test('failed and cancelled paints release late uncached image acquisitions', async () => {
+  for (const failure of ['resolver', 'abort']) {
+    const renderer = new CanvasDisplayListRenderer(0)
+    const abort = new AbortController()
+    let complete
+    let started
+    let closed = 0
+    const loading = new Promise(resolve => { started = resolve })
+    const rendering = renderer.render({
+      version: 12, width: 9_525, height: 9_525, commands: [], groups: [], strings: [],
+      images: [{ relationshipId: 'late' }, { relationshipId: 'other' }],
+      semantics: [], diagnostics: [], byteLength: 1,
+    }, { canvas: { width: 1, height: 1 }, save() {}, restore() {}, setTransform() {} }, {
+      signal: abort.signal,
+      imageResolver: image => {
+        if (image.relationshipId === 'other') {
+          if (failure === 'resolver') throw new Error('broken image')
+          return Promise.resolve(undefined)
+        }
+        started()
+        return new Promise(resolve => { complete = resolve })
+      },
+    })
+    const rejected = assert.rejects(rendering, failure === 'resolver' ? /broken image/ : { name: 'AbortError' })
+    await loading
+    if (failure === 'abort') abort.abort()
+    complete({ source: {}, residentBytes: 4, close: () => { closed += 1 } })
+    await rejected
+    assert.equal(closed, 1)
+    assert.equal(renderer.decodedImageBytes, 0)
+  }
 })
 
 test('byte-budget LRU does not dispose a resident value while updating its weight', () => {

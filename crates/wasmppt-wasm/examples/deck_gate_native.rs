@@ -7,8 +7,8 @@ use std::{
 
 use wasmppt_deck::{
     ContentFit, DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckResource, DeckSpec,
-    DiagnosticSeverity, EmuRect, FragmentSlice, LayoutTopology, RegionPlacement, SemanticContent,
-    SemanticNode, SemanticRole, StableId,
+    DiagnosticSeverity, EmuRect, FragmentSlice, LayoutTopology, RegionPlacement, RegionRole,
+    SemanticContent, SemanticNode, SemanticRole, StableId,
 };
 use wasmppt_deck_layout::{DeckPlanner, FontCatalog, PlannerPolicy};
 use wasmppt_deck_template::ThemeTemplateCompiler;
@@ -67,6 +67,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut engine = WasmpptEngine::new();
     let first = execute(&mut engine, &template, &spec)?;
+    let plan = DeckPlan::decode(&first.plan, &DeckLimits::default())?;
+    let decoded_spec = DeckSpec::decode(&spec, &DeckLimits::default())?;
+    let quality = assert_layout_quality(&template, &decoded_spec, &plan)?;
     let mut plan_samples_ms = vec![first.timings.plan_ms];
     let mut resolve_all_samples_ms = vec![first.timings.resolve_all_ms];
     let mut export_samples_ms = vec![first.timings.export_ms];
@@ -94,9 +97,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             display_list,
         )?;
     }
-    let plan = DeckPlan::decode(&first.plan, &DeckLimits::default())?;
-    let decoded_spec = DeckSpec::decode(&spec, &DeckLimits::default())?;
-    let quality = assert_layout_quality(&template, &decoded_spec, &plan)?;
     fs::write(
         output_directory.join("native-topology.json"),
         topology_json(&plan),
@@ -119,6 +119,8 @@ fn assert_layout_quality(
     plan: &DeckPlan,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let semantics = semantic_metadata(spec);
+    let compiled = ThemeTemplateCompiler::default().compile(template.to_vec())?;
+    let (title_size, _, body_floor, caption_size, _) = spec.layout.presentation.typography();
     let policy = PlannerPolicy::default();
     let mut media_fragments = 0usize;
     let mut table_fragments = 0usize;
@@ -149,7 +151,26 @@ fn assert_layout_quality(
                     .get(&fragment.source_node_id)
                     .ok_or("planned fragment lost its semantic source")?;
                 let role = metadata.role;
-                if is_text_role(role) && fragment.type_choice.font_size < policy.readable_floor {
+                let template_region = compiled
+                    .plan
+                    .regions
+                    .iter()
+                    .find(|template_region| template_region.id == region.template_region_id);
+                let opted = template_region.is_some_and(|region| region.generation_frame.is_some());
+                let floor = if opted {
+                    if role == SemanticRole::Caption {
+                        caption_size
+                    } else if template_region.is_some_and(|region| {
+                        matches!(region.role, RegionRole::Title | RegionRole::Statement)
+                    }) {
+                        title_size
+                    } else {
+                        body_floor
+                    }
+                } else {
+                    policy.readable_floor
+                };
+                if is_text_role(role) && fragment.type_choice.font_size < floor {
                     return Err(
                         format!("{role:?} fragment fell below the readable type floor").into(),
                     );
@@ -167,6 +188,13 @@ fn assert_layout_quality(
                             < policy.readable_media_floor
                     {
                         return Err("media fragment is undersized or lacks an aspect fit".into());
+                    }
+                    let placement = fragment.media.expect("checked media placement");
+                    if placement.fit != ContentFit::Contain || placement.crop.is_some() {
+                        return Err(
+                            "academic media must preserve its complete source without cropping"
+                                .into(),
+                        );
                     }
                     if let Some(raw) = metadata
                         .alternative_text
@@ -351,20 +379,68 @@ fn assert_layout_quality(
             let minimum = loads.values().copied().min().unwrap_or_default();
             let maximum = loads.values().copied().max().unwrap_or_default();
             if minimum < 2 || maximum.saturating_sub(minimum) > 1 {
-                return Err(
-                    format!("media/text continuation is visibly unbalanced: {loads:?}").into(),
-                );
+                return Err(format!(
+                    "media/text continuation for logical slide {} is visibly unbalanced: {loads:?}",
+                    slide.id
+                )
+                .into());
             }
+        }
+    }
+
+    let mut peer_cases = BTreeMap::<&str, Vec<&MediaEvidence>>::new();
+    for image in &media_evidence {
+        if image.case.ends_with("-3-pairs") || image.case.ends_with("-3-captioned-peers") {
+            peer_cases.entry(&image.case).or_default().push(image);
+        }
+    }
+    if peer_cases.len() != 6 {
+        return Err("uniform image-peer cases were not exercised".into());
+    }
+    for images in peer_cases.values() {
+        if images.len() != 3
+            || images
+                .iter()
+                .any(|image| image.page_index != images[0].page_index)
+        {
+            return Err(format!(
+                "equal-weight image peers were split across pages: {:?}",
+                images
+                    .iter()
+                    .map(|image| (&image.case, image.page_index))
+                    .collect::<Vec<_>>()
+            )
+            .into());
+        }
+        let mut matched = false;
+        for (index, image) in images.iter().enumerate() {
+            for peer in &images[index + 1..] {
+                if u64::from(image.source_width) * u64::from(peer.source_height)
+                    == u64::from(peer.source_width) * u64::from(image.source_height)
+                {
+                    matched = true;
+                    if image.frame_width.abs_diff(peer.frame_width) > 2
+                        || image.frame_height.abs_diff(peer.frame_height) > 2
+                    {
+                        return Err(
+                            "equal-weight image peers received inconsistent visible sizes".into(),
+                        );
+                    }
+                }
+            }
+        }
+        if !matched {
+            return Err("matching image peers were not exercised".into());
         }
     }
 
     if flow_pages == 0
         || gallery_pages == 0
         || media_fragments < 127
-        || media_evidence.len() != 117
+        || media_evidence.len() != 120
         || table_fragments < 2
     {
-        return Err("canonical corpus did not exercise every required layout family".into());
+        return Err(format!("canonical corpus did not exercise every required layout family: flow={flow_pages}, gallery={gallery_pages}, media={media_fragments}, quality={}, table={table_fragments}", media_evidence.len()).into());
     }
     assert_single_slide_invalidation(template, spec, plan)?;
 
@@ -376,15 +452,15 @@ fn assert_layout_quality(
         .join(",");
     Ok(format!(
         concat!(
-            "{{\"schema\":2,\"corpus\":\"autolayout-v3\",\"counts\":{{",
+            "{{\"schema\":3,\"corpus\":\"academic-autolayout-v4\",\"counts\":{{",
             "\"logicalSlides\":{},\"physicalPages\":{},\"flowPages\":{},",
             "\"galleryPages\":{},\"mediaFragments\":{},\"qualityImages\":{},",
             "\"tableFragments\":{}}},\"images\":[{}],",
             "\"contracts\":{{\"exactSourceCoverage\":true,\"noOverlap\":true,",
             "\"readableType\":true,\"balancedFlow\":true,",
             "\"noSingletonFinalOrphan\":true,\"boundedMedia\":true,",
-            "\"aspectFidelity\":true,\"boundedCrop\":true,\"displayAxisFidelity\":true,",
-            "\"mediaTextCohesion\":true,\"balancedMediaPagination\":true,",
+            "\"aspectFidelity\":true,\"boundedCrop\":true,\"noCrop\":true,\"displayAxisFidelity\":true,",
+            "\"mediaTextCohesion\":true,\"balancedMediaPagination\":true,\"uniformPeerImages\":true,",
             "\"singleEditableTablePerSlice\":true,\"singleSlideInvalidation\":true}}}}\n"
         ),
         spec.logical_slides.len(),

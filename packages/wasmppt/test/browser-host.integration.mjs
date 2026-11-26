@@ -420,6 +420,13 @@ try {
                 semantic.bounds.y + semantic.bounds.height > scene.height) {
               throw new Error(`deck slide ${slideIndex} has out-of-page semantic bounds`)
             }
+            for (const command of scene.commands.slice(
+              semantic.firstCommand, semantic.firstCommand + semantic.commandCount,
+            )) {
+              if (command.kind === 'draw-image' && command.crop.some(value => value !== 0)) {
+                throw new Error(`deck slide ${slideIndex} cropped source-owned semantic media`)
+              }
+            }
             if (semantic.alternativeText?.startsWith('gate-media|') === true) {
               const [marker, mediaCase, item, expectedWidth, expectedHeight, extra] =
                 semantic.alternativeText.split('|')
@@ -521,7 +528,7 @@ try {
           if (aspectErrorPerMillion > 25) {
             throw new Error(`gate media ${entry.case} has ${aspectErrorPerMillion} ppm distortion`)
           }
-          if (cropLossPerMille > 300) {
+          if (cropLossPerMille !== 0) {
             throw new Error(`gate media ${entry.case} loses ${cropLossPerMille} per mille to crop`)
           }
           return {
@@ -539,6 +546,31 @@ try {
             cropLossPerMille,
           }
         }).toSorted((left, right) => left.semanticId.localeCompare(right.semanticId))
+        const peerCases = new Map()
+        for (const entry of qualityImages) {
+          if (!entry.case.endsWith('-3-pairs') && !entry.case.endsWith('-3-captioned-peers')) continue
+          const peers = peerCases.get(entry.case) ?? []
+          peers.push(entry)
+          peerCases.set(entry.case, peers)
+        }
+        if (peerCases.size !== 6) throw new Error('uniform image-peer cases were not rendered')
+        for (const peers of peerCases.values()) {
+          if (peers.length !== 3 || peers.some(entry => entry.pageIndex !== peers[0].pageIndex)) {
+            throw new Error('equal-weight image peers were split across Canvas pages')
+          }
+          let matched = false
+          for (const [index, entry] of peers.entries()) {
+            for (const peer of peers.slice(index + 1)) {
+              if (entry.sourceWidth * peer.sourceHeight !== peer.sourceWidth * entry.sourceHeight) continue
+              matched = true
+              if (Math.abs(entry.frameWidth - peer.frameWidth) > 2 ||
+                Math.abs(entry.frameHeight - peer.frameHeight) > 2) {
+                throw new Error('equal-weight image peers received inconsistent Canvas sizes')
+              }
+            }
+          }
+          if (!matched) throw new Error('matching Canvas image peers were not exercised')
+        }
         deckVisualQuality = {
           schema: 2,
           renderedSlides: measuredSlides.length,
@@ -550,6 +582,8 @@ try {
             nonBlankSlides: true,
             aspectFidelity: true,
             boundedCrop: true,
+            noCrop: true,
+            uniformPeerImages: true,
             displayAxisFidelity: true,
           },
         }
@@ -1453,9 +1487,9 @@ try {
   )
   assert.equal(result.deckEvidence.cacheable, true)
   // Continuous prose fits one page without changing source coverage or hidden-page handling.
-  assert.equal(result.deckEvidence.topology.slideCount, 72)
-  assert.equal(result.deckEvidence.topology.presentableSlides.length, 71)
-  assert.equal(result.deckEvidence.visualQuality.renderedSlides, 72)
+  assert.equal(result.deckEvidence.topology.slideCount, 70)
+  assert.equal(result.deckEvidence.topology.presentableSlides.length, result.deckEvidence.topology.slideCount - 1)
+  assert.equal(result.deckEvidence.visualQuality.renderedSlides, 70)
   assert(result.deckEvidence.visualQuality.sourceElements >= 30)
   assert(result.deckEvidence.topology.pages.some((deckPage) => deckPage.hidden))
   assert(

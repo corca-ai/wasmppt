@@ -475,6 +475,7 @@ pub(super) fn scene_fingerprint(
     // identity so moving source text cannot serve stale hit-test ranges from an unchanged package.
     let source = DeckSpec {
         id: record.spec.id,
+        layout: record.spec.layout,
         logical_slides: vec![logical.clone()],
         resources: vec![],
     };

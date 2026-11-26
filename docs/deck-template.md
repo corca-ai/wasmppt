@@ -130,7 +130,8 @@ the preferred placeholder frame; `minFontSize` is in hundredths of a point.
 The envelope must remain on the page and avoid preserved decorations. Preferred
 placeholder frames remain disjoint; generation envelopes may overlap because
 the planner moves subsequent content before accepting the final geometry.
-Without an envelope a region retains its fixed frame. A zero minimum uses the
-planner policy. CorTeX's bundled templates declare title/statement 24pt and body
-14pt minima. This extension is a semantic generation instruction; ordinary PPTX
+Without an envelope a region retains its fixed frame and authored typography. A zero minimum
+uses planner policy. Generation bounds opt into the document-wide presentation-purpose
+typography and measured title reclamation described by [layout](deck-layout.md). Built-in
+purpose variants keep the same three layout contracts and safe decorative assets. This extension is a semantic generation instruction; ordinary PPTX
 rendering never enlarges a shape because of it.

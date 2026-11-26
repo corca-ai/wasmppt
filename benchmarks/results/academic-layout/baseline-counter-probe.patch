@@ -1,0 +1,67 @@
+--- a/crates/wasmppt-deck-layout/src/lib.rs
++++ b/crates/wasmppt-deck-layout/src/lib.rs
+@@ -991,0 +992,2 @@
++                #[cfg(not(target_arch = "wasm32"))]
++                PROBE_CANDIDATES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+@@ -7104,0 +7107,16 @@
++
++// Temporary native evidence probe; no planner state or decisions depend on these counters.
++#[cfg(not(target_arch = "wasm32"))]
++static PROBE_CANDIDATES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
++#[cfg(not(target_arch = "wasm32"))]
++static PROBE_MEASUREMENTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
++#[cfg(not(target_arch = "wasm32"))]
++pub fn probe_reset() {
++    PROBE_CANDIDATES.store(0, std::sync::atomic::Ordering::Relaxed);
++    PROBE_MEASUREMENTS.store(0, std::sync::atomic::Ordering::Relaxed);
++}
++#[cfg(not(target_arch = "wasm32"))]
++pub fn probe_counts() -> (usize, usize) {
++    (PROBE_CANDIDATES.load(std::sync::atomic::Ordering::Relaxed),
++     PROBE_MEASUREMENTS.load(std::sync::atomic::Ordering::Relaxed))
++}
+--- a/crates/wasmppt-deck-layout/src/measure.rs
++++ b/crates/wasmppt-deck-layout/src/measure.rs
+@@ -134,0 +135,2 @@
++        #[cfg(not(target_arch = "wasm32"))]
++        super::PROBE_MEASUREMENTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+--- a/crates/wasmppt-wasm/examples/baseline_counter_probe.rs
++++ b/crates/wasmppt-wasm/examples/baseline_counter_probe.rs
+@@ -0,0 +1,37 @@
++use std::{env,fs,path::PathBuf};
++use sha2::{Digest,Sha256};
++use wasmppt_deck::{DeckSpec,DeckLimits,validate_deck_plan};
++use wasmppt_deck_layout::{DeckPlanner,FontCatalog,PlannerPolicy};
++use wasmppt_deck_template::ThemeTemplateCompiler;
++fn main() -> Result<(),Box<dyn std::error::Error>> {
++ let input=PathBuf::from(env::args_os().nth(1).ok_or("input")?);
++ let output=PathBuf::from(env::args_os().nth(2).ok_or("output")?);
++ fs::create_dir_all(&output)?;
++ let limits=DeckLimits::default(); let policy=PlannerPolicy::default();
++ let bytes=fs::read(input.join("deck-spec.wdsf"))?;
++ let spec=DeckSpec::decode(&bytes,&limits)?;
++ assert_eq!(spec.encode(&limits)?,bytes);
++ let template=fs::read(input.join("starter.potx"))?;
++ let compiled=ThemeTemplateCompiler::default().compile(template.clone())?;
++ assert!(compiled.cacheable);
++ let planner=DeckPlanner::new(policy.clone()); let fonts=FontCatalog::default();
++ for resource in &spec.resources {
++  eprintln!("ASSET {} {} {} {:x}",resource.id,resource.media_type,resource.bytes.len(),Sha256::digest(&resource.bytes));
++ }
++ let mut previous=None;
++ for pass in 0..7 {
++  wasmppt_deck_layout::probe_reset();
++  let plan=planner.plan(&spec,&compiled.plan,&fonts,&limits)?;
++  let (candidates,measurements)=wasmppt_deck_layout::probe_counts();
++  assert!(plan.failed_slides.is_empty(),"failed slides: {:?}",plan.failed_slides);
++  assert!(validate_deck_plan(&spec,&compiled.plan,&plan,&limits).is_valid());
++  let encoded=plan.encode(&limits)?;
++  assert_eq!(encoded,fs::read(input.join("../baseline-native/native.wdpl"))?,"frozen baseline byte mismatch");
++  if let Some(ref p)=previous {assert_eq!(p,&encoded);}
++  previous=Some(encoded.clone());
++  fs::write(output.join(format!("pass-{pass}.wdpl")),&encoded)?;
++  println!("{{\"pass\":{pass},\"pages\":{},\"logicalSlides\":{},\"candidateAssignments\":{candidates},\"measurements\":{measurements},\"planBytes\":{},\"planSha256\":\"{:x}\",\"allReady\":true,\"validPlanAndExactOrderedSourceCoverage\":true}}",plan.pages.len(),spec.logical_slides.len(),encoded.len(),Sha256::digest(&encoded));
++ }
++ eprintln!("DeckLimits={limits:?} PlannerPolicy={policy:?} FontCatalog={fonts:?}");
++ Ok(())
++}

@@ -227,6 +227,9 @@ jobs:
           fixture_dir=$(mktemp -d)
           cargo run --locked -p wasmppt-deck --example write_gate_fixtures -- "$fixture_dir"
           cmp fixtures/deck-gates/starter.potx "$fixture_dir/starter.potx"
+          cmp fixtures/deck-gates/starter-conference.potx "$fixture_dir/starter-conference.potx"
+          cmp fixtures/deck-gates/starter-handout.potx "$fixture_dir/starter-handout.potx"
+          cmp fixtures/deck-gates/custom.potx "$fixture_dir/custom.potx"
           cmp fixtures/deck-gates/deck-spec.wdsf "$fixture_dir/deck-spec.wdsf"
           cmp fixtures/deck-gates/atomic-overflow.wdsf "$fixture_dir/atomic-overflow.wdsf"
           cmp fixtures/deck-gates/corpus.json "$fixture_dir/corpus.json"

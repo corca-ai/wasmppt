@@ -77,3 +77,9 @@ slide-topology deltas. See [performance contract](performance.md) for commands a
 
 See [compatibility and validation](compatibility.md) for consumer gates and
 [rendering](rendering.md) for WPDL structural/visual evidence.
+
+The semantic [deck gate](deck-gates.md) also includes independent PLOS research figures with
+complete axes, legends and panel labels. Their [provenance manifest](../fixtures/deck-gates/research/provenance.json)
+records authors, article DOI, affirmative CC BY permission, unmodified upstream image URLs,
+dimensions and SHA-256 values. The academic evidence test verifies those bytes before measurement;
+synthetic ratio diagrams remain separately identified and make no research-fidelity claim.

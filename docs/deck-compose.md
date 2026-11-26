@@ -89,9 +89,11 @@ diagnosed by the resolver and are never mislabeled as editable.
 
 ## Media policy
 
-PNG and JPEG payloads pass through unchanged. The accepted plan already contains the allocation
-slot, visible shape frame, contain/cover mode, canonical source size, and optional centered
-DrawingML crop. The composer verifies prepared media dimensions against that source size, then
+PNG and JPEG payloads pass through unchanged. Semantic planning preserves complete source images
+with contain fitting, including gallery items; axes, legends, and image edges are never cropped
+by candidate selection. The accepted plan already contains the allocation slot, visible shape
+frame, fit mode, canonical source size, and crop metadata. The composer verifies prepared media
+dimensions against that source size, then
 writes the visible frame and crop verbatim; it performs no aspect-fit calculation. Alt text is
 written to the picture's non-visual properties. The same planned bounds and crop survive reopened
 PPTX resolution and WPDL lowering.

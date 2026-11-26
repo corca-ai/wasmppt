@@ -2091,6 +2091,7 @@ mod tests {
     fn svg_deck_spec(resource: u8, fill: &str) -> DeckSpec {
         let fallback_resource = resource + 100;
         DeckSpec {
+            layout: wasmppt_deck::DeckLayoutOptions::default(),
             id: id(1),
             logical_slides: vec![LogicalSlide {
                 id: id(2),
@@ -2154,6 +2155,7 @@ mod tests {
             }),
         };
         DeckSpec {
+            layout: wasmppt_deck::DeckLayoutOptions::default(),
             id: id(1),
             logical_slides: vec![LogicalSlide {
                 id: id(2),
@@ -2221,6 +2223,7 @@ mod tests {
 
     fn deck_spec() -> DeckSpec {
         DeckSpec {
+            layout: wasmppt_deck::DeckLayoutOptions::default(),
             id: id(1),
             logical_slides: vec![
                 logical_slide(2, 3, false, "Visible"),

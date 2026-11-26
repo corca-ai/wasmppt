@@ -33,6 +33,42 @@ Unicode scalar. With no provenance, authoring and rendering still work, but sour
 unavailable. The [Rust contracts](deck-engine.md) define roles, rich text, lists, tables, charts,
 media relations, and split policy. Product parsing, authorization and UI remain host-owned.
 
+## Document layout
+
+Set `spec.layout` once for the document:
+
+```ts
+import type { DeckSpec } from '@corca-ai/wasmppt/deck'
+
+export const seminar: DeckSpec = {
+  key: 'research',
+  layout: { presentation: 'seminar', imageFit: 'contain' },
+  slides: [],
+}
+```
+
+`presentation` accepts `conference`, `seminar`, or `handout`; omission selects seminar.
+`imageFit` accepts only `contain`, including when omitted. Images retain their complete source
+aspect without cropping or stretching. Purpose is independent of decorative theme. Templates
+opt in to purpose typography and dynamic title space through their explicit generation metadata;
+custom regions without that metadata retain their authored styles and frames.
+
+| Purpose | Cover | Content heading | Body | Body floor | Caption |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Conference | 40pt | 30pt | 24pt | 22pt | 18pt |
+| Seminar | 36pt | 28pt | 20pt | 18pt | 16pt |
+| Handout | 32pt | 26pt | 18pt | 16pt | 14pt |
+
+Caption sizes apply only to semantic caption nodes. Ordinary prose, lists and table cells keep
+body typography. Hosts supply purpose and factual semantic roles; the engine owns measured
+geometry, candidate selection and page breaks. A host parsing frontmatter reports an invalid
+purpose and supplies the seminar fallback. Invalid SDK enum values reject the edit.
+
+Layout options are copied with the complete input tuple before queued work begins. They are
+encoded in WDSF v6 and participate in snapshot identity and replanning. Changing purpose replans
+every logical slide. Canvas, PPTX, HTML and browser PDF use the same accepted snapshot, and a
+retained older snapshot keeps its original layout during subsequent purpose changes.
+
 ## Browser example
 
 The host bundler creates a module Worker from `@corca-ai/wasmppt/browser-worker`; see

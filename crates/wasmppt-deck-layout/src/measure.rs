@@ -41,6 +41,8 @@ pub(crate) struct Measurer<'a> {
     resources: BTreeMap<StableId, PixelSize>,
     cache: BTreeMap<MeasureKey, CachedMeasurement>,
     measurements: usize,
+    candidate_assignments: usize,
+    caption_font_size: u32,
     cached_advances: usize,
 }
 
@@ -90,7 +92,48 @@ impl<'a> Measurer<'a> {
                 .collect(),
             cache: BTreeMap::new(),
             measurements: 0,
+            candidate_assignments: 0,
+            caption_font_size: spec.layout.presentation.typography().3,
             cached_advances: 0,
+        }
+    }
+
+    pub(crate) fn record_candidate(&mut self) {
+        self.candidate_assignments = self.candidate_assignments.saturating_add(1);
+    }
+    pub(crate) fn candidate_count(&self) -> usize {
+        self.candidate_assignments
+    }
+
+    pub(crate) fn measurement_count(&self) -> usize {
+        self.measurements
+    }
+
+    /// Only authored caption roles in generation-opted regions use caption typography.
+    /// Ordinary prose, emphasized text, list blocks and table cells keep their body type.
+    pub(crate) fn font_size_for_role(
+        &self,
+        node: &SemanticNode,
+        region: &TemplateRegion,
+        body_size: u32,
+    ) -> u32 {
+        if node.role == SemanticRole::Caption && region.generation_frame.is_some() {
+            self.caption_font_size
+        } else {
+            body_size
+        }
+    }
+
+    pub(crate) fn floor_for_role(
+        &self,
+        node: &SemanticNode,
+        region: &TemplateRegion,
+        policy_floor: u32,
+    ) -> u32 {
+        if node.role == SemanticRole::Caption && region.generation_frame.is_some() {
+            self.caption_font_size
+        } else {
+            region.minimum_font_size.max(policy_floor)
         }
     }
 
@@ -1159,18 +1202,18 @@ fn width_demand(
     let mut offset = 0;
     for line in text.split('\n') {
         preferred = preferred.max(advance(offset..offset + line.len()));
-        let mut word_start = None;
-        for (index, character) in line
-            .char_indices()
-            .chain(std::iter::once((line.len(), ' ')))
-        {
-            if character.is_whitespace() {
-                if let Some(start) = word_start.take() {
-                    min = min.max(advance(offset + start..offset + index));
-                }
-            } else if word_start.is_none() {
-                word_start = Some(index);
+        // Use the same Unicode opportunities as wrapping. Whitespace-only tokenization
+        // incorrectly treats a Korean/CJK caption as one unbreakable Latin word.
+        let mut start = 0;
+        if let Ok(opportunities) = line_breaks(line, line.len()) {
+            for opportunity in opportunities {
+                let end = opportunity.offset as usize;
+                let word = line[start..end].trim_end_matches(is_inline_soft_whitespace);
+                min = min.max(advance(offset + start..offset + start + word.len()));
+                start = end;
             }
+        } else {
+            min = min.max(advance(offset..offset + line.len()));
         }
         offset += line.len() + 1;
     }
@@ -1260,6 +1303,134 @@ mod tests {
             bytes: bytes.into(),
             intrinsic_size: hint,
         }
+    }
+
+    #[test]
+    fn caption_typography_requires_both_semantic_role_and_template_opt_in() {
+        use wasmppt_deck::{
+            DeckLayoutOptions, DeckSpec, PlaceholderIdentity, PresentationPurpose, SplitPolicy,
+            TemplateTextLevel, TextMargins,
+        };
+
+        let fonts = FontCatalog::default();
+        let limits = PlannerLimits::default();
+        let frame = EmuRect {
+            x: 0,
+            y: 0,
+            width: 8_000_000,
+            height: 3_000_000,
+        };
+        let mut region = TemplateRegion {
+            id: id(30),
+            layout_id: id(31),
+            role: RegionRole::Body,
+            placeholder: PlaceholderIdentity {
+                kind: "body".to_owned(),
+                index: 4,
+            },
+            frame,
+            bleed_frame: None,
+            generation_frame: Some(frame),
+            minimum_font_size: 1_800,
+            margins: TextMargins::default(),
+            text_levels: vec![TemplateTextLevel {
+                font_size: Some(2_000),
+                ..TemplateTextLevel::default()
+            }],
+            accepts: vec![SemanticRole::Caption, SemanticRole::Prose],
+            required: false,
+        };
+        let mut node = SemanticNode {
+            id: id(32),
+            source: source(),
+            role: SemanticRole::Caption,
+            split: SplitPolicy::Never,
+            content: SemanticContent::Text(rich("Research result")),
+        };
+        for purpose in [
+            PresentationPurpose::Conference,
+            PresentationPurpose::Seminar,
+            PresentationPurpose::Handout,
+        ] {
+            let spec = DeckSpec {
+                id: id(33),
+                layout: DeckLayoutOptions {
+                    presentation: purpose,
+                    ..DeckLayoutOptions::default()
+                },
+                logical_slides: vec![],
+                resources: vec![],
+            };
+            let mut measurer = Measurer::new(&fonts, &spec, &limits);
+            let (_, body, floor, caption, _) = purpose.typography();
+            let selected = measurer.font_size_for_role(&node, &region, body);
+            assert_eq!(selected, caption);
+            assert_eq!(measurer.floor_for_role(&node, &region, floor), caption);
+            let measured = measurer
+                .measure(&node, FragmentSlice::Whole, &region, frame, selected, 0)
+                .expect("caption measurement");
+            assert_eq!(measured.font_size, caption);
+            assert_eq!(measured.height, text_line_height(caption));
+            assert!(
+                measured.font_risk,
+                "fallback remains observable for captions"
+            );
+
+            for role in [
+                SemanticRole::Prose,
+                SemanticRole::List,
+                SemanticRole::Table,
+                SemanticRole::Credit,
+            ] {
+                node.role = role;
+                assert_eq!(measurer.font_size_for_role(&node, &region, body), body);
+                assert_eq!(
+                    measurer.floor_for_role(&node, &region, floor),
+                    region.minimum_font_size.max(floor),
+                );
+            }
+            node.role = SemanticRole::Caption;
+            region.generation_frame = None;
+            assert_eq!(measurer.font_size_for_role(&node, &region, body), body);
+            assert_eq!(
+                measurer.floor_for_role(&node, &region, floor),
+                region.minimum_font_size.max(floor),
+            );
+            region.generation_frame = Some(frame);
+        }
+    }
+
+    #[test]
+    fn cjk_minimum_width_uses_the_same_break_opportunities_as_wrapping() {
+        let line_height = text_line_height(2_000);
+        let caption = rich("한국어연구결과비교분석日本語実験結果");
+        let demand = marked_width_demand(
+            &caption,
+            FragmentSlice::Whole,
+            None,
+            None,
+            2_000,
+            line_height,
+        );
+        assert!(demand.min < demand.preferred);
+        assert!(
+            rich_lines(
+                &caption,
+                FragmentSlice::Whole,
+                demand.min,
+                None,
+                None,
+                2_000,
+            ) > 1,
+        );
+        let latin = "short longestword tiny";
+        let demand = width_demand(latin, line_height, &|range| {
+            approximate_inline_text_advance(&latin[range], 2_000)
+        });
+        assert_eq!(
+            demand.min,
+            approximate_inline_text_advance("longestword", 2_000).max(line_height * 2),
+        );
     }
 
     #[test]

@@ -79,6 +79,12 @@ impl std::error::Error for WireError {}
 pub(crate) fn encode_spec(spec: &DeckSpec, limits: &DeckLimits) -> Result<Vec<u8>, WireError> {
     let mut writer = Writer::new(limits, SPEC_MAGIC, DeckSpec::SCHEMA_VERSION)?;
     writer.id(spec.id)?;
+    writer.byte(match spec.layout.presentation {
+        PresentationPurpose::Conference => 1,
+        PresentationPurpose::Seminar => 2,
+        PresentationPurpose::Handout => 3,
+    })?;
+    writer.byte(1)?;
     writer.vec(&spec.logical_slides, |writer, slide| {
         writer.logical_slide(slide)
     })?;
@@ -92,6 +98,28 @@ pub(crate) fn decode_spec(bytes: &[u8], limits: &DeckLimits) -> Result<DeckSpec,
     let mut reader = Reader::new(bytes, limits, SPEC_MAGIC, DeckSpec::SCHEMA_VERSION)?;
     let spec = DeckSpec {
         id: reader.id()?,
+        layout: DeckLayoutOptions {
+            presentation: match reader.byte()? {
+                1 => PresentationPurpose::Conference,
+                2 => PresentationPurpose::Seminar,
+                3 => PresentationPurpose::Handout,
+                _ => {
+                    return Err(WireError::new(
+                        WireErrorKind::InvalidTag,
+                        "invalid presentation purpose",
+                    ));
+                }
+            },
+            image_fit: match reader.byte()? {
+                1 => ImageFit::Contain,
+                _ => {
+                    return Err(WireError::new(
+                        WireErrorKind::InvalidTag,
+                        "invalid image fit",
+                    ));
+                }
+            },
+        },
         logical_slides: reader.vec("logical slides", |reader| reader.logical_slide(1))?,
         resources: reader.vec("resources", Reader::resource)?,
     };

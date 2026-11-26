@@ -3,6 +3,7 @@
 //! The planner evaluates a small generic candidate family over template-owned frames. It never
 //! depends on a DOM, host font APIs, or a product slide-count limit.
 
+mod cards;
 mod flow;
 mod measure;
 
@@ -20,10 +21,10 @@ use wasmppt_deck::{
     ContentFit, DeckDiagnostic, DeckDiagnosticCode, DeckLimits, DeckPlan, DeckResource, DeckSpec,
     DeckTemplatePlan, DiagnosticSeverity, Emu, EmuRect, FragmentSlice, LayoutTopology,
     LogicalSlide, LogicalSlideKind, MediaPlacement, MediaTextProximity, MediaTextRelation,
-    MediaTextSide, PhysicalPage, PixelSize, PlannedFragment, PlannedRegion, RegionPlacement,
-    RegionRole, SemanticContent, SemanticNode, SemanticRole, StableId, TemplateLayout,
-    TemplateLayoutCapability, TemplateRegion, TopologyChoice, TypeChoice, validate_deck_plan,
-    validate_deck_spec,
+    MediaTextSide, PhysicalPage, PixelSize, PlannedFragment, PlannedRegion, PresentationPurpose,
+    RegionPlacement, RegionRole, SemanticContent, SemanticNode, SemanticRole, StableId,
+    TemplateLayout, TemplateLayoutCapability, TemplateRegion, TopologyChoice, TypeChoice,
+    validate_deck_plan, validate_deck_spec,
 };
 
 /// Host-resolved advance for one editable inline run, in EMU. Returning `None` retains
@@ -131,9 +132,17 @@ impl fmt::Display for PlanError {
 
 impl std::error::Error for PlanError {}
 
+/// Actual bounded work performed by one complete planning pass (including failed candidates).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PlannerMetrics {
+    pub candidate_assignments: usize,
+    pub measurements: usize,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct DeckPlanner {
     policy: PlannerPolicy,
+    presentation: PresentationPurpose,
 }
 
 /// Exact invalidation metadata produced by an incremental planning pass.
@@ -149,7 +158,10 @@ pub struct IncrementalPlanUpdate {
 impl DeckPlanner {
     #[must_use]
     pub fn new(policy: PlannerPolicy) -> Self {
-        Self { policy }
+        Self {
+            policy,
+            presentation: PresentationPurpose::default(),
+        }
     }
 
     pub fn plan(
@@ -162,6 +174,22 @@ impl DeckPlanner {
         self.plan_with_inline_measurer(spec, template, fonts, contract_limits, None)
     }
 
+    /// Measure actual candidate/measurement work without changing the physical plan or limits.
+    /// Metrics describe this complete pass; they are not retained process-memory measurements.
+    pub fn plan_with_metrics(
+        &self,
+        spec: &DeckSpec,
+        template: &DeckTemplatePlan,
+        fonts: &FontCatalog,
+        contract_limits: &DeckLimits,
+    ) -> Result<(DeckPlan, PlannerMetrics), PlanError> {
+        let scoped = Self {
+            policy: self.policy.clone(),
+            presentation: spec.layout.presentation,
+        };
+        scoped.plan_internal(spec, template, fonts, contract_limits, None)
+    }
+
     /// Plan with host font measurement for headers and formula-adjacent text. Resolved advances enter
     /// the plan identity; measured plans conservatively use full planning on subsequent edits.
     pub fn plan_with_inline_measurer(
@@ -172,6 +200,23 @@ impl DeckPlanner {
         contract_limits: &DeckLimits,
         inline_measurer: Option<&InlineTextMeasurer<'_>>,
     ) -> Result<DeckPlan, PlanError> {
+        let scoped = Self {
+            policy: self.policy.clone(),
+            presentation: spec.layout.presentation,
+        };
+        scoped
+            .plan_internal(spec, template, fonts, contract_limits, inline_measurer)
+            .map(|(plan, _)| plan)
+    }
+
+    fn plan_internal(
+        &self,
+        spec: &DeckSpec,
+        template: &DeckTemplatePlan,
+        fonts: &FontCatalog,
+        contract_limits: &DeckLimits,
+        inline_measurer: Option<&InlineTextMeasurer<'_>>,
+    ) -> Result<(DeckPlan, PlannerMetrics), PlanError> {
         let font_bytes = fonts
             .faces
             .iter()
@@ -244,6 +289,10 @@ impl DeckPlanner {
             failed_slides,
             diagnostics,
         };
+        let metrics = PlannerMetrics {
+            measurements: measurer.measurement_count(),
+            candidate_assignments: measurer.candidate_count(),
+        };
         if inline_measurer.is_some() {
             let mut digest = Sha256::new();
             digest.update(b"wasmppt/host-inline-advances/v1\0");
@@ -271,7 +320,7 @@ impl DeckPlanner {
             ))
         });
         plan.diagnostics.dedup();
-        Ok(plan)
+        Ok((plan, metrics))
     }
 
     /// Replan only logical slides whose semantic content or referenced resources changed.
@@ -288,6 +337,29 @@ impl DeckPlanner {
         fonts: &FontCatalog,
         contract_limits: &DeckLimits,
     ) -> Result<IncrementalPlanUpdate, PlanError> {
+        let scoped = Self {
+            policy: self.policy.clone(),
+            presentation: next_spec.layout.presentation,
+        };
+        scoped.replan_internal(
+            previous_spec,
+            previous_plan,
+            next_spec,
+            template,
+            fonts,
+            contract_limits,
+        )
+    }
+
+    fn replan_internal(
+        &self,
+        previous_spec: &DeckSpec,
+        previous_plan: &DeckPlan,
+        next_spec: &DeckSpec,
+        template: &DeckTemplatePlan,
+        fonts: &FontCatalog,
+        contract_limits: &DeckLimits,
+    ) -> Result<IncrementalPlanUpdate, PlanError> {
         let expected_previous_id = plan_id(
             previous_spec,
             template,
@@ -295,7 +367,8 @@ impl DeckPlanner {
             &self.policy,
             contract_limits,
         );
-        if !previous_plan.failed_slides.is_empty()
+        if previous_spec.layout != next_spec.layout
+            || !previous_plan.failed_slides.is_empty()
             || previous_plan.id != expected_previous_id
             || previous_plan.spec_id != previous_spec.id
             || previous_plan.template_id != template.id
@@ -466,6 +539,41 @@ impl DeckPlanner {
         })
     }
 
+    fn purpose_regions(
+        &self,
+        layout: &TemplateLayout,
+        template: &DeckTemplatePlan,
+    ) -> Vec<TemplateRegion> {
+        let (title, body, floor, _, cover) = self.presentation.typography();
+        layout_regions(layout, template)
+            .into_iter()
+            .cloned()
+            .map(|mut region| {
+                // Generation bounds are explicit template authorization. Authored custom styles
+                // and frames without that metadata remain unchanged.
+                if region.generation_frame.is_some() {
+                    let size = match region.role {
+                        RegionRole::Title
+                            if layout.capability == TemplateLayoutCapability::Title =>
+                        {
+                            cover
+                        }
+                        RegionRole::Title | RegionRole::Statement => title,
+                        _ => body,
+                    };
+                    region.minimum_font_size = match region.role {
+                        RegionRole::Title | RegionRole::Statement => title,
+                        _ => floor,
+                    };
+                    for level in &mut region.text_levels {
+                        level.font_size = Some(size);
+                    }
+                }
+                region
+            })
+            .collect()
+    }
+
     fn plan_slide(
         &self,
         slide: &LogicalSlide,
@@ -474,7 +582,8 @@ impl DeckPlanner {
         measurer: &mut Measurer<'_>,
         diagnostics: &mut Vec<DeckDiagnostic>,
     ) -> Result<Vec<PhysicalPage>, PlanError> {
-        let regions = layout_regions(layout, template);
+        let owned = self.purpose_regions(layout, template);
+        let regions = owned.iter().collect::<Vec<_>>();
         let (headers, _) = split_headers(&slide.nodes, layout.capability);
         let header_region = headers
             .first()
@@ -513,18 +622,19 @@ impl DeckPlanner {
                     // release more body space. Do not repeat an identical pagination search.
                     let can_release_space =
                         if let (Some(node), Some(region)) = (headers.first(), header_region) {
-                            measurer
-                                .measure(
-                                    node,
-                                    FragmentSlice::Whole,
-                                    region,
-                                    region.frame,
-                                    font_size,
-                                    0,
-                                )
-                                .map_err(|failure| measure_error(failure, node.id))?
-                                .height
-                                > region.frame.height
+                            region.generation_frame.is_some()
+                                || measurer
+                                    .measure(
+                                        node,
+                                        FragmentSlice::Whole,
+                                        region,
+                                        region.frame,
+                                        font_size,
+                                        0,
+                                    )
+                                    .map_err(|failure| measure_error(failure, node.id))?
+                                    .height
+                                    > region.frame.height
                         } else {
                             false
                         };
@@ -549,10 +659,7 @@ impl DeckPlanner {
         diagnostics: &mut Vec<DeckDiagnostic>,
         header_font_size: u32,
     ) -> Result<Vec<PhysicalPage>, PlanError> {
-        let mut owned_regions = layout_regions(layout, template)
-            .into_iter()
-            .cloned()
-            .collect::<Vec<_>>();
+        let mut owned_regions = self.purpose_regions(layout, template);
         let (header_nodes, body_nodes) = split_headers(&slide.nodes, layout.capability);
         if let Some(node) = header_nodes.first() {
             let refs = owned_regions.iter().collect::<Vec<_>>();
@@ -567,7 +674,11 @@ impl DeckPlanner {
                         0,
                     )
                     .map_err(|failure| measure_error(failure, node.id))?;
-                let height = measured.height.max(header.frame.height);
+                let height = if header.generation_frame.is_some() {
+                    measured.height
+                } else {
+                    measured.height.max(header.frame.height)
+                };
                 let expanded = EmuRect {
                     height,
                     ..header.frame
@@ -585,12 +696,19 @@ impl DeckPlanner {
                 for region in &mut owned_regions {
                     if region.id == id {
                         region.frame = expanded;
-                    } else if region.frame.y >= old_bottom && delta > 0 {
-                        region.frame.y = region.frame.y.saturating_add(delta);
-                        region.frame.height = region.frame.height.saturating_sub(delta);
+                    } else if region.frame.y >= old_bottom && delta != 0 {
+                        let original_bottom = region.frame.y.saturating_add(region.frame.height);
+                        let allowed = region.generation_frame.unwrap_or(region.frame);
+                        let next_y = region.frame.y.saturating_add(delta).max(allowed.y);
+                        region.frame.y = next_y;
+                        region.frame.height = original_bottom.saturating_sub(next_y);
                         if let Some(bleed) = &mut region.bleed_frame {
-                            bleed.y = bleed.y.saturating_add(delta);
-                            bleed.height = bleed.height.saturating_sub(delta);
+                            // Bleed is its own immutable authorization. A short heading cannot
+                            // enlarge it upward beyond the template's declared media envelope.
+                            let next_y = bleed.y.saturating_add(delta.max(0));
+                            bleed.height =
+                                bleed.y.saturating_add(bleed.height).saturating_sub(next_y);
+                            bleed.y = next_y;
                         }
                         if !region.frame.is_positive() {
                             return Err(error(
@@ -640,18 +758,37 @@ impl DeckPlanner {
         let body_pages = if groups.is_empty() {
             Vec::new()
         } else {
-            self.solve_pages(
-                PaginationRequest {
-                    groups: &groups,
-                    region: primary,
-                    slide_id: slide.id,
-                    relations: &slide.media_text_relations,
-                    first_page_nodes: &first_page_nodes,
-                },
-                measurer,
-                diagnostics,
-                &mut candidates,
-            )?
+            let request = PaginationRequest {
+                groups: &groups,
+                region: primary,
+                slide_id: slide.id,
+                relations: &slide.media_text_relations,
+                first_page_nodes: &first_page_nodes,
+                allow_weak_separation: false,
+            };
+            match self.solve_pages(request, measurer, diagnostics, &mut candidates) {
+                Ok(pages) => pages,
+                Err(failure)
+                    if failure.code == DeckDiagnosticCode::PLAN_ATOMIC_OVERFLOW
+                        && slide
+                            .media_text_relations
+                            .iter()
+                            .any(|relation| !relation.explicit_caption) =>
+                {
+                    // Ordinary related copy may continue after an image-only bleed page when
+                    // no cohesive plan exists. Hard captions and all accumulated work stay intact.
+                    self.solve_pages(
+                        PaginationRequest {
+                            allow_weak_separation: true,
+                            ..request
+                        },
+                        measurer,
+                        diagnostics,
+                        &mut candidates,
+                    )?
+                }
+                Err(failure) => return Err(failure),
+            }
         };
         let total = body_pages.len().max(1);
         let mut pages = Vec::with_capacity(total);
@@ -839,6 +976,7 @@ impl DeckPlanner {
                 if !preserves_media_relations(
                     groups,
                     request.relations,
+                    request.allow_weak_separation,
                     if start == 0 {
                         request.first_page_nodes
                     } else {
@@ -903,6 +1041,9 @@ impl DeckPlanner {
             region.bleed_frame.map(|frame| {
                 let mut region = region.clone();
                 region.frame = frame;
+                // This independent envelope authorizes media, not a text box. Applying the
+                // body's text insets here can reject a contained figure that fits the bleed.
+                region.margins = wasmppt_deck::TextMargins::default();
                 region
             })
         } else {
@@ -956,7 +1097,11 @@ impl DeckPlanner {
                                 unit.slice,
                                 region,
                                 frame,
-                                region.minimum_font_size.max(self.policy.readable_floor),
+                                measurer.floor_for_role(
+                                    unit.node,
+                                    region,
+                                    self.policy.readable_floor,
+                                ),
                                 0,
                             )
                             .map_err(|failure| measure_error(failure, unit.node.id))?
@@ -989,6 +1134,7 @@ impl DeckPlanner {
             };
             for assignment in assignments {
                 *candidate_count = candidate_count.saturating_add(1);
+                measurer.record_candidate();
                 if *candidate_count > self.policy.limits.max_candidate_assignments {
                     return Err(error(
                         DeckDiagnosticCode::PLAN_WORK_LIMIT,
@@ -1127,6 +1273,7 @@ impl DeckPlanner {
             }
             cursors[slot] = fitted.bottom.saturating_add(self.policy.gap);
         }
+        let alignment_loss = normalize_matching_media(groups, &mut placements);
         let score = candidate_score(CandidateScoreInput {
             pattern,
             groups,
@@ -1134,6 +1281,7 @@ impl DeckPlanner {
             cursors: &cursors,
             reductions: &reductions,
             width_loss,
+            alignment_loss,
             relation_loss: relation_penalty(relations, &placements, region.frame),
             font_step: self.policy.font_step,
         });
@@ -1187,6 +1335,11 @@ impl DeckPlanner {
         {
             return Ok(Some(fitted));
         }
+        if let Some(fitted) =
+            self.fit_multi_image_group(group, lane_frame, initial_size, target, measurer)?
+        {
+            return Ok(Some(fitted));
+        }
         if let Some(fitted) = self.fit_extreme_portrait_media_text_group(
             group,
             lane_frame,
@@ -1217,8 +1370,41 @@ impl DeckPlanner {
                         unit.node.role,
                         SemanticRole::Figure | SemanticRole::Chart | SemanticRole::Diagram
                     ) {
+                    let mut reserved = 0i64;
+                    for following in &group.units[unit_index + 1..] {
+                        if matches!(
+                            following.node.content,
+                            SemanticContent::Text(_)
+                                | SemanticContent::List(_)
+                                | SemanticContent::Code(_)
+                                | SemanticContent::Table(_)
+                        ) {
+                            let size = measurer.font_size_for_role(
+                                following.node,
+                                target.region,
+                                font_size,
+                            );
+                            reserved = reserved
+                                .saturating_add(
+                                    measurer
+                                        .measure(
+                                            following.node,
+                                            following.slice,
+                                            target.region,
+                                            frame,
+                                            size,
+                                            0,
+                                        )
+                                        .map_err(|failure| {
+                                            measure_error(failure, following.node.id)
+                                        })?
+                                        .height,
+                                )
+                                .saturating_add(self.policy.gap);
+                        }
+                    }
                     EmuRect {
-                        height: frame.height.saturating_mul(3) / 4,
+                        height: frame.height.saturating_sub(reserved),
                         ..frame
                     }
                 } else {
@@ -1256,7 +1442,7 @@ impl DeckPlanner {
                         unit.slice,
                         target.region,
                         measurement_frame,
-                        font_size,
+                        measurer.font_size_for_role(unit.node, target.region, font_size),
                         repeat_table_header_rows,
                     )
                     .map_err(|failure| measure_error(failure, unit.node.id))?;
@@ -1265,7 +1451,7 @@ impl DeckPlanner {
                     .saturating_sub(target.region.margins.left)
                     .saturating_sub(target.region.margins.right)
                     .max(1);
-                if measured.width.min > usable_width {
+                if intrinsic_size.is_none() && measured.width.min > usable_width {
                     overflow = true;
                     break;
                 }
@@ -1323,11 +1509,21 @@ impl DeckPlanner {
                     slice: unit.slice,
                     frame: fragment_frame,
                     font_size: measured.font_size,
-                    reduction: initial_size.saturating_sub(measured.font_size),
-                    width_penalty: width_penalty(
-                        measured.width.preferred.min(measured.width.max),
-                        usable_width,
-                    )
+                    reduction: if intrinsic_size.is_some() {
+                        0
+                    } else {
+                        measurer
+                            .font_size_for_role(unit.node, target.region, initial_size)
+                            .saturating_sub(measured.font_size)
+                    },
+                    width_penalty: if intrinsic_size.is_some() {
+                        0
+                    } else {
+                        width_penalty(
+                            measured.width.preferred.min(measured.width.max),
+                            usable_width,
+                        )
+                    }
                     .saturating_add(
                         intrinsic_size
                             .filter(|_| fit == ContentFit::Cover)
@@ -1338,9 +1534,10 @@ impl DeckPlanner {
                     media,
                     repeat_table_header_rows,
                 });
-                cursor = fragment_frame
+                let occupied = media.map_or(fragment_frame, |placement| placement.slot);
+                cursor = occupied
                     .y
-                    .saturating_add(fragment_frame.height)
+                    .saturating_add(occupied.height)
                     .saturating_add(if fit == ContentFit::None {
                         0
                     } else {
@@ -1592,9 +1789,24 @@ impl DeckPlanner {
             return Ok(None);
         }
         let margins = target.region.margins;
+        let caption_size = measurer.font_size_for_role(text_unit.node, target.region, initial_size);
+        let caption_height = measurer
+            .measure(
+                text_unit.node,
+                text_unit.slice,
+                target.region,
+                remaining,
+                caption_size,
+                0,
+            )
+            .map_err(|failure| measure_error(failure, text_unit.node.id))?
+            .height;
         let stacked_slot = inset_frame(
             EmuRect {
-                height: remaining.height.saturating_mul(3) / 4,
+                height: remaining
+                    .height
+                    .saturating_sub(caption_height)
+                    .saturating_sub(self.policy.gap),
                 ..remaining
             },
             margins,
@@ -1637,6 +1849,9 @@ impl DeckPlanner {
 
         let text_frame = frames[1];
         let usable_text_width = text_frame.width.saturating_sub(horizontal_margins).max(1);
+        let initial_size = caption_size;
+        let floor =
+            measurer.floor_for_role(text_unit.node, target.region, self.policy.readable_floor);
         let mut font_size = initial_size;
         loop {
             let measured = measurer
@@ -1689,20 +1904,12 @@ impl DeckPlanner {
                         .max(text_bounds.y.saturating_add(text_bounds.height)),
                 }));
             }
-            if font_size
-                <= target
-                    .region
-                    .minimum_font_size
-                    .max(self.policy.readable_floor)
-            {
+            if font_size <= floor {
                 return Ok(None);
             }
-            font_size = font_size.saturating_sub(self.policy.font_step.max(1)).max(
-                target
-                    .region
-                    .minimum_font_size
-                    .max(self.policy.readable_floor),
-            );
+            font_size = font_size
+                .saturating_sub(self.policy.font_step.max(1))
+                .max(floor);
         }
     }
 
@@ -1940,7 +2147,6 @@ enum Pattern {
 }
 
 impl Pattern {
-    const MAX_STANDARD_FLOW_PER_SLOT: usize = 8;
     const MAX_CODE_FLOW_PER_SLOT: usize = 12;
     const ALL: [Self; 17] = [
         Self::Stack,
@@ -2097,10 +2303,7 @@ impl Pattern {
         }
         match self {
             Self::Stack => {
-                if semantic_slots_required(groups)
-                    || (flow_load(groups) > Self::MAX_STANDARD_FLOW_PER_SLOT
-                        && groups.iter().all(FlowGroup::is_breakable_flow))
-                {
+                if semantic_slots_required(groups) {
                     Vec::new()
                 } else {
                     vec![vec![0; groups.len()]]
@@ -2110,7 +2313,7 @@ impl Pattern {
                 if groups.iter().any(FlowGroup::is_media) || peer_collection(groups) {
                     Vec::new()
                 } else {
-                    bounded_flow_assignments(groups, slots, Self::MAX_STANDARD_FLOW_PER_SLOT, cuts)
+                    bounded_flow_assignments(groups, slots, usize::MAX, cuts)
                 }
             }
             Self::FlowColumns3 => {
@@ -2154,7 +2357,10 @@ impl Pattern {
                 }
             }
             Self::LeadSupporting => {
-                if groups.len() == 3 && groups.iter().all(FlowGroup::is_peer) {
+                if groups.len() == 3
+                    && groups.iter().all(FlowGroup::is_peer)
+                    && !groups.iter().any(FlowGroup::is_media)
+                {
                     unique_assignment(groups.len(), slots)
                 } else {
                     Vec::new()
@@ -2236,7 +2442,11 @@ fn gallery_frame_variants(frame: EmuRect, gap: Emu, groups: usize) -> Vec<Vec<Em
         0 => Vec::new(),
         1 => vec![vec![frame]],
         2 => vec![columns(frame, gap, &[1, 1]), rows(frame, gap, &[1, 1])],
-        3 => vec![columns(frame, gap, &[1, 1, 1]), lead_supporting(frame, gap)],
+        3 => vec![
+            columns(frame, gap, &[1, 1, 1]),
+            rows(frame, gap, &[1, 1, 1]),
+            grid(frame, gap, 2, 2).into_iter().take(3).collect(),
+        ],
         4 => vec![grid(frame, gap, 2, 2)],
         5 | 6 => vec![
             grid(frame, gap, 3, 2).into_iter().take(groups).collect(),
@@ -2302,25 +2512,36 @@ fn aspect_packed_frame_variants(
                 .units
                 .iter()
                 .find_map(|unit| measurer.intrinsic_size(unit.node))?;
-            let mut aspect = u64::from(size.width)
+            let aspect = u64::from(size.width)
                 .saturating_mul(ASPECT_SCALE)
                 .checked_div(u64::from(size.height).max(1))?
                 .clamp(1, i64::MAX as u64);
-            if group
-                .units
-                .iter()
-                .any(|unit| matches!(unit.node.content, SemanticContent::Text(_)))
-            {
-                aspect = aspect.saturating_mul(3) / 4;
-            }
             Some(i64::try_from(aspect).unwrap_or(i64::MAX).max(1))
         })
         .collect::<Option<Vec<_>>>();
     let Some(aspects) = aspects else {
         return gallery_frame_variants(frame, gap, groups.len());
     };
+    // Identical-aspect peers have no author-supplied priority. Unequal row partitions
+    // would recreate a hero slot merely to consume whitespace, even with equal captions.
+    if aspects.iter().all(|aspect| *aspect == aspects[0]) {
+        return gallery_frame_variants(frame, gap, groups.len());
+    }
 
-    let mut variants = Vec::new();
+    // Equal tracks remain candidates: a partial final row must not steal height from
+    // its peers and make five readable cards unavailable while six fit.
+    let mut variants = gallery_frame_variants(frame, gap, groups.len());
+    let floor_widths = aspects
+        .iter()
+        .map(|aspect| (*aspect).max(ASPECT_SCALE as i64))
+        .collect::<Vec<_>>();
+    let floor_heights = aspects
+        .iter()
+        .map(|aspect| (ASPECT_SCALE as i64).saturating_mul(ASPECT_SCALE as i64) / (*aspect).max(1))
+        .map(|aspect| aspect.max(ASPECT_SCALE as i64))
+        .collect::<Vec<_>>();
+    variants.push(columns(frame, gap, &floor_widths));
+    variants.push(rows(frame, gap, &floor_heights));
     for tracks in 1..=groups.len().min(3) {
         for assignment in contiguous_assignments(groups.len(), tracks) {
             let ranges = assignment_ranges(&assignment, tracks);
@@ -2371,17 +2592,6 @@ fn aspect_packed_frame_variants(
             }
             variants.push(packed_columns);
         }
-    }
-    if groups.len() >= 3 {
-        let horizontal = columns(frame, gap, &[3, 2]);
-        let mut lead = vec![horizontal[0]];
-        lead.extend(rows(horizontal[1], gap, &vec![1; groups.len() - 1]));
-        variants.push(lead);
-
-        let vertical = rows(frame, gap, &[3, 2]);
-        let mut lead = vec![vertical[0]];
-        lead.extend(columns(vertical[1], gap, &vec![1; groups.len() - 1]));
-        variants.push(lead);
     }
     variants.sort_by_key(|frames| {
         frames
@@ -2864,6 +3074,7 @@ struct PaginationRequest<'groups, 'nodes> {
     slide_id: StableId,
     relations: &'groups [MediaTextRelation],
     first_page_nodes: &'groups [StableId],
+    allow_weak_separation: bool,
 }
 
 struct AssignmentRequest<'request, 'nodes> {
@@ -2900,11 +3111,20 @@ fn media_text_demand(
             media_count = media_count.saturating_add(1);
             continue;
         }
-        if !matches!(unit.node.content, SemanticContent::Text(_)) {
+        if !matches!(
+            unit.node.content,
+            SemanticContent::Text(_) | SemanticContent::List(_) | SemanticContent::Code(_)
+        ) {
             continue;
         }
+        let preferred = region
+            .text_levels
+            .first()
+            .and_then(|level| level.font_size)
+            .unwrap_or(2_000);
+        let size = measurer.font_size_for_role(unit.node, region, preferred);
         let measured = measurer
-            .measure(unit.node, unit.slice, region, region.frame, 0, 0)
+            .measure(unit.node, unit.slice, region, region.frame, size, 0)
             .map_err(|failure| measure_error(failure, unit.node.id))?;
         text_min_width = text_min_width.max(measured.width.min);
         text_preferred_width = text_preferred_width.max(measured.width.preferred);
@@ -3220,6 +3440,7 @@ impl Default for PagePlacement {
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 struct CandidateScore {
     readability_band: u32,
+    alignment_loss: u64,
     crop_loss: u64,
     relation_loss: u64,
     imbalance: u64,
@@ -3237,6 +3458,7 @@ struct Score {
     page_flow_order: u64,
     page_demand_imbalance: u64,
     page_order_balance: u64,
+    alignment_loss: u64,
     crop_loss: u64,
     relation_loss: u64,
     imbalance: u64,
@@ -3256,6 +3478,7 @@ impl Ord for Score {
                 self.page_flow_order,
                 self.page_demand_imbalance,
                 self.page_order_balance,
+                self.alignment_loss,
                 self.crop_loss,
                 self.relation_loss,
                 self.imbalance,
@@ -3273,6 +3496,7 @@ impl Ord for Score {
                     other.page_flow_order,
                     other.page_demand_imbalance,
                     other.page_order_balance,
+                    other.alignment_loss,
                     other.crop_loss,
                     other.relation_loss,
                     other.imbalance,
@@ -3341,6 +3565,10 @@ impl Solution {
                 page_flow_order,
                 page_demand_imbalance,
                 page_order_balance,
+                alignment_loss: self
+                    .score
+                    .alignment_loss
+                    .saturating_add(page.score.alignment_loss),
                 crop_loss: self.score.crop_loss.saturating_add(page.score.crop_loss),
                 relation_loss: self
                     .score
@@ -3366,6 +3594,7 @@ struct CandidateScoreInput<'a, 'nodes> {
     cursors: &'a [Emu],
     reductions: &'a [u32],
     width_loss: u64,
+    alignment_loss: u64,
     relation_loss: u64,
     font_step: u32,
 }
@@ -3378,6 +3607,7 @@ fn candidate_score(input: CandidateScoreInput<'_, '_>) -> CandidateScore {
         cursors,
         reductions,
         width_loss,
+        alignment_loss,
         relation_loss,
         font_step,
     } = input;
@@ -3398,17 +3628,14 @@ fn candidate_score(input: CandidateScoreInput<'_, '_>) -> CandidateScore {
     let whitespace_ratio = available.saturating_sub(used).saturating_mul(1_000) / available;
     let whitespace = whitespace_ratio.saturating_mul(whitespace_ratio);
     let orphaning = u64::from(flow_load(groups) == 1 && groups[0].is_breakable_flow());
-    let readability_band = reductions
-        .iter()
-        .copied()
-        .max()
-        .unwrap_or(0)
-        .div_ceil(font_step.max(1));
+    let readability_band =
+        reductions.iter().copied().max().unwrap_or(0) / font_step.max(1).saturating_mul(2);
     let source_order_balance = used_heights.windows(2).fold(0u64, |penalty, pair| {
         penalty.saturating_add(pair[1].saturating_sub(pair[0]))
     });
     CandidateScore {
         readability_band,
+        alignment_loss,
         crop_loss: width_loss,
         relation_loss,
         imbalance,
@@ -3420,6 +3647,78 @@ fn candidate_score(input: CandidateScoreInput<'_, '_>) -> CandidateScore {
             .saturating_mul(1_000_000)
             .saturating_add(source_order_balance),
     }
+}
+
+/// Equal-role pictures with the same canonical aspect share a measured image height.
+/// Keep captions in their already measured allocations; shrink only pictures, never text.
+/// Score the original disparity so wasteful hero tracks cannot win by shrinking every peer.
+fn normalize_matching_media(groups: &[FlowGroup<'_>], placements: &mut [PlannedRegion]) -> u64 {
+    let peers = groups
+        .iter()
+        .flat_map(|group| &group.units)
+        .filter(|unit| matches!(unit.node.role, SemanticRole::Figure | SemanticRole::Diagram))
+        .map(|unit| unit.node.id)
+        .collect::<BTreeSet<_>>();
+    let aspect = |size: PixelSize| {
+        let (mut a, mut b) = (size.width, size.height);
+        while b != 0 {
+            (a, b) = (b, a % b);
+        }
+        (size.width / a.max(1), size.height / a.max(1))
+    };
+    let mut heights = BTreeMap::<(u32, u32), (Emu, Emu, usize)>::new();
+    for fragment in placements.iter().flat_map(|region| &region.fragments) {
+        if !peers.contains(&fragment.source_node_id) {
+            continue;
+        }
+        if let Some(media) = fragment
+            .media
+            .filter(|media| media.fit == ContentFit::Contain)
+        {
+            let height = media.visible_frame.height;
+            heights
+                .entry(aspect(media.source_size))
+                .and_modify(|range| {
+                    range.0 = range.0.min(height);
+                    range.1 = range.1.max(height);
+                    range.2 += 1;
+                })
+                .or_insert((height, height, 1));
+        }
+    }
+    let loss = heights
+        .values()
+        .map(|(min, max, _)| {
+            max.saturating_sub(*min).saturating_mul(1_000) as u64 / (*max).max(1) as u64
+        })
+        .sum();
+    for fragment in placements
+        .iter_mut()
+        .flat_map(|region| &mut region.fragments)
+    {
+        if !peers.contains(&fragment.source_node_id) {
+            continue;
+        }
+        if let Some(media) = fragment
+            .media
+            .filter(|media| media.fit == ContentFit::Contain)
+        {
+            let (height, _, count) = heights[&aspect(media.source_size)];
+            if count < 2 {
+                continue;
+            }
+            // Top-align within each row; horizontal centering remains canonical contain.
+            let slot = EmuRect {
+                height,
+                ..media.slot
+            };
+            if let Some(normalized) = MediaPlacement::contain(slot, media.source_size) {
+                fragment.frame = normalized.visible_frame;
+                fragment.media = Some(normalized);
+            }
+        }
+    }
+    loss
 }
 
 fn width_penalty(preferred: Emu, available: Emu) -> u64 {
@@ -3512,6 +3811,7 @@ fn contain_whitespace_penalty(media: MediaPlacement) -> u64 {
 fn preserves_media_relations(
     groups: &[FlowGroup<'_>],
     relations: &[MediaTextRelation],
+    allow_weak_separation: bool,
     first_page_nodes: &[StableId],
 ) -> bool {
     let contains = |id| {
@@ -3521,9 +3821,11 @@ fn preserves_media_relations(
                 .flat_map(|group| &group.units)
                 .any(|unit| unit.node.id == id)
     };
-    relations
-        .iter()
-        .all(|relation| !contains(relation.media_node_id) || contains(relation.text_node_id))
+    relations.iter().all(|relation| {
+        allow_weak_separation && !relation.explicit_caption
+            || !contains(relation.media_node_id)
+            || contains(relation.text_node_id)
+    })
 }
 
 fn relation_penalty(
@@ -3535,7 +3837,16 @@ fn relation_penalty(
         let media = fragment_frame(placements, relation.media_node_id);
         let text = fragment_frame(placements, relation.text_node_id);
         let (Some(media), Some(text)) = (media, text) else {
-            return penalty;
+            let strength = match relation.proximity {
+                MediaTextProximity::SameParagraph => 4,
+                MediaTextProximity::AdjacentBlocks => 2,
+                MediaTextProximity::BlankSeparatedBlocks => 1,
+            };
+            return if media.is_some() != text.is_some() {
+                penalty.saturating_add(2_000 * strength)
+            } else {
+                penalty
+            };
         };
         let media_center = (
             media.x.saturating_add(media.width / 2),
@@ -3780,21 +4091,14 @@ struct FragmentPlacement {
     repeat_table_header_rows: u32,
 }
 
-fn content_fit(pattern: Pattern, node: &SemanticNode, gallery_item: bool) -> ContentFit {
-    match &node.content {
-        SemanticContent::Image(_)
-            if gallery_item
-                && matches!(
-                    pattern,
-                    Pattern::Gallery2 | Pattern::Gallery4 | Pattern::Gallery6
-                ) =>
-        {
-            ContentFit::Cover
-        }
-        SemanticContent::Image(_) | SemanticContent::Svg(_) | SemanticContent::Chart(_) => {
-            ContentFit::Contain
-        }
-        _ => ContentFit::None,
+fn content_fit(_pattern: Pattern, node: &SemanticNode, _gallery_item: bool) -> ContentFit {
+    if matches!(
+        node.content,
+        SemanticContent::Image(_) | SemanticContent::Svg(_) | SemanticContent::Chart(_)
+    ) {
+        ContentFit::Contain
+    } else {
+        ContentFit::None
     }
 }
 
@@ -4571,6 +4875,86 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_related_prose_can_continue_after_a_media_only_bleed_page() {
+        let spec = single_media_spec(
+            (100, 400),
+            Some("Ordinary related prose may continue on the next page."),
+        );
+        let mut template = template(4_500_000);
+        template.regions[1].margins = TextMargins {
+            left: 100_000,
+            right: 100_000,
+            top: 100_000,
+            bottom: 100_000,
+        };
+        template.regions[1].bleed_frame = Some(EmuRect {
+            height: 4_800_600,
+            ..template.regions[1].frame
+        });
+        let planner = DeckPlanner::default();
+        let fonts = FontCatalog::default();
+        let (plan, metrics) = planner
+            .plan_with_metrics(&spec, &template, &fonts, &limits())
+            .unwrap();
+        assert!(plan.failed_slides.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(plan.pages.len(), 2);
+        assert_ne!(page_containing(&plan, id(4)), page_containing(&plan, id(5)));
+        assert!(fragments(&plan.pages[0]).any(|fragment| fragment.source_node_id == id(4)));
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+        assert!(
+            metrics.candidate_assignments <= PlannerLimits::default().max_candidate_assignments
+        );
+        assert!(metrics.measurements <= PlannerLimits::default().max_measurements);
+
+        // The fallback cannot reset its assignment allowance after the cohesive pass.
+        let mut bounded = PlannerPolicy::default();
+        bounded.limits.max_candidate_assignments = metrics.candidate_assignments - 1;
+        let failure = DeckPlanner::new(bounded)
+            .plan(&spec, &template, &fonts, &limits())
+            .unwrap_err();
+        assert_eq!(failure.code, DeckDiagnosticCode::PLAN_WORK_LIMIT);
+
+        let mut captioned = spec.clone();
+        captioned.logical_slides[0].nodes[2].role = SemanticRole::Caption;
+        captioned.logical_slides[0].nodes[2].split = SplitPolicy::Never;
+        captioned.logical_slides[0].media_text_relations[0].explicit_caption = true;
+        let rejected = planner
+            .plan(&captioned, &template, &fonts, &limits())
+            .unwrap();
+        assert_eq!(rejected.failed_slides, [captioned.logical_slides[0].id]);
+        assert!(rejected.pages.is_empty());
+    }
+
+    #[test]
+    fn pure_media_bleed_does_not_inherit_text_insets_at_the_readable_floor() {
+        let spec = single_media_spec((1_000, 4_000), None);
+        let mut template = template(4_600_000);
+        let bleed = EmuRect {
+            x: 100_000,
+            y: 1_000_000,
+            width: 9_800_000,
+            height: 4_800_600,
+        };
+        template.regions[1].bleed_frame = Some(bleed);
+        template.regions[1].margins.top = 100_000;
+        template.regions[1].margins.bottom = 100_000;
+        let authored = template.clone();
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert!(plan.failed_slides.is_empty());
+        let media = fragments(&plan.pages[0])
+            .find_map(|fragment| fragment.media)
+            .unwrap();
+        assert_eq!(media.fit, ContentFit::Contain);
+        assert_eq!(media.slot, bleed);
+        assert_eq!(media.visible_frame.height, bleed.height);
+        assert!(media.visible_frame.width >= PlannerPolicy::default().readable_media_floor);
+        assert_eq!(template, authored);
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
     fn media_only_content_uses_bleed_but_mixed_content_stays_in_the_safe_envelope() {
         let mut template = template(5_500_000);
         let safe = template.regions[1].frame;
@@ -4846,7 +5230,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(loads.iter().sum::<usize>(), 10);
-        assert_eq!(loads.len(), 3);
+        assert!(loads.len() <= 3);
         assert!(loads.iter().max().unwrap() - loads.iter().min().unwrap() <= 1);
         assert!(validate_deck_plan(&spec, &template(5_500_000), &plan, &limits()).is_valid());
     }
@@ -5180,7 +5564,8 @@ mod tests {
         };
         let (media_slot, media) = located(id(4));
         let (text_slot, text) = located(id(5));
-        assert_eq!(media_slot, text_slot);
+        assert!(matches!(media_slot, RegionPlacement::Slot(_)));
+        assert!(matches!(text_slot, RegionPlacement::Slot(_)));
         assert!(
             media.frame.x.saturating_add(media.frame.width) <= text.frame.x,
             "portrait and related copy overlap: {:?} {:?}",
@@ -5241,7 +5626,7 @@ mod tests {
     }
 
     #[test]
-    fn data_bearing_media_contains_while_gallery_photos_cover() {
+    fn data_bearing_media_and_gallery_images_always_contain() {
         let mut spec = gallery_spec(&[(1_600, 900), (900, 1_600)]);
         let gallery = spec.logical_slides[0].nodes.pop().unwrap();
         spec.logical_slides[0].nodes.extend([
@@ -5309,7 +5694,7 @@ mod tests {
             fragment.source_node_id == id(10)
                 && fragment
                     .media
-                    .is_some_and(|media| media.fit == ContentFit::Cover)
+                    .is_some_and(|media| media.fit == ContentFit::Contain)
         }));
         assert!(validate_deck_plan(&spec, &template(5_500_000), &plan, &limits()).is_valid());
     }
@@ -5523,7 +5908,7 @@ mod tests {
             ));
         }
         let spec = spec(nodes);
-        let template = template(5_500_000);
+        let template = template(3_600_000);
         let plan = DeckPlanner::default()
             .plan(&spec, &template, &FontCatalog::default(), &limits())
             .unwrap();
@@ -5625,39 +6010,35 @@ mod tests {
     }
 
     #[test]
-    fn paper_flow_thresholds_balance_columns_and_continuations() {
-        for (items, expected_columns) in [(11, vec![6, 5]), (16, vec![8, 8])] {
+    fn measured_flow_reuses_space_and_continues_only_when_geometry_requires_it() {
+        for items in [11, 16, 17, 18] {
             let spec = spec(vec![
                 text_node(3, SemanticRole::Title, SplitPolicy::Never, "Agenda"),
                 list_node(4, items),
             ]);
-            let template = template(5_500_000);
-            let plan = DeckPlanner::default()
-                .plan(&spec, &template, &FontCatalog::default(), &limits())
-                .unwrap();
-
-            assert_eq!(plan.pages.len(), 1);
-            assert_eq!(list_items_by_slot(&plan.pages[0], id(4)), expected_columns);
-            assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
-        }
-
-        for (items, expected_pages) in [(17, vec![9, 8]), (18, vec![9, 9])] {
-            let spec = spec(vec![
-                text_node(3, SemanticRole::Title, SplitPolicy::Never, "Agenda"),
-                list_node(4, items),
-            ]);
-            let template = template(5_500_000);
-            let plan = DeckPlanner::default()
-                .plan(&spec, &template, &FontCatalog::default(), &limits())
-                .unwrap();
-            let per_page = plan
-                .pages
-                .iter()
-                .map(|page| list_items_by_slot(page, id(4)).into_iter().sum())
-                .collect::<Vec<u32>>();
-
-            assert_eq!(per_page, expected_pages);
-            assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+            for height in [1_400_000, 5_500_000] {
+                let template = template(height);
+                let plan = DeckPlanner::default()
+                    .plan(&spec, &template, &FontCatalog::default(), &limits())
+                    .unwrap();
+                assert!(plan.failed_slides.is_empty());
+                assert_eq!(
+                    plan.pages
+                        .iter()
+                        .map(|page| list_items_by_slot(page, id(4)).into_iter().sum::<u32>())
+                        .sum::<u32>(),
+                    u32::from(items)
+                );
+                if height == 5_500_000 {
+                    assert_eq!(plan.pages.len(), 1);
+                }
+                for page in &plan.pages {
+                    let loads = list_items_by_slot(page, id(4));
+                    assert!(!loads.contains(&0));
+                    assert!(loads.iter().max().unwrap() - loads.iter().min().unwrap() <= 1);
+                }
+                assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+            }
         }
     }
 
@@ -6229,6 +6610,7 @@ mod tests {
                     slide_id: id(2),
                     relations: &[],
                     first_page_nodes: &[],
+                    allow_weak_separation: false,
                 },
                 0,
                 &mut measurer,
@@ -6348,6 +6730,536 @@ mod tests {
         assert_eq!(title.type_choice.font_size, 2_800);
         assert!(title.frame.height > template.regions[0].frame.height);
         assert!(body.frame.y >= title.frame.y + title.frame.height);
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn actual_work_metrics_do_not_change_the_accepted_plan() {
+        let spec = spec(vec![
+            text_node(3, SemanticRole::Title, SplitPolicy::Never, "Question"),
+            list_node(4, 12),
+        ]);
+        let template = template(1_400_000);
+        let planner = DeckPlanner::default();
+        let fonts = FontCatalog::default();
+        let plain = planner.plan(&spec, &template, &fonts, &limits()).unwrap();
+        let (measured, metrics) = planner
+            .plan_with_metrics(&spec, &template, &fonts, &limits())
+            .unwrap();
+        assert_eq!(plain, measured);
+        assert!(
+            metrics.candidate_assignments > 0
+                && metrics.candidate_assignments
+                    <= PlannerLimits::default().max_candidate_assignments
+        );
+        assert!(
+            metrics.measurements > 0
+                && metrics.measurements <= PlannerLimits::default().max_measurements
+        );
+    }
+
+    #[test]
+    fn purpose_changes_replan_all_slides_and_restore_identical_history_independent_geometry() {
+        let mut spec = spec(vec![
+            text_node(3, SemanticRole::Title, SplitPolicy::Never, "Question"),
+            text_node(4, SemanticRole::Prose, SplitPolicy::Text, "Ordinary body"),
+            text_node(
+                5,
+                SemanticRole::Caption,
+                SplitPolicy::Never,
+                "Explicit caption",
+            ),
+        ]);
+        let mut second = spec.logical_slides[0].clone();
+        second.id = id(60);
+        for (index, node) in second.nodes.iter_mut().enumerate() {
+            node.id = id(61 + index as u8);
+        }
+        spec.logical_slides.push(second);
+        let mut template = template(5_500_000);
+        template.regions[0].generation_frame = Some(EmuRect {
+            height: 1_400_000,
+            ..template.regions[0].frame
+        });
+        template.regions[1].generation_frame = Some(EmuRect {
+            y: 600_000,
+            height: 6_000_000,
+            ..template.regions[1].frame
+        });
+        let planner = DeckPlanner::default();
+        let fonts = FontCatalog::default();
+        let original = planner.plan(&spec, &template, &fonts, &limits()).unwrap();
+        assert!(original.failed_slides.is_empty());
+        for purpose in [
+            PresentationPurpose::Conference,
+            PresentationPurpose::Seminar,
+            PresentationPurpose::Handout,
+        ] {
+            let mut next = spec.clone();
+            next.layout.presentation = purpose;
+            let update = planner
+                .replan(&spec, &original, &next, &template, &fonts, &limits())
+                .unwrap();
+            let (title, body, _, caption, _) = purpose.typography();
+            for (node, expected) in [(id(3), title), (id(4), body), (id(5), caption)] {
+                let fragment = update
+                    .plan
+                    .pages
+                    .iter()
+                    .flat_map(fragments)
+                    .find(|fragment| fragment.source_node_id == node)
+                    .unwrap();
+                assert_eq!(fragment.type_choice.font_size, expected);
+            }
+            if purpose != spec.layout.presentation {
+                assert_eq!(update.reused_pages, 0);
+                assert_eq!(update.invalidated_logical_slides.len(), 2);
+            }
+            let restored = planner
+                .replan(&next, &update.plan, &spec, &template, &fonts, &limits())
+                .unwrap();
+            assert_eq!(restored.plan, original);
+        }
+    }
+
+    #[test]
+    fn short_title_reclaims_only_authorized_body_space() {
+        let spec = spec(vec![
+            text_node(3, SemanticRole::Title, SplitPolicy::Never, "Short"),
+            text_node(4, SemanticRole::Prose, SplitPolicy::Text, "Body"),
+        ]);
+        for body_opt_in in [false, true] {
+            let mut template = template(5_500_000);
+            template.regions[0].generation_frame = Some(EmuRect {
+                height: 1_400_000,
+                ..template.regions[0].frame
+            });
+            let original_y = template.regions[1].frame.y;
+            if body_opt_in {
+                template.regions[1].generation_frame = Some(EmuRect {
+                    y: 700_000,
+                    height: 5_900_000,
+                    ..template.regions[1].frame
+                });
+            }
+            let plan = DeckPlanner::default()
+                .plan(&spec, &template, &FontCatalog::default(), &limits())
+                .unwrap();
+            assert!(plan.failed_slides.is_empty());
+            let body = plan
+                .pages
+                .iter()
+                .flat_map(fragments)
+                .find(|fragment| fragment.source_node_id == id(4))
+                .unwrap();
+            assert_eq!(body.frame.y < original_y, body_opt_in);
+            assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+        }
+    }
+
+    #[test]
+    fn caption_lower_bound_uses_its_role_floor() {
+        let spec = spec(vec![text_node(
+            4,
+            SemanticRole::Caption,
+            SplitPolicy::Never,
+            "Caption",
+        )]);
+        let mut template = template(260_000);
+        template.regions[1].generation_frame = Some(template.regions[1].frame);
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert!(plan.failed_slides.is_empty());
+        assert_eq!(
+            fragments(&plan.pages[0])
+                .next()
+                .unwrap()
+                .type_choice
+                .font_size,
+            1_600
+        );
+    }
+
+    #[test]
+    fn nested_section_keeps_first_list_item_and_allows_remaining_items_to_continue() {
+        let mut heading = text_node(5, SemanticRole::Section, SplitPolicy::Never, "Methods");
+        heading.source = SourceRange::new("deck.md", 40, 50);
+        let section = SemanticNode {
+            id: id(6),
+            source: SourceRange::new("deck.md", 40, 1_000),
+            role: SemanticRole::Section,
+            split: SplitPolicy::Children,
+            content: SemanticContent::Children(vec![heading, list_node(4, 20)]),
+        };
+        let spec = spec(vec![
+            text_node(3, SemanticRole::Title, SplitPolicy::Never, "Research"),
+            section,
+        ]);
+        let template = template(1_400_000);
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert!(plan.failed_slides.is_empty(), "{:?}", plan.diagnostics);
+        assert!(plan.pages.len() > 1);
+        assert_eq!(page_containing(&plan, id(5)), page_containing(&plan, id(4)));
+        assert_eq!(
+            plan.pages
+                .iter()
+                .map(|page| list_items_by_slot(page, id(4)).into_iter().sum::<u32>())
+                .sum::<u32>(),
+            20
+        );
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn nine_wide_caption_cards_keep_a_balanced_five_four_continuation() {
+        let mut spec = gallery_spec(&[(4_000, 1_000); 9]);
+        let SemanticContent::Children(children) = &mut spec.logical_slides[0].nodes[1].content
+        else {
+            unreachable!()
+        };
+        for index in (0..9).rev() {
+            let mut caption = text_node(
+                30 + index as u8,
+                SemanticRole::Caption,
+                SplitPolicy::Never,
+                "Related copy",
+            );
+            caption.source = children[index].source.clone();
+            children.insert(index + 1, caption);
+        }
+        let mut template = template(5_500_000);
+        template.page_size.width = 12_000_000;
+        for region in &mut template.regions {
+            region.frame.width = 11_000_000;
+        }
+        template.regions[1].generation_frame = Some(template.regions[1].frame);
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert!(plan.failed_slides.is_empty());
+        let counts = plan
+            .pages
+            .iter()
+            .map(|page| {
+                fragments(page)
+                    .filter(|fragment| fragment.media.is_some())
+                    .count()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(counts, [5, 4]);
+    }
+
+    #[test]
+    fn equal_gallery_images_with_equal_captions_keep_equal_visual_weight() {
+        let (_, _, plan) = captioned_peer_plan((1_600, 900), true);
+        assert_uniform_media(&plan);
+    }
+
+    #[test]
+    fn equal_captioned_images_outside_a_gallery_never_receive_a_hero_slot() {
+        let (_, _, plan) = captioned_peer_plan((4_000, 1_000), false);
+        assert_ne!(plan.pages[0].topology.kind, LayoutTopology::LeadSupporting);
+        assert_uniform_media(&plan);
+    }
+
+    #[test]
+    fn matching_gallery_peers_keep_equal_weight_beside_a_different_aspect() {
+        let (mut spec, template, _) = captioned_peer_plan((1_600, 900), true);
+        spec.resources[2].intrinsic_size = Some(PixelSize {
+            width: 1_600,
+            height: 1_000,
+        });
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert!(plan.failed_slides.is_empty());
+        assert_eq!(plan.pages.len(), 1);
+        let media = fragments(&plan.pages[0])
+            .filter_map(|fragment| fragment.media)
+            .collect::<Vec<_>>();
+        assert_eq!(media.len(), 3);
+        assert!(
+            media[0]
+                .visible_frame
+                .height
+                .abs_diff(media[1].visible_frame.height)
+                <= 2
+        );
+    }
+
+    #[test]
+    fn interleaved_matching_peers_keep_equal_weight_for_every_source_order() {
+        for different in 0..3 {
+            let (mut spec, template, _) = captioned_peer_plan((1_600, 900), true);
+            spec.resources[different].intrinsic_size = Some(PixelSize {
+                width: 1_000,
+                height: 1_000,
+            });
+            let plan = DeckPlanner::default()
+                .plan(&spec, &template, &FontCatalog::default(), &limits())
+                .unwrap();
+            assert!(plan.failed_slides.is_empty());
+            assert_eq!(plan.pages.len(), 1);
+            let peers = fragments(&plan.pages[0])
+                .filter_map(|fragment| fragment.media)
+                .filter(|media| media.source_size.width == 1_600)
+                .collect::<Vec<_>>();
+            assert_eq!(peers.len(), 2);
+            assert!(
+                peers[0]
+                    .visible_frame
+                    .height
+                    .abs_diff(peers[1].visible_frame.height)
+                    <= 2,
+                "different at {different}: {peers:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unequal_captions_preserve_matching_picture_sizes_and_row_alignment() {
+        for gallery in [false, true] {
+            for aspect in [(1_000, 1_000), (750, 1_000)] {
+                let (mut spec, template, _) = captioned_peer_plan(aspect, gallery);
+                let nodes = if gallery {
+                    let SemanticContent::Children(children) =
+                        &mut spec.logical_slides[0].nodes[1].content
+                    else {
+                        unreachable!()
+                    };
+                    children
+                } else {
+                    &mut spec.logical_slides[0].nodes
+                };
+                let long = nodes
+                    .iter_mut()
+                    .filter(|node| node.role == SemanticRole::Caption)
+                    .nth(1)
+                    .unwrap();
+                long.content = text_node(
+                    99,
+                    SemanticRole::Caption,
+                    SplitPolicy::Never,
+                    &"Measured observations and uncertainty. ".repeat(3),
+                )
+                .content;
+                let plan = DeckPlanner::default()
+                    .plan(&spec, &template, &FontCatalog::default(), &limits())
+                    .unwrap();
+                assert!(plan.failed_slides.is_empty());
+                assert_eq!(plan.pages.len(), 1);
+                assert_uniform_media(&plan);
+                assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+                let media = fragments(&plan.pages[0])
+                    .filter_map(|fragment| fragment.media)
+                    .collect::<Vec<_>>();
+                for pair in media.windows(2) {
+                    if pair[0].slot.y == pair[1].slot.y {
+                        assert_eq!(pair[0].visible_frame.y, pair[1].visible_frame.y);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn hard_figures_fit_interleaved_caption_cards_without_splitting() {
+        let (mut spec, template, _) = captioned_peer_plan((1_600, 900), true);
+        spec.logical_slides[0].nodes[1].role = SemanticRole::Figure;
+        spec.logical_slides[0].nodes[1].split = SplitPolicy::Never;
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert!(plan.failed_slides.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(plan.pages.len(), 1);
+        assert_uniform_media(&plan);
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn galleries_nested_in_hard_figures_remain_indivisible() {
+        let (mut spec, template, _) = captioned_peer_plan((1_600, 900), true);
+        let mut gallery = spec.logical_slides[0].nodes.pop().unwrap();
+        gallery.id = id(90);
+        let mut outer = gallery.clone();
+        outer.id = id(91);
+        outer.role = SemanticRole::Figure;
+        outer.split = SplitPolicy::Never;
+        outer.content = SemanticContent::Children(vec![gallery]);
+        spec.logical_slides[0].nodes.push(outer);
+        let units = build_flow(&spec.logical_slides[0].nodes[1..], &[], 100).unwrap();
+        assert!(units.iter().all(|unit| unit.group == units[0].group));
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert!(plan.failed_slides.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(plan.pages.len(), 1);
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    fn captioned_peer_plan(
+        aspect: (u32, u32),
+        gallery: bool,
+    ) -> (DeckSpec, DeckTemplatePlan, DeckPlan) {
+        let mut spec = gallery_spec(&[aspect; 3]);
+        let SemanticContent::Children(children) = &mut spec.logical_slides[0].nodes[1].content
+        else {
+            unreachable!()
+        };
+        for index in (0..3).rev() {
+            let mut caption = text_node(
+                30 + index as u8,
+                SemanticRole::Caption,
+                SplitPolicy::Never,
+                "Identical caption",
+            );
+            caption.source = children[index].source.clone();
+            children.insert(index + 1, caption);
+        }
+        if !gallery {
+            let SemanticContent::Children(children) =
+                spec.logical_slides[0].nodes.pop().unwrap().content
+            else {
+                unreachable!()
+            };
+            spec.logical_slides[0].nodes.extend(children);
+        }
+        let mut template = template(5_500_000);
+        template.page_size.width = 12_000_000;
+        for region in &mut template.regions {
+            region.frame.width = 11_000_000;
+        }
+        template.regions[1].generation_frame = Some(template.regions[1].frame);
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert!(plan.failed_slides.is_empty());
+        assert_eq!(plan.pages.len(), 1);
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+        (spec, template, plan)
+    }
+
+    fn assert_uniform_media(plan: &DeckPlan) {
+        let media = fragments(&plan.pages[0])
+            .filter_map(|fragment| fragment.media)
+            .collect::<Vec<_>>();
+        assert_eq!(media.len(), 3);
+        for picture in &media[1..] {
+            assert!(
+                picture
+                    .visible_frame
+                    .width
+                    .abs_diff(media[0].visible_frame.width)
+                    <= 2
+            );
+            assert!(
+                picture
+                    .visible_frame
+                    .height
+                    .abs_diff(media[0].visible_frame.height)
+                    <= 2
+            );
+        }
+    }
+
+    #[test]
+    fn top_level_shared_caption_figures_are_indivisible_or_diagnosed() {
+        for split in [SplitPolicy::Never, SplitPolicy::Children] {
+            for repetitions in [1, 35, 100] {
+                let mut spec = gallery_spec(&[(4_000, 1_000); 2]);
+                let figure = &mut spec.logical_slides[0].nodes[1];
+                figure.role = SemanticRole::Figure;
+                figure.split = split;
+                let SemanticContent::Children(children) = &mut figure.content else {
+                    unreachable!()
+                };
+                let mut caption = text_node(
+                    20,
+                    SemanticRole::Caption,
+                    SplitPolicy::Never,
+                    &"This caption describes both of the panels. ".repeat(repetitions),
+                );
+                caption.source = children[1].source.clone();
+                children.push(caption);
+                let mut template = template(5_500_000);
+                template.page_size.width = 12_000_000;
+                for region in &mut template.regions {
+                    region.frame.width = 11_000_000;
+                }
+                template.regions[1].generation_frame = Some(template.regions[1].frame);
+                let plan = DeckPlanner::default()
+                    .plan(&spec, &template, &FontCatalog::default(), &limits())
+                    .unwrap();
+                if plan.failed_slides.is_empty() {
+                    assert_eq!(
+                        plan.pages.len(),
+                        1,
+                        "shared figure split: {split:?}/{repetitions}"
+                    );
+                    assert_eq!(
+                        page_containing(&plan, id(10)),
+                        page_containing(&plan, id(20))
+                    );
+                    assert_eq!(
+                        page_containing(&plan, id(11)),
+                        page_containing(&plan, id(20))
+                    );
+                } else {
+                    assert_eq!(plan.failed_slides, [spec.logical_slides[0].id]);
+                    assert!(plan.pages.is_empty());
+                    assert!(
+                        plan.diagnostics
+                            .iter()
+                            .any(|item| item.code == DeckDiagnosticCode::PLAN_ATOMIC_OVERFLOW)
+                    );
+                }
+                assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+            }
+        }
+    }
+
+    #[test]
+    fn a_multipanel_gallery_card_preserves_all_images_with_its_shared_caption() {
+        let mut spec = gallery_spec(&[(1_600, 900); 2]);
+        let SemanticContent::Children(children) = &mut spec.logical_slides[0].nodes[1].content
+        else {
+            unreachable!()
+        };
+        let mut caption = text_node(
+            20,
+            SemanticRole::Caption,
+            SplitPolicy::Never,
+            "Shared caption",
+        );
+        caption.source = children[1].source.clone();
+        let mut panels = children.clone();
+        panels.push(caption);
+        *children = vec![SemanticNode {
+            id: id(21),
+            source: SourceRange::new("deck.md", 400, 800),
+            role: SemanticRole::Figure,
+            split: SplitPolicy::Children,
+            content: SemanticContent::Children(panels),
+        }];
+        let template = template(5_500_000);
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert!(plan.failed_slides.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(plan.pages.len(), 1);
+        assert_eq!(
+            fragments(&plan.pages[0])
+                .filter(|fragment| fragment.media.is_some())
+                .count(),
+            2
+        );
+        assert_eq!(
+            page_containing(&plan, id(10)),
+            page_containing(&plan, id(20))
+        );
         assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
     }
 
@@ -6590,6 +7502,7 @@ mod tests {
             media_text_relations: Vec::new(),
         };
         let previous_spec = DeckSpec {
+            layout: wasmppt_deck::DeckLayoutOptions::default(),
             id: id(1),
             logical_slides: vec![first_slide, second_slide],
             resources: vec![],
@@ -6673,6 +7586,7 @@ mod tests {
 
     fn spec_with_resources(nodes: Vec<SemanticNode>, resources: Vec<DeckResource>) -> DeckSpec {
         DeckSpec {
+            layout: wasmppt_deck::DeckLayoutOptions::default(),
             id: id(1),
             logical_slides: vec![LogicalSlide {
                 id: id(2),

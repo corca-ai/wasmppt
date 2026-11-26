@@ -23,10 +23,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("usage: write_gate_fixtures OUTPUT_DIRECTORY");
     fs::create_dir_all(&output)?;
     if env::args().nth(2).as_deref() == Some("--inline-math-monospace") {
-        fs::write(output.join("starter.potx"), starter("monospace"))?;
+        fs::write(
+            output.join("starter.potx"),
+            starter("monospace", Some("seminar")),
+        )?;
         return Ok(());
     }
-    fs::write(output.join("starter.potx"), starter("Aptos"))?;
+    fs::write(
+        output.join("starter.potx"),
+        starter("Aptos", Some("seminar")),
+    )?;
+    fs::write(output.join("custom.potx"), starter("Aptos", None))?;
+    for purpose in ["conference", "handout"] {
+        fs::write(
+            output.join(format!("starter-{purpose}.potx")),
+            starter("Aptos", Some(purpose)),
+        )?;
+    }
     let spec = deck_spec();
     let report = validate_deck_spec(&spec, &DeckLimits::default());
     if !report.is_valid() {
@@ -47,27 +60,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn corpus_manifest() -> &'static str {
     concat!(
-        "{\n  \"schema\": 2,\n  \"id\": \"autolayout-v3\",\n  \"cases\": [\n",
+        "{\n  \"schema\": 3,\n  \"id\": \"academic-autolayout-v4\",\n  \"cases\": [\n",
         "    \"title-variants\", \"long-prose\", \"long-list-with-live-empty-item\",\n",
         "    \"table-continuation\", \"long-code\", \"mixed-media\",\n",
         "    \"aspect-aware-gallery-10\", \"figure-caption\", \"quote-credit\",\n",
         "    \"section\", \"display-math\", \"definition\", \"statement\", \"hidden-page\",\n",
         "    \"media-aspects-4x1-16x9-1x1-3x4-1x4\",\n",
         "    \"media-context-image-caption-short-long\",\n",
-        "    \"media-pairs-2-3-5-9\", \"jpeg-exif-orientation-6-8\"\n",
+        "    \"media-pairs-2-3-5-9\", \"captioned-peers-outside-gallery\", \"jpeg-exif-orientation-6-8\",\n",
+        "    \"licensed-research-multipanel-landscape-portrait\", \"mixed-long-academic-heading\", \"measured-column-results\"\n",
         "  ],\n  \"invariants\": [\n",
         "    \"exact-source-coverage\", \"no-overlap\", \"readable-type\",\n",
         "    \"balanced-flow\", \"no-singleton-final-orphan\", \"bounded-media\",\n",
         "    \"single-editable-table-per-slice\", \"canvas-pptx-geometry-parity\",\n",
         "    \"cross-host-byte-determinism\", \"single-slide-invalidation\",\n",
-        "    \"contain-aspect-fidelity\", \"bounded-cover-crop\",\n",
-        "    \"media-text-cohesion\", \"gallery-page-balance\",\n",
+        "    \"contain-aspect-fidelity\", \"zero-image-crop\",\n",
+        "    \"media-text-cohesion\", \"gallery-page-balance\", \"uniform-peer-images\",\n",
         "    \"jpeg-exif-display-axis\"\n",
         "  ]\n}\n",
     )
 }
 
-fn starter(minor_latin: &str) -> Vec<u8> {
+fn starter(minor_latin: &str, purpose: Option<&str>) -> Vec<u8> {
     let options = EntryOptions::deterministic(CompressionMethod::Deflate);
     let mut writer = ZipWriter::new(VecSink::new());
     let entries = [
@@ -151,6 +165,10 @@ fn starter(minor_latin: &str) -> Vec<u8> {
         ),
     ];
     for (name, value) in entries {
+        let value = purpose.map_or_else(
+            || value.clone(),
+            |purpose| academic_template_xml(name, &value, purpose),
+        );
         writer
             .write_entry(name, value.as_bytes(), &options)
             .expect("gate Starter entry must be writable");
@@ -160,6 +178,101 @@ fn starter(minor_latin: &str) -> Vec<u8> {
         .expect("gate Starter must finish")
         .0
         .into_inner()
+}
+
+/// Opted-in semantic templates retain the three v3 layout identities. Decorative color never
+/// participates in this purpose profile; fixed custom templates keep their exact original bytes.
+fn academic_template_xml(part: &str, xml: &str, purpose: &str) -> String {
+    let (cover, title, body, minimum) = match purpose {
+        "conference" => (4000, 3000, 2400, 2200),
+        "handout" => (3200, 2600, 1800, 1600),
+        _ => (3600, 2800, 2000, 1800),
+    };
+    if part == "ppt/slideMasters/slideMaster1.xml" {
+        return xml
+            .replace(
+                r#"<a:off x="600000" y="300000"/><a:ext cx="10992000" cy="700000"/>"#,
+                r#"<a:off x="457200" y="320040"/><a:ext cx="11277600" cy="548640"/>"#,
+            )
+            .replace(
+                r#"<a:off x="700000" y="1200000"/><a:ext cx="10792000" cy="5100000"/>"#,
+                r#"<a:off x="457200" y="1005840"/><a:ext cx="11277600" cy="5532120"/>"#,
+            )
+            .replace(
+                r#"<a:off x="300000" y="1100000"/><a:ext cx="11592000" cy="5250000"/>"#,
+                r#"<a:off x="457200" y="1005840"/><a:ext cx="11277600" cy="5532120"/>"#,
+            )
+            .replace(
+                r#"<a:off x="11000000" y="6400000"/>"#,
+                r#"<a:off x="11000000" y="6629400"/>"#,
+            )
+            .replace(r#"sz="3200""#, &format!(r#"sz="{title}""#))
+            .replace(r#"sz="1800""#, &format!(r#"sz="{body}""#));
+    }
+    if !part.starts_with("ppt/slideLayouts/") || part.ends_with(".rels") {
+        return xml.to_owned();
+    }
+    let mut result = xml.to_owned();
+    for (id, kind, index, size, floor, frame) in [
+        (
+            11,
+            "title",
+            1,
+            cover,
+            title,
+            (457200, 320040, 11277600, 2300000),
+        ),
+        (
+            12,
+            "subTitle",
+            2,
+            body,
+            minimum,
+            (457200, 1100000, 11277600, 5437960),
+        ),
+        (
+            21,
+            "title",
+            3,
+            title,
+            title,
+            (457200, 320040, 11277600, 1600200),
+        ),
+        (
+            22,
+            "body",
+            4,
+            body,
+            minimum,
+            (457200, 800000, 11277600, 5737960),
+        ),
+        (
+            31,
+            "ctrTitle",
+            5,
+            cover,
+            title,
+            (457200, 320040, 11277600, 6217920),
+        ),
+    ] {
+        let (x, y, width, height) = frame;
+        let metadata = format!(
+            r#"<p:ph type="{kind}" idx="{index}"/><p:extLst><p:ext uri="urn:wasmppt:deck:generation:1"><w:region xmlns:w="urn:wasmppt:deck:generation:1" x="{x}" y="{y}" cx="{width}" cy="{height}" minFontSize="{floor}"/></p:ext></p:extLst>"#
+        );
+        let updated = placeholder(id, kind, index)
+            .replace(
+                &format!(r#"<p:ph type="{kind}" idx="{index}"/>"#),
+                &metadata,
+            )
+            .replace(
+                "<a:lstStyle/>",
+                &format!(
+                    r#"<a:lstStyle><a:lvl1pPr><a:defRPr sz="{size}"/></a:lvl1pPr></a:lstStyle>"#
+                ),
+            );
+        result = result.replace(&placeholder(id, kind, index), &updated);
+    }
+    result
 }
 
 fn master_placeholders() -> String {
@@ -226,6 +339,10 @@ fn deck_spec() -> DeckSpec {
         media_resource(2, "1x1", 128, 128, [22, 163, 74]),
         media_resource(3, "3x4", 120, 160, [8, 145, 178]),
         media_resource(4, "1x4", 64, 256, [124, 58, 237]),
+    ];
+    let research_resources = [
+        research_resource(0, "fig3", 4389, 3221),
+        research_resource(1, "fig7", 2700, 4680),
     ];
     let exif_resources = [exif_resource(0, "exif-6", 6), exif_resource(1, "exif-8", 8)];
     let mut slides = vec![
@@ -393,6 +510,7 @@ fn deck_spec() -> DeckSpec {
         explicit_caption: true,
     });
     slides.extend(media_quality_slides(&quality_resources, &exif_resources));
+    slides.extend(academic_research_slides(&research_resources));
     let mut resources = vec![
         DeckResource {
             id: square,
@@ -479,7 +597,13 @@ fn deck_spec() -> DeckSpec {
             .iter()
             .map(|resource| resource.resource.clone()),
     );
+    resources.extend(
+        research_resources
+            .iter()
+            .map(|resource| resource.resource.clone()),
+    );
     DeckSpec {
+        layout: wasmppt_deck::DeckLayoutOptions::default(),
         id: id(255),
         logical_slides: slides,
         resources,
@@ -491,6 +615,107 @@ struct MediaFixture {
     label: &'static str,
     display_size: PixelSize,
     resource: DeckResource,
+}
+
+fn research_resource(ordinal: u32, label: &'static str, width: u32, height: u32) -> MediaFixture {
+    let bytes: &[u8] = match label {
+        "fig3" => include_bytes!("../../../fixtures/deck-gates/research/deliano-2016-fig3.png"),
+        _ => include_bytes!("../../../fixtures/deck-gates/research/deliano-2016-fig7.png"),
+    };
+    MediaFixture {
+        label,
+        display_size: PixelSize { width, height },
+        resource: DeckResource {
+            id: id(228).derive(b"academic-research-resource", ordinal),
+            kind: ResourceKind::RasterImage,
+            media_type: "image/png".to_owned(),
+            bytes: bytes.to_vec().into(),
+            intrinsic_size: Some(PixelSize { width, height }),
+        },
+    }
+}
+
+fn academic_research_slides(resources: &[MediaFixture; 2]) -> Vec<LogicalSlide> {
+    let mut slides = Vec::new();
+    for (index, resource) in resources.iter().enumerate() {
+        let slide_id = id(228).derive(b"academic-research-slide", index as u32);
+        let case = format!("research-{}", resource.label);
+        let figure_id = slide_id.derive(b"figure", 0);
+        let caption_id = slide_id.derive(b"caption", 0);
+        let mut figure = quality_image_node(figure_id, &case, 20, resource, 0);
+        if let SemanticContent::Image(image) = &mut figure.content {
+            image.alt_text = format!(
+                "Deliano et al. (2016), {}. CC BY 4.0. Original axes, labels and legend preserved.",
+                resource.label
+            );
+        }
+        slides.push(LogicalSlide {
+            id: slide_id,
+            source: SourceRange::new(format!("media-quality/{case}.md"), 0, 1000),
+            kind: LogicalSlideKind::Content,
+            hidden: false,
+            nodes: vec![
+                quality_text_node(slide_id.derive(b"title", 0), &case, 0, SemanticRole::Title,
+                    if index == 0 { "Research results / 연구 결과" } else { "Learning across sessions: measured uncertainty and population-level evidence / 세션 간 학습 변화와 불확실성을 보존하는 긴 연구 제목" }, SplitPolicy::Never),
+                figure,
+                quality_text_node(caption_id, &case, 40, SemanticRole::Caption,
+                    "Deliano, Tabelow, König & Polzehl (2016), PLOS ONE 11(6): e0157355. CC BY 4.0.", SplitPolicy::Never),
+            ],
+            media_text_relations: vec![MediaTextRelation {
+                media_node_id: figure_id,
+                text_node_id: caption_id,
+                proximity: MediaTextProximity::AdjacentBlocks,
+                text_side: MediaTextSide::AfterMedia,
+                explicit_caption: true,
+            }],
+        });
+    }
+    let slide_id = id(228).derive(b"academic-research-slide", 2);
+    let source = "academic-measured-columns.md";
+    slides.push(LogicalSlide {
+        id: slide_id,
+        source: SourceRange::new(source, 0, 1000),
+        kind: LogicalSlideKind::Content,
+        hidden: false,
+        nodes: vec![
+            SemanticNode {
+                id: slide_id.derive(b"title", 0),
+                source: SourceRange::new(source, 0, 10),
+                role: SemanticRole::Title,
+                split: SplitPolicy::Never,
+                content: SemanticContent::Text(plain("Results across repeated trials")),
+            },
+            SemanticNode {
+                id: slide_id.derive(b"list", 0),
+                source: SourceRange::new(source, 20, 800),
+                role: SemanticRole::List,
+                split: SplitPolicy::ListItems,
+                content: SemanticContent::List(ListContent {
+                    ordered: false,
+                    start: 1,
+                    items: (0..24)
+                        .map(|index| ListItem {
+                            id: slide_id.derive(b"item", index),
+                            source: SourceRange::new(source, 30 + index * 20, 49 + index * 20),
+                            blocks: vec![SemanticNode {
+                                id: slide_id.derive(b"item-text", index),
+                                source: SourceRange::new(source, 30 + index * 20, 49 + index * 20),
+                                role: SemanticRole::ListItem,
+                                split: SplitPolicy::Never,
+                                content: SemanticContent::Text(plain(&format!(
+                                    "Trial {}: estimate 0.72 ± 0.04",
+                                    index + 1
+                                ))),
+                            }],
+                            children: Vec::new(),
+                        })
+                        .collect(),
+                }),
+            },
+        ],
+        media_text_relations: Vec::new(),
+    });
+    slides
 }
 
 fn media_resource(
@@ -543,13 +768,30 @@ fn media_quality_slides(
 ) -> Vec<LogicalSlide> {
     let mut slides = Vec::new();
     let mut ordinal = 0u32;
-    for resource in resources {
+    for (resource_index, resource) in resources.iter().enumerate() {
         for scenario in ["image-only", "caption", "short-copy", "long-prose"] {
             slides.push(media_context_slide(ordinal, resource, scenario));
             ordinal += 1;
         }
         for count in [2usize, 3, 5, 9] {
-            slides.push(media_pair_slide(ordinal, resource, count));
+            let mut slide = media_pair_slide(ordinal, resource, count, true);
+            if resource_index == 1 && count == 3 {
+                // Matching wide peers remain equal even with a square panel between them.
+                let SemanticContent::Children(children) = &mut slide.nodes[1].content else {
+                    unreachable!()
+                };
+                let source = children[2].source.clone();
+                let replacement = quality_image_node(
+                    children[2].id,
+                    &format!("{}-3-pairs", resource.label),
+                    120,
+                    &resources[2],
+                    1,
+                );
+                children[2].content = replacement.content;
+                children[2].source = source;
+            }
+            slides.push(slide);
             ordinal += 1;
         }
     }
@@ -563,6 +805,7 @@ fn media_quality_slides(
         &exif_resources[1],
         "caption",
     ));
+    slides.push(media_pair_slide(ordinal + 2, &resources[0], 3, false));
     slides
 }
 
@@ -631,8 +874,14 @@ fn media_context_slide(ordinal: u32, resource: &MediaFixture, scenario: &str) ->
     }
 }
 
-fn media_pair_slide(ordinal: u32, resource: &MediaFixture, count: usize) -> LogicalSlide {
-    let case = format!("{}-{count}-pairs", resource.label);
+fn media_pair_slide(
+    ordinal: u32,
+    resource: &MediaFixture,
+    count: usize,
+    gallery: bool,
+) -> LogicalSlide {
+    let suffix = if gallery { "pairs" } else { "captioned-peers" };
+    let case = format!("{}-{count}-{suffix}", resource.label);
     let slide_id = media_quality_id(b"slide", ordinal);
     let mut children = Vec::with_capacity(count * 2);
     let mut relations = Vec::with_capacity(count);
@@ -652,7 +901,11 @@ fn media_pair_slide(ordinal: u32, resource: &MediaFixture, count: usize) -> Logi
             &case,
             110 + item * 20,
             SemanticRole::Caption,
-            &format!("Related copy {} of {count}", index + 1),
+            &if count == 3 && index == 1 {
+                "Measured observations and uncertainty. ".repeat(3)
+            } else {
+                format!("Related copy {} of {count}", index + 1)
+            },
             SplitPolicy::Never,
         ));
         relations.push(MediaTextRelation {
@@ -663,28 +916,31 @@ fn media_pair_slide(ordinal: u32, resource: &MediaFixture, count: usize) -> Logi
             explicit_caption: true,
         });
     }
+    let mut nodes = vec![quality_text_node(
+        slide_id.derive(b"title", 0),
+        &case,
+        0,
+        SemanticRole::Title,
+        &format!("{count} related media/text {suffix}"),
+        SplitPolicy::Never,
+    )];
+    if gallery {
+        nodes.push(SemanticNode {
+            id: slide_id.derive(b"gallery", 0),
+            source: SourceRange::new(format!("media-quality/{case}.md"), 90, 900),
+            role: SemanticRole::Gallery,
+            split: SplitPolicy::Children,
+            content: SemanticContent::Children(children),
+        });
+    } else {
+        nodes.extend(children);
+    }
     LogicalSlide {
         id: slide_id,
         source: SourceRange::new(format!("media-quality/{case}.md"), 0, 1_000),
         kind: LogicalSlideKind::Content,
         hidden: false,
-        nodes: vec![
-            quality_text_node(
-                slide_id.derive(b"title", 0),
-                &case,
-                0,
-                SemanticRole::Title,
-                &format!("{} related media/text pairs", count),
-                SplitPolicy::Never,
-            ),
-            SemanticNode {
-                id: slide_id.derive(b"gallery", 0),
-                source: SourceRange::new(format!("media-quality/{case}.md"), 90, 900),
-                role: SemanticRole::Gallery,
-                split: SplitPolicy::Children,
-                content: SemanticContent::Children(children),
-            },
-        ],
+        nodes,
         media_text_relations: relations,
     }
 }
@@ -838,6 +1094,7 @@ fn formula_png(width: u32, height: u32) -> Vec<u8> {
 fn atomic_overflow_spec() -> DeckSpec {
     let resource_id = id(4);
     DeckSpec {
+        layout: wasmppt_deck::DeckLayoutOptions::default(),
         id: id(1),
         logical_slides: vec![slide(
             2,

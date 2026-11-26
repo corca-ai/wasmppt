@@ -2,6 +2,7 @@ import { DEFAULT_THEME_FONTS, detectFontScript, resolveAvailableFont } from './f
 import type { FontByteShaper, ShapedFontRun } from './shaper.js'
 import type { DecodedImage } from './image.js'
 import { ByteBudgetLru } from './cache/byte-budget-lru.js'
+import { LeasedImageCache, type ImageLease } from './cache/leased-image-cache.js'
 import {
   EMU_PER_CSS_PIXEL,
   groupTransformMatrix,
@@ -1679,14 +1680,12 @@ export interface CanvasRenderOptions {
 
 /** Executes one compact scene and owns bounded image, measurement, and layout caches. */
 export class CanvasDisplayListRenderer {
-  readonly #images: ByteBudgetLru<string, DecodedImage>
+  readonly #images: LeasedImageCache
   readonly #textMeasurements: ByteBudgetLru<string, number>
   readonly #richTextLayouts: ByteBudgetLru<string, RichTextLayoutPlan>
   readonly #defaultFontResolver = new FontResolver()
   readonly #fontResolverIds = new WeakMap<FontResolver, number>()
-  readonly #imageInflight = new Map<string, Promise<DecodedImage | undefined>>()
   #imageAbort = new AbortController()
-  #imageRevision = 0
   #nextFontResolverId = 1
 
   constructor(
@@ -1694,7 +1693,7 @@ export class CanvasDisplayListRenderer {
     textMeasurementCacheBytes = 4 * 1024 * 1024,
     richTextLayoutCacheBytes = 8 * 1024 * 1024,
   ) {
-    this.#images = new ByteBudgetLru(imageCacheBytes, (image) => image.close?.())
+    this.#images = new LeasedImageCache(imageCacheBytes)
     this.#textMeasurements = new ByteBudgetLru(textMeasurementCacheBytes)
     this.#richTextLayouts = new ByteBudgetLru(richTextLayoutCacheBytes)
   }
@@ -1772,16 +1771,22 @@ export class CanvasDisplayListRenderer {
     }
     const fontMeasurementMs = performance.now() - fontStart
     const mediaStart = performance.now()
-    const decodedImages = await this.#resolveImages(
+    const imageBatch = await this.#resolveImages(
       scene,
       options.imageResolver,
       options.imageCacheKey,
       signal,
     )
+    const decodedImages = imageBatch.images
     const mediaDecodeMs = performance.now() - mediaStart
-    throwIfAborted(signal)
     const executionStart = performance.now()
-    context.save()
+    try {
+      throwIfAborted(signal)
+      context.save()
+    } catch (error) {
+      imageBatch.release()
+      throw error
+    }
     try {
       context.setTransform(rootScale, 0, 0, rootScale, 0, 0)
       let textIndex = 0
@@ -1886,7 +1891,7 @@ export class CanvasDisplayListRenderer {
         }
       }
     } finally {
-      context.restore()
+      try { context.restore() } finally { imageBatch.release() }
     }
     return Object.freeze({
       resolutionMs: options.resolutionMs ?? 0,
@@ -1908,10 +1913,8 @@ export class CanvasDisplayListRenderer {
   }
 
   clear(): void {
-    this.#imageRevision += 1
     this.#imageAbort.abort()
     this.#imageAbort = new AbortController()
-    this.#imageInflight.clear()
     this.#images.clear()
     this.#textMeasurements.clear()
     this.#richTextLayouts.clear()
@@ -1931,37 +1934,30 @@ export class CanvasDisplayListRenderer {
     resolver: ImageResolver | undefined,
     cacheKeyResolver: ImageCacheKeyResolver | undefined,
     signal: AbortSignal,
-  ): Promise<readonly (DecodedImage | undefined)[]> {
-    if (resolver === undefined) return scene.images.map(() => undefined)
-    return Promise.all(
+  ): Promise<{ readonly images: readonly (DecodedImage | undefined)[]; release(): void }> {
+    const leases: ImageLease[] = []
+    const release = () => { for (const lease of leases) lease.release() }
+    if (resolver === undefined) return { images: scene.images.map(() => undefined), release }
+    const sharedSignal = this.#imageAbort.signal
+    const results = await Promise.allSettled(
       scene.images.map(async (image) => {
         const key = cacheKeyResolver === undefined
           ? `${image.partName ?? ''}\0${image.relationshipId}`
           : await cacheKeyResolver(image, signal)
         throwIfAborted(signal)
-        const cached = this.#images.get(key)
-        if (cached !== undefined) return cached
-        let loading = this.#imageInflight.get(key)
-        if (loading === undefined) {
-          const revision = this.#imageRevision
-          const sharedSignal = this.#imageAbort.signal
-          loading = resolver(image, sharedSignal).then((decoded) => {
-            if (revision !== this.#imageRevision) {
-              decoded?.close?.()
-              return undefined
-            }
-            if (decoded !== undefined) this.#images.set(key, decoded, decoded.residentBytes)
-            return decoded
-          }).finally(() => {
-            if (this.#imageInflight.get(key) === loading) this.#imageInflight.delete(key)
-          })
-          this.#imageInflight.set(key, loading)
-        }
-        const decoded = await loading
+        throwIfAborted(sharedSignal)
+        const lease = await this.#images.acquire(key, () => resolver(image, sharedSignal))
+        if (lease !== undefined) leases.push(lease)
         throwIfAborted(signal)
-        return decoded
+        return lease?.image
       }),
     )
+    const failure = results.find(result => result.status === 'rejected')
+    if (failure?.status === 'rejected') {
+      release()
+      throw failure.reason
+    }
+    return { images: results.map(result => result.status === 'fulfilled' ? result.value : undefined), release }
   }
 }
 

@@ -1751,8 +1751,17 @@ async function encodeDeck(spec, assets = /* @__PURE__ */ new Map()) {
   }));
   const writer = new Writer(ids, assets);
   writer.raw(encoder.encode("WDSF"));
-  writer.u32(5);
+  writer.u32(6);
   writer.id(spec.key);
+  const presentation = spec.layout?.presentation ?? "seminar";
+  if (presentation !== "conference" && presentation !== "seminar" && presentation !== "handout") {
+    throw new TypeError("invalid document presentation purpose");
+  }
+  if (spec.layout?.imageFit !== void 0 && spec.layout.imageFit !== "contain") {
+    throw new TypeError("document images must use contain fit");
+  }
+  writer.byte({ conference: 1, seminar: 2, handout: 3 }[presentation]);
+  writer.byte(1);
   writer.vector(spec.slides, (slide) => writer.slide(slide));
   writer.u32(0);
   return { bytes: writer.finish(), identities, assetIds: [...writer.assetIds] };
@@ -1761,8 +1770,10 @@ function encodeAsset(id, asset) {
   if (asset.bytes.length === 0 || asset.bytes.length > 32 * 1024 * 1024) throw new RangeError("asset must contain at most 32 MiB");
   const writer = new Writer();
   writer.raw(encoder.encode("WDSF"));
-  writer.u32(5);
+  writer.u32(6);
   writer.raw(idBytes(id));
+  writer.byte(2);
+  writer.byte(1);
   writer.u32(0);
   writer.u32(1);
   writer.asset(id);

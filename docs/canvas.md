@@ -53,7 +53,9 @@ Supplied web fonts are loaded before canvas use through the
 font/text pairs before measuring them on the target
 canvas. Korean, Han, Hiragana, and Katakana text may wrap at character boundaries. Latin text
 wraps at whitespace first and falls back to character boundaries when one token exceeds the
-frame width; newlines remain deterministic. Explicit `xml:space="preserve"` run metadata retains
+frame width; newlines remain deterministic. ASCII punctuation compounds, including slash paths
+and hyphenated words, stay together while they fit; semantic planning uses that same conservative
+word boundary to avoid underallocating their painted rows. Explicit `xml:space="preserve"` run metadata retains
 indentation at paragraph starts and after authored hard breaks. Whitespace introduced at a soft
 wrap still collapses. Compact formula-adjacent text uses its planned word-space geometry instead. Tests cover an exact supplied-font host, documented
 missing-font fallback, Korean and Latin wrapping, and mixed-order batched measurement.

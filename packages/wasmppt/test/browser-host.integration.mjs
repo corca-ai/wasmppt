@@ -70,6 +70,7 @@ for (const slides of [10, 50, 200]) {
 }
 
 const routes = new Map([
+  ['/deck-gate-custom.potx', [join(workspaceDirectory, 'fixtures/deck-gates/custom.potx'), 'application/octet-stream']],
   ['/inline-math-monospace.potx', [join(workspaceDirectory, 'target/inline-math-monospace/starter.potx'), 'application/octet-stream']],
   ['/dist/worker-client.js', [join(packageDirectory, 'dist/worker-client.js'), 'text/javascript']],
   ['/dist/injection.js', [join(packageDirectory, 'dist/injection.js'), 'text/javascript']],

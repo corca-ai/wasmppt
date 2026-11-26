@@ -20,9 +20,10 @@ referenced by that slide are unchanged. A mismatched prior plan identity falls b
 plan. The result names invalidated logical slides, old and new physical page identities, and the
 reused-page count so a host can invalidate only proven dependencies.
 
-If the requested template font bytes are available, measurement uses `wasmppt-shaper`. Otherwise
-the planner uses deterministic conservative metrics and emits `PLAN_FONT_RISK` for each affected
-source node. Fallback is observable; it is never presented as exact font fidelity.
+If the requested template font bytes are available, measurement uses `wasmppt-shaper`. Otherwise,
+a supplied host measurer determines ordinary prose and list wrapping as well as headers and inline
+formula flow. Without host measurement, the planner uses deterministic fallback metrics.
+Missing exact bytes remain observable through `PLAN_FONT_RISK` for each affected source node. Fallback is observable; it is never presented as exact font fidelity.
 
 The content profiler records minimum, preferred, and maximum width demand alongside measured
 height. Text demand uses shaped advances when exact bytes exist. List demand includes complete
@@ -108,7 +109,9 @@ retain their authored load counts. Punctuation and the bounded text chunk size t
 create additional visual blocks.
 
 Text wraps at Unicode line-break opportunities, retaining complete words that fit a line and
-using emergency character breaks only for an oversized token. Deterministic fallback advances
+using emergency character breaks only for an oversized token. ASCII punctuation compounds such as
+`technology/programming` stay together, matching Canvas's fallback word policy; extra Unicode
+punctuation breaks must not let the planner allocate fewer rows than Canvas paints. Deterministic fallback advances
 account for full-width Unicode text. Code and inline-code runs use the composed Courier New typeface, or observable deterministic
 monospace fallback metrics when its bytes are missing. Paragraph indentation uses the same helper as editable
 composition; nested list paragraphs are measured at their own hierarchy level. Visible bullet/number advances,
@@ -170,6 +173,11 @@ caption remains an indivisible hard relation. A simple logical body consisting o
 exactly one ordinary prose/list node and one figure image/SVG uses source order for
 its horizontal lanes: an image first occupies the left lane, and text first occupies
 the left lane. This preserves source sequence, associations and reading order.
+Generated horizontal media/text lanes reserve at least 0.35 inch between allocation slots,
+independently of the paragraph/block gap. This gutter participates in candidate width and fit
+before containment and final body refitting, in both source orders. A larger configured gap wins.
+Vertical splits retain the block gap; custom regions without generation metadata retain their
+configured gap and authored typography.
 Multi-image, gallery, caption and card bodies retain their existing policies. Contain whitespace, relation distance, visual
 imbalance, and complexity are scored after readability. Gallery candidates enumerate bounded
 source-ordered justified rows, transposed columns, equal grids, and dimension-floor-aware tracks.

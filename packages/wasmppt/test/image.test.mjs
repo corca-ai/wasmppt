@@ -32,6 +32,9 @@ test('image metadata enforces deterministic PNG, JPEG, GIF, and safe SVG boundar
     ...jpeg.subarray(2),
   ])
   assert.equal(inspectRasterImageMetadata(oriented).orientation, 6)
+  const xmp = Uint8Array.of(0xff, 0xe1, 0, 5, 88, 77, 80)
+  const mixed = Uint8Array.of(...oriented.subarray(0, 38), ...xmp, ...oriented.subarray(38))
+  assert.equal(inspectRasterImageMetadata(mixed).orientation, 6)
   const gif = Uint8Array.of(0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x80, 0x02, 0x68, 0x01)
   assert.deepEqual(inspectRasterImageMetadata(gif), {
     format: 'gif', width: 640, height: 360, orientation: 1,
@@ -105,4 +108,15 @@ test('raster decoding closes a created bitmap when cancellation wins the allocat
     if (original === undefined) delete globalThis.createImageBitmap
     else globalThis.createImageBitmap = original
   }
+})
+
+
+test('JPEG frame dimensions cannot be read from outside their segment', () => {
+  const jpeg = Uint8Array.of(0xff, 0xd8, 0xff, 0xc0, 0, 2, 8, 0, 1, 0, 1, 0xff, 0xd9)
+  assert.throws(() => inspectRasterImageMetadata(jpeg), /JPEG.*truncated/)
+})
+
+test('JPEG marker fill bytes preserve dimensions', () => {
+  const jpeg = Uint8Array.of(0xff, 0xd8, 0xff, 0xff, 0xc0, 0, 11, 8, 0, 1, 0, 2, 1, 1, 0x11, 0, 0xff, 0xd9)
+  assert.deepEqual(inspectRasterImageMetadata(jpeg), { format: 'jpeg', width: 2, height: 1, orientation: 1 })
 })

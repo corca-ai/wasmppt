@@ -7,9 +7,10 @@ export class DeckSourceText {
   constructor(readonly source: string, readonly text: string, readonly version?: string) {
     let utf16 = 0
     let utf8 = 0
-    const encoder = new TextEncoder()
     for (const scalar of text) {
-      utf16 += scalar.length; utf8 += encoder.encode(scalar).length
+      const code = scalar.codePointAt(0)!
+      utf16 += scalar.length
+      utf8 += code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4
       this.#utf16.push(utf16); this.#utf8.push(utf8)
     }
   }

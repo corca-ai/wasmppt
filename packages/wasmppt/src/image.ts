@@ -38,7 +38,9 @@ export function inspectRasterImageMetadata(input: ArrayBuffer | Uint8Array): Ras
     if (width === 0 || height === 0) throw new Error('GIF dimensions are missing')
     return { format: 'gif', width, height, orientation: 1 }
   }
-  const source = new TextDecoder('utf-8').decode(bytes).trimStart()
+  // Binary JPEG payloads need no UTF-8 allocation or SVG scan.
+  const isJpeg = bytes.byteLength >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8
+  const source = isJpeg ? '' : new TextDecoder('utf-8').decode(bytes).trimStart()
   if (source.startsWith('<svg') || source.startsWith('<?xml') && source.includes('<svg')) {
     assertSafeSvg(source)
     const svg = source.match(/<svg\b[^>]*>/iu)?.[0] ?? ''
@@ -53,7 +55,7 @@ export function inspectRasterImageMetadata(input: ArrayBuffer | Uint8Array): Ras
       orientation: 1,
     }
   }
-  if (bytes.byteLength < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
+  if (!isJpeg) {
     throw new Error('resource is not a supported raster image')
   }
   let offset = 2
@@ -62,13 +64,19 @@ export function inspectRasterImageMetadata(input: ArrayBuffer | Uint8Array): Ras
   let orientation = 1
   while (offset + 4 <= bytes.byteLength) {
     if (bytes[offset] !== 0xff) { offset += 1; continue }
+    while (bytes[offset + 1] === 0xff) offset += 1
     const marker = bytes[offset + 1]!
     offset += 2
     if (marker === 0xd9 || marker === 0xda) break
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue
+    if (offset + 2 > bytes.byteLength) throw new Error('JPEG segment is truncated')
     const length = (bytes[offset]! << 8) | bytes[offset + 1]!
     if (length < 2 || offset + length > bytes.byteLength) throw new Error('JPEG segment is truncated')
-    if (marker === 0xe1) orientation = jpegExifOrientation(bytes.subarray(offset + 2, offset + length))
+    if (marker === 0xe1) orientation = jpegExifOrientation(bytes.subarray(offset + 2, offset + length)) ?? orientation
     if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)) {
+      if (length < 8 || length < 8 + 3 * bytes[offset + 7]!) {
+        throw new Error('JPEG frame segment is truncated')
+      }
       height = (bytes[offset + 3]! << 8) | bytes[offset + 4]!
       width = (bytes[offset + 5]! << 8) | bytes[offset + 6]!
     }
@@ -175,22 +183,26 @@ export async function decodeRasterImage(
   }
 }
 
-function jpegExifOrientation(bytes: Uint8Array): number {
-  if (bytes.byteLength < 14 || new TextDecoder().decode(bytes.subarray(0, 6)) !== 'Exif\0\0') return 1
+function jpegExifOrientation(bytes: Uint8Array): number | undefined {
+  if (bytes.byteLength < 14 || new TextDecoder().decode(bytes.subarray(0, 6)) !== 'Exif\0\0') return undefined
   const little = bytes[6] === 0x49 && bytes[7] === 0x49
-  if (!little && !(bytes[6] === 0x4d && bytes[7] === 0x4d)) return 1
+  if (!little && !(bytes[6] === 0x4d && bytes[7] === 0x4d)) return undefined
   const view = new DataView(bytes.buffer, bytes.byteOffset + 6, bytes.byteLength - 6)
   const u16 = (offset: number): number => view.getUint16(offset, little)
   const u32 = (offset: number): number => view.getUint32(offset, little)
+  if (u16(2) !== 42) return undefined
   const directory = u32(4)
-  if (directory + 2 > view.byteLength) return 1
+  if (directory + 2 > view.byteLength) return undefined
   const entries = u16(directory)
   for (let index = 0; index < entries; index += 1) {
     const entry = directory + 2 + index * 12
     if (entry + 12 > view.byteLength) break
-    if (u16(entry) === 0x0112) return Math.max(1, Math.min(8, u16(entry + 8)))
+    if (u16(entry) === 0x0112 && u16(entry + 2) === 3 && u32(entry + 4) === 1) {
+      const value = u16(entry + 8)
+      return value >= 1 && value <= 8 ? value : undefined
+    }
   }
-  return 1
+  return undefined
 }
 
 /** Decode SVG bytes through an HTML image, including Chrome builds that reject SVG ImageBitmap. */

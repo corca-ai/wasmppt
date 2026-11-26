@@ -206,3 +206,10 @@ Existing non-equivalent numbers remain available with explicit exclusion from co
 No “world's fastest” or unqualified “fastest” claim is permitted until a committed raw comparison
 for a bounded workload beats named current versions on declared hardware and passes all correctness
 checks. A future claim must link that raw file and repeat its workload boundary in the same sentence.
+
+## Browser metadata microbenchmarks
+
+After `npm run build`, run `node benchmarks/browser-metadata.mjs` to record raw samples,
+median and p95 for an 8 MiB JPEG header scan and mixed Latin, Korean and emoji source-offset
+indexing. Compare revisions on the same runtime and machine. These workloads isolate metadata
+allocation costs; they do not measure complete slide rendering or set a release latency budget.

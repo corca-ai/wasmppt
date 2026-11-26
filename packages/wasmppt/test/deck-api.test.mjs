@@ -211,3 +211,18 @@ test('an entirely unplaceable deck still has a source-owned failed inventory', a
   assert.throws(() => failed.exportPptx(), /failed logical slides/)
   await failed.dispose()
 })
+
+
+test('source offsets match UTF-8 encoding across scalar widths and lone surrogates', () => {
+  const text = '\0\u007f\u0080\u07ff\u0800\uffff😀\ud800X\udfff'
+  const source = new DeckSourceText('doc', text)
+  const encoder = new TextEncoder()
+  let utf16 = 0
+  let utf8 = 0
+  for (const scalar of text) {
+    utf16 += scalar.length
+    utf8 += encoder.encode(scalar).length
+    assert.equal(source.toUtf8(utf16), utf8)
+    assert.equal(source.toUtf16(utf8), utf16)
+  }
+})

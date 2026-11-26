@@ -52,7 +52,8 @@ pub fn inspect_jpeg_size(bytes: &[u8]) -> Option<PixelSize> {
             return None;
         }
         if marker == 0xe1 {
-            orientation = exif_orientation(bytes.get(offset.saturating_add(2)..end)?);
+            orientation =
+                exif_orientation(bytes.get(offset.saturating_add(2)..end)?).unwrap_or(orientation);
         }
         if matches!(
             marker,
@@ -69,6 +70,9 @@ pub fn inspect_jpeg_size(bytes: &[u8]) -> Option<PixelSize> {
                 | 0xce
                 | 0xcf
         ) {
+            if length < 7 {
+                return None;
+            }
             let height = u32::from(u16::from_be_bytes(
                 bytes
                     .get(offset.saturating_add(3)..offset.saturating_add(5))?
@@ -92,26 +96,22 @@ pub fn inspect_jpeg_size(bytes: &[u8]) -> Option<PixelSize> {
     None
 }
 
-fn exif_orientation(bytes: &[u8]) -> u16 {
+fn exif_orientation(bytes: &[u8]) -> Option<u16> {
     if bytes.get(..6) != Some(b"Exif\0\0") {
-        return 1;
+        return None;
     }
-    let Some(tiff) = bytes.get(6..) else {
-        return 1;
-    };
+    let tiff = bytes.get(6..)?;
     let little_endian = match tiff.get(..2) {
         Some(b"II") => true,
         Some(b"MM") => false,
-        _ => return 1,
+        _ => return None,
     };
-    let Some(directory) =
-        read_u32(tiff, 4, little_endian).and_then(|value| usize::try_from(value).ok())
-    else {
-        return 1;
-    };
-    let Some(entries) = read_u16(tiff, directory, little_endian).map(usize::from) else {
-        return 1;
-    };
+    if read_u16(tiff, 2, little_endian) != Some(42) {
+        return None;
+    }
+    let directory =
+        read_u32(tiff, 4, little_endian).and_then(|value| usize::try_from(value).ok())?;
+    let entries = read_u16(tiff, directory, little_endian).map(usize::from)?;
     let available = tiff.len().saturating_sub(directory.saturating_add(2)) / 12;
     for index in 0..entries.min(available).min(256) {
         let entry = directory
@@ -122,11 +122,10 @@ fn exif_orientation(bytes: &[u8]) -> u16 {
             && read_u32(tiff, entry.saturating_add(4), little_endian) == Some(1)
         {
             return read_u16(tiff, entry.saturating_add(8), little_endian)
-                .filter(|value| (1..=8).contains(value))
-                .unwrap_or(1);
+                .filter(|value| (1..=8).contains(value));
         }
     }
-    1
+    None
 }
 
 fn read_u16(bytes: &[u8], offset: usize, little_endian: bool) -> Option<u16> {
@@ -243,6 +242,25 @@ mod tests {
         bytes.extend_from_slice(&0u32.to_le_bytes());
         bytes.extend_from_slice(&[0xff, 0xc0, 0x00, 0x07, 0x08, 0x01, 0x2c, 0x03, 0x20]);
         bytes
+    }
+
+    #[test]
+    fn rejects_frame_dimensions_outside_the_declared_segment() {
+        let bytes = [0xff, 0xd8, 0xff, 0xc0, 0, 2, 8, 0, 1, 0, 1];
+        assert_eq!(inspect_jpeg_size(&bytes), None);
+    }
+
+    #[test]
+    fn preserves_exif_orientation_across_non_exif_app1_segments() {
+        let mut bytes = jpeg(6);
+        bytes.splice(38..38, [0xff, 0xe1, 0, 5, b'X', b'M', b'P']);
+        assert_eq!(
+            inspect_jpeg_size(&bytes),
+            Some(PixelSize {
+                width: 300,
+                height: 800
+            })
+        );
     }
 
     #[test]

@@ -124,7 +124,10 @@ a deny-by-default Content Security Policy. A stale revision, unresolved resource
 embedding restriction, or configured byte/pixel limit fails the complete document.
 
 `WasmpptWorkerClient` owns every pending Promise and stream controller. Explicit
-termination, Worker `error`, and `messageerror` reject all pending operations. Cancellation
+termination, Worker `error`, and `messageerror` reject all pending operations and close the client.
+Synchronous dispatch failures reject the affected operation without retaining its pending state.
+Cancelling an output stream drops its pending controller and abort listener immediately, so
+chunks already in transit cannot enqueue into a cancelled stream. Cancellation
 is cooperative: a pre-aborted request fails before dispatch, and an in-flight request is
 observed when the Worker yields between output pulls. Preparation and dirty-entry preparation
 are synchronous; applications requiring a hard CPU cancel during those phases

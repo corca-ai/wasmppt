@@ -838,3 +838,70 @@ test('live deltas expose exact invalidation and content-addressed resources surv
   assert.equal(worker.messages.filter((message) => message.type === 'live-session-resource').length, 2)
   client.terminate()
 })
+
+
+test('crashed clients reject new requests without dispatching', { timeout: 200 }, async () => {
+  for (const event of ['error', 'messageerror']) {
+    const worker = new FakeWorker()
+    const client = new WasmpptWorkerClient(worker)
+    worker.dispatchEvent(new Event(event))
+    await assert.rejects(client.openPresentation(new ArrayBuffer(1)), /closed/)
+    assert.equal(worker.messages.length, 0)
+    assert.equal(worker.terminated, true)
+  }
+})
+
+test('pre-aborted unary operations do not dispatch or transfer inputs', async () => {
+  const worker = new FakeWorker()
+  const client = new WasmpptWorkerClient(worker)
+  const signal = AbortSignal.abort()
+  await assert.rejects(client.openPresentation(new ArrayBuffer(1), { signal }), { name: 'AbortError' })
+  await assert.rejects(client.createLiveSession(1, {}, { signal }), { name: 'AbortError' })
+  await assert.rejects(client.createDeckSession(1, new ArrayBuffer(1), undefined, { signal }), { name: 'AbortError' })
+  assert.equal(worker.messages.length, 0)
+  client.terminate()
+})
+
+
+test('synchronous transport failures settle unary and stream operations', async () => {
+  const worker = new FakeWorker()
+  const client = new WasmpptWorkerClient(worker)
+  worker.postMessage = () => { throw new DOMException('cannot clone input', 'DataCloneError') }
+  await assert.rejects(client.prepare(new ArrayBuffer(1)), { name: 'DataCloneError' })
+  await assert.rejects(client.openPresentation(new ArrayBuffer(1)), { name: 'DataCloneError' })
+  await assert.rejects(client.generateStream(1).getReader().read(), { name: 'DataCloneError' })
+  client.terminate()
+})
+
+test('stream cancellation ignores chunks already in transit and removes abort listeners', async () => {
+  const worker = new FakeWorker()
+  const client = new WasmpptWorkerClient(worker)
+  const controller = new AbortController()
+  const stream = client.generateStream(1, {}, { signal: controller.signal })
+  const request = worker.messages.at(-1)
+  await stream.cancel()
+  const sent = worker.messages.length
+  controller.abort()
+  assert.equal(worker.messages.length, sent)
+  worker.respond({ version: WORKER_PROTOCOL_VERSION, type: 'chunk', id: request.id, bytes: new ArrayBuffer(2) })
+  worker.respond({ version: WORKER_PROTOCOL_VERSION, type: 'generated', id: request.id })
+  client.terminate()
+})
+
+
+test('failed cancellation dispatch settles the target request and stream', async () => {
+  const worker = new FakeWorker()
+  const client = new WasmpptWorkerClient(worker)
+  const send = worker.postMessage.bind(worker)
+  worker.postMessage = (message, transfer) => {
+    if (message.type === 'cancel') throw new DOMException('cancel transport failed', 'DataCloneError')
+    send(message, transfer)
+  }
+  const controller = new AbortController()
+  const opening = client.openPresentation(new ArrayBuffer(1), { signal: controller.signal })
+  const reading = client.generateStream(1, {}, { signal: controller.signal }).getReader().read()
+  controller.abort()
+  await assert.rejects(opening, { name: 'DataCloneError' })
+  await assert.rejects(reading, { name: 'DataCloneError' })
+  client.terminate()
+})

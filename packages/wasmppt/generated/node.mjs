@@ -327,7 +327,10 @@ var WasmpptWorkerClient = class {
   #resourceCacheLimit;
   #resourceCacheBytes = 0;
   #onMessage = (event) => this.#receive(event.data);
-  #onCrash = () => this.#failAll(new Error("wasmppt Worker terminated unexpectedly"));
+  #onCrash = () => {
+    this.#failAll(new Error("wasmppt Worker terminated unexpectedly"));
+    this.terminate();
+  };
   constructor(worker, resourceCacheBytes = 32 * 1024 * 1024) {
     if (!Number.isSafeInteger(resourceCacheBytes) || resourceCacheBytes < 0) {
       throw new RangeError("resourceCacheBytes must be a non-negative safe integer");
@@ -351,7 +354,7 @@ var WasmpptWorkerClient = class {
     const { plan, ...compilerOptions } = options;
     const transfer = [template];
     if (plan !== void 0) transfer.push(plan);
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "prepare",
@@ -375,7 +378,7 @@ var WasmpptWorkerClient = class {
     const id = this.#allocateId();
     const result = this.#unaryRequest(id, "session");
     const transfer = operation.kind === "snapshot" ? [operation.spec] : operation.kind === "register-asset" || operation.kind === "register-font" ? [operation.bytes] : [];
-    this.#worker.postMessage({ version: WORKER_PROTOCOL_VERSION, id, type: "deck-api", operation }, transfer);
+    this.#postMessage({ version: WORKER_PROTOCOL_VERSION, id, type: "deck-api", operation }, transfer);
     const response2 = await result;
     if (response2.type !== "deck-api-result") throw new Error("invalid deck API response");
     if (response2.result.kind === "snapshot") {
@@ -391,7 +394,7 @@ var WasmpptWorkerClient = class {
     const result = this.#unaryRequest(id, "prepare");
     const transfer = [template];
     if (plan !== void 0) transfer.push(plan);
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "prepare-deck-template",
@@ -415,7 +418,7 @@ var WasmpptWorkerClient = class {
     const result = this.#unaryRequest(id, "session", options.signal, options.onProgress);
     const transfer = [spec];
     if (plan !== void 0) transfer.push(plan);
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "create-deck-session",
@@ -455,7 +458,7 @@ var WasmpptWorkerClient = class {
       if (options.signal?.aborted === true) throw abortError();
       const id = this.#allocateId();
       const result = this.#unaryRequest(id, "delta", options.signal, options.onProgress);
-      this.#worker.postMessage({
+      this.#postMessage({
         version: WORKER_PROTOCOL_VERSION,
         id,
         type: "update-deck-session",
@@ -507,7 +510,7 @@ var WasmpptWorkerClient = class {
     }
     const id = this.#allocateId();
     const result = this.#unaryRequest(id, "resolve", options.signal, options.onProgress);
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "resolve-deck-slide",
@@ -542,7 +545,7 @@ var WasmpptWorkerClient = class {
     if (cached !== void 0) return { fingerprint, bytes: cached };
     const id = this.#allocateId();
     const result = this.#unaryRequest(id, "resource", options.signal, options.onProgress);
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "deck-session-resource",
@@ -572,7 +575,7 @@ var WasmpptWorkerClient = class {
     if (cached !== void 0) return cached;
     const id = this.#allocateId();
     const result = this.#unaryRequest(id, "resource", options.signal, options.onProgress);
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "deck-session-resource-fingerprint",
@@ -594,7 +597,7 @@ var WasmpptWorkerClient = class {
     this.#assertOpen();
     const id = this.#allocateId();
     const result = this.#unaryRequest(id, "telemetry");
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "deck-session-cache-telemetry",
@@ -619,7 +622,7 @@ var WasmpptWorkerClient = class {
       }
       const id = this.#allocateId();
       const result = this.#unaryRequest(id, "release-session");
-      this.#worker.postMessage({
+      this.#postMessage({
         version: WORKER_PROTOCOL_VERSION,
         id,
         type: "release-deck-session",
@@ -636,7 +639,7 @@ var WasmpptWorkerClient = class {
     this.#assertOpen();
     const id = this.#allocateId();
     const result = this.#unaryRequest(id, "release");
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "release-deck-template",
@@ -650,7 +653,7 @@ var WasmpptWorkerClient = class {
     const id = this.#allocateId();
     const payload = encodeInjectionData(normalizeGenerationData(initialData));
     const result = this.#unaryRequest(id, "session", options.signal, options.onProgress);
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "create-live-session",
@@ -676,7 +679,7 @@ var WasmpptWorkerClient = class {
     const id = this.#allocateId();
     const payload = encodeInjectionData(normalizeGenerationData(delta));
     const result = this.#unaryRequest(id, "delta", options.signal, options.onProgress);
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "apply-live-delta",
@@ -718,7 +721,7 @@ var WasmpptWorkerClient = class {
     }
     const id = this.#allocateId();
     const result = this.#unaryRequest(id, "resolve", options.signal, options.onProgress);
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "resolve-live-slide",
@@ -748,7 +751,7 @@ var WasmpptWorkerClient = class {
     if (cached !== void 0) return cached;
     const id = this.#allocateId();
     const result = this.#unaryRequest(id, "resource", options.signal, options.onProgress);
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "live-session-resource-fingerprint",
@@ -775,7 +778,7 @@ var WasmpptWorkerClient = class {
     this.#assertOpen();
     const id = this.#allocateId();
     const result = this.#unaryRequest(id, "telemetry");
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "live-session-cache-telemetry",
@@ -796,7 +799,7 @@ var WasmpptWorkerClient = class {
     }
     const id = this.#allocateId();
     const result = this.#unaryRequest(id, "release-session");
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "release-live-session",
@@ -813,7 +816,7 @@ var WasmpptWorkerClient = class {
     this.#assertOpen();
     const id = this.#allocateId();
     const result = this.#unaryRequest(id, "open", options.signal, options.onProgress);
-    this.#worker.postMessage(
+    this.#postMessage(
       { version: WORKER_PROTOCOL_VERSION, id, type: "open-presentation", presentation },
       [presentation]
     );
@@ -830,7 +833,7 @@ var WasmpptWorkerClient = class {
     }
     const id = this.#allocateId();
     const result = this.#unaryRequest(id, "resolve", options.signal, options.onProgress);
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "resolve-slide",
@@ -847,7 +850,7 @@ var WasmpptWorkerClient = class {
     return this.#cachedResource(presentationHandle, `${presentationHandle}\0raw\0${partName}`, options.signal, async () => {
       const id = this.#allocateId();
       const result = this.#unaryRequest(id, "resource", void 0, options.onProgress);
-      this.#worker.postMessage({
+      this.#postMessage({
         version: WORKER_PROTOCOL_VERSION,
         id,
         type: "presentation-resource",
@@ -867,7 +870,7 @@ var WasmpptWorkerClient = class {
     return this.#cachedResource(presentationHandle, `${presentationHandle}\0svg\0${partName}`, options.signal, async () => {
       const id = this.#allocateId();
       const result = this.#unaryRequest(id, "metafile", void 0, options.onProgress);
-      this.#worker.postMessage({
+      this.#postMessage({
         version: WORKER_PROTOCOL_VERSION,
         id,
         type: "presentation-metafile-svg",
@@ -888,7 +891,7 @@ var WasmpptWorkerClient = class {
     this.#purgePresentationResources(presentationHandle);
     const id = this.#allocateId();
     const result = this.#unaryRequest(id, "release-presentation");
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "release-presentation",
@@ -928,7 +931,7 @@ var WasmpptWorkerClient = class {
       loading = (async () => {
         const id = this.#allocateId();
         const result = this.#unaryRequest(id, metafile ? "metafile" : "resource");
-        this.#worker.postMessage({
+        this.#postMessage({
           version: WORKER_PROTOCOL_VERSION,
           id,
           type: metafile ? "live-session-metafile-svg" : "live-session-resource",
@@ -1013,7 +1016,7 @@ var WasmpptWorkerClient = class {
     return new ReadableStream({
       start: (controller) => {
         const abort2 = () => {
-          this.#worker.postMessage({
+          this.#postMessage({
             version: WORKER_PROTOCOL_VERSION,
             id: this.#allocateId(),
             type: "cancel",
@@ -1027,7 +1030,7 @@ var WasmpptWorkerClient = class {
           onProgress: options.onProgress,
           abortCleanup: () => options.signal?.removeEventListener("abort", abort2)
         });
-        this.#worker.postMessage({
+        this.#postMessage({
           version: WORKER_PROTOCOL_VERSION,
           id,
           type: "generate",
@@ -1037,7 +1040,10 @@ var WasmpptWorkerClient = class {
         }, [payload]);
       },
       cancel: () => {
-        this.#worker.postMessage({
+        const pending = this.#pending.get(id);
+        this.#pending.delete(id);
+        if (pending?.kind === "generate") pending.abortCleanup();
+        this.#postMessage({
           version: WORKER_PROTOCOL_VERSION,
           id: this.#allocateId(),
           type: "cancel",
@@ -1062,7 +1068,7 @@ var WasmpptWorkerClient = class {
     return new ReadableStream({
       start: (controller) => {
         const abort2 = () => {
-          this.#worker.postMessage({
+          this.#postMessage({
             version: WORKER_PROTOCOL_VERSION,
             id: this.#allocateId(),
             type: "cancel",
@@ -1076,7 +1082,7 @@ var WasmpptWorkerClient = class {
           onProgress: options.onProgress,
           abortCleanup: () => options.signal?.removeEventListener("abort", abort2)
         });
-        this.#worker.postMessage({
+        this.#postMessage({
           version: WORKER_PROTOCOL_VERSION,
           id,
           type: "generate-live-session",
@@ -1086,7 +1092,10 @@ var WasmpptWorkerClient = class {
         });
       },
       cancel: () => {
-        this.#worker.postMessage({
+        const pending = this.#pending.get(id);
+        this.#pending.delete(id);
+        if (pending?.kind === "generate") pending.abortCleanup();
+        this.#postMessage({
           version: WORKER_PROTOCOL_VERSION,
           id: this.#allocateId(),
           type: "cancel",
@@ -1130,7 +1139,7 @@ var WasmpptWorkerClient = class {
     return new ReadableStream({
       start: (controller) => {
         const abort2 = () => {
-          this.#worker.postMessage({
+          this.#postMessage({
             version: WORKER_PROTOCOL_VERSION,
             id: this.#allocateId(),
             type: "cancel",
@@ -1144,7 +1153,7 @@ var WasmpptWorkerClient = class {
           onProgress: options.onProgress,
           abortCleanup: () => options.signal?.removeEventListener("abort", abort2)
         });
-        this.#worker.postMessage({
+        this.#postMessage({
           version: WORKER_PROTOCOL_VERSION,
           id,
           type: "generate-deck-session",
@@ -1154,7 +1163,10 @@ var WasmpptWorkerClient = class {
         });
       },
       cancel: () => {
-        this.#worker.postMessage({
+        const pending = this.#pending.get(id);
+        this.#pending.delete(id);
+        if (pending?.kind === "generate") pending.abortCleanup();
+        this.#postMessage({
           version: WORKER_PROTOCOL_VERSION,
           id: this.#allocateId(),
           type: "cancel",
@@ -1201,7 +1213,7 @@ var WasmpptWorkerClient = class {
     const result = new Promise((resolve, reject) => {
       this.#pending.set(id, { kind: "release", resolve, reject });
     });
-    this.#worker.postMessage({
+    this.#postMessage({
       version: WORKER_PROTOCOL_VERSION,
       id,
       type: "release",
@@ -1217,6 +1229,7 @@ var WasmpptWorkerClient = class {
     this.#detach();
     this.#worker.terminate();
     this.#resourceCache.clear();
+    this.#resourceInflight.clear();
     this.#releasedPresentations.clear();
     this.#releasedLiveSessions.clear();
     this.#releasedDeckSessions.clear();
@@ -1225,6 +1238,21 @@ var WasmpptWorkerClient = class {
     this.#liveResourceFingerprints.clear();
     this.#resourceCacheBytes = 0;
     this.#failAll(new Error("wasmppt Worker was terminated"));
+  }
+  #postMessage(message, transfer) {
+    try {
+      this.#worker.postMessage(message, transfer);
+    } catch (error) {
+      const pendingId = message.type === "cancel" ? message.targetId : message.id;
+      const pending = this.#pending.get(pendingId);
+      this.#pending.delete(pendingId);
+      if (pending?.kind === "generate") {
+        pending.abortCleanup();
+        pending.controller.error(error);
+      } else if (pending !== void 0) {
+        pending.reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
   }
   #deckRevisionFence(sessionHandle) {
     let fence = this.#deckRevisionFences.get(sessionHandle);
@@ -1288,10 +1316,10 @@ var WasmpptWorkerClient = class {
     return id;
   }
   #unaryRequest(id, kind, signal, onProgress) {
-    if (signal?.aborted === true) return Promise.reject(abortError());
+    if (signal?.aborted === true) throw abortError();
     return new Promise((resolve, reject) => {
       const abort2 = () => {
-        this.#worker.postMessage({
+        this.#postMessage({
           version: WORKER_PROTOCOL_VERSION,
           id: this.#allocateId(),
           type: "cancel",

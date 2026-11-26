@@ -94,7 +94,7 @@ browser adapters share this API without depending on any consumer project.
 The [Starter compiler](deck-template.md) discovers explicit layout identities, resolves exact page
 geometry, text styles, theme assets, and safe content envelopes into `DeckTemplatePlan`.
 The [planner](deck-layout.md) owns measurement, candidate geometry, readable-size floors,
-contain/cover decisions, crop bounds, pagination, and continuation metadata. Exact font bytes use
+full-image contain placement, pagination, adaptive body typography in final lanes, and measured visible continuation titles. Exact font bytes use
 HarfRust; deterministic fallback metrics emit diagnostics.
 
 Validators prove complete ordered source coverage, stable identities, compatible region ownership,

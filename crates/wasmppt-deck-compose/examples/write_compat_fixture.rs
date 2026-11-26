@@ -56,6 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     };
     let spec = DeckSpec {
+        layout: wasmppt_deck::DeckLayoutOptions::default(),
         id: id(1),
         logical_slides: vec![LogicalSlide {
             id: slide_id,

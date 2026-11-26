@@ -41,6 +41,8 @@ pub(crate) struct Measurer<'a> {
     resources: BTreeMap<StableId, PixelSize>,
     cache: BTreeMap<MeasureKey, CachedMeasurement>,
     measurements: usize,
+    candidate_assignments: usize,
+    caption_font_size: u32,
     cached_advances: usize,
 }
 
@@ -90,7 +92,48 @@ impl<'a> Measurer<'a> {
                 .collect(),
             cache: BTreeMap::new(),
             measurements: 0,
+            candidate_assignments: 0,
+            caption_font_size: spec.layout.presentation.typography().3,
             cached_advances: 0,
+        }
+    }
+
+    pub(crate) fn record_candidate(&mut self) {
+        self.candidate_assignments = self.candidate_assignments.saturating_add(1);
+    }
+    pub(crate) fn candidate_count(&self) -> usize {
+        self.candidate_assignments
+    }
+
+    pub(crate) fn measurement_count(&self) -> usize {
+        self.measurements
+    }
+
+    /// Only authored caption roles in generation-opted regions use caption typography.
+    /// Ordinary prose, emphasized text, list blocks and table cells keep their body type.
+    pub(crate) fn font_size_for_role(
+        &self,
+        node: &SemanticNode,
+        region: &TemplateRegion,
+        body_size: u32,
+    ) -> u32 {
+        if node.role == SemanticRole::Caption && region.generation_frame.is_some() {
+            self.caption_font_size
+        } else {
+            body_size
+        }
+    }
+
+    pub(crate) fn floor_for_role(
+        &self,
+        node: &SemanticNode,
+        region: &TemplateRegion,
+        policy_floor: u32,
+    ) -> u32 {
+        if node.role == SemanticRole::Caption && region.generation_frame.is_some() {
+            self.caption_font_size
+        } else {
+            region.minimum_font_size.max(policy_floor)
         }
     }
 
@@ -181,8 +224,19 @@ impl<'a> Measurer<'a> {
                 .max(1)
         };
         let code_font = self.fonts.font(wasmppt_deck::CODE_TYPEFACE);
-        let paragraph_lines = |block: &SemanticNode, slice: FragmentSlice, level: u8| {
-            let width = paragraph_width(level);
+        let paragraph_lines = |block: &SemanticNode,
+                               slice: FragmentSlice,
+                               level: u8,
+                               prefix: Option<&str>| {
+            let (margin, indent) =
+                wasmppt_deck::paragraph_indentation(region.text_levels.first(), level, false);
+            let width = if prefix.is_some() {
+                usable_width
+                    .saturating_sub(margin.saturating_add(indent))
+                    .max(1)
+            } else {
+                paragraph_width(level)
+            };
             match &block.content {
                 SemanticContent::Text(text) => {
                     if region.role == RegionRole::Title
@@ -205,7 +259,15 @@ impl<'a> Measurer<'a> {
                         })
                         .unwrap_or(1)
                     } else {
-                        rich_lines(text, slice, width, exact, code_font, font_size)
+                        rich_lines(
+                            text,
+                            slice,
+                            width,
+                            exact,
+                            code_font,
+                            font_size,
+                            prefix.map(|text| (text, indent.saturating_neg().max(0))),
+                        )
                     }
                 }
                 SemanticContent::Code(code) => {
@@ -216,9 +278,24 @@ impl<'a> Measurer<'a> {
                     wasmppt_deck::logical_code_lines(&code.code)
                         .skip(start)
                         .take(end - start)
-                        .map(|line| {
-                            wrapped_lines(line, width, &|range| {
-                                Some(code_advance(&line[range], code_font, font_size))
+                        .enumerate()
+                        .map(|(index, line)| {
+                            let label = if index == 0 { prefix.unwrap_or("") } else { "" };
+                            let content = format!("{label}{line}");
+                            let extra = if label.is_empty() {
+                                0
+                            } else {
+                                indent
+                                    .saturating_neg()
+                                    .max(0)
+                                    .saturating_sub(code_advance(label, code_font, font_size))
+                                    .max(0)
+                            };
+                            wrapped_lines(&content, width, &|range| {
+                                Some(
+                                    code_advance(&content[range.clone()], code_font, font_size)
+                                        .saturating_add(if range.start == 0 { extra } else { 0 }),
+                                )
                             })
                             .unwrap_or(1)
                         })
@@ -235,10 +312,12 @@ impl<'a> Measurer<'a> {
             list_lines(
                 list.items.get(start..end).unwrap_or(&[]),
                 0,
+                list.ordered,
+                list.start.saturating_add(start as u32),
                 &paragraph_lines,
             )
         } else {
-            paragraph_lines(node, slice, 0)
+            paragraph_lines(node, slice, 0, None)
         };
         let text_height = line_height.saturating_mul(i64::from(lines));
         let block_height = line_height.saturating_mul(i64::from(blocks));
@@ -935,19 +1014,40 @@ fn list_width_demand(
 fn list_lines(
     items: &[wasmppt_deck::ListItem],
     level: u8,
-    lines: &impl Fn(&SemanticNode, FragmentSlice, u8) -> u32,
+    ordered: bool,
+    start: u32,
+    lines: &impl Fn(&SemanticNode, FragmentSlice, u8, Option<&str>) -> u32,
 ) -> u32 {
-    items.iter().fold(0u32, |total, item| {
+    items.iter().enumerate().fold(0u32, |total, (index, item)| {
+        let prefix = if ordered {
+            format!("{}. ", start.saturating_add(index as u32))
+        } else {
+            "• ".to_owned()
+        };
         let paragraphs = item
             .blocks
             .iter()
-            .map(|block| lines(block, FragmentSlice::Whole, level))
+            .enumerate()
+            .map(|(index, block)| {
+                lines(
+                    block,
+                    FragmentSlice::Whole,
+                    level,
+                    (index == 0).then_some(prefix.as_str()),
+                )
+            })
             .fold(0, u32::saturating_add)
             .max(1);
         item.children
             .iter()
             .fold(total.saturating_add(paragraphs), |total, child| {
-                total.saturating_add(list_lines(&child.items, level.saturating_add(1), lines))
+                total.saturating_add(list_lines(
+                    &child.items,
+                    level.saturating_add(1),
+                    child.ordered,
+                    child.start,
+                    lines,
+                ))
             })
     })
 }
@@ -1159,18 +1259,18 @@ fn width_demand(
     let mut offset = 0;
     for line in text.split('\n') {
         preferred = preferred.max(advance(offset..offset + line.len()));
-        let mut word_start = None;
-        for (index, character) in line
-            .char_indices()
-            .chain(std::iter::once((line.len(), ' ')))
-        {
-            if character.is_whitespace() {
-                if let Some(start) = word_start.take() {
-                    min = min.max(advance(offset + start..offset + index));
-                }
-            } else if word_start.is_none() {
-                word_start = Some(index);
+        // Use the same Unicode opportunities as wrapping. Whitespace-only tokenization
+        // incorrectly treats a Korean/CJK caption as one unbreakable Latin word.
+        let mut start = 0;
+        if let Ok(opportunities) = line_breaks(line, line.len()) {
+            for opportunity in opportunities {
+                let end = opportunity.offset as usize;
+                let word = line[start..end].trim_end_matches(is_inline_soft_whitespace);
+                min = min.max(advance(offset + start..offset + start + word.len()));
+                start = end;
             }
+        } else {
+            min = min.max(advance(offset..offset + line.len()));
         }
         offset += line.len() + 1;
     }
@@ -1188,7 +1288,29 @@ fn rich_lines(
     font: Option<&crate::FontFace>,
     code_font: Option<&crate::FontFace>,
     size: u32,
+    prefix: Option<(&str, Emu)>,
 ) -> u32 {
+    let prefixed = prefix.map(|(label, _)| {
+        let mut value = text.clone();
+        value.runs.insert(
+            0,
+            wasmppt_deck::RichTextRun {
+                text: label.to_owned(),
+                marks: text
+                    .runs
+                    .first()
+                    .map_or_else(Default::default, |run| run.marks),
+                hyperlink: None,
+            },
+        );
+        value
+    });
+    let text = prefixed.as_ref().unwrap_or(text);
+    let extra = prefix.map_or(0, |(label, minimum)| {
+        minimum
+            .saturating_sub(rich_advance(text, 0..label.len(), font, code_font, size))
+            .max(0)
+    });
     let plain = text.plain_text();
     let (start, end) = match slice {
         FragmentSlice::Text { start, end } => (start as usize, end as usize),
@@ -1196,13 +1318,16 @@ fn rich_lines(
     };
     let selected = plain.get(start..end).unwrap_or("");
     wrapped_lines(selected, width, &|range| {
-        Some(rich_advance(
-            text,
-            start + range.start..start + range.end,
-            font,
-            code_font,
-            size,
-        ))
+        Some(
+            rich_advance(
+                text,
+                start + range.start..start + range.end,
+                font,
+                code_font,
+                size,
+            )
+            .saturating_add(if range.start == 0 { extra } else { 0 }),
+        )
     })
     .unwrap_or(1)
 }
@@ -1263,16 +1388,182 @@ mod tests {
     }
 
     #[test]
+    fn narrow_list_measurement_includes_the_visible_bullet_before_its_text() {
+        let mut node = super::super::tests::list_node(4, 2);
+        if let SemanticContent::List(list) = &mut node.content {
+            for item in &mut list.items {
+                if let SemanticContent::Text(text) = &mut item.blocks[0].content {
+                    text.runs[0].text = "Observation 1".into();
+                }
+            }
+        }
+        let spec = super::super::tests::spec(vec![node]);
+        let fonts = crate::FontCatalog::default();
+        let limits = crate::PlannerLimits::default();
+        let mut template = super::super::tests::template(5_000_000);
+        template.regions[1].text_levels[0].margin_left = Some(0);
+        template.regions[1].text_levels[0].indent = Some(0);
+        let region = &template.regions[1];
+        let mut measurer = Measurer::new(&fonts, &spec, &limits);
+        let measured = measurer
+            .measure(
+                &spec.logical_slides[0].nodes[0],
+                FragmentSlice::Whole,
+                region,
+                EmuRect {
+                    width: 1_440_000,
+                    ..region.frame
+                },
+                2000,
+                0,
+            )
+            .unwrap();
+        assert!(
+            measured.height >= text_line_height(2000) * 6,
+            "visible bullet and following words require six actual rows: {measured:?}"
+        );
+    }
+
+    #[test]
+    fn caption_typography_requires_both_semantic_role_and_template_opt_in() {
+        use wasmppt_deck::{
+            DeckLayoutOptions, DeckSpec, PlaceholderIdentity, PresentationPurpose, SplitPolicy,
+            TemplateTextLevel, TextMargins,
+        };
+
+        let fonts = FontCatalog::default();
+        let limits = PlannerLimits::default();
+        let frame = EmuRect {
+            x: 0,
+            y: 0,
+            width: 8_000_000,
+            height: 3_000_000,
+        };
+        let mut region = TemplateRegion {
+            id: id(30),
+            layout_id: id(31),
+            role: RegionRole::Body,
+            placeholder: PlaceholderIdentity {
+                kind: "body".to_owned(),
+                index: 4,
+            },
+            frame,
+            bleed_frame: None,
+            generation_frame: Some(frame),
+            minimum_font_size: 1_800,
+            margins: TextMargins::default(),
+            text_levels: vec![TemplateTextLevel {
+                font_size: Some(2_000),
+                ..TemplateTextLevel::default()
+            }],
+            accepts: vec![SemanticRole::Caption, SemanticRole::Prose],
+            required: false,
+        };
+        let mut node = SemanticNode {
+            id: id(32),
+            source: source(),
+            role: SemanticRole::Caption,
+            split: SplitPolicy::Never,
+            content: SemanticContent::Text(rich("Research result")),
+        };
+        for purpose in [
+            PresentationPurpose::Conference,
+            PresentationPurpose::Seminar,
+            PresentationPurpose::Handout,
+        ] {
+            let spec = DeckSpec {
+                id: id(33),
+                layout: DeckLayoutOptions {
+                    presentation: purpose,
+                    ..DeckLayoutOptions::default()
+                },
+                logical_slides: vec![],
+                resources: vec![],
+            };
+            let mut measurer = Measurer::new(&fonts, &spec, &limits);
+            let (_, body, floor, caption, _) = purpose.typography();
+            let selected = measurer.font_size_for_role(&node, &region, body);
+            assert_eq!(selected, caption);
+            assert_eq!(measurer.floor_for_role(&node, &region, floor), caption);
+            let measured = measurer
+                .measure(&node, FragmentSlice::Whole, &region, frame, selected, 0)
+                .expect("caption measurement");
+            assert_eq!(measured.font_size, caption);
+            assert_eq!(measured.height, text_line_height(caption));
+            assert!(
+                measured.font_risk,
+                "fallback remains observable for captions"
+            );
+
+            for role in [
+                SemanticRole::Prose,
+                SemanticRole::List,
+                SemanticRole::Table,
+                SemanticRole::Credit,
+            ] {
+                node.role = role;
+                assert_eq!(measurer.font_size_for_role(&node, &region, body), body);
+                assert_eq!(
+                    measurer.floor_for_role(&node, &region, floor),
+                    region.minimum_font_size.max(floor),
+                );
+            }
+            node.role = SemanticRole::Caption;
+            region.generation_frame = None;
+            assert_eq!(measurer.font_size_for_role(&node, &region, body), body);
+            assert_eq!(
+                measurer.floor_for_role(&node, &region, floor),
+                region.minimum_font_size.max(floor),
+            );
+            region.generation_frame = Some(frame);
+        }
+    }
+
+    #[test]
+    fn cjk_minimum_width_uses_the_same_break_opportunities_as_wrapping() {
+        let line_height = text_line_height(2_000);
+        let caption = rich("한국어연구결과비교분석日本語実験結果");
+        let demand = marked_width_demand(
+            &caption,
+            FragmentSlice::Whole,
+            None,
+            None,
+            2_000,
+            line_height,
+        );
+        assert!(demand.min < demand.preferred);
+        assert!(
+            rich_lines(
+                &caption,
+                FragmentSlice::Whole,
+                demand.min,
+                None,
+                None,
+                2_000,
+                None,
+            ) > 1,
+        );
+        let latin = "short longestword tiny";
+        let demand = width_demand(latin, line_height, &|range| {
+            approximate_inline_text_advance(&latin[range], 2_000)
+        });
+        assert_eq!(
+            demand.min,
+            approximate_inline_text_advance("longestword", 2_000).max(line_height * 2),
+        );
+    }
+
+    #[test]
     fn code_and_inline_code_use_the_composed_monospace_width() {
         let em = font_size_to_emu(2_000);
         let mut text = rich("iiiiiiiiiiiiiiiiiiii");
         assert_eq!(
-            rich_lines(&text, FragmentSlice::Whole, em * 6, None, None, 2_000),
+            rich_lines(&text, FragmentSlice::Whole, em * 6, None, None, 2_000, None),
             1
         );
         text.runs[0].marks.inline_code = true;
         assert_eq!(
-            rich_lines(&text, FragmentSlice::Whole, em * 6, None, None, 2_000),
+            rich_lines(&text, FragmentSlice::Whole, em * 6, None, None, 2_000, None),
             2
         );
         assert_eq!(code_advance("iiii", None, 2_000), em * 24 / 10);

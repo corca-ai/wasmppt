@@ -31,7 +31,14 @@ without opening an OPC package.
 
 ## DeckSpec
 
-`DeckSpec` owns logical source intent:
+`DeckSpec` owns logical source intent. Its document-wide `layout` selects `Conference`,
+`Seminar` (default), or `Handout`, independently of decorative theme. Its `ImageFit::Contain`
+policy preserves full images. WDSF encodes both immediately after the document identity;
+unknown purpose or fit tags fail closed. These inputs enter plan hashes and invalidate every
+logical slide when changed. Generation-opted regions use the purpose typography described by
+[layout](deck-layout.md); custom regions without that metadata retain authored styling.
+
+It also owns:
 
 - logical title and content slides, including persisted hidden state;
 - stable UTF-8 byte `SourceRange` values and 128-bit `StableId` values;
@@ -86,8 +93,9 @@ and shape names are not part of this contract.
 
 `DeckPlan` contains physical pages grouped by logical slide. A page carries its stable ID,
 selected template-layout ID, explicit topology kind and slot count, hidden state, one-based
-continuation ordinal and total, repeated heading identity, optional `n/total` metadata label, and
-planned regions. Templates own any visible page-number chrome. A planned region is either fixed
+continuation ordinal and total, repeated heading identity, optional accepted `n/total` label, and
+planned regions. The label also becomes a measured synthetic suffix on the visible title of every
+continued page. Templates independently own page-number fields. A planned region is either fixed
 template furniture/content or assigned to one indexed
 topology slot. For pictures its frame is the complete allocated slot, while the fragment frame is
 the actual visible picture bounds. Each
@@ -115,7 +123,8 @@ shape, finite chart values, and configured safety limits.
 
 - every renderable semantic source extent is covered exactly once;
 - text slices are contiguous UTF-8 boundaries and list/table slices are contiguous;
-- physical fragment order matches semantic source order;
+- physical fragment order matches semantic source order, including source-ordered image/text
+  pairs and caption associations;
 - every page and fragment stays on its logical slide and an accepting template region;
 - topology kinds have a legal slot count and every slotted region references an existing slot;
 - template, planned-region, and fragment geometry is positive and contained;
@@ -136,7 +145,7 @@ The [binary codecs](../crates/wasmppt-deck/src/wire.rs) implement these little-e
 
 | Magic | Version | Value |
 | --- | ---: | --- |
-| `WDSF` | 5 | `DeckSpec`, SVG fallback references, source relations, and binary resources |
+| `WDSF` | 6 | `DeckSpec`, document layout options, SVG fallback references, source relations, and binary resources |
 | `WDTP` | 5 | `DeckTemplatePlan` |
 | `WDPL` | 5 | `DeckPlan` |
 
@@ -148,7 +157,7 @@ and fragment limits before allocating the declared content.
 
 `DeckLimitCode` values are append-only and identify each bounded dimension. Callers may
 tighten `DeckLimits` for a host but MUST NOT turn a limit failure into partial content.
-Checked-in hexadecimal fixtures pin WDSF v5, WDTP v5, and WDPL v5. Older semantic-plan
+Checked-in hexadecimal fixtures pin WDSF v6, WDTP v5, and WDPL v5. Older semantic-plan
 payloads are intentionally unsupported because the planner boundary is replaced atomically.
 
 ## Verification

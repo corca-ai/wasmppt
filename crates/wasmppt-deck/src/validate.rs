@@ -1032,7 +1032,7 @@ fn valid_fragment_choice_kind(node: &SemanticNode, fragment: &PlannedFragment) -
 
 fn media_resource(node: &SemanticNode) -> Option<(StableId, bool)> {
     match &node.content {
-        SemanticContent::Image(image) => Some((image.resource_id, true)),
+        SemanticContent::Image(image) => Some((image.resource_id, false)),
         SemanticContent::Svg(svg) => Some((svg.resource_id, false)),
         _ => None,
     }

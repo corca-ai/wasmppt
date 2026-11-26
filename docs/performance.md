@@ -213,3 +213,79 @@ After `npm run build`, run `node benchmarks/browser-metadata.mjs` to record raw 
 median and p95 for an 8 MiB JPEG header scan and mixed Latin, Korean and emoji source-offset
 indexing. Compare revisions on the same runtime and machine. These workloads isolate metadata
 allocation costs; they do not measure complete slide rendering or set a release latency budget.
+
+## Academic layout evidence
+
+The [academic comparison provenance](../benchmarks/results/academic-layout/provenance.json) pins
+pre-change engine/template revisions, exact input hashes and report scope. Its compressed raw
+reports use the same semantic corpus and image bytes with saved original templates; a separate
+matrix uses updated purpose profiles. The [same-input summary](../benchmarks/results/academic-layout/same-input-summary.json)
+and [purpose-profile summary](../benchmarks/results/academic-layout/purpose-template-summary.json)
+retain findings alongside the measurements. The [runner](../scripts/academic-layout-evidence.mjs)
+records each public SDK replacement, role font ranges, physical pages, image frames, body area,
+whitespace, retained admission bytes and sampled process RSS/heap. The
+[comparison script](../scripts/compare-academic-layout-evidence.mjs) rejects differing semantic
+corpora, assets or case inventories before calculating summaries.
+
+These per-case measurements exclude engine startup, template preparation and page resolution;
+they are bounded layout evidence rather than a release latency benchmark. Sampled RSS is not an
+OS high-water measurement, and retained admission bytes are not total process memory. Native
+cross-host corpus timings include independently licensed research figures after expansion and
+must not be described as a same-workload speed comparison. The existing release latency, size,
+memory and candidate-work budgets remain authoritative and unchanged.
+
+The saved original templates distinguish media-only bleed from mixed-content safe bounds.
+Media-only pictures use the full bleed allocation with zero text insets; an extreme portrait that
+meets the unchanged media floor there must remain eligible. Explicit-caption portrait pages can still fail where their authored shared-page safe bounds
+cannot satisfy that floor. Ordinary list content and weakly related prose may continue completely
+after a media-only bleed page; explicit image captions retain shared-page cohesion. Both recovered
+cases and remaining caption failures stay in the before/after reports; updated envelopes resolve
+the remaining cases without lowering the floor. The new profile matrix
+must pass source presence, non-overlap, zero cropping, canonical aspect and caption-association
+checks. Shorter decks or less whitespace alone do not meet that contract.
+
+The native academic work-counter companion runs with
+`cargo run --release --locked -p wasmppt-wasm --example academic_planner_metrics -- fixtures/deck-gates target/academic-layout/planner-metrics.json`.
+It records actual candidate assignments, cache-miss measurements, unchanged limits, source/template/plan
+hashes and seven raw plan timings for each purpose on new Starter and fixed custom profiles.
+Its scope excludes template compilation, composition, rendering and export. Process RSS must be
+reported separately; these counters are not an estimate of peak resident memory.
+
+The [native planner companion](../benchmarks/results/academic-layout/planner-metrics.json)
+records actual bounded candidate assignments and cache-miss measurements for all three purposes
+on opted-in Starter and fixed custom profiles. Its [OS memory report](../benchmarks/results/academic-layout/planner-metrics-memory.txt)
+records the compiled release process maximum resident set across those repeated passes. The
+[provenance](../benchmarks/results/academic-layout/provenance.json) retains the exact command,
+compiler and binary identity. These native work counters complement the SDK matrix; they are not
+fabricated per-case SDK counters and are not combined with SDK admission bytes.
+
+The [same-input native counter report](../benchmarks/results/academic-layout/native-same-input-work.json)
+compares actual work on the original native workload. Baseline counter instrumentation stays in
+an isolated pinned source archive; every instrumented plan must match the frozen uninstrumented
+plan bytes. The new typed defaults use a reversible wire-schema normalization with identical
+content, assets, template, fonts and limits. Instrumented timings and memory are not performance
+evidence. The report retains the counter patch, repeatability checks and replay instructions.
+
+The short-title text probe separately records actual body top, reclaimed EMU and available body
+area from resolved source geometry. Its first full-width prose block starts at the Stack lane top;
+the authored safe bottom and width bound the remaining envelope. This observed area is distinct
+from static preferred body area and painted content utilization. Other layouts report the actual
+body envelope unavailable rather than inferring it from centered images or split lanes.
+
+Separate `/usr/bin/time -l` runs of the complete Node matrices retain OS maximum resident set for
+the frozen old engine with original templates, the final engine with those exact templates, and
+the final engine with updated purpose profiles. Their raw memory reports and scope are linked from
+the comparison provenance. This process high-water includes startup, assets, resolution, retained
+report data and JSON output; it must not be relabelled as engine heap or combined with admission
+bytes. The comparison script accepts optional before/after memory report paths after its three
+required arguments to reproduce those separate memory fields in each summary.
+
+The [expanded comparison](../benchmarks/results/academic-layout/expanded-summary.json) compares a
+frozen preceding engine with the accepted engine on identical canonical-pair and text-density
+inputs. Its [provenance](../benchmarks/results/academic-layout/expanded-provenance.json) retains
+engine/input hashes, immutable baseline guards, native work counters, OS memory scope and gate
+reports. That retained comparison records the preceding density policy. Current physical lanes start
+at the purpose maximum and shrink only on measured overflow; per-page fonts and text
+record the largest fitting shared step. A measured suffix that already fits the accepted title height
+retains body geometry; only increased measured title height requires another bounded pagination
+pass. Candidate and measurement limits remain unchanged.

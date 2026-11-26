@@ -1,0 +1,603 @@
+{
+  "schema": 1,
+  "description": "Actual native planning work on identical frozen pre-change input, with reversible schema normalization only. Evidence-only probes; no runtime timing or memory comparison.",
+  "scope": {
+    "workload": "Original native baseline aggregate only: 53 logical slides; not the expanded post-review aggregate or public SDK case matrix.",
+    "purpose": "DefaultSeminar",
+    "schemaNormalization": "Old intent gains typed Seminar + Contain defaults; no feature, content, asset, or corpus change. Custom original POTX frames/styles retained.",
+    "fonts": "FontCatalog::default(): no faces, no default family, zero catalog identity; observable deterministic fallback.",
+    "operations": "Complete plan + encode, seven fresh planning passes per engine. Template compiled once before passes; each pass creates its own planner-internal measurement cache. No composition/render/export.",
+    "counterDefinitions": {
+      "candidateAssignments": "Every actual topology/slot-assignment event at existing candidate_count increment, including rejected candidates, summed across all slide attempts.",
+      "measurements": "Every actual existing self.measurements += 1 event after cache lookup and work-limit check; cache misses including rejected fits. Advance-cache entries are not added as measurements."
+    },
+    "performance": "Neither instrumented BEFORE nor standalone AFTER probe timings/RSS are reported. Original frozen uninstrumented runtime and memory reports remain unchanged, with their original scopes. No speed or memory claim is derived from these counts."
+  },
+  "inputs": {
+    "template": {
+      "path": "/tmp/academic-slide-layout/baseline-inputs/starter.potx",
+      "sha256": "65fcabe4ab210a329eda220b4391a2c2041a27dfd000dd8686b3e0cc2bf0245c",
+      "identicalBeforeAfter": true,
+      "matchesHeadFixture": true
+    },
+    "semanticSource": {
+      "originalPath": "/tmp/academic-slide-layout/baseline-inputs/deck-spec.wdsf",
+      "originalSchema": 5,
+      "originalBytes": 56838,
+      "originalSha256": "6a32600ee5ade9b2cf322679b865331e84da7f0d01b54819ce5870e9778837fa",
+      "afterPath": "/tmp/academic-slide-layout/after-counter-inputs/deck-spec.wdsf",
+      "afterSchema": 6,
+      "afterBytes": 56840,
+      "afterSha256": "1a482440c12866abda96d32bc990dc18b0dfdb95a292ed51e50944b2fb7fe886",
+      "originalMatchesHeadFixture": true,
+      "upgrade": "Replace little-endian u32 at bytes [4,8) with 6; insert bytes 02 01 at offset 24 (after 16-byte StableId): Seminar, Contain.",
+      "reverse": "Remove bytes [24,26); replace little-endian u32 at [4,8) with 5.",
+      "reversedByteIdentical": true,
+      "reversedSha256": "6a32600ee5ade9b2cf322679b865331e84da7f0d01b54819ce5870e9778837fa",
+      "canonicalEncodeRoundTripBoth": true
+    },
+    "assets": [
+      {
+        "id": "e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6",
+        "mediaType": "image/png",
+        "bytes": 150,
+        "sha256": "f4bdb0770f5f5cf2e55f6e379c11aa4cd930f0f7527b11862e7ffa0a2a5b688d"
+      },
+      {
+        "id": "e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7",
+        "mediaType": "image/gif",
+        "bytes": 43,
+        "sha256": "693d949d8c3fdc7fd4ace7c340b5f177a9f0c5be7bafee8bc93a7d88b7523d75"
+      },
+      {
+        "id": "e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8e8",
+        "mediaType": "image/svg+xml",
+        "bytes": 104,
+        "sha256": "f51f07541a40fe73755336689d1c275f41e5c4962f7c0fa38af8124f46aac9b0"
+      },
+      {
+        "id": "e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9",
+        "mediaType": "image/svg+xml",
+        "bytes": 223,
+        "sha256": "5057fe325bc6f08a1146b689cd6617928686bbede222aa94b44ba47e580fd916"
+      },
+      {
+        "id": "ecececececececececececececececec",
+        "mediaType": "image/png",
+        "bytes": 278,
+        "sha256": "5c7eb92f4ac5c7e235dc75924b29defa1c8bb20dc5c851456f6161a92e0b0944"
+      },
+      {
+        "id": "edededededededededededededededed",
+        "mediaType": "image/png",
+        "bytes": 374,
+        "sha256": "ea103af1f65490b05d3a7b800897c9191e66daf87ad90100d23557a0fbe42f3d"
+      },
+      {
+        "id": "eaeaeaeaeaeaeaeaeaeaeaeaeaeaeaea",
+        "mediaType": "image/png",
+        "bytes": 168,
+        "sha256": "b171ce9b920a24dbdaefc56e448572c61cb3b75e5507bd3f77282ab8bb74055d"
+      },
+      {
+        "id": "ebebebebebebebebebebebebebebebeb",
+        "mediaType": "image/png",
+        "bytes": 182,
+        "sha256": "160d994f29bbf22dc9612991fd81266c13d739fa9790a479f1b53564a2959d24"
+      },
+      {
+        "id": "1c621cb7d0f3ac387781b51f6a4c5a9d",
+        "mediaType": "image/png",
+        "bytes": 398,
+        "sha256": "abdb3a95cc9949ea69e1039f5ec540a1be3b427ceff05ca237e6ccb8592b01ba"
+      },
+      {
+        "id": "b350934de6378efbd935c6b9cbd0b630",
+        "mediaType": "image/png",
+        "bytes": 278,
+        "sha256": "b098554be7b160c1b53b9c3672d622c13c3e673328755de31a7fe94a3344e93c"
+      },
+      {
+        "id": "3b8fedcf6eca0ffc4e5708dd994e886a",
+        "mediaType": "image/png",
+        "bytes": 343,
+        "sha256": "ded17a30a2c5fb3f6760f19464d3731bc0488ce47162522ff146d1c3f16b88d7"
+      },
+      {
+        "id": "38a3616eef4905105f49c4f37eda42b3",
+        "mediaType": "image/png",
+        "bytes": 407,
+        "sha256": "5236a0958c6953863c2bf386330a0c8fa24e93d027496a133736f81210c5410b"
+      },
+      {
+        "id": "e059c72bb377da0a5af8f19ab385a878",
+        "mediaType": "image/png",
+        "bytes": 330,
+        "sha256": "62b191bd91c4bae860577358e794b9a07d140aaca1b8602b2a203aa26915fb7a"
+      },
+      {
+        "id": "289aeede2fcd56111788116c22c1e1d0",
+        "mediaType": "image/jpeg",
+        "bytes": 327,
+        "sha256": "9ed2ee0079b0baab72f8e64b514ef47e842cab4d0cd54dbb98d71fb134434df5"
+      },
+      {
+        "id": "b7ff590b23fbdafc757834c4f1ac81c2",
+        "mediaType": "image/jpeg",
+        "bytes": 327,
+        "sha256": "14b52ae270bb1f5d93cbe26b4b8852be4092e3b8d9ef9708c512e3bc8b15e8b2"
+      }
+    ],
+    "allResourceIdentitiesAndBytesIdentical": true
+  },
+  "configuration": {
+    "deckLimits": {
+      "maxPayloadBytes": 67108864,
+      "maxStringBytes": 4194304,
+      "maxCollectionItems": 100000,
+      "maxSemanticNodes": 100000,
+      "maxNestingDepth": 64,
+      "maxResourceBytes": 33554432,
+      "maxTotalResourceBytes": 67108864,
+      "maxPhysicalPages": 10000,
+      "maxPlannedFragments": 1000000
+    },
+    "plannerPolicy": {
+      "readableFloor": 1400,
+      "readableMediaFloor": 1200000,
+      "maxCoverCropPerMille": 300,
+      "fontStep": 100,
+      "gap": 114300,
+      "limits": {
+        "maxFontFaces": 256,
+        "maxFontBytes": 134217728,
+        "maxFlowUnits": 100000,
+        "maxCandidateAssignmentsPerSlideAttempt": 250000,
+        "maxCandidatesPerPosition": 64,
+        "maxMeasurementsPerPass": 1000000,
+        "maxDynamicStates": 100000
+      }
+    },
+    "defaultsIdenticalBeforeAfter": true,
+    "runtimeDebugDump": "DeckLimits=DeckLimits { max_payload_bytes: 67108864, max_string_bytes: 4194304, max_collection_items: 100000, max_semantic_nodes: 100000, max_nesting_depth: 64, max_resource_bytes: 33554432, max_total_resource_bytes: 67108864, max_physical_pages: 10000, max_planned_fragments: 1000000 } PlannerPolicy=PlannerPolicy { readable_floor: 1400, readable_media_floor: 1200000, max_cover_crop_per_mille: 300, font_step: 100, gap: 114300, limits: PlannerLimits { max_font_faces: 256, max_font_bytes: 134217728, max_flow_units: 100000, max_candidate_assignments: 250000, max_candidates_per_position: 64, max_measurements: 1000000, max_dynamic_states: 100000 } } FontCatalog=FontCatalog { identity: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], default_family: None, faces: [] }"
+  },
+  "build": {
+    "headBaselineCommit": "b5e6a7a400dabd5c7b2c5b874fb7434d6579a03f",
+    "baselineSource": "Exact git archive HEAD; instrumented only isolated /tmp/academic-slide-layout/baseline-counter-source.",
+    "headArchiveSha256": "b77847d2edbae57bf7224e816e3b92907c1f0e991c47f7fd7e02926435e8930b",
+    "baselineSourceModifiedFiles": [
+      "crates/wasmppt-deck-layout/src/lib.rs",
+      "crates/wasmppt-deck-layout/src/measure.rs"
+    ],
+    "instrumentationPatch": "baseline-counter-probe.patch",
+    "instrumentationPatchSha256": "115f90493dea2e46ab3de747e048b64ba4b80cde8e6b0a366cd115328e062a31",
+    "afterSource": "Expanded canonical pair, adaptive body, visible continuation title and bullet-aware measurement; final unstaged upstream source.",
+    "afterSourceCommit": null,
+    "afterSourceBaseCommit": "49281d29dd29c76e14f51c562710f81ea51004b1",
+    "afterSourceManifestFileCount": 256,
+    "afterSourceManifestSha256": "23f8eb3cf3ac7af4446746ca077a525b911f06d09a6c7f66a58ec1260299c8f5",
+    "afterSourceManifestEncoding": "SHA256 of exact UTF-8 JSON file expanded-source-hashes.json, sorted keys, two-space indentation, final newline.",
+    "afterEngineWasmSha256": "8996bff81db0b67a295b9e9faa92929dcdc20bc5162f287738730b2bbcfd1756",
+    "afterEngineBundleSha256": "f081e0d8651b90b4be08a43f2cb851575715851b255cf19c69703aea542fd424",
+    "beforeFrozenWasmSha256": "19287ce00b3d887c43ae8ab97605106aee76377fa6603d0a6cee9caccaf91e49",
+    "beforeFrozenBundleSha256": "cc4db635f57ed5bca1005d9b964ced40608993a551aa719d8214a9ebf5b55a22",
+    "archivedWasmAndBundleMatchFrozen": true,
+    "compiler": "rustc 1.96.0 (ac68faa20 2026-05-25)\nbinary: rustc\ncommit-hash: ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96\ncommit-date: 2026-05-25\nhost: aarch64-apple-darwin\nrelease: 1.96.0\nLLVM version: 22.1.2",
+    "host": "macOS-26.6.2-arm64-arm-64bit",
+    "profile": "release: opt-level=3, lto=thin, codegen-units=1, panic=abort, strip=true (both builds).",
+    "baselineCargoLockSha256": "e02802b53690448651486e2455f0b8b0314a7e273dd4e1296ce75a9fd56b0b3c",
+    "currentCargoLockSha256": "e02802b53690448651486e2455f0b8b0314a7e273dd4e1296ce75a9fd56b0b3c",
+    "afterDriverCargoLockSha256": "307ef55fc431617f248ed7dfa844d1e82f08c54b9d622e3a42b479aa3427d036",
+    "afterDependencyResolution": "Seeded from unchanged current Cargo.lock; resolved registry name/version/source/checksum identities match current lock. Initial unseeded build discarded before any accepted measurement.",
+    "afterRegistryDependencyIdentitiesMatchCurrentLock": true
+  },
+  "before": {
+    "method": "Native-only AtomicUsize counters at original increment sites; reset before each plan; read after plan; no value feeds planner decisions/state/limits.",
+    "pages": 72,
+    "logicalSlides": 53,
+    "planSha256": "fbafeb7bc5969f1d90273c6eb7ac46384dd2383eefbcd88660fddcb75086b694",
+    "planBytes": 74311,
+    "candidateAssignments": 20730,
+    "measurements": 18837,
+    "passes": [
+      {
+        "pass": 0,
+        "pages": 72,
+        "logicalSlides": 53,
+        "candidateAssignments": 20730,
+        "measurements": 18837,
+        "planBytes": 74311,
+        "planSha256": "fbafeb7bc5969f1d90273c6eb7ac46384dd2383eefbcd88660fddcb75086b694",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 1,
+        "pages": 72,
+        "logicalSlides": 53,
+        "candidateAssignments": 20730,
+        "measurements": 18837,
+        "planBytes": 74311,
+        "planSha256": "fbafeb7bc5969f1d90273c6eb7ac46384dd2383eefbcd88660fddcb75086b694",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 2,
+        "pages": 72,
+        "logicalSlides": 53,
+        "candidateAssignments": 20730,
+        "measurements": 18837,
+        "planBytes": 74311,
+        "planSha256": "fbafeb7bc5969f1d90273c6eb7ac46384dd2383eefbcd88660fddcb75086b694",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 3,
+        "pages": 72,
+        "logicalSlides": 53,
+        "candidateAssignments": 20730,
+        "measurements": 18837,
+        "planBytes": 74311,
+        "planSha256": "fbafeb7bc5969f1d90273c6eb7ac46384dd2383eefbcd88660fddcb75086b694",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 4,
+        "pages": 72,
+        "logicalSlides": 53,
+        "candidateAssignments": 20730,
+        "measurements": 18837,
+        "planBytes": 74311,
+        "planSha256": "fbafeb7bc5969f1d90273c6eb7ac46384dd2383eefbcd88660fddcb75086b694",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 5,
+        "pages": 72,
+        "logicalSlides": 53,
+        "candidateAssignments": 20730,
+        "measurements": 18837,
+        "planBytes": 74311,
+        "planSha256": "fbafeb7bc5969f1d90273c6eb7ac46384dd2383eefbcd88660fddcb75086b694",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 6,
+        "pages": 72,
+        "logicalSlides": 53,
+        "candidateAssignments": 20730,
+        "measurements": 18837,
+        "planBytes": 74311,
+        "planSha256": "fbafeb7bc5969f1d90273c6eb7ac46384dd2383eefbcd88660fddcb75086b694",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      }
+    ],
+    "planDirectory": "/tmp/academic-slide-layout/baseline-counter-plans",
+    "binarySha256": "bfa871cea170fbf0c350ed8be4a7aad5a968cbaf23d240e12a3a217a227d4ff1"
+  },
+  "after": {
+    "method": "Unchanged archived standalone driver rebuilt against final public DeckPlanner::plan_with_metrics; explicit plan validation and seven deterministic passes.",
+    "passes": [
+      {
+        "pass": 0,
+        "pages": 68,
+        "logicalSlides": 53,
+        "candidateAssignments": 17778,
+        "measurements": 9734,
+        "planBytes": 72321,
+        "planSha256": "32a474ed54718288e2ac15d84fa7dfa084577a48f28570a34067cae1598669fc",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 1,
+        "pages": 68,
+        "logicalSlides": 53,
+        "candidateAssignments": 17778,
+        "measurements": 9734,
+        "planBytes": 72321,
+        "planSha256": "32a474ed54718288e2ac15d84fa7dfa084577a48f28570a34067cae1598669fc",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 2,
+        "pages": 68,
+        "logicalSlides": 53,
+        "candidateAssignments": 17778,
+        "measurements": 9734,
+        "planBytes": 72321,
+        "planSha256": "32a474ed54718288e2ac15d84fa7dfa084577a48f28570a34067cae1598669fc",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 3,
+        "pages": 68,
+        "logicalSlides": 53,
+        "candidateAssignments": 17778,
+        "measurements": 9734,
+        "planBytes": 72321,
+        "planSha256": "32a474ed54718288e2ac15d84fa7dfa084577a48f28570a34067cae1598669fc",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 4,
+        "pages": 68,
+        "logicalSlides": 53,
+        "candidateAssignments": 17778,
+        "measurements": 9734,
+        "planBytes": 72321,
+        "planSha256": "32a474ed54718288e2ac15d84fa7dfa084577a48f28570a34067cae1598669fc",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 5,
+        "pages": 68,
+        "logicalSlides": 53,
+        "candidateAssignments": 17778,
+        "measurements": 9734,
+        "planBytes": 72321,
+        "planSha256": "32a474ed54718288e2ac15d84fa7dfa084577a48f28570a34067cae1598669fc",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 6,
+        "pages": 68,
+        "logicalSlides": 53,
+        "candidateAssignments": 17778,
+        "measurements": 9734,
+        "planBytes": 72321,
+        "planSha256": "32a474ed54718288e2ac15d84fa7dfa084577a48f28570a34067cae1598669fc",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      }
+    ],
+    "binarySha256": "8f422bf64c122d46838a4b710617eb1b7cafbd307a223e9b0fa8bdf1e8021b13",
+    "planDirectory": "/tmp/academic-slide-layout/expanded-same-input-counter-plans",
+    "pages": 68,
+    "logicalSlides": 53,
+    "candidateAssignments": 17778,
+    "measurements": 9734,
+    "planBytes": 72321,
+    "planSha256": "32a474ed54718288e2ac15d84fa7dfa084577a48f28570a34067cae1598669fc",
+    "allReady": true,
+    "validPlanAndExactOrderedSourceCoverage": true
+  },
+  "validation": {
+    "everyBeforePassByteIdenticalToFrozenNativePlan": true,
+    "frozenNativePlanPath": "/tmp/academic-slide-layout/baseline-native/native.wdpl",
+    "frozenNativePlanSha256": "fbafeb7bc5969f1d90273c6eb7ac46384dd2383eefbcd88660fddcb75086b694",
+    "beforeAndAfterEachDeterministicAcrossSevenPasses": true,
+    "allSlidesReadyBoth": true,
+    "exactOrderedSingleSourceCoverageBoth": true,
+    "sameOriginalTemplateAndResources": true,
+    "baselineInputsAndEntireBaselineNativeAndEngineUnchanged": true,
+    "baselineArchiveChangesLimitedToTwoInstrumentedFilesPlusAddedProbeExample": true,
+    "checks": "Driver hard assertions and independent byte/hash/source/BEFORE/index-tree guards. Full local gates, host parity, OpenXML and coverage are recorded in provenance.json. Accepted review fixes precede this final source freeze.",
+    "retainedPatchAppliesToPristineArchiveAndReproducesMeasuredProbeSources": true,
+    "acceptedSourceUnchangedDuringFinalMeasurements": true,
+    "gitCandidateTreeUnchangedDuringFinalMeasurements": true,
+    "gitCandidateTree": "2daf6de576ba9d1b8e4b23ce856dde9971d2b75d",
+    "sourceGuard": {
+      "report": "/tmp/academic-slide-layout/expanded-source-hashes.json",
+      "sha256": "23f8eb3cf3ac7af4446746ca077a525b911f06d09a6c7f66a58ec1260299c8f5",
+      "files": 256,
+      "unchanged": true
+    },
+    "beforeGuard": {
+      "report": "/tmp/academic-slide-layout/r3-artifact-before-hashes.json",
+      "sha256": "301bf2ad4933da52099dc02abb0839446e0914332c5dbffdb2eb1e4172fb58c4",
+      "files": 119,
+      "unchanged": true
+    },
+    "note": "Parent owns staging/commits. Worker index remains identical to HEAD; runtime source hashes are separate from that unchanged index tree."
+  },
+  "reproduction": {
+    "baselinePatchCommand": "patch -p1 < /absolute/path/to/benchmarks/results/academic-layout/baseline-counter-probe.patch (only inside isolated archived baseline copy)",
+    "commands": [
+      {
+        "cwd": "/Users/ak/prjs/cc/wasmppt-wt/academic-slide-layout",
+        "command": "mkdir /tmp/academic-slide-layout/baseline-counter-source; git archive b5e6a7a400dabd5c7b2c5b874fb7434d6579a03f | tar -x -C /tmp/academic-slide-layout/baseline-counter-source",
+        "note": "Original execution archived HEAD at this exact pinned commit. For replay use this commit, not the current HEAD, and fresh directories only."
+      },
+      {
+        "cwd": "/tmp/academic-slide-layout/baseline-counter-source",
+        "command": "CARGO_TARGET_DIR=/tmp/academic-slide-layout/baseline-counter-target cargo build --release --locked --offline -p wasmppt-wasm --example baseline_counter_probe"
+      },
+      {
+        "cwd": "/tmp/academic-slide-layout/baseline-counter-source",
+        "command": "/tmp/academic-slide-layout/baseline-counter-target/release/examples/baseline_counter_probe /tmp/academic-slide-layout/baseline-inputs /tmp/academic-slide-layout/baseline-counter-plans > /tmp/academic-slide-layout/baseline-counter-passes.jsonl 2> /tmp/academic-slide-layout/baseline-counter-run.log"
+      },
+      {
+        "cwd": "/Users/ak/prjs/cc/wasmppt-wt/academic-slide-layout",
+        "command": "cp Cargo.lock /tmp/academic-slide-layout/after-counter-driver/Cargo.lock",
+        "note": "Create driver src/main.rs and Cargo.toml from embedded strings first; upgrade source by the exact byte splice recorded above; copy original template unchanged."
+      },
+      {
+        "cwd": "/Users/ak/prjs/cc/wasmppt-wt/academic-slide-layout",
+        "command": "CARGO_TARGET_DIR=/tmp/academic-slide-layout/after-counter-target cargo build --release --offline --manifest-path /tmp/academic-slide-layout/after-counter-driver/Cargo.toml"
+      },
+      {
+        "cwd": "/Users/ak/prjs/cc/wasmppt-wt/academic-slide-layout",
+        "command": "/tmp/academic-slide-layout/after-counter-target/release/after-counter-probe /tmp/academic-slide-layout/after-counter-inputs /tmp/academic-slide-layout/after-counter-plans > /tmp/academic-slide-layout/after-counter-passes.jsonl 2> /tmp/academic-slide-layout/after-counter-run.log"
+      }
+    ],
+    "afterDriverMainRs": "use std::{env,fs,path::PathBuf};\nuse sha2::{Digest,Sha256};\nuse wasmppt_deck::{DeckSpec,DeckLimits,validate_deck_plan};\nuse wasmppt_deck_layout::{DeckPlanner,FontCatalog,PlannerPolicy};\nuse wasmppt_deck_template::ThemeTemplateCompiler;\nfn main() -> Result<(),Box<dyn std::error::Error>> {\n let input=PathBuf::from(env::args_os().nth(1).ok_or(\"input\")?);\n let output=PathBuf::from(env::args_os().nth(2).ok_or(\"output\")?);\n fs::create_dir_all(&output)?;\n let limits=DeckLimits::default(); let policy=PlannerPolicy::default();\n let bytes=fs::read(input.join(\"deck-spec.wdsf\"))?;\n let spec=DeckSpec::decode(&bytes,&limits)?;\n assert_eq!(spec.encode(&limits)?,bytes);\n let template=fs::read(input.join(\"starter.potx\"))?;\n let compiled=ThemeTemplateCompiler::default().compile(template.clone())?;\n assert!(compiled.cacheable);\n let planner=DeckPlanner::new(policy.clone()); let fonts=FontCatalog::default();\n for resource in &spec.resources {\n  eprintln!(\"ASSET {} {} {} {:x}\",resource.id,resource.media_type,resource.bytes.len(),Sha256::digest(&resource.bytes));\n }\n let mut previous=None;\n for pass in 0..7 {\n  let (plan,metrics)=planner.plan_with_metrics(&spec,&compiled.plan,&fonts,&limits)?;\n  let (candidates,measurements)=(metrics.candidate_assignments,metrics.measurements);\n  assert!(plan.failed_slides.is_empty(),\"failed slides: {:?}\",plan.failed_slides);\n  assert!(validate_deck_plan(&spec,&compiled.plan,&plan,&limits).is_valid());\n  let encoded=plan.encode(&limits)?;\n  assert_eq!(spec.layout.presentation,wasmppt_deck::PresentationPurpose::Seminar);\n  if let Some(ref p)=previous {assert_eq!(p,&encoded);}\n  previous=Some(encoded.clone());\n  fs::write(output.join(format!(\"pass-{pass}.wdpl\")),&encoded)?;\n  println!(\"{{\\\"pass\\\":{pass},\\\"pages\\\":{},\\\"logicalSlides\\\":{},\\\"candidateAssignments\\\":{candidates},\\\"measurements\\\":{measurements},\\\"planBytes\\\":{},\\\"planSha256\\\":\\\"{:x}\\\",\\\"allReady\\\":true,\\\"validPlanAndExactOrderedSourceCoverage\\\":true}}\",plan.pages.len(),spec.logical_slides.len(),encoded.len(),Sha256::digest(&encoded));\n }\n eprintln!(\"DeckLimits={limits:?} PlannerPolicy={policy:?} FontCatalog={fonts:?}\");\n Ok(())\n}\n",
+    "afterDriverCargoToml": "[package]\nname=\"after-counter-probe\"\nversion=\"0.0.0\"\nedition=\"2024\"\n[dependencies]\nsha2=\"0.10\"\nwasmppt-deck={path=\"/Users/ak/prjs/cc/wasmppt-wt/academic-slide-layout/crates/wasmppt-deck\"}\nwasmppt-deck-layout={path=\"/Users/ak/prjs/cc/wasmppt-wt/academic-slide-layout/crates/wasmppt-deck-layout\"}\nwasmppt-deck-template={path=\"/Users/ak/prjs/cc/wasmppt-wt/academic-slide-layout/crates/wasmppt-deck-template\"}\n\n[profile.release]\nopt-level = 3\nlto = \"thin\"\ncodegen-units = 1\npanic = \"abort\"\nstrip = true\n\n",
+    "rawLogs": {
+      "baseline-counter-build.log": "/tmp/academic-slide-layout/baseline-counter-build.log",
+      "baseline-counter-run.log": "/tmp/academic-slide-layout/baseline-counter-run.log",
+      "baseline-counter-passes.jsonl": "/tmp/academic-slide-layout/baseline-counter-passes.jsonl",
+      "after-counter-build.log": "/tmp/academic-slide-layout/after-counter-build.log",
+      "after-counter-run.log": "/tmp/academic-slide-layout/after-counter-run.log",
+      "after-counter-passes.jsonl": "/tmp/academic-slide-layout/after-counter-passes.jsonl"
+    },
+    "schemaUpgradePython": "from pathlib import Path\nr = Path(\"/tmp/academic-slide-layout\")\nold = (r / \"baseline-inputs/deck-spec.wdsf\").read_bytes()\nassert old[:8] == b\"WDSF\\x05\\x00\\x00\\x00\"\nnew = old[:4] + (6).to_bytes(4, \"little\") + old[8:24] + bytes([2, 1]) + old[24:]\nassert new[:4] + (5).to_bytes(4, \"little\") + new[8:24] + new[26:] == old\nout = r / \"after-counter-inputs\"\nout.mkdir(exist_ok=True)\n(out / \"deck-spec.wdsf\").write_bytes(new)\n(out / \"starter.potx\").write_bytes((r / \"baseline-inputs/starter.potx\").read_bytes())\n",
+    "replaySetup": "In a fresh isolated archive, copy its fixtures/deck-gates to the baseline-inputs directory. Before applying the counter patch, run the unmodified deck_gate_native example on those inputs to generate baseline-native/native.wdpl; require the recorded frozen plan SHA256. Then apply the patch only in the isolated archive. Replace local paths for a new checkout and preserve the byte-identical WDSF upgrade/reversal checks. Never overwrite existing frozen evidence.",
+    "patchFormat": "Zero-context unified diff to preserve measured sources without trailing whitespace in archival diff context; replay verified against the pristine pinned source.",
+    "expandedRefresh": {
+      "build": "CARGO_TARGET_DIR=/tmp/academic-slide-layout/expanded-counter-target cargo build --release --offline --locked --manifest-path /tmp/academic-slide-layout/after-counter-driver/Cargo.toml",
+      "run": "/tmp/academic-slide-layout/expanded-counter-target/release/after-counter-probe /tmp/academic-slide-layout/after-counter-inputs /tmp/academic-slide-layout/expanded-same-input-counter-plans",
+      "driverSourceAndLockUnchanged": true,
+      "rawPasses": "/tmp/academic-slide-layout/expanded-same-input-counter-passes.jsonl"
+    }
+  },
+  "previousAfter": {
+    "method": "Current public DeckPlanner::plan_with_metrics, followed by encode and explicit validate_deck_plan.",
+    "pages": 68,
+    "logicalSlides": 53,
+    "planSha256": "911bc817d987ab1df6028f3dfd451e9dc87c76f4ec0ab87fd137825953a84065",
+    "planBytes": 72321,
+    "candidateAssignments": 18127,
+    "measurements": 9831,
+    "passes": [
+      {
+        "pass": 0,
+        "pages": 68,
+        "logicalSlides": 53,
+        "candidateAssignments": 18127,
+        "measurements": 9831,
+        "planBytes": 72321,
+        "planSha256": "911bc817d987ab1df6028f3dfd451e9dc87c76f4ec0ab87fd137825953a84065",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 1,
+        "pages": 68,
+        "logicalSlides": 53,
+        "candidateAssignments": 18127,
+        "measurements": 9831,
+        "planBytes": 72321,
+        "planSha256": "911bc817d987ab1df6028f3dfd451e9dc87c76f4ec0ab87fd137825953a84065",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 2,
+        "pages": 68,
+        "logicalSlides": 53,
+        "candidateAssignments": 18127,
+        "measurements": 9831,
+        "planBytes": 72321,
+        "planSha256": "911bc817d987ab1df6028f3dfd451e9dc87c76f4ec0ab87fd137825953a84065",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 3,
+        "pages": 68,
+        "logicalSlides": 53,
+        "candidateAssignments": 18127,
+        "measurements": 9831,
+        "planBytes": 72321,
+        "planSha256": "911bc817d987ab1df6028f3dfd451e9dc87c76f4ec0ab87fd137825953a84065",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 4,
+        "pages": 68,
+        "logicalSlides": 53,
+        "candidateAssignments": 18127,
+        "measurements": 9831,
+        "planBytes": 72321,
+        "planSha256": "911bc817d987ab1df6028f3dfd451e9dc87c76f4ec0ab87fd137825953a84065",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 5,
+        "pages": 68,
+        "logicalSlides": 53,
+        "candidateAssignments": 18127,
+        "measurements": 9831,
+        "planBytes": 72321,
+        "planSha256": "911bc817d987ab1df6028f3dfd451e9dc87c76f4ec0ab87fd137825953a84065",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      },
+      {
+        "pass": 6,
+        "pages": 68,
+        "logicalSlides": 53,
+        "candidateAssignments": 18127,
+        "measurements": 9831,
+        "planBytes": 72321,
+        "planSha256": "911bc817d987ab1df6028f3dfd451e9dc87c76f4ec0ab87fd137825953a84065",
+        "allReady": true,
+        "validPlanAndExactOrderedSourceCoverage": true
+      }
+    ],
+    "planDirectory": "/tmp/academic-slide-layout/r3-after-counter-plans",
+    "binarySha256": "766d470915503ac69b26147ca29a1758e22cea4e457d9edbdeb5f0593ad7c660"
+  },
+  "previousAfterBuild": {
+    "headBaselineCommit": "b5e6a7a400dabd5c7b2c5b874fb7434d6579a03f",
+    "baselineSource": "Exact git archive HEAD; instrumented only isolated /tmp/academic-slide-layout/baseline-counter-source.",
+    "headArchiveSha256": "b77847d2edbae57bf7224e816e3b92907c1f0e991c47f7fd7e02926435e8930b",
+    "baselineSourceModifiedFiles": [
+      "crates/wasmppt-deck-layout/src/lib.rs",
+      "crates/wasmppt-deck-layout/src/measure.rs"
+    ],
+    "instrumentationPatch": "baseline-counter-probe.patch",
+    "instrumentationPatchSha256": "115f90493dea2e46ab3de747e048b64ba4b80cde8e6b0a366cd115328e062a31",
+    "afterSource": "Accepted third-review source fixes; unchanged standalone driver outside the repository uses public DeckPlanner::plan_with_metrics.",
+    "afterSourceCommit": null,
+    "afterSourceBaseCommit": "b5e6a7a400dabd5c7b2c5b874fb7434d6579a03f",
+    "afterSourceManifestFileCount": 356,
+    "afterSourceManifestSha256": "4723873cb5847ad853e7d6704d1db69d3c288e81c7a792f181a593d9906f53f6",
+    "afterSourceManifestEncoding": "SHA256 of UTF-8 JSON object sorted by relative path, separators comma/colon, mapping each path to SHA256 bytes; /tmp/academic-slide-layout/r3-artifact-source-hashes.json.",
+    "afterEngineWasmSha256": "f888d485b238d219e3a8065c605e628a15e9702bbfd9d6fdd0066961318a7f1e",
+    "afterEngineBundleSha256": "f081e0d8651b90b4be08a43f2cb851575715851b255cf19c69703aea542fd424",
+    "beforeFrozenWasmSha256": "19287ce00b3d887c43ae8ab97605106aee76377fa6603d0a6cee9caccaf91e49",
+    "beforeFrozenBundleSha256": "cc4db635f57ed5bca1005d9b964ced40608993a551aa719d8214a9ebf5b55a22",
+    "archivedWasmAndBundleMatchFrozen": true,
+    "compiler": "rustc 1.96.0 (ac68faa20 2026-05-25)\nbinary: rustc\ncommit-hash: ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96\ncommit-date: 2026-05-25\nhost: aarch64-apple-darwin\nrelease: 1.96.0\nLLVM version: 22.1.2",
+    "host": "macOS-26.6.2-arm64-arm-64bit",
+    "profile": "release: opt-level=3, lto=thin, codegen-units=1, panic=abort, strip=true (both builds).",
+    "baselineCargoLockSha256": "e02802b53690448651486e2455f0b8b0314a7e273dd4e1296ce75a9fd56b0b3c",
+    "currentCargoLockSha256": "e02802b53690448651486e2455f0b8b0314a7e273dd4e1296ce75a9fd56b0b3c",
+    "afterDriverCargoLockSha256": "307ef55fc431617f248ed7dfa844d1e82f08c54b9d622e3a42b479aa3427d036",
+    "afterDependencyResolution": "Seeded from unchanged current Cargo.lock; resolved registry name/version/source/checksum identities match current lock. Initial unseeded build discarded before any accepted measurement.",
+    "afterRegistryDependencyIdentitiesMatchCurrentLock": true
+  },
+  "previousAfterValidation": {
+    "everyBeforePassByteIdenticalToFrozenNativePlan": true,
+    "frozenNativePlanPath": "/tmp/academic-slide-layout/baseline-native/native.wdpl",
+    "frozenNativePlanSha256": "fbafeb7bc5969f1d90273c6eb7ac46384dd2383eefbcd88660fddcb75086b694",
+    "beforeAndAfterEachDeterministicAcrossSevenPasses": true,
+    "allSlidesReadyBoth": true,
+    "exactOrderedSingleSourceCoverageBoth": true,
+    "sameOriginalTemplateAndResources": true,
+    "baselineInputsAndEntireBaselineNativeAndEngineUnchanged": true,
+    "baselineArchiveChangesLimitedToTwoInstrumentedFilesPlusAddedProbeExample": true,
+    "checks": "Driver hard assertions and independent byte/hash/source/BEFORE/index-tree guards. Full local gates, host parity, OpenXML and coverage are recorded in provenance.json. Accepted review fixes precede this final source freeze.",
+    "retainedPatchAppliesToPristineArchiveAndReproducesMeasuredProbeSources": true,
+    "acceptedSourceUnchangedDuringFinalMeasurements": true,
+    "gitCandidateTreeUnchangedDuringFinalMeasurements": true,
+    "gitCandidateTree": "2ce04d4ca0a5da9e6b7b4fc375117c7899f9a23c",
+    "sourceGuard": {
+      "report": "/tmp/academic-slide-layout/r3-artifact-source-hashes.json",
+      "sha256": "7c6d3d0639ebc8847c1a8c6ea46ca3792f49cfc7a6ac2ca97c4060a852adfda1",
+      "files": 356,
+      "unchanged": true
+    },
+    "beforeGuard": {
+      "report": "/tmp/academic-slide-layout/r3-artifact-before-hashes.json",
+      "sha256": "301bf2ad4933da52099dc02abb0839446e0914332c5dbffdb2eb1e4172fb58c4",
+      "files": 119,
+      "unchanged": true
+    }
+  }
+}

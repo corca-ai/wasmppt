@@ -260,6 +260,7 @@ fn fixture() -> (Vec<u8>, DeckSpec, DeckTemplatePlan, DeckPlan) {
         }),
     };
     let spec = DeckSpec {
+        layout: wasmppt_deck::DeckLayoutOptions::default(),
         id: id(1),
         logical_slides: vec![LogicalSlide { id: id(2), source: range(0, 100), kind: LogicalSlideKind::Content, hidden: false, nodes: vec![text, list, image, svg], media_text_relations: Vec::new() }],
         resources: vec![
@@ -369,7 +370,7 @@ fn fixture() -> (Vec<u8>, DeckSpec, DeckTemplatePlan, DeckPlan) {
         .zip(frames)
         .map(|((source_node_id, slice), frame)| {
             let media = if source_node_id == id(20) {
-                MediaPlacement::cover(frame, PixelSize { width: 2, height: 1 })
+                MediaPlacement::contain(frame, PixelSize { width: 2, height: 1 })
             } else if source_node_id == id(21) {
                 MediaPlacement::contain(
                     EmuRect {
@@ -387,7 +388,7 @@ fn fixture() -> (Vec<u8>, DeckSpec, DeckTemplatePlan, DeckPlan) {
             id: PlannedFragment::expected_id(source_node_id, slice),
             source_node_id,
             slice,
-            frame,
+            frame: media.map_or(frame, |placement| placement.visible_frame),
             type_choice: TypeChoice {
                 font_size: if matches!(source_node_id, value if value == id(10) || value == id(11))
                 {
@@ -460,12 +461,12 @@ fn composes_editable_vector_and_first_frame_media_into_a_live_overlay() {
             && slide.contains("lvl=\"1\"")
     );
     assert!(slide.contains("asvg:svgBlip") && slide.contains("descr=\"Animated chart\""));
-    let covered_gif = slide
+    let contained_gif = slide
         .split("<p:pic>")
         .nth(1)
         .and_then(|tail| tail.split("</p:pic>").next())
-        .expect("covered GIF picture");
-    assert!(covered_gif.contains("<a:srcRect l=\"16667\" t=\"0\" r=\"16667\" b=\"0\"/>"));
+        .expect("contained GIF picture");
+    assert!(contained_gif.contains("<a:srcRect/>"));
     let contained_svg = slide
         .rsplit("<p:pic>")
         .next()
@@ -550,8 +551,7 @@ fn composes_editable_vector_and_first_frame_media_into_a_live_overlay() {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(crops[0].left, 16_667);
-    assert_eq!(crops[0].right, 16_667);
+    assert_eq!(crops[0], wasmppt_layout::ImageCrop::default());
     assert_eq!(crops[1], wasmppt_layout::ImageCrop::default());
     let display = DisplayList::from_slide(&direct_slide.slide);
     let display_crops = display
@@ -598,14 +598,11 @@ fn validation_rejects_drifted_resolved_media_geometry() {
     );
 
     let mut cover_drift = plan;
-    cover_drift.pages[0].regions[0].fragments[2]
-        .media
-        .as_mut()
-        .unwrap()
-        .crop
-        .as_mut()
-        .unwrap()
-        .left += 1;
+    let fragment = &mut cover_drift.pages[0].regions[0].fragments[2];
+    let media = fragment.media.unwrap();
+    let cropped = MediaPlacement::cover(media.slot, media.source_size).unwrap();
+    fragment.media = Some(cropped);
+    fragment.frame = cropped.visible_frame;
     let cover_report = validate_deck_plan(&spec, &template, &cover_drift, &DeckLimits::default());
     assert!(
         cover_report

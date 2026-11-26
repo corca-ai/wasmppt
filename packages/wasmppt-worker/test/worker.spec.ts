@@ -553,9 +553,9 @@ describe('wasmppt workerd adapter', () => {
       invalidDeckSpec,
       atomicOverflow,
     }
-    // The long-prose logical slide fits one page after contiguous paragraph measurement.
-    expect(slideCount).toBe(72)
-    expect(presentableSlides).toHaveLength(71)
+    // Existing 70 pages plus six new single-page policy probes and one two-page continuation.
+    expect(slideCount).toBe(78)
+    expect(presentableSlides).toHaveLength(slideCount - 1)
     expect(
       pages.filter((page) => page.logicalSlideId === '46'.repeat(16)),
     ).toEqual([

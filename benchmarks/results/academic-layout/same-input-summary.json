@@ -1,0 +1,5303 @@
+{
+  "processOsPeakMemory": {
+    "before": {
+      "report": "before-memory.txt",
+      "maximumResidentBytes": 147046400,
+      "scope": "Entire Node process per 480-case matrix, including startup/template preparation, all SDK replacements, all-page resolution, assets, retained report data and JSON output. OS maximum resident set, not engine-scoped heap, logical admission or sampled RSS."
+    },
+    "after": {
+      "report": "expanded-final-same-input-memory.txt",
+      "maximumResidentBytes": 184057856,
+      "scope": "Entire Node process per 480-case matrix, including startup/template preparation, all SDK replacements, all-page resolution, assets, retained report data and JSON output. OS maximum resident set, not engine-scoped heap, logical admission or sampled RSS."
+    }
+  },
+  "schema": 1,
+  "corpusHash": "ad928336fd1abf24058b844349f373f807ecf519b9faae8eedafc24fba3ec096",
+  "engineBefore": "19287ce00b3d887c43ae8ab97605106aee76377fa6603d0a6cee9caccaf91e49",
+  "engineAfter": "8996bff81db0b67a295b9e9faa92929dcdc20bc5162f287738730b2bbcfd1756",
+  "measurement": "Single SDK replace sample per case with reused engine/assets; template preparation/startup and all-page resolution excluded. Memory is sampled after each snapshot, not a process high-water measurement. Whitespace and page count are context, not independent success criteria.",
+  "limits": {
+    "candidateCount": null,
+    "reason": "Public SDK does not expose per-case planner work counters. Actual native aggregate work counters are retained separately in planner-metrics.json; unchanged work bounds remain authoritative."
+  },
+  "before": {
+    "cases": 480,
+    "rejected": 0,
+    "casesWithFindings": 60,
+    "failedLogicalSlides": 60,
+    "pageCount": 720,
+    "fontSizeRangeHundredthPointByRole": {
+      "title": {
+        "minimum": 3200,
+        "maximum": 4000
+      },
+      "subtitle": {
+        "minimum": 2200,
+        "maximum": 2200
+      },
+      "prose": {
+        "minimum": 2000,
+        "maximum": 2000
+      },
+      "list": {
+        "minimum": 2000,
+        "maximum": 2000
+      },
+      "table": {
+        "minimum": 2000,
+        "maximum": 2000
+      },
+      "caption": {
+        "minimum": 2000,
+        "maximum": 2000
+      }
+    },
+    "medianPreferredBodyAreaRatio": 0.581625,
+    "actualFullWidthTextProbe": [
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 609600,
+        "measuredHeaderHeight": 579120,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 609600,
+        "measuredHeaderHeight": 579120,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 609600,
+        "measuredHeaderHeight": 579120,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 609600,
+        "measuredHeaderHeight": 579120,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 609600,
+        "measuredHeaderHeight": 579120,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 609600,
+        "measuredHeaderHeight": 579120,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 609600,
+        "measuredHeaderHeight": 579120,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 609600,
+        "measuredHeaderHeight": 579120,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 609600,
+        "measuredHeaderHeight": 579120,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 609600,
+        "measuredHeaderHeight": 579120,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 609600,
+        "measuredHeaderHeight": 579120,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 609600,
+        "measuredHeaderHeight": 579120,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 609600,
+        "measuredHeaderHeight": 579120,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 609600,
+        "measuredHeaderHeight": 579120,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 609600,
+        "measuredHeaderHeight": 579120,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      }
+    ],
+    "medianVisibleImageAreaRatio": 0.17782404828302711,
+    "medianWhitespaceRatio": 0.5473583333333334,
+    "replaceP50Ms": 7.6886249999997744,
+    "replaceP95Ms": 23.17554199999995,
+    "findings": [
+      {
+        "case": "1x4-alone",
+        "errors": [
+          "missing content 1x4-alone-title",
+          "missing content 1x4-alone-figure"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-alone",
+            "source": {
+              "source": "1x4-alone.md",
+              "start": 0,
+              "end": 5
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-prose",
+        "errors": [
+          "missing content 1x4-prose-title",
+          "missing content 1x4-prose-figure",
+          "missing content 1x4-prose-prose"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-prose",
+            "source": {
+              "source": "1x4-prose.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-list",
+        "errors": [
+          "missing content 1x4-list-title",
+          "missing content 1x4-list-figure",
+          "missing content 1x4-list-list"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-list",
+            "source": {
+              "source": "1x4-list.md",
+              "start": 0,
+              "end": 45
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-alone",
+        "errors": [
+          "missing content 1x4-alone-title",
+          "missing content 1x4-alone-figure"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-alone",
+            "source": {
+              "source": "1x4-alone.md",
+              "start": 0,
+              "end": 5
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-prose",
+        "errors": [
+          "missing content 1x4-prose-title",
+          "missing content 1x4-prose-figure",
+          "missing content 1x4-prose-prose"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-prose",
+            "source": {
+              "source": "1x4-prose.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-list",
+        "errors": [
+          "missing content 1x4-list-title",
+          "missing content 1x4-list-figure",
+          "missing content 1x4-list-list"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-list",
+            "source": {
+              "source": "1x4-list.md",
+              "start": 0,
+              "end": 45
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-alone",
+        "errors": [
+          "missing content 1x4-alone-title",
+          "missing content 1x4-alone-figure"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-alone",
+            "source": {
+              "source": "1x4-alone.md",
+              "start": 0,
+              "end": 5
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-prose",
+        "errors": [
+          "missing content 1x4-prose-title",
+          "missing content 1x4-prose-figure",
+          "missing content 1x4-prose-prose"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-prose",
+            "source": {
+              "source": "1x4-prose.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-list",
+        "errors": [
+          "missing content 1x4-list-title",
+          "missing content 1x4-list-figure",
+          "missing content 1x4-list-list"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-list",
+            "source": {
+              "source": "1x4-list.md",
+              "start": 0,
+              "end": 45
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-alone",
+        "errors": [
+          "missing content 1x4-alone-title",
+          "missing content 1x4-alone-figure"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-alone",
+            "source": {
+              "source": "1x4-alone.md",
+              "start": 0,
+              "end": 5
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-prose",
+        "errors": [
+          "missing content 1x4-prose-title",
+          "missing content 1x4-prose-figure",
+          "missing content 1x4-prose-prose"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-prose",
+            "source": {
+              "source": "1x4-prose.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-list",
+        "errors": [
+          "missing content 1x4-list-title",
+          "missing content 1x4-list-figure",
+          "missing content 1x4-list-list"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-list",
+            "source": {
+              "source": "1x4-list.md",
+              "start": 0,
+              "end": 45
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-alone",
+        "errors": [
+          "missing content 1x4-alone-title",
+          "missing content 1x4-alone-figure"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-alone",
+            "source": {
+              "source": "1x4-alone.md",
+              "start": 0,
+              "end": 5
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-prose",
+        "errors": [
+          "missing content 1x4-prose-title",
+          "missing content 1x4-prose-figure",
+          "missing content 1x4-prose-prose"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-prose",
+            "source": {
+              "source": "1x4-prose.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-list",
+        "errors": [
+          "missing content 1x4-list-title",
+          "missing content 1x4-list-figure",
+          "missing content 1x4-list-list"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-list",
+            "source": {
+              "source": "1x4-list.md",
+              "start": 0,
+              "end": 45
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-alone",
+        "errors": [
+          "missing content 1x4-alone-title",
+          "missing content 1x4-alone-figure"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-alone",
+            "source": {
+              "source": "1x4-alone.md",
+              "start": 0,
+              "end": 5
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-prose",
+        "errors": [
+          "missing content 1x4-prose-title",
+          "missing content 1x4-prose-figure",
+          "missing content 1x4-prose-prose"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-prose",
+            "source": {
+              "source": "1x4-prose.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-list",
+        "errors": [
+          "missing content 1x4-list-title",
+          "missing content 1x4-list-figure",
+          "missing content 1x4-list-list"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-list",
+            "source": {
+              "source": "1x4-list.md",
+              "start": 0,
+              "end": 45
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-alone",
+        "errors": [
+          "missing content 1x4-alone-title",
+          "missing content 1x4-alone-figure"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-alone",
+            "source": {
+              "source": "1x4-alone.md",
+              "start": 0,
+              "end": 5
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-prose",
+        "errors": [
+          "missing content 1x4-prose-title",
+          "missing content 1x4-prose-figure",
+          "missing content 1x4-prose-prose"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-prose",
+            "source": {
+              "source": "1x4-prose.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-list",
+        "errors": [
+          "missing content 1x4-list-title",
+          "missing content 1x4-list-figure",
+          "missing content 1x4-list-list"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-list",
+            "source": {
+              "source": "1x4-list.md",
+              "start": 0,
+              "end": 45
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-alone",
+        "errors": [
+          "missing content 1x4-alone-title",
+          "missing content 1x4-alone-figure"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-alone",
+            "source": {
+              "source": "1x4-alone.md",
+              "start": 0,
+              "end": 5
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-prose",
+        "errors": [
+          "missing content 1x4-prose-title",
+          "missing content 1x4-prose-figure",
+          "missing content 1x4-prose-prose"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-prose",
+            "source": {
+              "source": "1x4-prose.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-list",
+        "errors": [
+          "missing content 1x4-list-title",
+          "missing content 1x4-list-figure",
+          "missing content 1x4-list-list"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-list",
+            "source": {
+              "source": "1x4-list.md",
+              "start": 0,
+              "end": 45
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-alone",
+        "errors": [
+          "missing content 1x4-alone-title",
+          "missing content 1x4-alone-figure"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-alone",
+            "source": {
+              "source": "1x4-alone.md",
+              "start": 0,
+              "end": 5
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-prose",
+        "errors": [
+          "missing content 1x4-prose-title",
+          "missing content 1x4-prose-figure",
+          "missing content 1x4-prose-prose"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-prose",
+            "source": {
+              "source": "1x4-prose.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-list",
+        "errors": [
+          "missing content 1x4-list-title",
+          "missing content 1x4-list-figure",
+          "missing content 1x4-list-list"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-list",
+            "source": {
+              "source": "1x4-list.md",
+              "start": 0,
+              "end": 45
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-alone",
+        "errors": [
+          "missing content 1x4-alone-title",
+          "missing content 1x4-alone-figure"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-alone",
+            "source": {
+              "source": "1x4-alone.md",
+              "start": 0,
+              "end": 5
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-prose",
+        "errors": [
+          "missing content 1x4-prose-title",
+          "missing content 1x4-prose-figure",
+          "missing content 1x4-prose-prose"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-prose",
+            "source": {
+              "source": "1x4-prose.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-list",
+        "errors": [
+          "missing content 1x4-list-title",
+          "missing content 1x4-list-figure",
+          "missing content 1x4-list-list"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-list",
+            "source": {
+              "source": "1x4-list.md",
+              "start": 0,
+              "end": 45
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-alone",
+        "errors": [
+          "missing content 1x4-alone-title",
+          "missing content 1x4-alone-figure"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-alone",
+            "source": {
+              "source": "1x4-alone.md",
+              "start": 0,
+              "end": 5
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-prose",
+        "errors": [
+          "missing content 1x4-prose-title",
+          "missing content 1x4-prose-figure",
+          "missing content 1x4-prose-prose"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-prose",
+            "source": {
+              "source": "1x4-prose.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-list",
+        "errors": [
+          "missing content 1x4-list-title",
+          "missing content 1x4-list-figure",
+          "missing content 1x4-list-list"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-list",
+            "source": {
+              "source": "1x4-list.md",
+              "start": 0,
+              "end": 45
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-alone",
+        "errors": [
+          "missing content 1x4-alone-title",
+          "missing content 1x4-alone-figure"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-alone",
+            "source": {
+              "source": "1x4-alone.md",
+              "start": 0,
+              "end": 5
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-prose",
+        "errors": [
+          "missing content 1x4-prose-title",
+          "missing content 1x4-prose-figure",
+          "missing content 1x4-prose-prose"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-prose",
+            "source": {
+              "source": "1x4-prose.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-list",
+        "errors": [
+          "missing content 1x4-list-title",
+          "missing content 1x4-list-figure",
+          "missing content 1x4-list-list"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-list",
+            "source": {
+              "source": "1x4-list.md",
+              "start": 0,
+              "end": 45
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-alone",
+        "errors": [
+          "missing content 1x4-alone-title",
+          "missing content 1x4-alone-figure"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-alone",
+            "source": {
+              "source": "1x4-alone.md",
+              "start": 0,
+              "end": 5
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-prose",
+        "errors": [
+          "missing content 1x4-prose-title",
+          "missing content 1x4-prose-figure",
+          "missing content 1x4-prose-prose"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-prose",
+            "source": {
+              "source": "1x4-prose.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-list",
+        "errors": [
+          "missing content 1x4-list-title",
+          "missing content 1x4-list-figure",
+          "missing content 1x4-list-list"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-list",
+            "source": {
+              "source": "1x4-list.md",
+              "start": 0,
+              "end": 45
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-alone",
+        "errors": [
+          "missing content 1x4-alone-title",
+          "missing content 1x4-alone-figure"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-alone",
+            "source": {
+              "source": "1x4-alone.md",
+              "start": 0,
+              "end": 5
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-prose",
+        "errors": [
+          "missing content 1x4-prose-title",
+          "missing content 1x4-prose-figure",
+          "missing content 1x4-prose-prose"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-prose",
+            "source": {
+              "source": "1x4-prose.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-list",
+        "errors": [
+          "missing content 1x4-list-title",
+          "missing content 1x4-list-figure",
+          "missing content 1x4-list-list"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-list",
+            "source": {
+              "source": "1x4-list.md",
+              "start": 0,
+              "end": 45
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-alone",
+        "errors": [
+          "missing content 1x4-alone-title",
+          "missing content 1x4-alone-figure"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-alone",
+            "source": {
+              "source": "1x4-alone.md",
+              "start": 0,
+              "end": 5
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-prose",
+        "errors": [
+          "missing content 1x4-prose-title",
+          "missing content 1x4-prose-figure",
+          "missing content 1x4-prose-prose"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-prose",
+            "source": {
+              "source": "1x4-prose.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-list",
+        "errors": [
+          "missing content 1x4-list-title",
+          "missing content 1x4-list-figure",
+          "missing content 1x4-list-list"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-list",
+            "source": {
+              "source": "1x4-list.md",
+              "start": 0,
+              "end": 45
+            }
+          }
+        ]
+      }
+    ],
+    "maxAccountedBytes": 25957327,
+    "sampledProcessRssBytes": 142639104
+  },
+  "after": {
+    "cases": 480,
+    "rejected": 0,
+    "casesWithFindings": 15,
+    "failedLogicalSlides": 15,
+    "pageCount": 750,
+    "fontSizeRangeHundredthPointByRole": {
+      "title": {
+        "minimum": 2600,
+        "maximum": 4000
+      },
+      "subtitle": {
+        "minimum": 1800,
+        "maximum": 2400
+      },
+      "prose": {
+        "minimum": 1700,
+        "maximum": 2550
+      },
+      "list": {
+        "minimum": 1700,
+        "maximum": 2550
+      },
+      "table": {
+        "minimum": 1800,
+        "maximum": 2400
+      },
+      "caption": {
+        "minimum": 1400,
+        "maximum": 1800
+      }
+    },
+    "medianPreferredBodyAreaRatio": 0.581625,
+    "actualFullWidthTextProbe": [
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 640080,
+        "measuredHeaderHeight": 548640,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 670560,
+        "measuredHeaderHeight": 518160,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 701040,
+        "measuredHeaderHeight": 487680,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 640080,
+        "measuredHeaderHeight": 548640,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 670560,
+        "measuredHeaderHeight": 518160,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 701040,
+        "measuredHeaderHeight": 487680,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 640080,
+        "measuredHeaderHeight": 548640,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 670560,
+        "measuredHeaderHeight": 518160,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 701040,
+        "measuredHeaderHeight": 487680,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 640080,
+        "measuredHeaderHeight": 548640,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 670560,
+        "measuredHeaderHeight": 518160,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 701040,
+        "measuredHeaderHeight": 487680,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 640080,
+        "measuredHeaderHeight": 548640,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 670560,
+        "measuredHeaderHeight": 518160,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1600200,
+        "actualBodySafeAreaRatio": 0.581625,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 701040,
+        "measuredHeaderHeight": 487680,
+        "preferredHeaderHeight": 1188720,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      }
+    ],
+    "medianVisibleImageAreaRatio": 0.07875035993547681,
+    "medianWhitespaceRatio": 0.5270625,
+    "replaceP50Ms": 6.358958000000257,
+    "replaceP95Ms": 20.898583000000144,
+    "findings": [
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      },
+      {
+        "case": "1x4-caption",
+        "errors": [
+          "detached caption 1x4-caption-caption",
+          "missing content 1x4-caption-title",
+          "missing content 1x4-caption-figure",
+          "missing content 1x4-caption-caption"
+        ],
+        "diagnostics": [
+          {
+            "code": "plan-atomic-overflow",
+            "category": "layout",
+            "severity": "error",
+            "message": "atomic content cannot fit any legal candidate at the readable floor",
+            "nodeKey": "1x4-caption",
+            "source": {
+              "source": "1x4-caption.md",
+              "start": 0,
+              "end": 7
+            }
+          }
+        ]
+      }
+    ],
+    "maxAccountedBytes": 25953224,
+    "sampledProcessRssBytes": 156286976
+  },
+  "matrix": [
+    {
+      "key": "paper/conference",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 4,
+        "failedLogicalSlides": 4,
+        "pageCount": 48,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3200,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2200,
+            "maximum": 2200
+          },
+          "prose": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 2000,
+            "maximum": 2000
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 609600,
+            "measuredHeaderHeight": 579120,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.17782404828302711,
+        "medianWhitespaceRatio": 0.5221666666666667,
+        "replaceP50Ms": 8.221707999999978,
+        "replaceP95Ms": 24.386916999999983,
+        "findings": [
+          {
+            "case": "1x4-alone",
+            "errors": [
+              "missing content 1x4-alone-title",
+              "missing content 1x4-alone-figure"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-alone",
+                "source": {
+                  "source": "1x4-alone.md",
+                  "start": 0,
+                  "end": 5
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-prose",
+            "errors": [
+              "missing content 1x4-prose-title",
+              "missing content 1x4-prose-figure",
+              "missing content 1x4-prose-prose"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-prose",
+                "source": {
+                  "source": "1x4-prose.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-list",
+            "errors": [
+              "missing content 1x4-list-title",
+              "missing content 1x4-list-figure",
+              "missing content 1x4-list-list"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-list",
+                "source": {
+                  "source": "1x4-list.md",
+                  "start": 0,
+                  "end": 45
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "after": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 1,
+        "failedLogicalSlides": 1,
+        "pageCount": 58,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3000,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2400,
+            "maximum": 2400
+          },
+          "prose": {
+            "minimum": 2300,
+            "maximum": 2550
+          },
+          "list": {
+            "minimum": 2300,
+            "maximum": 2550
+          },
+          "table": {
+            "minimum": 2400,
+            "maximum": 2400
+          },
+          "caption": {
+            "minimum": 1800,
+            "maximum": 1800
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 640080,
+            "measuredHeaderHeight": 548640,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.07875035993547681,
+        "medianWhitespaceRatio": 0.44775,
+        "replaceP50Ms": 9.350292000000024,
+        "replaceP95Ms": 38.53720900000002,
+        "findings": [
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "paper/seminar",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 4,
+        "failedLogicalSlides": 4,
+        "pageCount": 48,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3200,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2200,
+            "maximum": 2200
+          },
+          "prose": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 2000,
+            "maximum": 2000
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 609600,
+            "measuredHeaderHeight": 579120,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.17782404828302711,
+        "medianWhitespaceRatio": 0.5221666666666667,
+        "replaceP50Ms": 7.016875000000027,
+        "replaceP95Ms": 23.60145799999998,
+        "findings": [
+          {
+            "case": "1x4-alone",
+            "errors": [
+              "missing content 1x4-alone-title",
+              "missing content 1x4-alone-figure"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-alone",
+                "source": {
+                  "source": "1x4-alone.md",
+                  "start": 0,
+                  "end": 5
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-prose",
+            "errors": [
+              "missing content 1x4-prose-title",
+              "missing content 1x4-prose-figure",
+              "missing content 1x4-prose-prose"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-prose",
+                "source": {
+                  "source": "1x4-prose.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-list",
+            "errors": [
+              "missing content 1x4-list-title",
+              "missing content 1x4-list-figure",
+              "missing content 1x4-list-list"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-list",
+                "source": {
+                  "source": "1x4-list.md",
+                  "start": 0,
+                  "end": 45
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "after": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 1,
+        "failedLogicalSlides": 1,
+        "pageCount": 49,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2800,
+            "maximum": 3600
+          },
+          "subtitle": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "prose": {
+            "minimum": 1900,
+            "maximum": 2200
+          },
+          "list": {
+            "minimum": 1900,
+            "maximum": 2200
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 1600,
+            "maximum": 1600
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 670560,
+            "measuredHeaderHeight": 518160,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.07875035993547681,
+        "medianWhitespaceRatio": 0.5202083333333334,
+        "replaceP50Ms": 8.313833000000045,
+        "replaceP95Ms": 57.86583399999995,
+        "findings": [
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "paper/handout",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 4,
+        "failedLogicalSlides": 4,
+        "pageCount": 48,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3200,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2200,
+            "maximum": 2200
+          },
+          "prose": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 2000,
+            "maximum": 2000
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 609600,
+            "measuredHeaderHeight": 579120,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.17782404828302711,
+        "medianWhitespaceRatio": 0.5221666666666667,
+        "replaceP50Ms": 7.493334000000004,
+        "replaceP95Ms": 23.28083300000003,
+        "findings": [
+          {
+            "case": "1x4-alone",
+            "errors": [
+              "missing content 1x4-alone-title",
+              "missing content 1x4-alone-figure"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-alone",
+                "source": {
+                  "source": "1x4-alone.md",
+                  "start": 0,
+                  "end": 5
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-prose",
+            "errors": [
+              "missing content 1x4-prose-title",
+              "missing content 1x4-prose-figure",
+              "missing content 1x4-prose-prose"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-prose",
+                "source": {
+                  "source": "1x4-prose.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-list",
+            "errors": [
+              "missing content 1x4-list-title",
+              "missing content 1x4-list-figure",
+              "missing content 1x4-list-list"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-list",
+                "source": {
+                  "source": "1x4-list.md",
+                  "start": 0,
+                  "end": 45
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "after": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 1,
+        "failedLogicalSlides": 1,
+        "pageCount": 43,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2600,
+            "maximum": 3200
+          },
+          "subtitle": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "prose": {
+            "minimum": 1700,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 1700,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "caption": {
+            "minimum": 1400,
+            "maximum": 1400
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 701040,
+            "measuredHeaderHeight": 487680,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.08445135413234175,
+        "medianWhitespaceRatio": 0.5279501381598133,
+        "replaceP50Ms": 6.8998330000001715,
+        "replaceP95Ms": 20.90020800000002,
+        "findings": [
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "editorial/conference",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 4,
+        "failedLogicalSlides": 4,
+        "pageCount": 48,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3200,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2200,
+            "maximum": 2200
+          },
+          "prose": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 2000,
+            "maximum": 2000
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 609600,
+            "measuredHeaderHeight": 579120,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.17782404828302711,
+        "medianWhitespaceRatio": 0.596583321303587,
+        "replaceP50Ms": 6.956332999999859,
+        "replaceP95Ms": 23.17554199999995,
+        "findings": [
+          {
+            "case": "1x4-alone",
+            "errors": [
+              "missing content 1x4-alone-title",
+              "missing content 1x4-alone-figure"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-alone",
+                "source": {
+                  "source": "1x4-alone.md",
+                  "start": 0,
+                  "end": 5
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-prose",
+            "errors": [
+              "missing content 1x4-prose-title",
+              "missing content 1x4-prose-figure",
+              "missing content 1x4-prose-prose"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-prose",
+                "source": {
+                  "source": "1x4-prose.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-list",
+            "errors": [
+              "missing content 1x4-list-title",
+              "missing content 1x4-list-figure",
+              "missing content 1x4-list-list"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-list",
+                "source": {
+                  "source": "1x4-list.md",
+                  "start": 0,
+                  "end": 45
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "after": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 1,
+        "failedLogicalSlides": 1,
+        "pageCount": 58,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3000,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2400,
+            "maximum": 2400
+          },
+          "prose": {
+            "minimum": 2300,
+            "maximum": 2550
+          },
+          "list": {
+            "minimum": 2300,
+            "maximum": 2550
+          },
+          "table": {
+            "minimum": 2400,
+            "maximum": 2400
+          },
+          "caption": {
+            "minimum": 1800,
+            "maximum": 1800
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 640080,
+            "measuredHeaderHeight": 548640,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.07875035993547681,
+        "medianWhitespaceRatio": 0.5201963533464566,
+        "replaceP50Ms": 7.3241669999999885,
+        "replaceP95Ms": 29.527166999999963,
+        "findings": [
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "editorial/seminar",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 4,
+        "failedLogicalSlides": 4,
+        "pageCount": 48,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3200,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2200,
+            "maximum": 2200
+          },
+          "prose": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 2000,
+            "maximum": 2000
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 609600,
+            "measuredHeaderHeight": 579120,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.17782404828302711,
+        "medianWhitespaceRatio": 0.596583321303587,
+        "replaceP50Ms": 6.960415999999896,
+        "replaceP95Ms": 23.25,
+        "findings": [
+          {
+            "case": "1x4-alone",
+            "errors": [
+              "missing content 1x4-alone-title",
+              "missing content 1x4-alone-figure"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-alone",
+                "source": {
+                  "source": "1x4-alone.md",
+                  "start": 0,
+                  "end": 5
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-prose",
+            "errors": [
+              "missing content 1x4-prose-title",
+              "missing content 1x4-prose-figure",
+              "missing content 1x4-prose-prose"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-prose",
+                "source": {
+                  "source": "1x4-prose.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-list",
+            "errors": [
+              "missing content 1x4-list-title",
+              "missing content 1x4-list-figure",
+              "missing content 1x4-list-list"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-list",
+                "source": {
+                  "source": "1x4-list.md",
+                  "start": 0,
+                  "end": 45
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "after": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 1,
+        "failedLogicalSlides": 1,
+        "pageCount": 49,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2800,
+            "maximum": 3600
+          },
+          "subtitle": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "prose": {
+            "minimum": 1900,
+            "maximum": 2200
+          },
+          "list": {
+            "minimum": 1900,
+            "maximum": 2200
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 1600,
+            "maximum": 1600
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 670560,
+            "measuredHeaderHeight": 518160,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.07875035993547681,
+        "medianWhitespaceRatio": 0.5526432416520852,
+        "replaceP50Ms": 6.198041999999759,
+        "replaceP95Ms": 20.4401670000002,
+        "findings": [
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "editorial/handout",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 4,
+        "failedLogicalSlides": 4,
+        "pageCount": 48,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3200,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2200,
+            "maximum": 2200
+          },
+          "prose": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 2000,
+            "maximum": 2000
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 609600,
+            "measuredHeaderHeight": 579120,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.17782404828302711,
+        "medianWhitespaceRatio": 0.596583321303587,
+        "replaceP50Ms": 6.96554100000003,
+        "replaceP95Ms": 23.1589170000002,
+        "findings": [
+          {
+            "case": "1x4-alone",
+            "errors": [
+              "missing content 1x4-alone-title",
+              "missing content 1x4-alone-figure"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-alone",
+                "source": {
+                  "source": "1x4-alone.md",
+                  "start": 0,
+                  "end": 5
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-prose",
+            "errors": [
+              "missing content 1x4-prose-title",
+              "missing content 1x4-prose-figure",
+              "missing content 1x4-prose-prose"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-prose",
+                "source": {
+                  "source": "1x4-prose.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-list",
+            "errors": [
+              "missing content 1x4-list-title",
+              "missing content 1x4-list-figure",
+              "missing content 1x4-list-list"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-list",
+                "source": {
+                  "source": "1x4-list.md",
+                  "start": 0,
+                  "end": 45
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "after": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 1,
+        "failedLogicalSlides": 1,
+        "pageCount": 43,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2600,
+            "maximum": 3200
+          },
+          "subtitle": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "prose": {
+            "minimum": 1700,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 1700,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "caption": {
+            "minimum": 1400,
+            "maximum": 1400
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 701040,
+            "measuredHeaderHeight": 487680,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.08445135413234175,
+        "medianWhitespaceRatio": 0.5534999879702538,
+        "replaceP50Ms": 5.365624999999909,
+        "replaceP95Ms": 22.154583000000002,
+        "findings": [
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "dark/conference",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 4,
+        "failedLogicalSlides": 4,
+        "pageCount": 48,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3200,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2200,
+            "maximum": 2200
+          },
+          "prose": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 2000,
+            "maximum": 2000
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 609600,
+            "measuredHeaderHeight": 579120,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.17782404828302711,
+        "medianWhitespaceRatio": 0.5957993333333333,
+        "replaceP50Ms": 6.808540999999877,
+        "replaceP95Ms": 23.15620799999988,
+        "findings": [
+          {
+            "case": "1x4-alone",
+            "errors": [
+              "missing content 1x4-alone-title",
+              "missing content 1x4-alone-figure"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-alone",
+                "source": {
+                  "source": "1x4-alone.md",
+                  "start": 0,
+                  "end": 5
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-prose",
+            "errors": [
+              "missing content 1x4-prose-title",
+              "missing content 1x4-prose-figure",
+              "missing content 1x4-prose-prose"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-prose",
+                "source": {
+                  "source": "1x4-prose.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-list",
+            "errors": [
+              "missing content 1x4-list-title",
+              "missing content 1x4-list-figure",
+              "missing content 1x4-list-list"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-list",
+                "source": {
+                  "source": "1x4-list.md",
+                  "start": 0,
+                  "end": 45
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "after": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 1,
+        "failedLogicalSlides": 1,
+        "pageCount": 58,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3000,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2400,
+            "maximum": 2400
+          },
+          "prose": {
+            "minimum": 2300,
+            "maximum": 2550
+          },
+          "list": {
+            "minimum": 2300,
+            "maximum": 2550
+          },
+          "table": {
+            "minimum": 2400,
+            "maximum": 2400
+          },
+          "caption": {
+            "minimum": 1800,
+            "maximum": 1800
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 640080,
+            "measuredHeaderHeight": 548640,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.07875035993547681,
+        "medianWhitespaceRatio": 0.5201963533464566,
+        "replaceP50Ms": 7.365540999999666,
+        "replaceP95Ms": 24.420791999999892,
+        "findings": [
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "dark/seminar",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 4,
+        "failedLogicalSlides": 4,
+        "pageCount": 48,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3200,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2200,
+            "maximum": 2200
+          },
+          "prose": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 2000,
+            "maximum": 2000
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 609600,
+            "measuredHeaderHeight": 579120,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.17782404828302711,
+        "medianWhitespaceRatio": 0.5957993333333333,
+        "replaceP50Ms": 6.8425000000002,
+        "replaceP95Ms": 23.517166999999972,
+        "findings": [
+          {
+            "case": "1x4-alone",
+            "errors": [
+              "missing content 1x4-alone-title",
+              "missing content 1x4-alone-figure"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-alone",
+                "source": {
+                  "source": "1x4-alone.md",
+                  "start": 0,
+                  "end": 5
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-prose",
+            "errors": [
+              "missing content 1x4-prose-title",
+              "missing content 1x4-prose-figure",
+              "missing content 1x4-prose-prose"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-prose",
+                "source": {
+                  "source": "1x4-prose.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-list",
+            "errors": [
+              "missing content 1x4-list-title",
+              "missing content 1x4-list-figure",
+              "missing content 1x4-list-list"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-list",
+                "source": {
+                  "source": "1x4-list.md",
+                  "start": 0,
+                  "end": 45
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "after": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 1,
+        "failedLogicalSlides": 1,
+        "pageCount": 49,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2800,
+            "maximum": 3600
+          },
+          "subtitle": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "prose": {
+            "minimum": 1900,
+            "maximum": 2200
+          },
+          "list": {
+            "minimum": 1900,
+            "maximum": 2200
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 1600,
+            "maximum": 1600
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 670560,
+            "measuredHeaderHeight": 518160,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.07875035993547681,
+        "medianWhitespaceRatio": 0.5526432416520852,
+        "replaceP50Ms": 5.8737089999999625,
+        "replaceP95Ms": 16.622457999999824,
+        "findings": [
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "dark/handout",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 4,
+        "failedLogicalSlides": 4,
+        "pageCount": 48,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3200,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2200,
+            "maximum": 2200
+          },
+          "prose": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 2000,
+            "maximum": 2000
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 609600,
+            "measuredHeaderHeight": 579120,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.17782404828302711,
+        "medianWhitespaceRatio": 0.5957993333333333,
+        "replaceP50Ms": 6.864207999999962,
+        "replaceP95Ms": 22.947999999999865,
+        "findings": [
+          {
+            "case": "1x4-alone",
+            "errors": [
+              "missing content 1x4-alone-title",
+              "missing content 1x4-alone-figure"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-alone",
+                "source": {
+                  "source": "1x4-alone.md",
+                  "start": 0,
+                  "end": 5
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-prose",
+            "errors": [
+              "missing content 1x4-prose-title",
+              "missing content 1x4-prose-figure",
+              "missing content 1x4-prose-prose"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-prose",
+                "source": {
+                  "source": "1x4-prose.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-list",
+            "errors": [
+              "missing content 1x4-list-title",
+              "missing content 1x4-list-figure",
+              "missing content 1x4-list-list"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-list",
+                "source": {
+                  "source": "1x4-list.md",
+                  "start": 0,
+                  "end": 45
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "after": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 1,
+        "failedLogicalSlides": 1,
+        "pageCount": 43,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2600,
+            "maximum": 3200
+          },
+          "subtitle": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "prose": {
+            "minimum": 1700,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 1700,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "caption": {
+            "minimum": 1400,
+            "maximum": 1400
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 701040,
+            "measuredHeaderHeight": 487680,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.08445135413234175,
+        "medianWhitespaceRatio": 0.552716,
+        "replaceP50Ms": 3.0666250000003856,
+        "replaceP95Ms": 15.486457999999857,
+        "findings": [
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "warm/conference",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 4,
+        "failedLogicalSlides": 4,
+        "pageCount": 48,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3200,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2200,
+            "maximum": 2200
+          },
+          "prose": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 2000,
+            "maximum": 2000
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 609600,
+            "measuredHeaderHeight": 579120,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.17782404828302711,
+        "medianWhitespaceRatio": 0.5805837335958005,
+        "replaceP50Ms": 7.064249999999902,
+        "replaceP95Ms": 23.153792000000067,
+        "findings": [
+          {
+            "case": "1x4-alone",
+            "errors": [
+              "missing content 1x4-alone-title",
+              "missing content 1x4-alone-figure"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-alone",
+                "source": {
+                  "source": "1x4-alone.md",
+                  "start": 0,
+                  "end": 5
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-prose",
+            "errors": [
+              "missing content 1x4-prose-title",
+              "missing content 1x4-prose-figure",
+              "missing content 1x4-prose-prose"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-prose",
+                "source": {
+                  "source": "1x4-prose.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-list",
+            "errors": [
+              "missing content 1x4-list-title",
+              "missing content 1x4-list-figure",
+              "missing content 1x4-list-list"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-list",
+                "source": {
+                  "source": "1x4-list.md",
+                  "start": 0,
+                  "end": 45
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "after": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 1,
+        "failedLogicalSlides": 1,
+        "pageCount": 58,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3000,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2400,
+            "maximum": 2400
+          },
+          "prose": {
+            "minimum": 2300,
+            "maximum": 2550
+          },
+          "list": {
+            "minimum": 2300,
+            "maximum": 2550
+          },
+          "table": {
+            "minimum": 2400,
+            "maximum": 2400
+          },
+          "caption": {
+            "minimum": 1800,
+            "maximum": 1800
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 640080,
+            "measuredHeaderHeight": 548640,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.07875035993547681,
+        "medianWhitespaceRatio": 0.5201963533464566,
+        "replaceP50Ms": 5.1691249999998945,
+        "replaceP95Ms": 20.84841600000027,
+        "findings": [
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "warm/seminar",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 4,
+        "failedLogicalSlides": 4,
+        "pageCount": 48,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3200,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2200,
+            "maximum": 2200
+          },
+          "prose": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 2000,
+            "maximum": 2000
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 609600,
+            "measuredHeaderHeight": 579120,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.17782404828302711,
+        "medianWhitespaceRatio": 0.5805837335958005,
+        "replaceP50Ms": 6.855666999999812,
+        "replaceP95Ms": 23.23675000000003,
+        "findings": [
+          {
+            "case": "1x4-alone",
+            "errors": [
+              "missing content 1x4-alone-title",
+              "missing content 1x4-alone-figure"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-alone",
+                "source": {
+                  "source": "1x4-alone.md",
+                  "start": 0,
+                  "end": 5
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-prose",
+            "errors": [
+              "missing content 1x4-prose-title",
+              "missing content 1x4-prose-figure",
+              "missing content 1x4-prose-prose"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-prose",
+                "source": {
+                  "source": "1x4-prose.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-list",
+            "errors": [
+              "missing content 1x4-list-title",
+              "missing content 1x4-list-figure",
+              "missing content 1x4-list-list"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-list",
+                "source": {
+                  "source": "1x4-list.md",
+                  "start": 0,
+                  "end": 45
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "after": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 1,
+        "failedLogicalSlides": 1,
+        "pageCount": 49,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2800,
+            "maximum": 3600
+          },
+          "subtitle": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "prose": {
+            "minimum": 1900,
+            "maximum": 2200
+          },
+          "list": {
+            "minimum": 1900,
+            "maximum": 2200
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 1600,
+            "maximum": 1600
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 670560,
+            "measuredHeaderHeight": 518160,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.07875035993547681,
+        "medianWhitespaceRatio": 0.5526432416520852,
+        "replaceP50Ms": 4.786000000000058,
+        "replaceP95Ms": 17.19708300000002,
+        "findings": [
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "warm/handout",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 4,
+        "failedLogicalSlides": 4,
+        "pageCount": 48,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3200,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2200,
+            "maximum": 2200
+          },
+          "prose": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 2000,
+            "maximum": 2000
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 609600,
+            "measuredHeaderHeight": 579120,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.17782404828302711,
+        "medianWhitespaceRatio": 0.5805837335958005,
+        "replaceP50Ms": 6.781917000000249,
+        "replaceP95Ms": 23.02179200000046,
+        "findings": [
+          {
+            "case": "1x4-alone",
+            "errors": [
+              "missing content 1x4-alone-title",
+              "missing content 1x4-alone-figure"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-alone",
+                "source": {
+                  "source": "1x4-alone.md",
+                  "start": 0,
+                  "end": 5
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-prose",
+            "errors": [
+              "missing content 1x4-prose-title",
+              "missing content 1x4-prose-figure",
+              "missing content 1x4-prose-prose"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-prose",
+                "source": {
+                  "source": "1x4-prose.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-list",
+            "errors": [
+              "missing content 1x4-list-title",
+              "missing content 1x4-list-figure",
+              "missing content 1x4-list-list"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-list",
+                "source": {
+                  "source": "1x4-list.md",
+                  "start": 0,
+                  "end": 45
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "after": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 1,
+        "failedLogicalSlides": 1,
+        "pageCount": 43,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2600,
+            "maximum": 3200
+          },
+          "subtitle": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "prose": {
+            "minimum": 1700,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 1700,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "caption": {
+            "minimum": 1400,
+            "maximum": 1400
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 701040,
+            "measuredHeaderHeight": 487680,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.08445135413234175,
+        "medianWhitespaceRatio": 0.5467083333333334,
+        "replaceP50Ms": 3.2117920000000595,
+        "replaceP95Ms": 16.12633300000016,
+        "findings": [
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "cortex-theme-starter/conference",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 4,
+        "failedLogicalSlides": 4,
+        "pageCount": 48,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3200,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2200,
+            "maximum": 2200
+          },
+          "prose": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 2000,
+            "maximum": 2000
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 609600,
+            "measuredHeaderHeight": 579120,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.17782404828302711,
+        "medianWhitespaceRatio": 0.5221666666666667,
+        "replaceP50Ms": 6.853374999999687,
+        "replaceP95Ms": 25.1499589999994,
+        "findings": [
+          {
+            "case": "1x4-alone",
+            "errors": [
+              "missing content 1x4-alone-title",
+              "missing content 1x4-alone-figure"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-alone",
+                "source": {
+                  "source": "1x4-alone.md",
+                  "start": 0,
+                  "end": 5
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-prose",
+            "errors": [
+              "missing content 1x4-prose-title",
+              "missing content 1x4-prose-figure",
+              "missing content 1x4-prose-prose"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-prose",
+                "source": {
+                  "source": "1x4-prose.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-list",
+            "errors": [
+              "missing content 1x4-list-title",
+              "missing content 1x4-list-figure",
+              "missing content 1x4-list-list"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-list",
+                "source": {
+                  "source": "1x4-list.md",
+                  "start": 0,
+                  "end": 45
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "after": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 1,
+        "failedLogicalSlides": 1,
+        "pageCount": 58,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3000,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2400,
+            "maximum": 2400
+          },
+          "prose": {
+            "minimum": 2300,
+            "maximum": 2550
+          },
+          "list": {
+            "minimum": 2300,
+            "maximum": 2550
+          },
+          "table": {
+            "minimum": 2400,
+            "maximum": 2400
+          },
+          "caption": {
+            "minimum": 1800,
+            "maximum": 1800
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 640080,
+            "measuredHeaderHeight": 548640,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.07875035993547681,
+        "medianWhitespaceRatio": 0.44775,
+        "replaceP50Ms": 5.397082999999839,
+        "replaceP95Ms": 17.06512500000008,
+        "findings": [
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "cortex-theme-starter/seminar",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 4,
+        "failedLogicalSlides": 4,
+        "pageCount": 48,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3200,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2200,
+            "maximum": 2200
+          },
+          "prose": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 2000,
+            "maximum": 2000
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 609600,
+            "measuredHeaderHeight": 579120,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.17782404828302711,
+        "medianWhitespaceRatio": 0.5221666666666667,
+        "replaceP50Ms": 6.835667000000285,
+        "replaceP95Ms": 23.185457999999926,
+        "findings": [
+          {
+            "case": "1x4-alone",
+            "errors": [
+              "missing content 1x4-alone-title",
+              "missing content 1x4-alone-figure"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-alone",
+                "source": {
+                  "source": "1x4-alone.md",
+                  "start": 0,
+                  "end": 5
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-prose",
+            "errors": [
+              "missing content 1x4-prose-title",
+              "missing content 1x4-prose-figure",
+              "missing content 1x4-prose-prose"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-prose",
+                "source": {
+                  "source": "1x4-prose.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-list",
+            "errors": [
+              "missing content 1x4-list-title",
+              "missing content 1x4-list-figure",
+              "missing content 1x4-list-list"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-list",
+                "source": {
+                  "source": "1x4-list.md",
+                  "start": 0,
+                  "end": 45
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "after": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 1,
+        "failedLogicalSlides": 1,
+        "pageCount": 49,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2800,
+            "maximum": 3600
+          },
+          "subtitle": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "prose": {
+            "minimum": 1900,
+            "maximum": 2200
+          },
+          "list": {
+            "minimum": 1900,
+            "maximum": 2200
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 1600,
+            "maximum": 1600
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 670560,
+            "measuredHeaderHeight": 518160,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.07875035993547681,
+        "medianWhitespaceRatio": 0.5202083333333334,
+        "replaceP50Ms": 5.208458000000064,
+        "replaceP95Ms": 16.94091600000047,
+        "findings": [
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "cortex-theme-starter/handout",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 4,
+        "failedLogicalSlides": 4,
+        "pageCount": 48,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3200,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2200,
+            "maximum": 2200
+          },
+          "prose": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 2000,
+            "maximum": 2000
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 609600,
+            "measuredHeaderHeight": 579120,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.17782404828302711,
+        "medianWhitespaceRatio": 0.5221666666666667,
+        "replaceP50Ms": 7.051959000000352,
+        "replaceP95Ms": 23.30249999999978,
+        "findings": [
+          {
+            "case": "1x4-alone",
+            "errors": [
+              "missing content 1x4-alone-title",
+              "missing content 1x4-alone-figure"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-alone",
+                "source": {
+                  "source": "1x4-alone.md",
+                  "start": 0,
+                  "end": 5
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-prose",
+            "errors": [
+              "missing content 1x4-prose-title",
+              "missing content 1x4-prose-figure",
+              "missing content 1x4-prose-prose"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-prose",
+                "source": {
+                  "source": "1x4-prose.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          },
+          {
+            "case": "1x4-list",
+            "errors": [
+              "missing content 1x4-list-title",
+              "missing content 1x4-list-figure",
+              "missing content 1x4-list-list"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-list",
+                "source": {
+                  "source": "1x4-list.md",
+                  "start": 0,
+                  "end": 45
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "after": {
+        "cases": 32,
+        "rejected": 0,
+        "casesWithFindings": 1,
+        "failedLogicalSlides": 1,
+        "pageCount": 43,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2600,
+            "maximum": 3200
+          },
+          "subtitle": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "prose": {
+            "minimum": 1700,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 1700,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "caption": {
+            "minimum": 1400,
+            "maximum": 1400
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.581625,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1600200,
+            "actualBodySafeAreaRatio": 0.581625,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 701040,
+            "measuredHeaderHeight": 487680,
+            "preferredHeaderHeight": 1188720,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.08445135413234175,
+        "medianWhitespaceRatio": 0.5279501381598133,
+        "replaceP50Ms": 3.296875,
+        "replaceP95Ms": 16.475124999999935,
+        "findings": [
+          {
+            "case": "1x4-caption",
+            "errors": [
+              "detached caption 1x4-caption-caption",
+              "missing content 1x4-caption-title",
+              "missing content 1x4-caption-figure",
+              "missing content 1x4-caption-caption"
+            ],
+            "diagnostics": [
+              {
+                "code": "plan-atomic-overflow",
+                "category": "layout",
+                "severity": "error",
+                "message": "atomic content cannot fit any legal candidate at the readable floor",
+                "nodeKey": "1x4-caption",
+                "source": {
+                  "source": "1x4-caption.md",
+                  "start": 0,
+                  "end": 7
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

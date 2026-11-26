@@ -1,0 +1,158 @@
+{
+  "schema": 1,
+  "scope": "Expanded upstream geometry, per-physical-page typography and visible continuation-title requirements. No staging/commits/push or Cortex edits.",
+  "sourceBase": "49281d29dd29c76e14f51c562710f81ea51004b1",
+  "runtime": {
+    "engineBundleSha256": "f081e0d8651b90b4be08a43f2cb851575715851b255cf19c69703aea542fd424",
+    "engineWasmSha256": "8996bff81db0b67a295b9e9faa92929dcdc20bc5162f287738730b2bbcfd1756",
+    "nativePptxSha256": "aa78a9f316cfc75d8f55f890ad889f7248d4f2221da624998d080c063631040f",
+    "nativePlanSha256": "c67e154caf32c7add6c9fb94f6e726bc6a3663d4245712d72791a4a104a0738f",
+    "nativeTemplatePlanSha256": "a32678df3019ae738cb319a85c5df4d674d1eb0b8345b12529276c20e2926226",
+    "wasmArtifactManifestSha256": "fd8315581abe6b6c86472c08888ec4331c971c7a58fff8c07556f2dcff8deacf",
+    "sourceGuardManifestSha256": "23f8eb3cf3ac7af4446746ca077a525b911f06d09a6c7f66a58ec1260299c8f5",
+    "artifactManifest": {
+      "schema": 1,
+      "buildSourceSha256": "ee2378e06cc1c82e9788fe7e8d321405bb9773567fb5318b8747897ca4315012",
+      "artifacts": {
+        "packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm": "8996bff81db0b67a295b9e9faa92929dcdc20bc5162f287738730b2bbcfd1756",
+        "packages/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm_bg.wasm": "20342da87d9cebe57df9cc972d82432c8906b7d499173e5e00d776e8a5998188",
+        "packages/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm_bg.wasm": "12f80e5257d1042daf0eade43067430c487e73c4d6126365b7d6a73628345f35"
+      }
+    }
+  },
+  "wireProtocolsUnchanged": true,
+  "plannerPolicyIdentity": "wasmppt/deck-layout/plan/v9",
+  "sharedNativeCorpus": "academic-autolayout-v5",
+  "immutableBefore": {
+    "precedingEngineRevision": "49281d29dd29c76e14f51c562710f81ea51004b1",
+    "precedingEngineWasmSha256": "f888d485b238d219e3a8065c605e628a15e9702bbfd9d6fdd0066961318a7f1e",
+    "precedingEngineBundleSha256": "f081e0d8651b90b4be08a43f2cb851575715851b255cf19c69703aea542fd424",
+    "originalGuardSha256": "301bf2ad4933da52099dc02abb0839446e0914332c5dbffdb2eb1e4172fb58c4",
+    "originalGuardFiles": 119,
+    "originalGuardUnchanged": true,
+    "expandedBeforeReportSha256": "1642177f7384513206c16df39e4a8d6fac6a21d90e191621bcff775eae95c6e7",
+    "originalSameInputCounterBeforeUnchanged": true
+  },
+  "changedSourceHashes": {
+    "crates/wasmppt-deck-compose/src/slide.rs": "e9133bd547993c1d1f31a17f1b622cc18d44dd205dc3872ee8361e1b6e333403",
+    "crates/wasmppt-deck-layout/src/lib.rs": "4d088328a9050eaffa1ca32bd488bc774450cc6f25dbb4a5a72c9fa65c5f34a8",
+    "crates/wasmppt-deck-layout/src/measure.rs": "71a98d7516c6cac780438f0c2b0cba648d55fb4d4918f2274ce6e9f3d495b59f",
+    "crates/wasmppt-deck/examples/write_gate_fixtures.rs": "a24f427a6498056b6335d6206c74a600edc9a1bbdb146f9fb6b29fe459236658",
+    "crates/wasmppt-deck/src/lib.rs": "41b57e185eaeb7ff2c1357a8adcda80e5c563d4a658e117f4514ffcf73872544",
+    "crates/wasmppt-wasm/examples/academic_planner_metrics.rs": "211b69eb4a3f556df4024461105ae1f39065834deb7238c6c91433fbe46e167c",
+    "crates/wasmppt-wasm/examples/deck_gate_native.rs": "d9a03300538a9a70ed22dd38233481ae7149fd73cd872289f6a2a4cd6d2276ed",
+    "docs/architecture.md": "7a74bcf9614647b552570bb247e3ced659238803022027917c0167ae886d6939",
+    "docs/deck-compose.md": "ff65dc08e10158953b158506d182604ce9342916470f21188109082555e41bbc",
+    "docs/deck-engine.md": "1419912f8c8de649229fa1fbc66102514639797a7773c85344db9c185f631ff9",
+    "docs/deck-gates.md": "6e9979a8f7be11e8cbce62301e7b1ba8e751ea70ff4aee92d35601d5bc4eda3d",
+    "docs/deck-layout.md": "8e7405aca641c7f07cb5f6f5401010bfffc08340edcc2384363daed99d301994",
+    "docs/performance.md": "2f8cca5b847fe98268fa784d3c0282827c18880af045b2a3222a01cb5044cafe",
+    "docs/semantic-sdk.md": "70de1e567ad8f90643892951978ca36dd314248e3bc47b8f28341153ab93f3a6",
+    "packages/wasmppt-worker/src/generated/artifact-manifest.json": "fd8315581abe6b6c86472c08888ec4331c971c7a58fff8c07556f2dcff8deacf",
+    "packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm": "8996bff81db0b67a295b9e9faa92929dcdc20bc5162f287738730b2bbcfd1756",
+    "packages/wasmppt-worker/test/worker.spec.ts": "137e6f9f6a38231666a5810fa768c572952b589f291f0722eecaa31166e4c7c1",
+    "packages/wasmppt/test/browser-host.integration.mjs": "f435b6a05135cfbf7034181148131bdfef676127faa06b02712f7ac5e747321f",
+    "packages/wasmppt/test/deck-api.browser.mjs": "3fe81687c3a34720def5faceedb87bc333fc7961fdaafab5c3a2efc4cfb46cb9",
+    "scripts/academic-layout-evidence.mjs": "a9e1d3a0ddc19955bb8c52d62a25bd85ab78d20b992c1720c2270656fa85ee67",
+    "scripts/academic-layout-evidence.test.mjs": "fec07afefcc5a2efc46411fd8cb76583fc356ffaecb4c6f734ad3b1d03cc3244",
+    "scripts/deck-gates.mjs": "e3be75bb86149b4516fc3e2b39a630931fbfbd59c209e871ac182ec776223d02"
+  },
+  "sourceGuard": {
+    "file": "/tmp/academic-slide-layout/expanded-source-hashes.json",
+    "sha256": "23f8eb3cf3ac7af4446746ca077a525b911f06d09a6c7f66a58ec1260299c8f5",
+    "files": 256
+  },
+  "reports": {
+    "expanded-before.json.gz": "1642177f7384513206c16df39e4a8d6fac6a21d90e191621bcff775eae95c6e7",
+    "expanded-after.json.gz": "890f7e0d99397e2fa72301e0dc4cf43e5ddf56256706040ccc34359302cbe2e8",
+    "expanded-summary.json": "4d908152ba1164854224df688ed9d1a89350919ae008be0e38a1481bd70fd930",
+    "expanded-browser-quality.json": "643a076577e1c7ff7d8e836e20aa5e96fa64bac5c99f214601803866718b693c",
+    "after-same-input.json.gz": "4b56a353dbe6a8172a3a65573909fdf2c2dea6e2144f0ae4943e993e5719454f",
+    "after-purpose-templates.json.gz": "9ab9df38ff2ac0ffd1d8539ba06862931821178a13faf1d4b7634c55ceb35233",
+    "after-fixture.json.gz": "1dc6b7042c5b98016efd047fbc09a0d4848079c42bb59ff627e8436ba4642fbf",
+    "planner-metrics.json": "996cc251d8b02a098e0420a95e498389e8824a935a3658f1f78dcc4c3a1c6755",
+    "planner-metrics-memory.txt": "a1b1f5f91b21202907182121856b70ec775e9f7e1de47d75f9d08c6a7768e114",
+    "native-same-input-work.json": "f868bb1cfad89ee0671e0483f39bc23e606b2a053c53a9af8702a3f27288e6a6"
+  },
+  "matrices": {
+    "expandedSDK": {
+      "cases": 240,
+      "findings": 0
+    },
+    "purposeProfiles": {
+      "cases": 480,
+      "findings": 0
+    },
+    "starterAndCustom": {
+      "cases": 192,
+      "findings": 0
+    },
+    "savedOriginalFixedBounds": {
+      "cases": 480,
+      "findings": 15,
+      "onlyRemainingCase": "1x4-caption",
+      "reason": "Cannot satisfy original fixed shared-page frame and unchanged media/type floors."
+    }
+  },
+  "actualPaint": {
+    "report": "expanded-browser-quality.json",
+    "textLayouts": 264,
+    "wrappedShapes": 22,
+    "newSourceActualFitChecked": true,
+    "rows": "Distinct positioned Canvas baselines; fonts and bounds from actual cached native rich-text layout callback.",
+    "htmlContinuation": {
+      "pages": 2,
+      "fonts": [
+        2100
+      ],
+      "visibleLabels": [
+        "1/2",
+        "2/2"
+      ]
+    }
+  },
+  "measurementScope": "SDK elapsed time is one replace sample per case, excluding preparation/startup/resolution. SDK admission, sampled process RSS, OS high-water and native work are separate. Native timings use final expanded corpus; do not compare totals to the original smaller native BEFORE corpus.",
+  "gateLogs": {
+    "precommit": "/tmp/academic-slide-layout/expanded-precommit-final.log",
+    "prepushFull": "/tmp/academic-slide-layout/expanded-prepush-full.log",
+    "actualBrowserWrapping": "/tmp/academic-slide-layout/expanded-browser-final.log",
+    "hostParity": "/tmp/academic-slide-layout/expanded-deck-parity.log",
+    "openXml": "/tmp/academic-slide-layout/expanded-openxml.log",
+    "coverage": "/tmp/academic-slide-layout/expanded-coverage.log",
+    "compatibility": "/tmp/academic-slide-layout/expanded-compatibility.log",
+    "fixtureRegeneration": "/tmp/academic-slide-layout/expanded-fixture-verify.log",
+    "manifest": "/tmp/academic-slide-layout/expanded-manifest.log"
+  },
+  "nativeSameInputAfter": {
+    "pages": 68,
+    "logicalSlides": 53,
+    "candidateAssignments": 17778,
+    "measurements": 9734,
+    "planSha256": "32a474ed54718288e2ac15d84fa7dfa084577a48f28570a34067cae1598669fc"
+  },
+  "budgetsUnchanged": true,
+  "gateReports": {
+    "target/deck-gates/report.json": {
+      "path": "target/deck-gates/report.json",
+      "sha256": "a8057c2c0caca27c9775fae626b27f6e3903565ac36eae43eace57e96c2755ae"
+    },
+    "target/deck-gates/browser-quality.json": {
+      "path": "target/deck-gates/browser-quality.json",
+      "sha256": "643a076577e1c7ff7d8e836e20aa5e96fa64bac5c99f214601803866718b693c"
+    },
+    "target/coverage/summary.json": {
+      "path": "target/coverage/summary.json",
+      "sha256": "ebe3610fbd1fe286a5b4fc7599577dc13911f4071a91efc5d4652086ff8c318d"
+    },
+    "target/benchmarks/native.json": {
+      "path": "target/benchmarks/native.json",
+      "sha256": "46324072100644c1b2bbba3732ae6148d8a50a67edfffb44e9a6e7f09164c103"
+    },
+    "target/expanded-corpus-scorecard-pr.json": {
+      "path": "target/expanded-corpus-scorecard-pr.json",
+      "sha256": "1b34a843bf16867d1f8d5bf42a96a442dcb92e520b27ee17b92810512b20e6c5"
+    }
+  },
+  "sourceUnchangedAfterQualification": true,
+  "indexUnchangedByWorker": true
+}

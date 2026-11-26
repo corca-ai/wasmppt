@@ -42,6 +42,7 @@ fn factual_media_text_relations_round_trip_and_validate() {
         explicit_caption: true,
     };
     let spec = DeckSpec {
+        layout: DeckLayoutOptions::default(),
         id: id(1),
         logical_slides: vec![LogicalSlide {
             id: id(2),
@@ -386,8 +387,8 @@ fn golden_payloads_are_stable() {
     let limits = DeckLimits::default();
     assert_golden(
         rich_spec().encode(&limits).unwrap(),
-        "fixtures/deck-contracts/deck-spec-v5.hex",
-        include_str!("../../../fixtures/deck-contracts/deck-spec-v5.hex"),
+        "fixtures/deck-contracts/deck-spec-v6.hex",
+        include_str!("../../../fixtures/deck-contracts/deck-spec-v6.hex"),
     );
     assert_golden(
         template_plan_with_unknown_diagnostic()
@@ -427,7 +428,7 @@ fn decoding_is_bounded_and_fails_closed() {
     );
 
     let mut future = bytes;
-    future[4..8].copy_from_slice(&6u32.to_le_bytes());
+    future[4..8].copy_from_slice(&7u32.to_le_bytes());
     assert_eq!(
         DeckSpec::decode(&future, &DeckLimits::default())
             .unwrap_err()
@@ -532,6 +533,7 @@ fn simple_spec() -> DeckSpec {
         media_text_relations: Vec::new(),
     };
     DeckSpec {
+        layout: DeckLayoutOptions::default(),
         id: id(1),
         logical_slides: vec![title_slide, content_slide],
         resources: vec![],
@@ -650,6 +652,7 @@ fn rich_spec() -> DeckSpec {
         },
     ];
     DeckSpec {
+        layout: DeckLayoutOptions::default(),
         id: id(10),
         logical_slides: vec![LogicalSlide {
             id: id(36),

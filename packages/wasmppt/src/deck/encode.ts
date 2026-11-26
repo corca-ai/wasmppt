@@ -211,7 +211,15 @@ export async function encodeDeck(spec: DeckSpec, assets: ReadonlyMap<string, str
     ids.set(key, idBytes(id)); identities.set(id, identity)
   }))
   const writer = new Writer(ids, assets)
-  writer.raw(encoder.encode('WDSF')); writer.u32(5); writer.id(spec.key)
+  writer.raw(encoder.encode('WDSF')); writer.u32(6); writer.id(spec.key)
+  const presentation = spec.layout?.presentation ?? 'seminar'
+  if (presentation !== 'conference' && presentation !== 'seminar' && presentation !== 'handout') {
+    throw new TypeError('invalid document presentation purpose')
+  }
+  if (spec.layout?.imageFit !== undefined && spec.layout.imageFit !== 'contain') {
+    throw new TypeError('document images must use contain fit')
+  }
+  writer.byte({ conference: 1, seminar: 2, handout: 3 }[presentation]); writer.byte(1)
   writer.vector(spec.slides, slide => writer.slide(slide)); writer.u32(0)
   return { bytes: writer.finish(), identities, assetIds: [...writer.assetIds] }
 }
@@ -219,7 +227,8 @@ export async function encodeDeck(spec: DeckSpec, assets: ReadonlyMap<string, str
 export function encodeAsset(id: string, asset: DeckAssetInput): Uint8Array<ArrayBuffer> {
   if (asset.bytes.length === 0 || asset.bytes.length > 32 * 1024 * 1024) throw new RangeError('asset must contain at most 32 MiB')
   const writer = new Writer()
-  writer.raw(encoder.encode('WDSF')); writer.u32(5); writer.raw(idBytes(id)); writer.u32(0); writer.u32(1)
+  writer.raw(encoder.encode('WDSF')); writer.u32(6); writer.raw(idBytes(id))
+  writer.byte(2); writer.byte(1); writer.u32(0); writer.u32(1)
   writer.asset(id); writer.byte(asset.mediaType === 'image/svg+xml' ? 2 : 1); writer.string(asset.mediaType)
   writer.u32(asset.bytes.length); writer.raw(asset.bytes); writer.bool(asset.intrinsicSize !== undefined)
   if (asset.intrinsicSize !== undefined) { writer.u32(asset.intrinsicSize.width); writer.u32(asset.intrinsicSize.height) }

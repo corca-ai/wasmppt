@@ -158,15 +158,50 @@ pub enum SplitPolicy {
     Children,
 }
 
+/// Document-wide deterministic layout intent, independent of decorative theme.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DeckLayoutOptions {
+    pub presentation: PresentationPurpose,
+    pub image_fit: ImageFit,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum PresentationPurpose {
+    Conference,
+    #[default]
+    Seminar,
+    Handout,
+}
+
+impl PresentationPurpose {
+    /// Content title, preferred body, body floor, caption, and cover sizes (1/100 pt).
+    #[must_use]
+    pub const fn typography(self) -> (u32, u32, u32, u32, u32) {
+        match self {
+            Self::Conference => (3_000, 2_400, 2_200, 1_800, 4_000),
+            Self::Seminar => (2_800, 2_000, 1_800, 1_600, 3_600),
+            Self::Handout => (2_600, 1_800, 1_600, 1_400, 3_200),
+        }
+    }
+}
+
+/// Academic source figures are always preserved in full, including gallery items.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ImageFit {
+    #[default]
+    Contain,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct DeckSpec {
     pub id: StableId,
+    pub layout: DeckLayoutOptions,
     pub logical_slides: Vec<LogicalSlide>,
     pub resources: Vec<DeckResource>,
 }
 
 impl DeckSpec {
-    pub const SCHEMA_VERSION: u32 = 5;
+    pub const SCHEMA_VERSION: u32 = 6;
 
     pub fn encode(&self, limits: &DeckLimits) -> Result<Vec<u8>, WireError> {
         wire::encode_spec(self, limits)
@@ -727,6 +762,26 @@ pub struct Continuation {
     pub repeated_heading_node_id: Option<StableId>,
     /// Minimal derived-page marker, exactly `n/total` when present.
     pub label: Option<String>,
+}
+
+impl Continuation {
+    /// Project source heading runs plus the accepted synthetic continuation label.
+    /// The label owns no source range and never changes source fragment coverage.
+    #[must_use]
+    pub fn heading_text(&self, source: &RichText) -> RichText {
+        let mut text = source.clone();
+        if let Some(label) = &self.label {
+            text.runs.push(RichTextRun {
+                text: format!(" ({label})"),
+                marks: source
+                    .runs
+                    .last()
+                    .map_or_else(TextMarks::default, |run| run.marks),
+                hyperlink: None,
+            });
+        }
+        text
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

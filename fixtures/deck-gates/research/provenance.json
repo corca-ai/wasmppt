@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "article": {
+    "title": "Improving Accuracy and Temporal Resolution of Learning Curve Estimation for within- and across-Session Analysis",
+    "authors": "Matthias Deliano, Karsten Tabelow, Reinhard König, Jörg Polzehl",
+    "year": 2016,
+    "doi": "10.1371/journal.pone.0157355",
+    "url": "https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0157355",
+    "license": "CC-BY-4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "permission": "Article copyright notice explicitly permits unrestricted use, distribution and reproduction with attribution.",
+    "retrieved": "2026-11-26"
+  },
+  "figures": [
+    {
+      "path": "deliano-2016-fig3.png",
+      "figure": 3,
+      "description": "Multi-panel learning-curve comparison with complete axes, trial labels, uncertainty curves and condition headings.",
+      "source": "https://journals.plos.org/plosone/article/figure/image?size=large&id=10.1371/journal.pone.0157355.g003",
+      "sha256": "d1df9345e994de17ce577d6138810dec9ee0135cfea02577d2840f725c099e87",
+      "width": 4389,
+      "height": 3221,
+      "alterations": "none"
+    },
+    {
+      "path": "deliano-2016-fig7.png",
+      "figure": 7,
+      "description": "Portrait multi-panel population learning analysis with axes, condition labels, legend and confidence intervals.",
+      "source": "https://journals.plos.org/plosone/article/figure/image?size=large&id=10.1371/journal.pone.0157355.g007",
+      "sha256": "aaaf3b4a02a7ddf8dab5ac5b96e17051d70ad0db7c18286b8fe93b9cb5260b3f",
+      "width": 2700,
+      "height": 4680,
+      "alterations": "none"
+    }
+  ]
+}

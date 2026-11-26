@@ -88,6 +88,11 @@ and part name and exposes its bounded resident-byte count. Evicted image objects
 are closed when their host resource supports `close()`. `dispose()` aborts work, removes every
 canvas, clears both caches, and releases listeners owned by the mounted canvas elements.
 
+Each active paint holds a separate decoded-image lease. Cache rejection, eviction, and clearing
+release cache ownership without closing an image still needed by a paint. An image exceeding the
+cache budget remains transient for its paint and closes afterward; it never increases cache
+residency. Failed and cancelled paints drain pending acquisitions and release their leases.
+
 Live rendering keys image resources by their exact part-content fingerprint rather than a
 relationship ID. Text widths use a byte-budgeted LRU keyed by resolved font and text; rich-text layout uses
 a separate LRU keyed by font-resolver identity plus the full display command, including run tree,

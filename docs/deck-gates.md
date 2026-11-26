@@ -12,8 +12,8 @@ without executing the planner, do not pass.
 ## Fixtures and regeneration
 
 `fixtures/deck-gates/starter.potx` is a deterministic Cortex Theme Starter v3 with title,
-statement, and one flexible content-envelope layout. The content layout supplies a conservative
-body frame and optional media-only bleed frame; the planner constructs every body topology inside
+statement, and one flexible content-envelope layout. The content layout opts in to academic purpose typography with generation metadata and supplies a
+measured-title body frame and optional media-only bleed frame; the planner constructs every body topology inside
 those bounds. Content body regions accept nested section headings as flow content while the leading
 title/section still maps to the title placeholder.
 `deck-spec.wdsf` covers every renderable `SemanticRole` from title through
@@ -22,7 +22,9 @@ links, Korean/CJK and RTL text, nested ordered/unordered lists, PNG, GIF first-f
 SVG, tables, charts, code, diagrams, display math, definitions, hidden slides, missing-font
 diagnostics, and enough content for automatic continuation pages. Its media-quality matrix covers
 4:1, 16:9, 1:1, 3:4, and 1:4 sources as image-only, caption, short-copy, long-prose, and 2/3/5/9
-related pairs, with two JPEG EXIF display-axis cases. `atomic-overflow.wdsf` is a valid contract
+related pairs, with two JPEG EXIF display-axis cases. Unmodified independent research figures with
+axes and legends add landscape and portrait multipanel cases and a long bilingual heading; their
+[provenance](../fixtures/deck-gates/research/provenance.json) records exact upstream bytes and CC BY attribution. `atomic-overflow.wdsf` is a valid contract
 that cannot fit at the readable floor.
 
 The continuation table must retain comfortable type, one editable table per physical page, and
@@ -36,6 +38,9 @@ Regenerate and compare the fixtures with:
 fixture_dir=$(mktemp -d)
 cargo run --locked -p wasmppt-deck --example write_gate_fixtures -- "$fixture_dir"
 cmp fixtures/deck-gates/starter.potx "$fixture_dir/starter.potx"
+cmp fixtures/deck-gates/starter-conference.potx "$fixture_dir/starter-conference.potx"
+cmp fixtures/deck-gates/starter-handout.potx "$fixture_dir/starter-handout.potx"
+cmp fixtures/deck-gates/custom.potx "$fixture_dir/custom.potx"
 cmp fixtures/deck-gates/deck-spec.wdsf "$fixture_dir/deck-spec.wdsf"
 cmp fixtures/deck-gates/atomic-overflow.wdsf "$fixture_dir/atomic-overflow.wdsf"
 cmp fixtures/deck-gates/corpus.json "$fixture_dir/corpus.json"
@@ -43,7 +48,39 @@ cmp fixtures/deck-gates/corpus.json "$fixture_dir/corpus.json"
 
 The generator validates the WDSF and asserts the complete supported-role set. Table row/cell/column
 coverage is asserted separately because those are typed table members rather than standalone
-semantic nodes.
+semantic nodes. Existing `starter.potx` defaults to seminar; conference and handout variants retain
+the same three master/layout contracts. `custom.potx` retains the preceding fixed geometry and
+explicit styles without academic opt-in, so custom-template preservation is independently tested.
+
+The aggregate [academic evidence runner](../scripts/academic-layout-evidence.mjs) uses the public
+Node SDK on one shared semantic corpus: research question, method, results, empty in-progress list,
+formula, table, long bilingual headings, five aspect ratios with caption/prose/list contexts, and
+licensed research multipanels. It records role fonts, physical pages, exact image geometry, body
+area, whitespace, elapsed time, retained admission bytes and sampled process memory. Whitespace
+alone is not a passing condition. Source presence, overlap, caption association, crop and aspect
+fidelity are checked separately. The public SDK does not expose candidate counts; the report marks
+that per-case field unavailable rather than estimating it. The native work-counter
+[companion](../benchmarks/results/academic-layout/planner-metrics.json) reports actual aggregate
+candidates and measurements. Internal work limits remain unchanged. With `--academic=true`, the
+runner also checks painted source-owned runs against purpose role ranges. The short-title
+research-question probe uses its resolved first full-width prose source shape as the actual Stack
+lane top, with the authored safe bottom and width bounding its available body envelope. It must
+reclaim space above the preferred body top, begin below the measured title, and retain at least
+72% of page area. Other pages report this metric unavailable because centered media or split lanes
+do not reveal that boundary. Empty inherited end runs and preserved template furniture do not define painted body
+typography; fixed `custom` profiles remain an explicit opt-out.
+
+```sh
+node scripts/academic-layout-evidence.mjs --names=starter,custom --academic=true --strict
+```
+
+Use `--engine=PATH`, `--themes=DIRECTORY`, `--names=paper,editorial,dark,warm,cortex-theme-starter`
+and `--output=PATH` to compare a saved pre-change engine with a new engine on the exact same
+corpus and saved template bytes. Retain both engine artifacts and input hashes before editing
+behavior; changed template profiles are a separate comparison. `--baseline=true` selects each
+existing seminar template for every purpose, enabling old-engine comparisons before purpose
+variants exist. Reports distinguish complete accepted pages, recoverable failed slides and
+rejected contracts.
 
 ## Portable evidence
 
@@ -117,8 +154,6 @@ Implemented:
 Deferred:
 
 - a software rasterizer for non-browser hosts;
-- additional independently produced semantic-deck fixtures with affirmative redistribution
-  provenance;
 - tighter PowerPoint pixel tolerances after the existing advanced-feature gaps close.
 
 Unsupported:
@@ -137,3 +172,9 @@ Unsupported:
 - [Runtime host adapters](hosts.md) define the three execution environments.
 - [Compatibility gates](compatibility.md) own visual and desktop-consumer evidence.
 - [Performance contract](performance.md) owns the shared budgets and raw benchmark policy.
+
+The expanded academic corpus adds source-ordered list/image pairs across five aspect ratios, short two/eight-item
+lists, sparse and near-full columns, and two-page continuations. Use `--expanded=true` with the SDK
+evidence runner to include these cases; omission preserves the historical same-input corpus.
+Reports retain actual resolved fonts, text, bounds and per-page continuation totals. The native
+shared fixture exercises the same policy through existing cross-host and export gates.

@@ -402,12 +402,27 @@ try {
         let minimumChangedPixels = Number.POSITIVE_INFINITY
         const decodedImageSizes = new Map()
         const qualityImageCommands = []
+        const adaptiveOfflinePages = []
+        const measuredTextLayouts = []
         for (const [slideIndex, encoded] of measuredSlides.entries()) {
           const binary = atob(encoded)
           const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
           const scene = decodeDisplayList(bytes)
           const sourceSemantics = scene.semantics.filter((semantic) => semantic.source !== undefined)
           sourceElements += sourceSemantics.length
+          if (sourceSemantics.some(semantic => semantic.source.source === 'expanded-academic/adaptive-continuation-spare.md')) {
+            const metadata = measuredSession.pages[slideIndex]
+            const label = `(${metadata.continuationOrdinal}/${metadata.continuationTotal})`
+            const heading = scene.commands.find(command => command.kind === 'draw-rich-text' && command.frame.paragraphs.some(paragraph => paragraph.runs.map(run => run.text).join('').endsWith(label)))
+            if (!heading) throw new Error('Canvas scene lost the accepted visible continuation title')
+            adaptiveOfflinePages.push({ slideIndex, revision: measuredSession.revision, displayList: bytes, page: metadata })
+          }
+          if (sourceSemantics.some(semantic => semantic.source.source.startsWith('expanded-academic/canonical-'))) {
+            const image = sourceSemantics.find(semantic => scene.commands.slice(semantic.firstCommand, semantic.firstCommand + semantic.commandCount).some(command => command.kind === 'draw-image'))
+            const copy = sourceSemantics.find(semantic => scene.commands.slice(semantic.firstCommand, semantic.firstCommand + semantic.commandCount).some(command => command.kind === 'draw-rich-text' && command.frame.paragraphs.some(paragraph => paragraph.runs.some(run => run.text.startsWith('Observation')))))
+            const imageFirst = image?.source.source.includes('canonical-image-list')
+            if (!image || !copy || (imageFirst ? image.bounds.x + image.bounds.width > copy.bounds.x : copy.bounds.x + copy.bounds.width > image.bounds.x)) throw new Error('Canvas source-order pair changed horizontal lane ownership')
+          }
           if (sourceSemantics.length === 0) {
             throw new Error(`deck slide ${slideIndex} lost semantic source elements`)
           }
@@ -419,6 +434,13 @@ try {
                 semantic.bounds.x + semantic.bounds.width > scene.width ||
                 semantic.bounds.y + semantic.bounds.height > scene.height) {
               throw new Error(`deck slide ${slideIndex} has out-of-page semantic bounds`)
+            }
+            for (const command of scene.commands.slice(
+              semantic.firstCommand, semantic.firstCommand + semantic.commandCount,
+            )) {
+              if (command.kind === 'draw-image' && command.crop.some(value => value !== 0)) {
+                throw new Error(`deck slide ${slideIndex} cropped source-owned semantic media`)
+              }
             }
             if (semantic.alternativeText?.startsWith('gate-media|') === true) {
               const [marker, mediaCase, item, expectedWidth, expectedHeight, extra] =
@@ -455,6 +477,16 @@ try {
           const canvas = new OffscreenCanvas(320, 180)
           const context = canvas.getContext('2d', { alpha: false })
           await renderer.render(scene, context, {
+            onTextLayout: (commandIndex, layout) => {
+              const owner = sourceSemantics.find(semantic => commandIndex >= semantic.firstCommand && commandIndex < semantic.firstCommand + semantic.commandCount)
+              if (!owner) return
+              const command = scene.commands[commandIndex]
+              const runs = layout.runs.filter(run => run.text.trim())
+              const baselines = [...new Set(runs.map(run => Math.round(run.baseline * 1000) / 1000))]
+              const availableHeight = (command.bounds.height - command.frame.marginTop - command.frame.marginBottom) / 9525
+              if (owner.source.source.startsWith('expanded-academic/') && layout.contentHeight > availableHeight + 1) throw new Error(`adaptive Canvas wrapping exceeds accepted region ${JSON.stringify({ source: owner.source.source, name: owner.name, contentHeight: layout.contentHeight, availableHeight, bounds: command.bounds, fonts: runs.map(run => run.fontSize), text: runs.map(run => run.text).join(''), rows: baselines })}`)
+              measuredTextLayouts.push({ bodyList: runs.some(run => run.text.startsWith('Observation')), pageIndex: slideIndex, source: owner.source.source, commandIndex, bounds: command.bounds, fontSizes: [...new Set(runs.map(run => Math.round(run.fontSize * 75)))], rows: baselines.length, authoredParagraphs: command.frame.paragraphs.length, contentHeight: layout.contentHeight, availableHeight })
+            },
             imageCacheKey: async (image, signal) => {
               if (image.partName === undefined) throw new Error('deck image part is missing')
               return client.deckSessionResourceFingerprint(
@@ -521,7 +553,7 @@ try {
           if (aspectErrorPerMillion > 25) {
             throw new Error(`gate media ${entry.case} has ${aspectErrorPerMillion} ppm distortion`)
           }
-          if (cropLossPerMille > 300) {
+          if (cropLossPerMille !== 0) {
             throw new Error(`gate media ${entry.case} loses ${cropLossPerMille} per mille to crop`)
           }
           return {
@@ -539,7 +571,45 @@ try {
             cropLossPerMille,
           }
         }).toSorted((left, right) => left.semanticId.localeCompare(right.semanticId))
+        const peerCases = new Map()
+        for (const entry of qualityImages) {
+          if (!entry.case.endsWith('-3-pairs') && !entry.case.endsWith('-3-captioned-peers')) continue
+          const peers = peerCases.get(entry.case) ?? []
+          peers.push(entry)
+          peerCases.set(entry.case, peers)
+        }
+        if (peerCases.size !== 6) throw new Error('uniform image-peer cases were not rendered')
+        for (const peers of peerCases.values()) {
+          if (peers.length !== 3 || peers.some(entry => entry.pageIndex !== peers[0].pageIndex)) {
+            throw new Error('equal-weight image peers were split across Canvas pages')
+          }
+          let matched = false
+          for (const [index, entry] of peers.entries()) {
+            for (const peer of peers.slice(index + 1)) {
+              if (entry.sourceWidth * peer.sourceHeight !== peer.sourceWidth * entry.sourceHeight) continue
+              matched = true
+              if (Math.abs(entry.frameWidth - peer.frameWidth) > 2 ||
+                Math.abs(entry.frameHeight - peer.frameHeight) > 2) {
+                throw new Error('equal-weight image peers received inconsistent Canvas sizes')
+              }
+            }
+          }
+          if (!matched) throw new Error('matching Canvas image peers were not exercised')
+        }
+        if (!measuredTextLayouts.some(layout => layout.rows > layout.authoredParagraphs)) throw new Error('aggregate did not measure actual wrapped text')
+        for (const source of ['expanded-academic/adaptive-two.md', 'expanded-academic/adaptive-eight.md']) {
+          const layouts = measuredTextLayouts.filter(layout => layout.source === source && layout.bodyList)
+          if (layouts.length !== 1 || layouts[0].fontSizes.some(size => size !== 2400)) throw new Error(`fitting Canvas body must retain the same purpose maximum: ${source}`)
+        }
+        if (adaptiveOfflinePages.length !== 2) throw new Error('adaptive continuation must retain exactly two accepted pages')
+        const adaptiveHtml = await serializeOfflineHtmlDocument(adaptiveOfflinePages, async () => { throw new Error('text-only adaptive pages must not load resources') })
+        const adaptiveDocument = new DOMParser().parseFromString(adaptiveHtml.html, 'text/html')
+        if (!adaptiveDocument.body.textContent.includes('Measured body density (1/2)') || !adaptiveDocument.body.textContent.includes('Measured body density (2/2)')) throw new Error('HTML/PDF input lost the accepted continuation labels')
+        const adaptiveFonts = [...adaptiveDocument.querySelectorAll('span')].filter(span => span.textContent.startsWith('Observation')).map(span => Math.round(Number.parseFloat(span.style.fontSize) * 72 / 96 * 100))
+        if (!adaptiveFonts.length || adaptiveFonts.some(font => !Number.isFinite(font) || font < 2000 || font > 2400)) throw new Error('HTML/PDF input changed adaptive body font bounds')
         deckVisualQuality = {
+          measuredTextLayouts,
+          adaptiveContinuationHtml: { pages: adaptiveHtml.pageCount, fonts: [...new Set(adaptiveFonts)], visibleLabels: ['1/2', '2/2'] },
           schema: 2,
           renderedSlides: measuredSlides.length,
           sourceElements,
@@ -550,6 +620,8 @@ try {
             nonBlankSlides: true,
             aspectFidelity: true,
             boundedCrop: true,
+            noCrop: true,
+            uniformPeerImages: true,
             displayAxisFidelity: true,
           },
         }
@@ -1050,7 +1122,8 @@ try {
     }
     const advancedDomHost = document.createElement('div')
     document.body.append(advancedDomHost)
-    const advancedDom = await new DomSvgRenderer().render(advancedScene, advancedDomHost, {
+    const advancedDomRenderer = new DomSvgRenderer()
+    const advancedDom = await advancedDomRenderer.render(advancedScene, advancedDomHost, {
       revision: 1,
       slideIndex: 1,
       imageResolver: async (image, signal) => {
@@ -1066,6 +1139,15 @@ try {
     })
     const advancedFacts = {
       semanticKinds: advancedScene.semantics.map((semantic) => semantic.kind),
+      tableText: advancedScene.semantics.filter((semantic) => semantic.kind === 'table')
+        .flatMap((semantic) => advancedScene.commands.slice(semantic.firstCommand, semantic.firstCommand + semantic.commandCount))
+        .flatMap((command) => command.kind === 'draw-rich-text'
+          ? command.frame.paragraphs.map((paragraph) => paragraph.runs.map((run) => run.text).join(''))
+          : command.kind === 'draw-text' ? [advancedScene.strings[command.text]] : []).join(''),
+      domTableText: [...advancedDomHost.querySelectorAll('[data-semantic-kind="table"]')]
+        .map((element) => element.textContent).join(''),
+      offlineTableText: [...advancedOfflineDocument.querySelectorAll('[data-semantic-kind="table"]')]
+        .map((element) => element.textContent).join(''),
       strings: advancedScene.strings,
       textRuns: advancedScene.commands.flatMap((command) => command.kind === 'draw-rich-text'
         ? command.frame.paragraphs.flatMap((paragraph) => paragraph.runs.map((run) => run.text))
@@ -1087,6 +1169,18 @@ try {
       metafileSvgBytes,
       domDiagnosticCodes: advancedDom.diagnostics.map((diagnostic) => diagnostic.code),
     }
+    const tableSemantic = advancedScene.semantics.find((semantic) => semantic.kind === 'table')
+    const firstCell = advancedScene.commands.findIndex((command, index) => index >= tableSemantic.firstCommand &&
+      index < tableSemantic.firstCommand + tableSemantic.commandCount &&
+      (command.kind === 'draw-rich-text' || command.kind === 'draw-text'))
+    const retainedTable = advancedDomHost.querySelector('.wasmppt-dom-text-layer [data-semantic-kind="table"]')
+    const singleCellScene = { ...advancedScene, semantics: advancedScene.semantics.map((semantic) =>
+      semantic === tableSemantic ? { ...semantic, commandCount: firstCell - semantic.firstCommand + 1 } : semantic) }
+    await advancedDomRenderer.render({ ...singleCellScene, semantics: singleCellScene.semantics.filter((semantic) => semantic.kind === 'table') }, advancedDomHost, { revision: 2 })
+    advancedFacts.singleCellText = advancedDomHost.querySelector('.wasmppt-dom-text-layer [data-semantic-kind="table"]')?.textContent
+    advancedFacts.tableOwnerRetained = advancedDomHost.querySelector('.wasmppt-dom-text-layer [data-semantic-kind="table"]') === retainedTable
+    await advancedDomRenderer.render({ ...advancedScene, semantics: [tableSemantic] }, advancedDomHost, { revision: 3 })
+    advancedFacts.restoredTableText = advancedDomHost.querySelector('.wasmppt-dom-text-layer [data-semantic-kind="table"]')?.textContent
     const fidelityCanvas = document.createElement('canvas')
     fidelityCanvas.id = 'wasmppt-visual-slide-3'
     fidelityCanvas.width = 640
@@ -1453,9 +1547,9 @@ try {
   )
   assert.equal(result.deckEvidence.cacheable, true)
   // Continuous prose fits one page without changing source coverage or hidden-page handling.
-  assert.equal(result.deckEvidence.topology.slideCount, 72)
-  assert.equal(result.deckEvidence.topology.presentableSlides.length, 71)
-  assert.equal(result.deckEvidence.visualQuality.renderedSlides, 72)
+  assert.equal(result.deckEvidence.topology.slideCount, 78)
+  assert.equal(result.deckEvidence.topology.presentableSlides.length, result.deckEvidence.topology.slideCount - 1)
+  assert.equal(result.deckEvidence.visualQuality.renderedSlides, 78)
   assert(result.deckEvidence.visualQuality.sourceElements >= 30)
   assert(result.deckEvidence.topology.pages.some((deckPage) => deckPage.hidden))
   assert(
@@ -1493,6 +1587,12 @@ try {
   assert(result.telemetry.fontMeasurementMs >= 0)
   assert(result.telemetry.mediaDecodeMs >= 0)
   assert(result.advancedFacts.semanticKinds.includes('table'))
+  assert(result.advancedFacts.tableText.includes('42'))
+  assert.equal(result.advancedFacts.singleCellText, 'Quarter')
+  assert.equal(result.advancedFacts.tableOwnerRetained, true)
+  assert.equal(result.advancedFacts.restoredTableText.replace(/\s/gu, ''), result.advancedFacts.tableText.replace(/\s/gu, ''))
+  assert.equal(result.advancedFacts.domTableText.replace(/\s/gu, ''), result.advancedFacts.tableText.replace(/\s/gu, ''))
+  assert.equal(result.advancedFacts.offlineTableText.replace(/\s/gu, ''), result.advancedFacts.tableText.replace(/\s/gu, ''))
   assert(result.advancedFacts.semanticKinds.includes('chart'))
   assert(result.advancedFacts.semanticKinds.includes('image'))
   assert(result.advancedFacts.textRuns.includes('Quarter'))

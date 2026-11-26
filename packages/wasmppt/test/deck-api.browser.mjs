@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { checkInlineMathBrowserApi } from './inline-math.browser.mjs'
 
-const spec = text => ({ key: 'browser', slides: [
+const spec = (text, presentation = 'seminar') => ({ key: 'browser', layout: { presentation, imageFit: 'contain' }, slides: [
         { key: 'cover', kind: 'content', nodes: [{ key: 'title', role: 'prose', source: { source: 'deck.md', start: 0, end: 10 }, content: { kind: 'text', text: { runs: [{text: text + '\nSecond paragraph'}] } } }] },
         { key: 'detail', kind: 'content', nodes: [{ key: 'body', role: 'prose', content: { kind: 'text', text: { runs: [{ text: 'Detail page' }] } } }] },
       ] })
@@ -29,6 +29,10 @@ export async function checkDeckBrowserApi(page) {
       const second = next.value
       const cancelled = view.render(first, { pageId: first.pages[0].id, width: 800 }).then(() => false, error => error.name === 'AbortError')
       const rendered = await view.render(second, { pageId: second.pages[0].id, width: 800 })
+      const originalScene = await first.resolvePage(first.pages[0].id)
+      const purposeFonts = [originalScene, rendered.scene].map((scene, index) => scene.commands.filter(command => command.kind === 'draw-rich-text')
+        .flatMap(command => command.frame.paragraphs.flatMap(paragraph => paragraph.runs))
+        .find(run => run.text.startsWith(index === 0 ? 'Before' : 'After'))?.style.fontSize)
       const rect = view.canvas.getBoundingClientRect()
       const source = rendered.scene.semantics.find(item => item.source !== undefined)
       const hit = view.hitTest({
@@ -48,6 +52,7 @@ export async function checkDeckBrowserApi(page) {
       const duplicateSelection = await exportHtml(first, { pageIds: [selected[0], selected[0]] }).then(() => false, error => error instanceof RangeError)
       const documentCopy = new DOMParser().parseFromString(html.html, 'text/html')
       const result = {
+        firstPurposeFont: purposeFonts[0], secondPurposeFont: purposeFonts[1],
         nativeText: native?.text, nativeRange: textHit?.text, nativeFrozen: Object.isFrozen(textGeometry) && Object.isFrozen(native?.ranges),
         cancelled: await cancelled, hitKey: hit?.nodeKey, hitRevision: hit?.revision,
         width: view.canvas.width, height: view.canvas.height,
@@ -75,7 +80,9 @@ export async function checkDeckBrowserApi(page) {
       result.accountedAfterRelease = await engine.accountedBytes()
       return result
     } finally { await view.dispose(); view.canvas.remove(); engine.dispose() }
-  }, { before: spec('Before'), after: spec('After') })
+  }, { before: spec('Before'), after: spec('After', 'conference') })
+  assert.equal(facts.firstPurposeFont, 2400)
+  assert.equal(facts.secondPurposeFont, 2800)
   assert.equal(facts.nativeText, 'After\nSecond paragraph')
   assert.deepEqual(facts.nativeRange, { value: 'After\nSecond paragraph', start: 6, end: 12 })
   assert.equal(facts.nativeFrozen, true)

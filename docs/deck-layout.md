@@ -41,7 +41,7 @@ statement region, and only scales down when the result exceeds its safe frame. I
 formula to the generic media slot or applies the raster-image readability floor.
 Contain-fit media may scale down to its candidate slot, but only while both rendered dimensions
 remain above `PlannerPolicy::readable_media_floor`. A figure in an indivisible figure/caption group
-reserves one quarter of its slot for the following caption before measurement. When that stacked
+reserves the actual measured following text height and gaps at the candidate width and role size. When that stacked
 reservation would collapse an extreme portrait below the floor, a bounded side-by-side fit keeps
 the portrait and its caption or short related copy in one topology slot. If neither orientation
 fits at the media and type floors, the candidate remains unavailable. The selected visible frame
@@ -50,6 +50,36 @@ tolerance. For an image with validated intrinsic dimensions, that resolved conta
 the media floor are the fit authority; a provisional text-line-height media estimate cannot reject
 it first. Content without intrinsic resource dimensions, such as a chart, retains the conservative
 measured-height check.
+Pure-media bleed does not inherit body text insets. Text and mixed content retain their authored
+safe frames and text margins.
+
+## Presentation purpose
+
+Purpose is document-wide and independent of theme color. The following sizes are points;
+ordinary text, list content and table cells use body sizes. Only an explicit `Caption` role
+uses caption type, including emphasized captions represented by the host with that role.
+
+| Purpose | Content title | Body preferred / floor / cap | Caption | Cover |
+| --- | ---: | ---: | ---: | ---: |
+| Conference | 30 | 24 / 22 / 28 | 18 | 40 |
+| Seminar (default) | 28 | 20 / 18 / 24 | 16 | 36 |
+| Handout | 26 | 18 / 16 / 22 | 14 | 32 |
+
+Purpose typography and dynamic header reclamation apply only to regions carrying explicit
+[template generation bounds](deck-template.md#generation-bounds-and-typography). Custom POTX
+regions without these opt-in bounds retain their fonts and frames, while still using improved
+candidates and full-image containment. Exact font bytes and observable fallback diagnostics
+are unchanged. After topology and source pagination, ordinary body text in full-height stack and column lanes is measured against their final
+available width and height. Every eligible lane starts at the same purpose maximum
+(28/24/22 points for conference/seminar/handout). The shared fitting loop reduces
+one policy font step only on measured overflow, accepting the largest measured fit
+above the unchanged floor. Sparse and denser content that both fit at that maximum
+therefore retain equal type. Comparable body columns on one physical page share the
+densest lane's largest fitting size. Code retains its separate role sizing. Each
+physical continuation uses its own final region.
+Refitting never changes accepted source partitions or page count.
+Captions, tables, formulas, grid/card rows, vertical media splits, hard mixed-content lanes and custom unopted regions retain their role
+policy. Sparse slides may retain whitespace; filling the page is not a hard constraint.
 
 ## Semantic flow
 
@@ -60,6 +90,7 @@ Splittable content becomes source-owned units before candidate search:
 - tables split only between rows;
 - code splits only between logical lines;
 - galleries keep each figure and caption group together;
+- a `Never` figure container and multipanel figures with a shared caption remain indivisible;
 - a figure and following caption, quote and credit, and section heading and first child are
   indivisible authored relations;
 - raster images, SVG, charts, diagrams, and display math remain atomic.
@@ -80,7 +111,8 @@ Text wraps at Unicode line-break opportunities, retaining complete words that fi
 using emergency character breaks only for an oversized token. Deterministic fallback advances
 account for full-width Unicode text. Code and inline-code runs use the composed Courier New typeface, or observable deterministic
 monospace fallback metrics when its bytes are missing. Paragraph indentation uses the same helper as editable
-composition; nested list paragraphs are measured at their own hierarchy level.
+composition; nested list paragraphs are measured at their own hierarchy level. Visible bullet/number advances,
+including continued ordered-list numbers and hanging indentation, participate in first-line wrapping.
 
 On a title layout only the title is a fixed header. Every following subtitle, prose, or credit
 block flows through the subtitle region in source order. The same bounded candidate search places
@@ -107,8 +139,8 @@ is applied, so invalid early cuts cannot hide a later legal partition. Candidate
 the best topology per source end before applying its bound and retains the furthest fitting ends;
 duplicate topologies never consume the retained capacity or prevent other topologies from being
 evaluated. The total assignment and measurement work limits still bound the complete search.
-A whole-slide page at the initial type size is optimal in the leading readability and page-count
-score dimensions. The planner evaluates every whole-page topology first and returns the best such
+A whole-slide page in the normal readability band is optimal in the leading readability and
+page-count score dimensions. The planner evaluates every whole-page topology first and returns the best such
 comfortable page without exploring its unused continuation states. If no comfortable whole page
 exists, bounded dynamic programming still compares continuations against compressed candidates.
 Sampled column failures never trigger prefix pruning. Stack search also accounts for later
@@ -129,39 +161,50 @@ and slot count are encoded on each physical page, while fixed template content a
 regions remain distinguishable through composition.
 
 Media/text candidates derive a bounded set of mirrored column and top/bottom split positions from
-the canonical media aspect, readable media floor, measured text minimum/preferred width, measured
+the canonical media aspect, readable media floor, measured text minimum/preferred width including composed paragraph indentation, measured
 text height, and template margins. Fixed narrow/equal/wide ratios are only a safe fallback when a
 resource cannot be profiled. Measured fit selects among the derived breakpoints without depending
 on Markdown source order. Same-paragraph, adjacent-block, and blank-separated source relations
 become decreasing affinity costs; source side penalizes a contrary visual order, while an explicit
-caption remains an indivisible hard relation. Contain whitespace, relation distance, visual
+caption remains an indivisible hard relation. A simple logical body consisting of
+exactly one ordinary prose/list node and one figure image/SVG uses source order for
+its horizontal lanes: an image first occupies the left lane, and text first occupies
+the left lane. This preserves source sequence, associations and reading order.
+Multi-image, gallery, caption and card bodies retain their existing policies. Contain whitespace, relation distance, visual
 imbalance, and complexity are scored after readability. Gallery candidates enumerate bounded
-source-ordered justified rows, their transposed column equivalents, and lead/supporting variants.
-Track weights come from canonical intrinsic aspects; caption-bearing items reserve part of their
-track before those weights are derived. Cover-crop loss is measured from the byte-derived source
-aspect and candidate frame. A raster uses cover only while that loss is at or below
-`PlannerPolicy::max_cover_crop_per_mille`; otherwise the same candidate deterministically falls
-back to contain. Portrait, square, wide, and mixed collections can therefore choose non-uniform
-geometry without unsafe distortion or implicit crop. Seven to ten items are balanced across
-continuation pages by the same global page-load score.
+source-ordered justified rows, transposed columns, equal grids, and dimension-floor-aware tracks.
+Track weights come from canonical intrinsic aspects. Each candidate measures its captions at
+its actual width. Source-ordered rows and transposed columns use consistent track alignment;
+the planner does not give an arbitrary gallery image a hero slot. Seven to ten items can
+continue across pages when their measured figure/caption cards cannot fit.
+Identical-aspect peers use uniform track candidates. Matching peers share a measured picture
+height after caption fitting, including unequal captions and interleaved different-aspect panels.
+Their original size disparity is a quantized alignment cost ahead of whitespace, so an oversized
+track cannot win by shrinking its peers. Pictures align at the top of their allocated row;
+caption measurements and source order remain intact. Captioned media outside a gallery also
+exclude lead/supporting candidates, so source position alone cannot promote an image.
+Heading and explicit-caption associations union whole existing flow groups, including across
+leaf-node boundaries. A heading before a multipanel figure retains bounded card fitting.
+Nested galleries retain inherited hard groups. Ordered image/caption pairs inside an indivisible
+figure use bounded card arrangements and either fit as a whole or diagnose atomic overflow.
 
-Gallery ancestry remains explicit on internal flow units after the semantic `Gallery` container is
-expanded. Only raster images authored in that gallery context may select `ContentFit::Cover`.
-Standalone raster figures and SVG use `Contain` in every topology; data-bearing media is therefore
-never cropped by a heuristic. Charts remain atomic planned graphic frames rather than picture
+All raster images and SVG use `Contain`, including images in galleries. No semantic candidate
+crops or stretches source figures. The picture's complete axes, legends and whitespace survive;
+there is no OCR, trimming or AI interpretation. The legacy crop policy field remains part of
+planner identity for native compatibility but cannot authorize semantic cropping.
+Charts remain atomic planned graphic frames rather than picture
 placements. A selected picture fit is serialized together with the allocation slot, canonical
 source dimensions, exact visible frame, and optional centered source crop. Canvas/WPDL and editable
 PPTX composition consume that placement unchanged and never repeat the aspect or crop calculation.
 
-Standard prose and list flow uses at most eight semantic units per column. It remains a readable
-stack through eight units, balances 9--16 units across two columns, then creates balanced
-continuation pages; 11 and 16 equal-demand items therefore resolve to 6/5 and 8/8, while 17 and 18
-resolve to 9/8 and 9/9 across pages. Three-column flow is reserved for code and admits at most 12
-logical lines per lane. These thresholds are candidate bounds, not a shortcut around measurement:
-every admitted partition must still fit measured demand at or above the readable floor.
+Standard prose and list flow evaluates stacks and equal-width two-column partitions against
+actual width, Unicode wrapping and measured height. An item count does not force columns or
+continuations. Three-column flow is reserved for code and retains its bounded line candidates.
+Finite partition, candidate, measurement and dynamic-state limits remain unchanged.
 
-Dynamic programming compares the worst readability band before physical page count. A comfortable
-continuation therefore wins over a one-page result compressed toward the readable floor. Remaining
+Dynamic programming compares the worst readability band before physical page count. One font
+step below the preferred size remains in the normal band; two or more steps enter a compressed
+band. A comfortable continuation wins over a one-page result compressed toward the readable floor. Remaining
 ties compare balanced semantic-unit load across continuation pages, normalized measured content
 area, width/crop loss, measured slot-demand imbalance, continuation orphaning, squared whitespace,
 topology complexity, and a stable topology ordinal. An equally balanced solution keeps the earlier
@@ -172,15 +215,16 @@ relation groups are hard constraints rather than soft cost terms.
 
 Text may shrink only to its template minimum, bounded below by the planner's body
 readability policy. Header planning first measures the preferred type size and
-expands the title vertically inside its template generation envelope. With host
+fits the title vertically inside its template generation envelope. A short title returns unused
+reservation to the body; custom fixed regions retain their authored frame. With host
 measurement enabled and no exact font bytes, header wrapping uses the same
 resolved family, bold/italic style and measured token advances as Canvas. The same
-height delta moves the body and media bleed down, reducing their remaining
+height delta moves the body and media bleed, increasing or reducing their remaining
 height; ordinary body pagination then runs in that resolved region. If this
 cannot fit, title type decreases by the bounded font step toward its own minimum.
 There is no page-percentage title cap. Every accepted fragment retains explicit
 geometry and typography. Continuation chrome uses the first page's exact title
-frame and type size.
+frame and type size, including the measured synthetic continuation suffix.
 
 An atomic group that cannot fit any legal candidate at its floor produces
 `PLAN_ATOMIC_OVERFLOW`. Its logical slide enters `DeckPlan::failed_slides` with
@@ -211,8 +255,17 @@ standalone display math, media-caption groups, and ordinary prose children in th
 
 Derived physical pages retain the logical slide's hidden state and selected template layout. They
 carry the source H2/title identity for repeated heading chrome and structured continuation
-ordinal, total, and label metadata. The metadata does not prescribe visible page chrome; templates
-remain the sole owner of rendered slide numbering.
+ordinal, total, and label metadata. For a multi-page logical slide, its actual visible title ends
+with the accepted label in parentheses, including the first page: `(1/2)`, `(2/2)`. Template slide
+number fields remain independent page furniture. The source title range is unchanged; the suffix
+and repeated headings own no additional source fragments.
+
+The planner measures every actual ordinal/total heading string. If the accepted topology needs a
+larger heading frame, it reserves that measured height and replans the body conservatively.
+Reservation increases monotonically at a fixed title font, and all attempts consume the original
+cumulative assignment and measurement budgets. The final total is measured before acceptance;
+there is no host counter or renderer-specific refit. Synthetic measurement IDs include the label,
+preventing reuse of unsuffixed or stale-total widths. A work-limit failure remains explicit.
 The first continued fragment of a table on each page records its header-row repeat count. The
 planner coalesces every contiguous row range into exactly one native-table fragment per page, and
 the composer renders repeated-header metadata without creating additional source fragments.
@@ -221,6 +274,11 @@ in source order. Adjacent rows coalesce only within the same source table; unrel
 their own fitted groups and type choices. Header repetition is tracked independently for each
 source table on each page, including tables inside authored relation groups. Non-table fragments
 always carry a zero repeat count.
+
+`DeckPlanner::plan_with_metrics` returns the identical accepted plan plus actual candidate-assignment
+and cache-miss measurement counts, including rejected candidates. Counts describe one complete
+planning pass, not process memory. The existing per-slide-attempt assignment and per-pass
+measurement limits still apply; metrics do not change candidate retention or scoring.
 
 ## Bounds and failure policy
 
@@ -243,7 +301,7 @@ bounded termination.
 
 ## Canonical quality corpus
 
-`fixtures/deck-gates/corpus.json` pins the end-to-end `autolayout-v3` corpus beside its generated
+`fixtures/deck-gates/corpus.json` pins the end-to-end `academic-autolayout-v4` corpus beside its generated
 Starter POTX and WDSF input. The corpus includes variable title details, long prose, a long list
 with an intentionally empty in-progress item, multi-page tables and code, mixed aspect-ratio media,
 ten-item galleries with captions, quotes, sections, display math, definitions, statements, and a
@@ -257,6 +315,7 @@ defines reproduction and cross-host comparisons.
 The native gate rejects lost or duplicate source coverage, overlapping geometry, type below the
 readable floor, empty or badly imbalanced selected columns, singleton final-page orphans,
 undersized media, fragmented table row slices, and invalidation beyond one edited logical slide.
+Three-image cases also require equal visible sizes for matching peers, inside and outside a gallery.
 It emits `native-quality.json` with topology counts, contract results, and raw per-image source
 axes, visible frame, aspect error, and crop loss. Chrome then decodes and renders every resulting
 WPDL scene through the public Canvas renderer, checks every source-backed bound, rejects blank
@@ -280,8 +339,11 @@ npm run check:core-boundary
 - [System architecture](architecture.md) defines the host boundary and composition pipeline.
 - [Performance contract](performance.md) defines the repository-wide latency and memory gates.
 
-Pagination preserves authored media/text relations on the media page while
-allowing the remaining text to continue. The first page includes its separately
+Pagination first preserves authored media/text relations on the media page while
+allowing remaining text to continue. If no cohesive plan exists, an atomic-overflow retry may
+place ordinary related prose or list content on a following page, allowing an image-only bleed
+page. Explicit captions remain hard groups; the retry uses the same cumulative candidate and
+measurement bounds. Missing soft endpoints carry a deterministic affinity penalty. The first page includes its separately
 placed headers when checking these relations. Missing relation endpoints make a
 partial page ineligible before candidate retention; they do not justify stopping
 prefix search.

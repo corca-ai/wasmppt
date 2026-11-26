@@ -1,0 +1,180 @@
+{
+  "schema": 1,
+  "description": "Academic layout same-input pre-change and post-change evidence. Reports preserve exact engine, template, semantic corpus and asset hashes. Separate changed-template results identify purpose profiles.",
+  "baselineEngineRevision": "b5e6a7a400dabd5c7b2c5b874fb7434d6579a03f",
+  "baselineTemplateRevision": "24a3c992c6027f2b80f3432f2d6bd500d453a0ff",
+  "baselineEnginePath": "packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm",
+  "baselineEngineSource": "wasmppt git baseline revision tracked generated artifact; frozen independently before Rust edits.",
+  "baselineTemplates": "before-templates/*.potx; copied unmodified from Cortex baseline revision public/slide-themes before theme edits.",
+  "nativeEvidence": "Native debug gate: final expanded shared semantic corpus with canonical pair and body-density cases, exact source/export/font checks and seven raw samples. Different corpus from original BEFORE native evidence; totals are not a same-workload speed comparison.",
+  "script": "scripts/academic-layout-evidence.mjs",
+  "comparison": "scripts/compare-academic-layout-evidence.mjs",
+  "researchProvenance": "fixtures/deck-gates/research/provenance.json",
+  "nativePlannerMetrics": {
+    "report": "planner-metrics.json",
+    "memoryReport": "planner-metrics-memory.txt",
+    "command": "/usr/bin/time -l target/release/examples/academic_planner_metrics fixtures/deck-gates target/academic-layout/planner-metrics.json",
+    "buildCommand": "cargo build --release --locked --offline -p wasmppt-wasm --example academic_planner_metrics",
+    "profile": "release",
+    "compiler": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+    "binarySha256": "6da363083916af71521832bef19cb8e64a458f01f77587203880bfca59f9ab05",
+    "processMaximumResidentBytes": 25608192,
+    "scope": "One compiled native release process, six template-purpose combinations with seven complete planning passes each. OS maximum resident set covers all 42 passes; no SDK, composition, rendering or export. Separate from per-case JavaScript admission and sampled process memory."
+  },
+  "nodeMatrixOsPeakMemory": {
+    "commandPrefix": "/usr/bin/time -l",
+    "execution": "Separate serial Node processes on the same machine and runtime; exact engine/template/corpus/asset hashes remain in each raw report.",
+    "matrices": {
+      "before": {
+        "report": "before-memory.txt",
+        "maximumResidentBytes": 147046400,
+        "scope": "Entire Node process per 480-case matrix, including startup/template preparation, all SDK replacements, all-page resolution, assets, retained report data and JSON output. OS maximum resident set, not engine-scoped heap, logical admission or sampled RSS."
+      },
+      "after-same-input": {
+        "report": "after-same-input-memory.txt",
+        "cases": 480,
+        "maximumResidentBytes": 184057856,
+        "scope": "Entire Node process for the declared matrix, including startup/template preparation, all SDK replacements, all-page resolution, assets, retained report data and JSON output. OS maximum resident set, not engine-scoped heap, logical admission or sampled RSS."
+      },
+      "after-purpose-templates": {
+        "report": "after-purpose-templates-memory.txt",
+        "cases": 480,
+        "maximumResidentBytes": 183894016,
+        "scope": "Entire Node process for the declared matrix, including startup/template preparation, all SDK replacements, all-page resolution, assets, retained report data and JSON output. OS maximum resident set, not engine-scoped heap, logical admission or sampled RSS."
+      },
+      "after-fixture": {
+        "report": "after-fixture-memory.txt",
+        "cases": 192,
+        "maximumResidentBytes": 150388736,
+        "scope": "Entire Node process for the declared matrix, including startup/template preparation, all SDK replacements, all-page resolution, assets, retained report data and JSON output. OS maximum resident set, not engine-scoped heap, logical admission or sampled RSS."
+      }
+    }
+  },
+  "finalRuntime": {
+    "engineBundleSha256": "f081e0d8651b90b4be08a43f2cb851575715851b255cf19c69703aea542fd424",
+    "engineWasmSha256": "8996bff81db0b67a295b9e9faa92929dcdc20bc5162f287738730b2bbcfd1756",
+    "nativePptxSha256": "aa78a9f316cfc75d8f55f890ad889f7248d4f2221da624998d080c063631040f",
+    "nativePlanSha256": "c67e154caf32c7add6c9fb94f6e726bc6a3663d4245712d72791a4a104a0738f",
+    "nativeTemplatePlanSha256": "a32678df3019ae738cb319a85c5df4d674d1eb0b8345b12529276c20e2926226",
+    "wasmArtifactManifestSha256": "fd8315581abe6b6c86472c08888ec4331c971c7a58fff8c07556f2dcff8deacf",
+    "sourceGuardManifestSha256": "23f8eb3cf3ac7af4446746ca077a525b911f06d09a6c7f66a58ec1260299c8f5",
+    "artifactManifest": {
+      "schema": 1,
+      "buildSourceSha256": "ee2378e06cc1c82e9788fe7e8d321405bb9773567fb5318b8747897ca4315012",
+      "artifacts": {
+        "packages/wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm": "8996bff81db0b67a295b9e9faa92929dcdc20bc5162f287738730b2bbcfd1756",
+        "packages/wasmppt-worker/src/generated/metafile/wasmppt_metafile_wasm_bg.wasm": "20342da87d9cebe57df9cc972d82432c8906b7d499173e5e00d776e8a5998188",
+        "packages/wasmppt-worker/src/generated/shaper/wasmppt_shaper_wasm_bg.wasm": "12f80e5257d1042daf0eade43067430c487e73c4d6126365b7d6a73628345f35"
+      }
+    }
+  },
+  "limitations": "Saved original templates retain explicit-caption extreme-portrait shared-page failures at unchanged media/type floors. Standalone, ordinary-list and weakly related prose portrait cases recover through the full media-only bleed with zero text insets; ordinary text continues completely. Updated purpose profiles pass the full corpus.",
+  "postReviewEvidence": {
+    "sourceFrozen": true,
+    "nativeCounts": {
+      "logicalSlides": 57,
+      "physicalPages": 70,
+      "flowPages": 1,
+      "galleryPages": 29,
+      "mediaFragments": 133,
+      "qualityImages": 120,
+      "tableFragments": 3
+    },
+    "nativeContracts": {
+      "exactSourceCoverage": true,
+      "noOverlap": true,
+      "readableType": true,
+      "balancedFlow": true,
+      "noSingletonFinalOrphan": true,
+      "boundedMedia": true,
+      "aspectFidelity": true,
+      "boundedCrop": true,
+      "noCrop": true,
+      "displayAxisFidelity": true,
+      "mediaTextCohesion": true,
+      "balancedMediaPagination": true,
+      "uniformPeerImages": true,
+      "singleEditableTablePerSlice": true,
+      "singleSlideInvalidation": true
+    },
+    "academicCorpusHash": "ad928336fd1abf24058b844349f373f807ecf519b9faae8eedafc24fba3ec096",
+    "beforeArtifactsUnchanged": true,
+    "afterCommandsLog": "/tmp/academic-slide-layout/r3-artifact-progress.txt",
+    "afterChecks": "Existing font ranges/floors, measured actual-body >=72%, source presence, overlap, caption association, crop and aspect checks unchanged. Same original templates 480 cases / 15 explicit-caption findings; updated purpose templates 480 and Starter/custom 192 cases / zero findings.",
+    "gateResults": {
+      "prepushFull": {
+        "passed": true,
+        "log": "/tmp/academic-slide-layout/r3-prepush-full.log"
+      },
+      "exactHostParity": {
+        "passed": true,
+        "log": "/tmp/academic-slide-layout/r3-deck-parity.log",
+        "report": "target/deck-gates/report.json"
+      },
+      "openXmlSdk": {
+        "passed": true,
+        "log": "/tmp/academic-slide-layout/r3-openxml.log"
+      },
+      "precommit": {
+        "passed": true,
+        "log": "/tmp/academic-slide-layout/r3-precommit-final.log"
+      },
+      "coverage": {
+        "passed": true,
+        "linesPercent": 84.12,
+        "functionsPercent": 83.6,
+        "regionsPercent": 85.01,
+        "log": "/tmp/academic-slide-layout/r3-coverage.log",
+        "summary": "target/coverage/summary.json"
+      },
+      "nativeCiBudgets": {
+        "passed": true,
+        "report": "target/benchmarks/native.json",
+        "processRuns": 3,
+        "samplesPerProcess": 10
+      },
+      "artifactManifest": {
+        "passed": true,
+        "log": "/tmp/academic-slide-layout/r3-manifest-final.log"
+      }
+    },
+    "sourceGuard": {
+      "report": "/tmp/academic-slide-layout/r3-artifact-source-hashes.json",
+      "sha256": "7c6d3d0639ebc8847c1a8c6ea46ca3792f49cfc7a6ac2ca97c4060a852adfda1",
+      "files": 356,
+      "unchanged": true
+    },
+    "beforeGuard": {
+      "report": "/tmp/academic-slide-layout/r3-artifact-before-hashes.json",
+      "sha256": "301bf2ad4933da52099dc02abb0839446e0914332c5dbffdb2eb1e4172fb58c4",
+      "files": 119,
+      "unchanged": true
+    },
+    "gitCandidateTreeUnchangedDuringMeasurements": true,
+    "gitCandidateTree": "2ce04d4ca0a5da9e6b7b4fc375117c7899f9a23c",
+    "scope": "Historical preceding review qualification; expandedEvidence owns the current final qualification."
+  },
+  "sameInputNativeWork": {
+    "report": "native-same-input-work.json",
+    "sha256": "f868bb1cfad89ee0671e0483f39bc23e606b2a053c53a9af8702a3f27288e6a6",
+    "scope": "Original 53-logical-slide frozen native tuple only. Instrumented BEFORE plans match uninstrumented frozen bytes; AFTER uses reversible typed-default schema normalization. Seven deterministic passes, actual candidate/measurement events. No instrumented timing or memory claims.",
+    "instrumentationPatch": "baseline-counter-probe.patch",
+    "instrumentationPatchSha256": "115f90493dea2e46ab3de747e048b64ba4b80cde8e6b0a366cd115328e062a31"
+  },
+  "previousFinalRuntime": {
+    "engineBundleSha256": "f081e0d8651b90b4be08a43f2cb851575715851b255cf19c69703aea542fd424",
+    "engineWasmSha256": "f888d485b238d219e3a8065c605e628a15e9702bbfd9d6fdd0066961318a7f1e",
+    "nativePptxSha256": "d1d00bae46b2b2831ea03b293ac4b63c5d68e19775bd66f671a06b67de8353b3",
+    "nativePlanSha256": "34fddf7b813ac7529cfb8dff46b78ded36c910d1a2d413000e619a3c5862d76d",
+    "nativeTemplatePlanSha256": "a32678df3019ae738cb319a85c5df4d674d1eb0b8345b12529276c20e2926226",
+    "wasmArtifactManifestSha256": "5d4d8536a64f9883b11b8b9f94eadabc424fa77ccee805e84f2c6841b30867a7",
+    "buildSourceSha256": "7c9006d01c80bf15cc917a45b14d6e3505e07121a40fd3addc8dfac580ea7819",
+    "sourceGuardManifestSha256": "7c6d3d0639ebc8847c1a8c6ea46ca3792f49cfc7a6ac2ca97c4060a852adfda1"
+  },
+  "expandedEvidence": {
+    "report": "expanded-provenance.json",
+    "comparison": "expanded-summary.json",
+    "beforeDataGuardFiles": 119,
+    "beforeDataGuardUnchanged": true
+  }
+}

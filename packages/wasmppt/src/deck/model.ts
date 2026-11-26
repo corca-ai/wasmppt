@@ -116,8 +116,20 @@ export interface DeckLogicalSlide {
   readonly mediaTextRelations?: readonly DeckMediaTextRelation[]
 }
 
+/** Document purpose is independent of the template's decorative theme. */
+export type DeckPresentationPurpose = 'conference' | 'seminar' | 'handout'
+
+/** Geometry, readable sizes and pagination are chosen by the engine. */
+export interface DeckLayoutOptions {
+  /** Defaults to seminar. Authored template styles require generation metadata to opt in. */
+  readonly presentation?: DeckPresentationPurpose
+  /** Pictures preserve their complete intrinsic aspect; defaults to contain. */
+  readonly imageFit?: 'contain'
+}
+
 export interface DeckSpec {
   readonly key: string
+  readonly layout?: DeckLayoutOptions
   readonly slides: readonly DeckLogicalSlide[]
 }
 

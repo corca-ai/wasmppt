@@ -132,22 +132,24 @@ function validateTimings(host, timings) {
 }
 
 function validateQuality(native, browser, topology) {
-  assert.equal(native.schema, 2)
-  assert.equal(native.corpus, 'autolayout-v3')
-  assert.equal(native.counts.logicalSlides, 53)
+  assert.equal(native.schema, 3)
+  assert.equal(native.corpus, 'academic-autolayout-v5')
+  assert.equal(native.counts.logicalSlides, 64)
   assert.equal(native.counts.physicalPages, topology.slideCount)
   assert(native.counts.flowPages >= 1, 'corpus did not produce a flow-column page')
   assert(native.counts.galleryPages >= 1, 'corpus did not produce a gallery page')
   assert(native.counts.mediaFragments >= 127, 'corpus did not retain its media set')
-  assert.equal(native.counts.qualityImages, 117)
+  assert.equal(native.counts.qualityImages, 120)
   assert(native.counts.tableFragments >= 2, 'corpus did not paginate its table')
-  assert.equal(native.images.length, 117)
+  assert.equal(native.images.length, 120)
+  assert.equal(native.contracts.uniformPeerImages, true)
   assert(Object.values(native.contracts).every((passed) => passed === true))
   assert.equal(browser.schema, 2)
   assert.equal(browser.renderedSlides, topology.slideCount)
   assert(browser.sourceElements >= 30, 'rendered slides lost semantic source elements')
   assert(browser.minimumChangedPixels >= 20, 'a rendered Canvas slide was blank')
-  assert.equal(browser.images.length, 117)
+  assert.equal(browser.images.length, 120)
+  assert.equal(browser.contracts.uniformPeerImages, true)
   assert(Object.values(browser.contracts).every((passed) => passed === true))
 
   assert.deepEqual(
@@ -159,7 +161,7 @@ function validateQuality(native, browser, topology) {
     assert.equal(image.sourceWidth, image.expectedWidth, `${image.case} source width drifted`)
     assert.equal(image.sourceHeight, image.expectedHeight, `${image.case} source height drifted`)
     assert(image.aspectErrorPerMillion <= 25, `${image.case} distorted its source aspect`)
-    assert(image.cropLossPerMille <= 300, `${image.case} exceeded the crop budget`)
+    assert.equal(image.cropLossPerMille, 0, `${image.case} cropped its data`)
   }
   for (const aspect of ['4x1', '16x9', '1x1', '3x4', '1x4']) {
     for (const context of [

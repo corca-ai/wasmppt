@@ -50,10 +50,7 @@ fn link_explicit_media_captions(units: &mut [FlowUnit<'_>], relations: &[MediaTe
         };
         let start = media.min(text);
         let end = media.max(text);
-        let group = units[start].group;
-        for unit in &mut units[start..=end] {
-            unit.group = group;
-        }
+        merge_flow_groups(units, start, end + 1);
     }
 }
 
@@ -78,13 +75,37 @@ fn link_adjacent_relations(units: &mut [FlowUnit<'_>]) {
                 | (SemanticRole::Quote, SemanticRole::Credit)
         ) || units[left_start].node.role == SemanticRole::Section;
         if related {
-            let group = units[left_start].group;
-            for unit in &mut units[left_start..right_end] {
-                unit.group = group;
-            }
+            let end = if units[left_start].node.role == SemanticRole::Section {
+                // A heading owns the first existing flow group, across leaf-node boundaries.
+                // Splittable prose/list groups still contribute only their first unit.
+                let first_group = units[right_start].group;
+                units[right_start..]
+                    .iter()
+                    .position(|unit| unit.group != first_group)
+                    .map_or(units.len(), |offset| right_start + offset)
+            } else {
+                right_end
+            };
+            merge_flow_groups(units, left_start, end);
             // A splittable relation is intentionally indivisible once authored as a pair.
             debug_assert!(left_end <= right_start);
         }
+    }
+}
+
+// Relations union existing contiguous groups; a node boundary cannot cut a hard group.
+fn merge_flow_groups(units: &mut [FlowUnit<'_>], mut start: usize, mut end: usize) {
+    let first_group = units[start].group;
+    let last_group = units[end - 1].group;
+    while start > 0 && units[start - 1].group == first_group {
+        start -= 1;
+    }
+    while end < units.len() && units[end].group == last_group {
+        end += 1;
+    }
+    let group = units[start].group;
+    for unit in &mut units[start..end] {
+        unit.group = group;
     }
 }
 
@@ -112,6 +133,17 @@ impl<'a> FlowBuilder<'a> {
             return Ok(());
         }
         match node.role {
+            SemanticRole::Figure
+                if forced_group.is_none()
+                    && node.split != SplitPolicy::Never
+                    && !children
+                        .iter()
+                        .any(|child| child.role == SemanticRole::Caption) =>
+            {
+                for child in children {
+                    self.node(child, None, gallery_item)?;
+                }
+            }
             SemanticRole::Figure | SemanticRole::Definition => {
                 let group = forced_group.unwrap_or_else(|| self.group());
                 for child in children {
@@ -119,9 +151,11 @@ impl<'a> FlowBuilder<'a> {
                 }
             }
             SemanticRole::Gallery => {
+                let inherited_group = forced_group
+                    .or_else(|| (node.split == SplitPolicy::Never).then(|| self.group()));
                 let mut index = 0;
                 while index < children.len() {
-                    let group = self.group();
+                    let group = inherited_group.unwrap_or_else(|| self.group());
                     self.node(&children[index], Some(group), true)?;
                     if children[index].role == SemanticRole::Figure
                         && children
@@ -138,7 +172,23 @@ impl<'a> FlowBuilder<'a> {
             SemanticRole::Section => {
                 let relation = forced_group.unwrap_or_else(|| self.group());
                 for (index, child) in children.iter().enumerate() {
-                    self.node(child, (index < 2).then_some(relation), gallery_item)?;
+                    if index == 0 {
+                        self.node(child, Some(relation), gallery_item)?;
+                    } else {
+                        let start = self.units.len();
+                        self.node(child, forced_group, gallery_item)?;
+                        if index == 1 {
+                            if let Some(first) = self.units.get(start) {
+                                let first_group = first.group;
+                                for unit in self.units[start..]
+                                    .iter_mut()
+                                    .take_while(|unit| unit.group == first_group)
+                                {
+                                    unit.group = relation;
+                                }
+                            }
+                        }
+                    }
                 }
             }
             _ => {
@@ -347,6 +397,35 @@ mod tests {
                 source_text: Some("$E=mc^2$".to_owned()),
             }),
         )
+    }
+
+    #[test]
+    fn never_figures_and_shared_captions_keep_every_panel_in_one_flow_group() {
+        for split in [SplitPolicy::Never, SplitPolicy::Children] {
+            let mut figure = test_node(
+                1,
+                SemanticRole::Figure,
+                SemanticContent::Children(vec![
+                    test_svg(2, SemanticRole::Figure),
+                    test_svg(3, SemanticRole::Figure),
+                    test_text(4, SemanticRole::Caption, "Both panels share this caption."),
+                ]),
+            );
+            figure.split = split;
+            let units = build_flow(std::slice::from_ref(&figure), &[], 100).unwrap();
+            assert_eq!(units.len(), 3);
+            assert!(units.iter().all(|unit| unit.group == units[0].group));
+        }
+        let figure = test_node(
+            1,
+            SemanticRole::Figure,
+            SemanticContent::Children(vec![
+                test_svg(2, SemanticRole::Figure),
+                test_svg(3, SemanticRole::Figure),
+            ]),
+        );
+        let units = build_flow(std::slice::from_ref(&figure), &[], 100).unwrap();
+        assert_eq!(units[0].group, units[1].group);
     }
 
     #[test]

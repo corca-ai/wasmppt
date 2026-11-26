@@ -104,7 +104,10 @@ pub(crate) fn compose_slide(
                     writer.text_shape(
                         frame,
                         "Continuation heading",
-                        &[Paragraph::rich(text.runs.clone(), 0)],
+                        &[Paragraph::rich(
+                            page.continuation.heading_text(text).runs,
+                            0,
+                        )],
                         continuation_region,
                         Some(
                             repeated_heading
@@ -132,7 +135,28 @@ pub(crate) fn compose_slide(
         if planned_shape.compact_inline {
             writer.inline_text_shape(&planned_shape.fragments, region)?;
         } else if let Some(fragment) = planned_shape.fragments.first() {
-            writer.fragment(fragment, region)?;
+            if region.role == RegionRole::Title && page.continuation.label.is_some() {
+                if let Some(SemanticNode {
+                    content: SemanticContent::Text(text),
+                    ..
+                }) = nodes.get(&fragment.source_node_id).copied()
+                {
+                    writer.text_shape(
+                        fragment.frame,
+                        "Title",
+                        &[Paragraph::rich(
+                            page.continuation.heading_text(text).runs,
+                            0,
+                        )],
+                        Some(region),
+                        Some(fragment.type_choice.font_size),
+                    )?;
+                } else {
+                    writer.fragment(fragment, region)?;
+                }
+            } else {
+                writer.fragment(fragment, region)?;
+            }
         }
     }
     writer

@@ -29,6 +29,10 @@ async function replace(deck, template, input = spec(), fonts) {
   return result.value
 }
 async function pptx(snapshot) { return new Uint8Array(await new Response(snapshot.exportPptx()).arrayBuffer()) }
+function paintedRun(scene, text) {
+  return scene.commands.filter(command => command.kind === 'draw-rich-text')
+    .flatMap(command => command.frame.paragraphs.flatMap(paragraph => paragraph.runs)).find(run => run.text === text)
+}
 
 test('Node consumers inspect structured templates without internal package paths', async t => {
   const { template } = await fixture(t)
@@ -72,6 +76,74 @@ test('rejected and cancelled edits leave the prior accepted revision intact', as
   assert.equal(second.revision, 1)
   assert.equal((await first.resolvePage(first.pages[0].id)).commands.some(command => command.kind === 'draw-rich-text' && command.frame.paragraphs.some(paragraph => paragraph.runs.some(run => run.text === 'First revision'))), true)
   await first.dispose(); await second.dispose()
+})
+
+test('document layout is captured before queuing and invalid layout preserves accepted snapshots', async t => {
+  const { deck, template } = await fixture(t)
+  const input = { ...spec(), layout: { presentation: 'conference', imageFit: 'contain' } }
+  const pending = deck.replace({ template, spec: input })
+  input.layout.presentation = 'invalid-after-capture'
+  const result = await pending
+  assert.equal(result.ok, true, JSON.stringify(result.diagnostics))
+  const first = result.value
+  const original = await pptx(first)
+  assert.equal(paintedRun(await first.resolvePage(first.pages[0].id), 'First revision').style.fontSize, 4000)
+  for (const layout of [{ presentation: 'poster' }, { imageFit: 'cover' }]) {
+    const rejected = await deck.replace({ template, spec: { ...spec(), layout } })
+    assert.equal(rejected.ok, false)
+    assert.equal(rejected.diagnostics[0].category, 'content')
+  }
+  const next = await replace(deck, template, { ...spec(), layout: { presentation: 'handout' } })
+  assert.equal(next.revision, 1, 'rejected purposes never publish revisions')
+  assert.equal(paintedRun(await next.resolvePage(next.pages[0].id), 'First revision').style.fontSize, 3200)
+  assert.equal(paintedRun(await first.resolvePage(first.pages[0].id), 'First revision').style.fontSize, 4000)
+  assert.deepEqual(await pptx(first), original, 'retained export keeps its accepted document layout')
+  const restored = await replace(deck, template, { ...spec(), layout: { presentation: 'conference' } })
+  assert.deepEqual(await pptx(restored), original, 'A-B-A purpose changes are history independent')
+  await first.dispose(); await next.dispose(); await restored.dispose()
+})
+
+test('purpose controls heading, body and explicit caption sizes through immutable SDK snapshots', async t => {
+  const { deck, template } = await fixture(t)
+  const content = {
+    key: 'academic', slides: [{ key: 'question', kind: 'content', nodes: [
+      { key: 'heading', role: 'title', content: { kind: 'text', text: { runs: [{ text: '연구 질문 / Research question' }] } } },
+      { key: 'body', role: 'prose', split: 'text', content: { kind: 'text', text: { runs: [{ text: 'Ordinary emphasized prose', marks: { italic: true } }] } } },
+      { key: 'caption', role: 'caption', content: { kind: 'text', text: { runs: [{ text: 'Figure 1. Explicit caption' }] } } },
+    ] }],
+  }
+  for (const [presentation, sizes] of [
+    ['conference', [3000, 2400, 1800]], ['seminar', [2800, 2000, 1600]], ['handout', [2600, 1800, 1400]],
+  ]) {
+    const snapshot = await replace(deck, template, { ...content, layout: { presentation, imageFit: 'contain' } })
+    assert.deepEqual(snapshot.failedSlides, [])
+    assert.equal(snapshot.pages.length, 1)
+    const scene = await snapshot.resolvePage(snapshot.pages[0].id)
+    const runs = ['연구 질문 / Research question', 'Ordinary emphasized prose', 'Figure 1. Explicit caption'].map(text => paintedRun(scene, text))
+    assert.deepEqual(runs.map(run => run.style.fontSize), sizes)
+    assert.equal(runs[1].style.italic, true, 'emphasis does not turn body text into a caption')
+    assert.equal(snapshot.diagnostics.some(item => item.category === 'font'), true, 'fallback font diagnostics remain observable')
+    assert.ok((await pptx(snapshot)).length > 0)
+    await snapshot.dispose()
+  }
+})
+
+test('custom POTX without generation metadata keeps authored typography across purpose changes', async t => {
+  const { engine, deck } = await fixture(t)
+  const prepared = await engine.prepareDeckTemplate(await readFile(new URL('../../../fixtures/deck-gates/custom.potx', import.meta.url)))
+  assert.equal(prepared.ok, true, JSON.stringify(prepared.diagnostics))
+  const custom = prepared.value
+  t.after(() => custom.dispose())
+  let expected
+  for (const presentation of ['seminar', 'conference', 'handout']) {
+    const snapshot = await replace(deck, custom, { ...spec(), layout: { presentation } })
+    const scene = await snapshot.resolvePage(snapshot.pages[0].id)
+    assert.equal(paintedRun(scene, 'First revision').style.fontSize, 3200)
+    const bytes = await pptx(snapshot)
+    expected ??= bytes
+    assert.deepEqual(bytes, expected, 'purpose leaves unopted authored styles and geometry unchanged')
+    await snapshot.dispose()
+  }
 })
 
 test('source relocation retains semantic/page keys and refreshes cached hit-test spans', async t => {

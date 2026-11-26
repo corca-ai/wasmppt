@@ -967,11 +967,15 @@ impl DeckPlanner {
                 | LayoutTopology::WeightedSplit
                 | LayoutTopology::Comparison
         ) || self.canonical_pair
-            && page.topology.kind == LayoutTopology::MediaEnd;
+            && matches!(
+                page.topology.kind,
+                LayoutTopology::MediaStart | LayoutTopology::MediaEnd
+            );
         if !full_height {
             return Ok(());
         }
-        let nominal = self.presentation.typography().1;
+        let preferred = self.presentation.typography().1 + 400;
+        let mut lanes = Vec::new();
         for lane in 0..page.topology.slot_count {
             let indices = page
                 .regions
@@ -983,9 +987,7 @@ impl DeckPlanner {
                 .collect::<Vec<_>>();
             let mut lane_units = Vec::new();
             let mut eligible = !indices.is_empty();
-            let mut occupied = 0i64;
             let mut first = None::<EmuRect>;
-            let mut old_size = 0;
             for &index in &indices {
                 for fragment in &page.regions[index].fragments {
                     let Some(unit) = nodes.get(&fragment.source_node_id).copied() else {
@@ -1017,10 +1019,6 @@ impl DeckPlanner {
                         break;
                     }
                     first.get_or_insert(fragment.frame);
-                    occupied = occupied
-                        .saturating_add(fragment.frame.height)
-                        .saturating_add(self.policy.gap);
-                    old_size = old_size.max(fragment.type_choice.font_size);
                     lane_units.push(FlowUnit {
                         slice: fragment.slice,
                         ..unit.clone()
@@ -1040,14 +1038,8 @@ impl DeckPlanner {
             if frame.height <= 0 {
                 continue;
             }
-            // A measured density preference, quantized at half a point. Nominal type remains
-            // the readability target near capacity; sparse lanes receive at most four points.
-            let density = occupied.saturating_mul(1000) / frame.height;
-            let bonus = (400 * (900 - density).clamp(0, 900) / 900 / 50 * 50) as u32;
-            let preferred = nominal + bonus;
-            if preferred <= old_size {
-                continue;
-            }
+            // Every accepted physical lane starts at the same purpose maximum. The shared
+            // fitting loop reduces by one policy step only when measured content overflows.
             let mut adapted = region.clone();
             for level in &mut adapted.text_levels {
                 level.font_size = Some(preferred);
@@ -1069,12 +1061,58 @@ impl DeckPlanner {
             else {
                 continue;
             };
-            if fitted
-                .placements
+            let comparable = group
+                .units
                 .iter()
-                .any(|placement| placement.font_size < old_size)
+                .any(|unit| unit.node.role != SemanticRole::Code);
+            lanes.push((lane, indices, group, frame, fitted, comparable));
+        }
+        // Comparable body lanes on one physical page share the densest lane's largest fit.
+        // Captions, tables and authored custom regions never enter this refit; code can retain
+        // its separate role size. No source partition or topology changes here.
+        let common = lanes
+            .iter()
+            .filter(|(_, _, _, _, _, comparable)| *comparable)
+            .flat_map(|(_, _, _, _, fitted, _)| {
+                fitted
+                    .placements
+                    .iter()
+                    .map(|placement| placement.font_size)
+            })
+            .min()
+            .unwrap_or(preferred);
+        for (lane, indices, group, frame, mut fitted, comparable) in lanes {
+            if comparable
+                && fitted
+                    .placements
+                    .iter()
+                    .any(|placement| placement.font_size != common)
             {
-                continue;
+                let mut adapted = region.clone();
+                for level in &mut adapted.text_levels {
+                    level.font_size = Some(common);
+                }
+                fitted = self
+                    .fit_group(
+                        &group,
+                        &FitTarget {
+                            pattern: Pattern::Stack,
+                            region: &adapted,
+                            frames: &[frame],
+                            lane: 0,
+                            y: frame.y,
+                            tables_on_page: &BTreeSet::new(),
+                            center_single_statement: false,
+                        },
+                        measurer,
+                    )?
+                    .ok_or_else(|| {
+                        error(
+                            DeckDiagnosticCode::PLAN_TARGET_DRIFT,
+                            "common body font must retain each lane's measured fit",
+                            None,
+                        )
+                    })?;
             }
             let mut replacements = Vec::new();
             for placement in fitted.placements {
@@ -1335,7 +1373,12 @@ impl DeckPlanner {
         candidate_count: &mut usize,
     ) -> Result<Option<FittedCandidate>, PlanError> {
         let canonical_pair = self.canonical_pair && mixed_media(groups);
-        if canonical_pair && pattern != Pattern::MediaEnd {
+        let source_pattern = if groups.first().is_some_and(FlowGroup::is_media) {
+            Pattern::MediaStart
+        } else {
+            Pattern::MediaEnd
+        };
+        if canonical_pair && pattern != source_pattern {
             return Ok(None);
         }
         let bleed_region = if groups.iter().all(FlowGroup::is_media_only) {
@@ -4592,7 +4635,7 @@ fn plan_id(
     limits: &DeckLimits,
 ) -> StableId {
     let mut digest = Sha256::new();
-    digest.update(b"wasmppt/deck-layout/plan/v9\0");
+    digest.update(b"wasmppt/deck-layout/plan/v10\0");
     match spec.encode(limits) {
         Ok(encoded) => digest.update(Sha256::digest(encoded)),
         Err(_) => digest.update(spec.id.as_bytes()),
@@ -4686,7 +4729,7 @@ mod tests {
     }
 
     #[test]
-    fn canonical_single_list_image_pair_keeps_text_left_in_both_source_orders() {
+    fn single_list_image_pair_keeps_source_order_in_both_orientations() {
         for reversed in [false, true] {
             let mut nodes = vec![list_node(4, 2), figure_node(5, 9, "Figure")];
             if reversed {
@@ -4714,7 +4757,11 @@ mod tests {
             let text = fragment_frame(placements, id(4)).unwrap();
             let image = fragment_frame(placements, id(5)).unwrap();
             assert!(
-                text.x + text.width <= image.x,
+                if reversed {
+                    image.x + image.width <= text.x
+                } else {
+                    text.x + text.width <= image.x
+                },
                 "reversed={reversed}: {text:?}, {image:?}"
             );
             assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
@@ -4722,7 +4769,7 @@ mod tests {
     }
 
     #[test]
-    fn sparse_body_growth_uses_measured_final_lane_density_and_preserves_custom_styles() {
+    fn body_uses_same_preferred_maximum_when_content_fits_and_preserves_custom_styles() {
         for purpose in [
             PresentationPurpose::Conference,
             PresentationPurpose::Seminar,
@@ -4748,7 +4795,7 @@ mod tests {
                 sizes.push(size);
                 assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
             }
-            assert!(sizes[0] > sizes[1], "{purpose:?}: {sizes:?}");
+            assert_eq!(sizes, vec![purpose.typography().1 + 400; 2], "{purpose:?}");
             template.regions[1].generation_frame = None;
             let plan = DeckPlanner::default()
                 .plan(
@@ -4761,6 +4808,156 @@ mod tests {
             assert_eq!(
                 plan.pages[0].regions[0].fragments[0].type_choice.font_size,
                 2000
+            );
+        }
+    }
+
+    #[test]
+    fn fixed_physical_lanes_shrink_only_at_overflow_to_the_largest_measured_step() {
+        for purpose in [
+            PresentationPurpose::Conference,
+            PresentationPurpose::Seminar,
+            PresentationPurpose::Handout,
+        ] {
+            for width in [9_000_000, 4_400_000] {
+                let mut template = template(2_000_000);
+                let region = &mut template.regions[1];
+                region.frame.width = width;
+                region.margins = wasmppt_deck::TextMargins::default();
+                region.generation_frame = Some(region.frame);
+                region.minimum_font_size = purpose.typography().2;
+                let maximum = purpose.typography().1 + 400;
+                for level in &mut region.text_levels {
+                    level.font_size = Some(maximum);
+                }
+                let planner = DeckPlanner::default();
+                let fonts = FontCatalog::default();
+                let frame = region.frame;
+                let mut previous = maximum;
+                let mut saw_overflow = false;
+                for count in 1..=40 {
+                    let spec = spec(vec![list_node(4, count)]);
+                    let node = &spec.logical_slides[0].nodes[0];
+                    let units = build_flow(&spec.logical_slides[0].nodes, &[], 100).unwrap();
+                    let groups = group_units(&units);
+                    let merged = rendering_runs(&groups, &vec![0; groups.len()]);
+                    let group = &merged[0].0;
+                    let mut measurer = Measurer::new(&fonts, &spec, &planner.policy.limits);
+                    let max_height = measurer
+                        .measure(node, FragmentSlice::Whole, region, frame, maximum, 0)
+                        .unwrap()
+                        .height;
+                    let fitted = planner
+                        .fit_group(
+                            group,
+                            &FitTarget {
+                                pattern: Pattern::Stack,
+                                region,
+                                frames: &[frame],
+                                lane: 0,
+                                y: frame.y,
+                                tables_on_page: &BTreeSet::new(),
+                                center_single_statement: false,
+                            },
+                            &mut measurer,
+                        )
+                        .unwrap();
+                    let Some(fitted) = fitted else {
+                        break;
+                    };
+                    let size = fitted.placements[0].font_size;
+                    assert!(size <= previous, "{purpose:?} width={width} count={count}");
+                    previous = size;
+                    if max_height <= frame.height {
+                        assert_eq!(
+                            size, maximum,
+                            "fitting content must retain preferred maximum"
+                        );
+                    } else {
+                        saw_overflow = true;
+                        assert!(size < maximum);
+                        let next = size + planner.policy.font_step;
+                        let next_height = measurer
+                            .measure(node, FragmentSlice::Whole, region, frame, next, 0)
+                            .unwrap()
+                            .height;
+                        assert!(
+                            next_height > frame.height,
+                            "next larger step also fits: {purpose:?}, {count}, {size}"
+                        );
+                    }
+                    assert!(fitted.bottom <= frame.y + frame.height);
+                }
+                assert!(
+                    saw_overflow,
+                    "must cross actual overflow for {purpose:?}, width={width}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn full_planner_keeps_preferred_until_first_physical_overflow() {
+        for purpose in [
+            PresentationPurpose::Conference,
+            PresentationPurpose::Seminar,
+            PresentationPurpose::Handout,
+        ] {
+            let mut template = template(2_000_000);
+            template.regions[1].margins = wasmppt_deck::TextMargins::default();
+            template.regions[1].generation_frame = Some(template.regions[1].frame);
+            let region = &template.regions[1];
+            let maximum = purpose.typography().1 + 400;
+            let planner = DeckPlanner::default();
+            let fonts = FontCatalog::default();
+            let mut previous = maximum;
+            let mut crossed_overflow = false;
+            for count in 1..=20 {
+                let mut list = list_node(4, count);
+                // One indivisible authored block fixes this physical one-column topology.
+                list.split = SplitPolicy::Never;
+                let mut spec = spec(vec![list]);
+                spec.layout.presentation = purpose;
+                let plan = planner.plan(&spec, &template, &fonts, &limits()).unwrap();
+                if !plan.failed_slides.is_empty() {
+                    assert!(plan.pages.is_empty());
+                    assert!(
+                        plan.diagnostics.iter().any(|diagnostic| diagnostic.code
+                            == DeckDiagnosticCode::PLAN_ATOMIC_OVERFLOW)
+                    );
+                    break;
+                }
+                assert_eq!(plan.pages.len(), 1);
+                assert_eq!(plan.pages[0].topology.kind, LayoutTopology::Stack);
+                let fragment = fragments(&plan.pages[0]).next().unwrap();
+                let size = fragment.type_choice.font_size;
+                assert!(size <= previous);
+                previous = size;
+                let node = &spec.logical_slides[0].nodes[0];
+                let mut measurer = Measurer::new(&fonts, &spec, &planner.policy.limits);
+                let at = |font, measurer: &mut Measurer<'_>| {
+                    measurer
+                        .measure(node, fragment.slice, region, region.frame, font, 0)
+                        .unwrap()
+                        .height
+                };
+                if at(maximum, &mut measurer) <= region.frame.height {
+                    assert_eq!(
+                        size, maximum,
+                        "full planner prematurely shrank {purpose:?} count={count}"
+                    );
+                } else {
+                    crossed_overflow = true;
+                    assert!(size < maximum);
+                    assert!(
+                        at(size + planner.policy.font_step, &mut measurer) > region.frame.height
+                    );
+                }
+                assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+            }
+            assert!(
+                crossed_overflow,
+                "full planner must exercise the first overflow for {purpose:?}"
             );
         }
     }
@@ -6043,8 +6240,8 @@ mod tests {
         assert!(matches!(media_slot, RegionPlacement::Slot(_)));
         assert!(matches!(text_slot, RegionPlacement::Slot(_)));
         assert!(
-            text.frame.x.saturating_add(text.frame.width) <= media.frame.x,
-            "canonical portrait/copy pair must keep text left: {:?} {:?}",
+            media.frame.x.saturating_add(media.frame.width) <= text.frame.x,
+            "source-first portrait must keep image left: {:?} {:?}",
             media.frame,
             text.frame
         );
@@ -7325,6 +7522,16 @@ mod tests {
                                 && fragment.type_choice.font_size <= purpose.typography().1 + 400)
                         )
                 );
+                for page in &plan.pages {
+                    let sizes = fragments(page)
+                        .map(|fragment| fragment.type_choice.font_size)
+                        .collect::<BTreeSet<_>>();
+                    assert_eq!(
+                        sizes.len(),
+                        1,
+                        "comparable body columns must share one physical-page font: {purpose:?}, count={count}, {sizes:?}"
+                    );
+                }
                 assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
                 measured.push(plan);
             }
@@ -7341,7 +7548,7 @@ mod tests {
                 .max()
                 .unwrap();
             assert!(
-                sparse > dense,
+                sparse >= dense,
                 "{purpose:?}: sparse {sparse}, dense {dense}"
             );
             assert_eq!(measured[2].pages.len(), 2);
@@ -7351,7 +7558,7 @@ mod tests {
                     .min()
                     .unwrap();
                 assert!(
-                    recovered >= purpose.typography().1 && recovered > dense,
+                    recovered >= purpose.typography().1 && recovered >= dense,
                     "{purpose:?}: continuation {recovered}, dense {dense}"
                 );
             }

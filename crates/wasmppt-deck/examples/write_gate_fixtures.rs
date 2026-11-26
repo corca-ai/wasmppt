@@ -192,6 +192,23 @@ fn academic_template_xml(part: &str, xml: &str, purpose: &str) -> String {
     if part == "ppt/slideMasters/slideMaster1.xml" {
         return xml
             .replace(
+                r#"<a:off x="800000" y="500000"/><a:ext cx="10592000" cy="900000"/>"#,
+                r#"<a:off x="457200" y="500000"/><a:ext cx="11277600" cy="900000"/>"#,
+            )
+            .replace(
+                r#"<a:off x="1000000" y="1700000"/><a:ext cx="10192000" cy="900000"/>"#,
+                r#"<a:off x="457200" y="1700000"/><a:ext cx="11277600" cy="900000"/>"#,
+            )
+            .replace(
+                r#"<a:off x="1000000" y="1600000"/><a:ext cx="10192000" cy="2200000"/>"#,
+                r#"<a:off x="457200" y="1600000"/><a:ext cx="11277600" cy="2200000"/>"#,
+            )
+            .replace(
+                r#"lIns="90000" tIns="45000" rIns="90000" bIns="45000""#,
+                r#"lIns="0" tIns="0" rIns="0" bIns="0""#,
+            )
+            .replace("<a:lvl1pPr>", r#"<a:lvl1pPr algn="l" marL="0" indent="0">"#)
+            .replace(
                 r#"<a:off x="600000" y="300000"/><a:ext cx="10992000" cy="700000"/>"#,
                 r#"<a:off x="457200" y="320040"/><a:ext cx="11277600" cy="548640"/>"#,
             )
@@ -268,7 +285,7 @@ fn academic_template_xml(part: &str, xml: &str, purpose: &str) -> String {
             .replace(
                 "<a:lstStyle/>",
                 &format!(
-                    r#"<a:lstStyle><a:lvl1pPr><a:defRPr sz="{size}"/></a:lvl1pPr></a:lstStyle>"#
+                    r#"<a:lstStyle><a:lvl1pPr algn="l" marL="0" indent="0"><a:defRPr sz="{size}"/></a:lvl1pPr></a:lstStyle>"#
                 ),
             );
         result = result.replace(&placeholder(id, kind, index), &updated);

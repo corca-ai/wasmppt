@@ -284,7 +284,8 @@ The [expanded comparison](../benchmarks/results/academic-layout/expanded-summary
 frozen preceding engine with the accepted engine on identical canonical-pair and text-density
 inputs. Its [provenance](../benchmarks/results/academic-layout/expanded-provenance.json) retains
 engine/input hashes, immutable baseline guards, native work counters, OS memory scope and gate
-reports. Per-page resolved fonts and text distinguish upward recovery on sparse continuations
-from a fixed maximum-font fit. A measured suffix that already fits the accepted title height
+reports. That retained comparison records the preceding density policy. Current physical lanes start
+at the purpose maximum and shrink only on measured overflow; per-page fonts and text
+record the largest fitting shared step. A measured suffix that already fits the accepted title height
 retains body geometry; only increased measured title height requires another bounded pagination
 pass. Candidate and measurement limits remain unchanged.

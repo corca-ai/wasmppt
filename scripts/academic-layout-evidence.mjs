@@ -51,9 +51,9 @@ export function academicCases({ expanded = false } = {}) {
     add(key, [{ key: `${key}-gallery`, role: 'gallery', split: 'children', content: { kind: 'children', nodes } }], relations)
   }
   if (expanded) {
-    for (const order of ['list-image', 'image-list']) {
-      const key = `canonical-${order}`
-      const copy = list(`${key}-list`, 2), figure = image(`${key}-figure`, 'ratio-16x9')
+    for (const ratio of ['16x9', '4x1', '1x1', '3x4', '1x4']) for (const order of ['list-image', 'image-list']) {
+      const key = `canonical-${order}${ratio === '16x9' ? '' : `-${ratio}`}`
+      const copy = list(`${key}-list`, 2), figure = image(`${key}-figure`, `ratio-${ratio}`)
       // Both items are real short bullets; the legacy corpus separately exercises empty input.
       copy.content.list.items[1].blocks = [text(`${key}-block-last`, 'listItem', 'B')]
       copy.content.list.items[0].blocks[0].content.text.runs[0].text = 'A'
@@ -185,7 +185,8 @@ export async function measureAcademicSnapshot(snapshot, slide, template, assets,
   if (slide.key.startsWith('canonical-')) {
     const copy = pages[0]?.fragments.find(fragment => fragment.role === 'list')
     const figure = pages[0]?.fragments.find(fragment => fragment.role === 'figure')
-    if (pages.length !== 1 || !copy || !figure || copy.bounds.x + copy.bounds.width > figure.bounds.x) errors.push('canonical pair must place complete text left and image right')
+    const imageFirst = slide.key.startsWith('canonical-image-list')
+    if (pages.length !== 1 || !copy || !figure || (imageFirst ? figure.bounds.x + figure.bounds.width > copy.bounds.x : copy.bounds.x + copy.bounds.width > figure.bounds.x)) errors.push('simple pair must preserve source order in its horizontal lanes')
   }
   if (slide.key === 'adaptive-continued-spare') for (const page of pages) {
     if (!page.paintedText.some(shape => shape.text.endsWith(`(${page.continuationOrdinal}/${page.continuationTotal})`))) errors.push(`page ${page.continuationOrdinal}: missing visible accepted title suffix`)

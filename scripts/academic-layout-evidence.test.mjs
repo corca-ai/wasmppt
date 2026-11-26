@@ -125,12 +125,13 @@ test('public SDK measures canonical source orders and adaptive final page fonts'
             const evidence = await measureAcademicSnapshot(snapshot, slide, template, assets, presentation, true)
             assert.deepEqual(evidence.errors, [])
             measured.set(slide.key, evidence)
+            if (slide.key.startsWith('adaptive-')) for (const page of evidence.pages) assert.equal(new Set(page.fragments.filter(fragment => fragment.role === 'list').flatMap(fragment => fragment.fontSizes)).size, 1, 'comparable physical-page body lanes share their largest fitting font')
             if (slide.key.startsWith('canonical')) {
               assert.equal(evidence.pages.length, 1)
               const copy = evidence.pages[0].fragments.find(fragment => fragment.role === 'list')
               const figure = evidence.pages[0].fragments.find(fragment => fragment.role === 'figure')
-              assert.ok(copy.bounds.x + copy.bounds.width <= figure.bounds.x)
-              assert.equal(copy.readingOrder < figure.readingOrder, slide.key === 'canonical-list-image')
+              assert.ok(slide.key.startsWith('canonical-image-list') ? figure.bounds.x + figure.bounds.width <= copy.bounds.x : copy.bounds.x + copy.bounds.width <= figure.bounds.x)
+              assert.equal(copy.readingOrder < figure.readingOrder, slide.key.startsWith('canonical-list-image'))
             }
             if (evidence.pages.length > 1) for (const page of evidence.pages) {
               const label = `(${page.continuationOrdinal}/${page.continuationTotal})`
@@ -139,7 +140,9 @@ test('public SDK measures canonical source orders and adaptive final page fonts'
           } finally { await snapshot.dispose() }
         }
         const fonts = key => measured.get(key).pages.flatMap(page => page.fragments.filter(fragment => fragment.role === 'list').flatMap(fragment => fragment.fontSizes))
-        assert.ok(Math.min(...fonts('adaptive-sparse-two')) > Math.max(...fonts('adaptive-normal-eight')))
+        const preferred = { conference: 2800, seminar: 2400, handout: 2200 }[presentation]
+        assert.deepEqual([...new Set(fonts('adaptive-sparse-two'))], [preferred])
+        assert.deepEqual([...new Set(fonts('adaptive-normal-eight'))], [preferred])
         const nominal = { conference: 2400, seminar: 2000, handout: 1800 }[presentation]
         assert.ok(Math.min(...fonts('adaptive-normal-eight')) >= nominal)
         assert.equal(measured.get('adaptive-nearfull-one').pages.length, 1)
@@ -147,8 +150,44 @@ test('public SDK measures canonical source orders and adaptive final page fonts'
         const continued = measured.get('adaptive-continued-spare')
         assert.equal(continued.pages.length, 2)
         assert.ok(continued.pages.every(page => Math.min(...page.fragments.filter(fragment => fragment.role === 'list').flatMap(fragment => fragment.fontSizes)) >= nominal))
-        assert.ok(Math.max(...fonts('adaptive-continued-spare')) > Math.min(...fonts('adaptive-nearfull-two')))
+        assert.ok(Math.max(...fonts('adaptive-continued-spare')) >= Math.min(...fonts('adaptive-nearfull-two')))
       } finally { await deck.dispose(); await template.dispose() }
     }
   } finally { for (const asset of registered.values()) await asset.dispose(); engine.dispose() }
+})
+
+test('opted-in Starter cover details and section paint on the common body left guide', async () => {
+  const { createNodeEngine } = await import('../packages/wasmppt/generated/node.mjs')
+  const engine = await createNodeEngine()
+  try {
+    for (const purpose of ['conference', 'seminar', 'handout']) {
+      const suffix = purpose === 'seminar' ? '' : `-${purpose}`
+      const prepared = await engine.prepareDeckTemplate(await readFile(new URL(`../fixtures/deck-gates/starter${suffix}.potx`, import.meta.url)))
+      assert.equal(prepared.ok, true)
+      const template = prepared.value, deck = engine.createDeck()
+      try {
+        const cover = academicCases().find(slide => slide.key === 'cover')
+        const section = { key: 'section-guide', kind: 'content', nodes: [{ key: 'section-heading', role: 'section', split: 'never', content: { kind: 'text', text: { runs: [{ text: 'Section guide' }] } } }] }
+        const accepted = await deck.replace({ template, spec: { key: 'editorial-guide', layout: { presentation: purpose }, slides: [cover, section] } })
+        assert.equal(accepted.ok, true)
+        const snapshot = accepted.value
+        try {
+          assert.equal(snapshot.pages.length, 2)
+          for (const page of snapshot.pages) {
+            const scene = await snapshot.resolvePage(page.id)
+            const commands = scene.semantics.filter(owner => owner.source).flatMap(owner => scene.commands.slice(owner.firstCommand, owner.firstCommand + owner.commandCount)).filter(command => command.kind === 'draw-rich-text')
+            assert.equal(commands.length, page.logicalSlideKey === cover.key ? 2 : 1)
+            for (const command of commands) {
+              assert.equal(command.bounds.x + command.frame.marginLeft, 457200)
+              for (const paragraph of command.frame.paragraphs) {
+                assert.equal(paragraph.marginLeft, 0)
+                assert.equal(paragraph.indent, 0)
+                assert.equal(paragraph.alignment, 'left')
+              }
+            }
+          }
+        } finally { await snapshot.dispose() }
+      } finally { await deck.dispose(); await template.dispose() }
+    }
+  } finally { await engine.dispose() }
 })

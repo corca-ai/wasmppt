@@ -417,6 +417,12 @@ try {
             if (!heading) throw new Error('Canvas scene lost the accepted visible continuation title')
             adaptiveOfflinePages.push({ slideIndex, revision: measuredSession.revision, displayList: bytes, page: metadata })
           }
+          if (sourceSemantics.some(semantic => semantic.source.source.startsWith('expanded-academic/canonical-'))) {
+            const image = sourceSemantics.find(semantic => scene.commands.slice(semantic.firstCommand, semantic.firstCommand + semantic.commandCount).some(command => command.kind === 'draw-image'))
+            const copy = sourceSemantics.find(semantic => scene.commands.slice(semantic.firstCommand, semantic.firstCommand + semantic.commandCount).some(command => command.kind === 'draw-rich-text' && command.frame.paragraphs.some(paragraph => paragraph.runs.some(run => run.text.startsWith('Observation')))))
+            const imageFirst = image?.source.source.includes('canonical-image-list')
+            if (!image || !copy || (imageFirst ? image.bounds.x + image.bounds.width > copy.bounds.x : copy.bounds.x + copy.bounds.width > image.bounds.x)) throw new Error('Canvas source-order pair changed horizontal lane ownership')
+          }
           if (sourceSemantics.length === 0) {
             throw new Error(`deck slide ${slideIndex} lost semantic source elements`)
           }
@@ -479,7 +485,7 @@ try {
               const baselines = [...new Set(runs.map(run => Math.round(run.baseline * 1000) / 1000))]
               const availableHeight = (command.bounds.height - command.frame.marginTop - command.frame.marginBottom) / 9525
               if (owner.source.source.startsWith('expanded-academic/') && layout.contentHeight > availableHeight + 1) throw new Error(`adaptive Canvas wrapping exceeds accepted region ${JSON.stringify({ source: owner.source.source, name: owner.name, contentHeight: layout.contentHeight, availableHeight, bounds: command.bounds, fonts: runs.map(run => run.fontSize), text: runs.map(run => run.text).join(''), rows: baselines })}`)
-              measuredTextLayouts.push({ pageIndex: slideIndex, source: owner.source.source, commandIndex, bounds: command.bounds, fontSizes: [...new Set(runs.map(run => Math.round(run.fontSize * 75)))], rows: baselines.length, authoredParagraphs: command.frame.paragraphs.length, contentHeight: layout.contentHeight, availableHeight })
+              measuredTextLayouts.push({ bodyList: runs.some(run => run.text.startsWith('Observation')), pageIndex: slideIndex, source: owner.source.source, commandIndex, bounds: command.bounds, fontSizes: [...new Set(runs.map(run => Math.round(run.fontSize * 75)))], rows: baselines.length, authoredParagraphs: command.frame.paragraphs.length, contentHeight: layout.contentHeight, availableHeight })
             },
             imageCacheKey: async (image, signal) => {
               if (image.partName === undefined) throw new Error('deck image part is missing')
@@ -591,6 +597,10 @@ try {
           if (!matched) throw new Error('matching Canvas image peers were not exercised')
         }
         if (!measuredTextLayouts.some(layout => layout.rows > layout.authoredParagraphs)) throw new Error('aggregate did not measure actual wrapped text')
+        for (const source of ['expanded-academic/adaptive-two.md', 'expanded-academic/adaptive-eight.md']) {
+          const layouts = measuredTextLayouts.filter(layout => layout.source === source && layout.bodyList)
+          if (layouts.length !== 1 || layouts[0].fontSizes.some(size => size !== 2400)) throw new Error(`fitting Canvas body must retain the same purpose maximum: ${source}`)
+        }
         if (adaptiveOfflinePages.length !== 2) throw new Error('adaptive continuation must retain exactly two accepted pages')
         const adaptiveHtml = await serializeOfflineHtmlDocument(adaptiveOfflinePages, async () => { throw new Error('text-only adaptive pages must not load resources') })
         const adaptiveDocument = new DOMParser().parseFromString(adaptiveHtml.html, 'text/html')

@@ -70,11 +70,14 @@ Purpose typography and dynamic header reclamation apply only to regions carrying
 regions without these opt-in bounds retain their fonts and frames, while still using improved
 candidates and full-image containment. Exact font bytes and observable fallback diagnostics
 are unchanged. After topology and source pagination, ordinary body text in full-height stack and column lanes is measured against their final
-available width and height. A density-dependent preferred size adds at most four points to the
-nominal body target, in half-point increments; bounded wrapping and fitting can reduce that size
-within the unchanged floor. Two short bullets therefore receive larger type than eight short
-bullets without shrinking the latter merely to establish a difference. Each physical continuation
-uses its own measured headroom. Growth never changes accepted source partitions or page count.
+available width and height. Every eligible lane starts at the same purpose maximum
+(28/24/22 points for conference/seminar/handout). The shared fitting loop reduces
+one policy font step only on measured overflow, accepting the largest measured fit
+above the unchanged floor. Sparse and denser content that both fit at that maximum
+therefore retain equal type. Comparable body columns on one physical page share the
+densest lane's largest fitting size. Code retains its separate role sizing. Each
+physical continuation uses its own final region.
+Refitting never changes accepted source partitions or page count.
 Captions, tables, formulas, grid/card rows, vertical media splits, hard mixed-content lanes and custom unopted regions retain their role
 policy. Sparse slides may retain whitespace; filling the page is not a hard constraint.
 
@@ -163,11 +166,11 @@ text height, and template margins. Fixed narrow/equal/wide ratios are only a saf
 resource cannot be profiled. Measured fit selects among the derived breakpoints without depending
 on Markdown source order. Same-paragraph, adjacent-block, and blank-separated source relations
 become decreasing affinity costs; source side penalizes a contrary visual order, while an explicit
-caption remains an indivisible hard relation. One explicit canonical pair is the exception:
-a logical body consisting of exactly one ordinary prose/list node and one figure image/SVG uses
-text on the left and the complete image on the right, in either source order. This changes visual
-slot ownership, never source sequence, source association or fragment reading order. Multi-image,
-gallery, caption and card bodies retain their existing policies. Contain whitespace, relation distance, visual
+caption remains an indivisible hard relation. A simple logical body consisting of
+exactly one ordinary prose/list node and one figure image/SVG uses source order for
+its horizontal lanes: an image first occupies the left lane, and text first occupies
+the left lane. This preserves source sequence, associations and reading order.
+Multi-image, gallery, caption and card bodies retain their existing policies. Contain whitespace, relation distance, visual
 imbalance, and complexity are scored after readability. Gallery candidates enumerate bounded
 source-ordered justified rows, transposed columns, equal grids, and dimension-floor-aware tracks.
 Track weights come from canonical intrinsic aspects. Each candidate measures its captions at

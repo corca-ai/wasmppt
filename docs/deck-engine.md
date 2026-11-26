@@ -123,8 +123,8 @@ shape, finite chart values, and configured safety limits.
 
 - every renderable semantic source extent is covered exactly once;
 - text slices are contiguous UTF-8 boundaries and list/table slices are contiguous;
-- physical fragment order matches semantic source order, including canonical text-left/image-right
-  pairs whose visual slots differ from their original sequence;
+- physical fragment order matches semantic source order, including source-ordered image/text
+  pairs and caption associations;
 - every page and fragment stays on its logical slide and an accepting template region;
 - topology kinds have a legal slot count and every slotted region references an existing slot;
 - template, planned-region, and fragment geometry is positive and contained;

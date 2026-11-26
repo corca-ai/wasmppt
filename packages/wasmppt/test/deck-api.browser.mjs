@@ -81,8 +81,8 @@ export async function checkDeckBrowserApi(page) {
       return result
     } finally { await view.dispose(); view.canvas.remove(); engine.dispose() }
   }, { before: spec('Before'), after: spec('After', 'conference') })
-  assert.equal(facts.firstPurposeFont, 2000)
-  assert.equal(facts.secondPurposeFont, 2400)
+  assert.equal(facts.firstPurposeFont, 2300)
+  assert.equal(facts.secondPurposeFont, 2700)
   assert.equal(facts.nativeText, 'After\nSecond paragraph')
   assert.deepEqual(facts.nativeRange, { value: 'After\nSecond paragraph', start: 6, end: 12 })
   assert.equal(facts.nativeFrozen, true)

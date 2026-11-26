@@ -17,7 +17,7 @@ const korean = '측정한 학습 곡선을 비교하고 불확실성을 보고�
 const list = (key, count, verbose = false) => ({ key, role: 'list', split: 'list-items', content: { kind: 'list', list: { ordered: false, start: 1, items: Array.from({ length: count }, (_, i) => ({ key: `${key}-item-${i}`, blocks: i === count - 1 ? [] : [text(`${key}-block-${i}`, 'listItem', verbose ? paragraph : `Result ${i + 1}: reproducible estimates retain uncertainty.`)], children: [] })) } } })
 
 /** One shared semantic corpus for the pre-change and post-change engine, without host geometry. */
-export function academicCases() {
+export function academicCases({ expanded = false } = {}) {
   const slides = []
   const add = (key, nodes, relations = [], title = 'Learning curves / 학습 곡선') => slides.push({ key, kind: 'content', nodes: [text(`${key}-title`, 'title', title), ...nodes], mediaTextRelations: relations })
   slides.push({ key: 'cover', kind: 'title', nodes: [text('cover-title', 'title', 'Learning curves / 학습 곡선'), text('cover-subtitle', 'subtitle', 'Research seminar · methods and reproducible evidence')] })
@@ -49,6 +49,21 @@ export function academicCases() {
       nodes.push(figure, caption); relations.push(relation(figure.key, caption.key, true))
     }
     add(key, [{ key: `${key}-gallery`, role: 'gallery', split: 'children', content: { kind: 'children', nodes } }], relations)
+  }
+  if (expanded) {
+    for (const order of ['list-image', 'image-list']) {
+      const key = `canonical-${order}`
+      const copy = list(`${key}-list`, 2), figure = image(`${key}-figure`, 'ratio-16x9')
+      // Both items are real short bullets; the legacy corpus separately exercises empty input.
+      copy.content.list.items[1].blocks = [text(`${key}-block-last`, 'listItem', 'B')]
+      copy.content.list.items[0].blocks[0].content.text.runs[0].text = 'A'
+      add(key, order === 'list-image' ? [copy, figure] : [figure, copy], [], 'Canonical pair')
+    }
+    for (const [label, count, repetitions] of [['sparse-two', 2, 0], ['normal-eight', 8, 0], ['nearfull-one', 14, 0], ['sparse-two-columns', 20, 0], ['nearfull-two', 28, 0], ['continued-spare', 44, 0]]) {
+      const key = `adaptive-${label}`, copy = list(`${key}-list`, count)
+      for (let index = 0; index < count; index++) copy.content.list.items[index].blocks = [text(`${key}-text-${index}`, 'listItem', repetitions ? paragraph : `Observation ${index + 1}`)]
+      add(key, [copy], [], 'Measured body density')
+    }
   }
   for (const slide of slides) {
     let position = 1
@@ -118,6 +133,7 @@ export async function measureAcademicSnapshot(snapshot, slide, template, assets,
   const errors = []
   for (const page of snapshot.pages) {
     const scene = await snapshot.resolvePage(page.id)
+    const paintedText = scene.commands.filter(command => command.kind === 'draw-rich-text').map(command => ({ bounds: command.bounds, text: command.frame.paragraphs.map(textParagraph => textParagraph.runs.map(run => run.text).join('')).join('\n'), fontSizes: [...new Set(command.frame.paragraphs.flatMap(textParagraph => textParagraph.runs.filter(run => run.text.trim()).map(run => run.style.fontSize)))] }))
     const source = scene.semantics.filter(item => item.source)
     const fragments = source.map(item => {
       const identity = snapshot.sourceIdentity(item.source.semanticId)
@@ -126,7 +142,7 @@ export async function measureAcademicSnapshot(snapshot, slide, template, assets,
       const fonts = commands.flatMap(command => command.kind === 'draw-rich-text' ? command.frame.paragraphs.flatMap(textParagraph => textParagraph.runs.filter(run => run.text.trim().length > 0).map(run => run.style.fontSize)) : command.kind === 'draw-text' && scene.strings[command.text]?.trim().length > 0 ? [command.style.fontSize] : [])
       if (academic && fonts.length > 0) {
         const minimum = node?.role === 'caption' ? caption : node?.role === 'title' ? title : floor
-        const maximum = node?.role === 'caption' ? caption : node?.role === 'title' ? (slide.kind === 'title' ? cover : title) : bodySize
+        const maximum = node?.role === 'caption' ? caption : node?.role === 'title' ? (slide.kind === 'title' ? cover : title) : bodySize + 400
         for (const size of fonts) if (size < minimum || size > maximum) errors.push(`${node?.key}: painted font ${size} outside purpose range ${minimum}..${maximum}`)
       }
       const pictures = commands.filter(command => command.kind === 'draw-image').map(command => ({ frame: command.transform.bounds, crop: command.crop }))
@@ -164,7 +180,15 @@ export async function measureAcademicSnapshot(snapshot, slide, template, assets,
       if (bodyReclaimOpportunityEmu > 0 && bodyReclaimedEmu <= 0) errors.push('measured short title did not reclaim available preferred header reservation')
       if (firstBody && header && firstBody.bounds.y < header.bounds.y + header.bounds.height) errors.push('actual body begins before measured title bottom')
     }
-    pages.push({ index: page.index, continuationOrdinal: page.continuationOrdinal, pageWidth: scene.width, pageHeight: scene.height, preferredBodyAreaRatio: body ? area(body) / (scene.width * scene.height) : null, actualBodyTop, actualBodySafeAreaRatio, bodyReclaimedEmu, bodyReclaimOpportunityEmu, measuredHeaderHeight: fullWidthTextProbe ? header.bounds.height : null, preferredHeaderHeight: fullWidthTextProbe ? preferredHeader?.height ?? null : null, actualBodyMetricReason, contentBoundsAreaRatio: covered / (scene.width * scene.height), whitespaceRatio: 1 - covered / (scene.width * scene.height), fragments })
+    pages.push({ paintedText, continuationTotal: page.continuationTotal, index: page.index, continuationOrdinal: page.continuationOrdinal, pageWidth: scene.width, pageHeight: scene.height, preferredBodyAreaRatio: body ? area(body) / (scene.width * scene.height) : null, actualBodyTop, actualBodySafeAreaRatio, bodyReclaimedEmu, bodyReclaimOpportunityEmu, measuredHeaderHeight: fullWidthTextProbe ? header.bounds.height : null, preferredHeaderHeight: fullWidthTextProbe ? preferredHeader?.height ?? null : null, actualBodyMetricReason, contentBoundsAreaRatio: covered / (scene.width * scene.height), whitespaceRatio: 1 - covered / (scene.width * scene.height), fragments })
+  }
+  if (slide.key.startsWith('canonical-')) {
+    const copy = pages[0]?.fragments.find(fragment => fragment.role === 'list')
+    const figure = pages[0]?.fragments.find(fragment => fragment.role === 'figure')
+    if (pages.length !== 1 || !copy || !figure || copy.bounds.x + copy.bounds.width > figure.bounds.x) errors.push('canonical pair must place complete text left and image right')
+  }
+  if (slide.key === 'adaptive-continued-spare') for (const page of pages) {
+    if (!page.paintedText.some(shape => shape.text.endsWith(`(${page.continuationOrdinal}/${page.continuationTotal})`))) errors.push(`page ${page.continuationOrdinal}: missing visible accepted title suffix`)
   }
   for (const authoredRelation of slide.mediaTextRelations ?? []) if (authoredRelation.explicitCaption && !pages.some(page => page.fragments.some(fragment => fragment.key === authoredRelation.mediaNodeKey) && page.fragments.some(fragment => fragment.key === authoredRelation.textNodeKey))) errors.push(`detached caption ${authoredRelation.textNodeKey}`)
   for (const node of nodes.values()) if (!['gallery'].includes(node.role) && !pages.some(page => page.fragments.some(fragment => fragment.key === node.key))) errors.push(`missing content ${node.key}`)
@@ -179,7 +203,7 @@ async function main() {
   const names = (args.get('names') ?? 'starter').split(',')
   const purposes = ['conference', 'seminar', 'handout']
   const { createNodeEngine } = await import(pathToFileURL(enginePath))
-  const inputs = await academicAssets(), slides = academicCases()
+  const inputs = await academicAssets(), slides = academicCases({ expanded: args.has('expanded') })
   const report = { schema: 1, label: args.get('label') ?? 'after', corpusHash: hash(JSON.stringify(slides)), runtime: process.version, engineBundleHash: hash(await readFile(enginePath)), engineWasmHash: hash(await readFile(new URL('../../wasmppt-worker/src/generated/wasmppt_wasm_bg.wasm', pathToFileURL(enginePath)))), sourceRevision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(), sourceDirty: execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim().length > 0, machine: { platform: platform(), release: release(), arch: arch(), cpu: cpus()[0]?.model, totalMemoryBytes: totalmem() }, memoryScope: 'Sampled process RSS/heap after each snapshot; retained engine admission bytes are separate. These are not OS high-water or transient peak allocation measurements.', assets: [...inputs].map(([id, value]) => ({ id, sha256: hash(value.bytes), intrinsicSize: value.intrinsicSize })), candidateCount: null, candidateCountReason: 'Public SDK does not expose per-case planner work counters. Actual native aggregate work counters are retained separately in planner-metrics.json; unchanged work bounds remain authoritative.', results: [], processPeakRssBytes: 0, processPeakHeapBytes: 0, maxAccountedBytes: 0 }
   const engine = await createNodeEngine(), registered = new Map()
   try {

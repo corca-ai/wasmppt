@@ -59,17 +59,24 @@ Purpose is document-wide and independent of theme color. The following sizes are
 ordinary text, list content and table cells use body sizes. Only an explicit `Caption` role
 uses caption type, including emphasized captions represented by the host with that role.
 
-| Purpose | Content title | Body preferred / floor | Caption | Cover |
+| Purpose | Content title | Body preferred / floor / cap | Caption | Cover |
 | --- | ---: | ---: | ---: | ---: |
-| Conference | 30 | 24 / 22 | 18 | 40 |
-| Seminar (default) | 28 | 20 / 18 | 16 | 36 |
-| Handout | 26 | 18 / 16 | 14 | 32 |
+| Conference | 30 | 24 / 22 / 28 | 18 | 40 |
+| Seminar (default) | 28 | 20 / 18 / 24 | 16 | 36 |
+| Handout | 26 | 18 / 16 / 22 | 14 | 32 |
 
 Purpose typography and dynamic header reclamation apply only to regions carrying explicit
 [template generation bounds](deck-template.md#generation-bounds-and-typography). Custom POTX
 regions without these opt-in bounds retain their fonts and frames, while still using improved
 candidates and full-image containment. Exact font bytes and observable fallback diagnostics
-are unchanged. Sparse slides may retain whitespace; filling the page is not a hard constraint.
+are unchanged. After topology and source pagination, ordinary body text in full-height stack and column lanes is measured against their final
+available width and height. A density-dependent preferred size adds at most four points to the
+nominal body target, in half-point increments; bounded wrapping and fitting can reduce that size
+within the unchanged floor. Two short bullets therefore receive larger type than eight short
+bullets without shrinking the latter merely to establish a difference. Each physical continuation
+uses its own measured headroom. Growth never changes accepted source partitions or page count.
+Captions, tables, formulas, grid/card rows, vertical media splits, hard mixed-content lanes and custom unopted regions retain their role
+policy. Sparse slides may retain whitespace; filling the page is not a hard constraint.
 
 ## Semantic flow
 
@@ -101,7 +108,8 @@ Text wraps at Unicode line-break opportunities, retaining complete words that fi
 using emergency character breaks only for an oversized token. Deterministic fallback advances
 account for full-width Unicode text. Code and inline-code runs use the composed Courier New typeface, or observable deterministic
 monospace fallback metrics when its bytes are missing. Paragraph indentation uses the same helper as editable
-composition; nested list paragraphs are measured at their own hierarchy level.
+composition; nested list paragraphs are measured at their own hierarchy level. Visible bullet/number advances,
+including continued ordered-list numbers and hanging indentation, participate in first-line wrapping.
 
 On a title layout only the title is a fixed header. Every following subtitle, prose, or credit
 block flows through the subtitle region in source order. The same bounded candidate search places
@@ -150,12 +158,16 @@ and slot count are encoded on each physical page, while fixed template content a
 regions remain distinguishable through composition.
 
 Media/text candidates derive a bounded set of mirrored column and top/bottom split positions from
-the canonical media aspect, readable media floor, measured text minimum/preferred width, measured
+the canonical media aspect, readable media floor, measured text minimum/preferred width including composed paragraph indentation, measured
 text height, and template margins. Fixed narrow/equal/wide ratios are only a safe fallback when a
 resource cannot be profiled. Measured fit selects among the derived breakpoints without depending
 on Markdown source order. Same-paragraph, adjacent-block, and blank-separated source relations
 become decreasing affinity costs; source side penalizes a contrary visual order, while an explicit
-caption remains an indivisible hard relation. Contain whitespace, relation distance, visual
+caption remains an indivisible hard relation. One explicit canonical pair is the exception:
+a logical body consisting of exactly one ordinary prose/list node and one figure image/SVG uses
+text on the left and the complete image on the right, in either source order. This changes visual
+slot ownership, never source sequence, source association or fragment reading order. Multi-image,
+gallery, caption and card bodies retain their existing policies. Contain whitespace, relation distance, visual
 imbalance, and complexity are scored after readability. Gallery candidates enumerate bounded
 source-ordered justified rows, transposed columns, equal grids, and dimension-floor-aware tracks.
 Track weights come from canonical intrinsic aspects. Each candidate measures its captions at
@@ -209,7 +221,7 @@ height; ordinary body pagination then runs in that resolved region. If this
 cannot fit, title type decreases by the bounded font step toward its own minimum.
 There is no page-percentage title cap. Every accepted fragment retains explicit
 geometry and typography. Continuation chrome uses the first page's exact title
-frame and type size.
+frame and type size, including the measured synthetic continuation suffix.
 
 An atomic group that cannot fit any legal candidate at its floor produces
 `PLAN_ATOMIC_OVERFLOW`. Its logical slide enters `DeckPlan::failed_slides` with
@@ -240,8 +252,17 @@ standalone display math, media-caption groups, and ordinary prose children in th
 
 Derived physical pages retain the logical slide's hidden state and selected template layout. They
 carry the source H2/title identity for repeated heading chrome and structured continuation
-ordinal, total, and label metadata. The metadata does not prescribe visible page chrome; templates
-remain the sole owner of rendered slide numbering.
+ordinal, total, and label metadata. For a multi-page logical slide, its actual visible title ends
+with the accepted label in parentheses, including the first page: `(1/2)`, `(2/2)`. Template slide
+number fields remain independent page furniture. The source title range is unchanged; the suffix
+and repeated headings own no additional source fragments.
+
+The planner measures every actual ordinal/total heading string. If the accepted topology needs a
+larger heading frame, it reserves that measured height and replans the body conservatively.
+Reservation increases monotonically at a fixed title font, and all attempts consume the original
+cumulative assignment and measurement budgets. The final total is measured before acceptance;
+there is no host counter or renderer-specific refit. Synthetic measurement IDs include the label,
+preventing reuse of unsuffixed or stale-total widths. A work-limit failure remains explicit.
 The first continued fragment of a table on each page records its header-row repeat count. The
 planner coalesces every contiguous row range into exactly one native-table fragment per page, and
 the composer renders repeated-header metadata without creating additional source fragments.

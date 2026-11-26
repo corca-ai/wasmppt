@@ -39,10 +39,12 @@ deck or disappear from export. Source-anchor links stay non-active until an expl
 target contract exists.
 
 Each shape and relationship receives a deterministic source-order identifier. Hidden state is
-written on the physical slide. Derived continuation pages add only the planned repeated heading;
-the first physical page's explicit frame and type size are reused without another fit pass;
-ordinal, total, and label remain plan metadata for navigation and accessibility. The composer does
-not compete with template-owned slide-number fields by materializing another visible counter.
+written on the physical slide. Multi-page logical slides append the accepted continuation label to their visible title on every
+page, for example `Results (1/2)` and `Results (2/2)`. Derived pages repeat that heading as source-free
+chrome. The first physical page's measured frame and type size are reused without another fit pass.
+`Continuation::heading_text` adds the synthetic label while preserving the source runs and title
+range. Canvas, PPTX, standalone HTML and browser PDF therefore receive the same composed title.
+Template slide-number fields remain independent furniture.
 
 Container nodes never become output shapes. The validated plan names only source-owning leaf
 nodes, and each coalesced fragment becomes exactly one editable text box, list, code box, table,

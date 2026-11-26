@@ -172,3 +172,9 @@ Unsupported:
 - [Runtime host adapters](hosts.md) define the three execution environments.
 - [Compatibility gates](compatibility.md) own visual and desktop-consumer evidence.
 - [Performance contract](performance.md) owns the shared budgets and raw benchmark policy.
+
+The expanded academic corpus adds both canonical list/image source orders, short two/eight-item
+lists, sparse and near-full columns, and two-page continuations. Use `--expanded=true` with the SDK
+evidence runner to include these cases; omission preserves the historical same-input corpus.
+Reports retain actual resolved fonts, text, bounds and per-page continuation totals. The native
+shared fixture exercises the same policy through existing cross-host and export gates.

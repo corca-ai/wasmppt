@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn corpus_manifest() -> &'static str {
     concat!(
-        "{\n  \"schema\": 3,\n  \"id\": \"academic-autolayout-v4\",\n  \"cases\": [\n",
+        "{\n  \"schema\": 3,\n  \"id\": \"academic-autolayout-v5\",\n  \"cases\": [\n",
         "    \"title-variants\", \"long-prose\", \"long-list-with-live-empty-item\",\n",
         "    \"table-continuation\", \"long-code\", \"mixed-media\",\n",
         "    \"aspect-aware-gallery-10\", \"figure-caption\", \"quote-credit\",\n",
@@ -68,7 +68,8 @@ fn corpus_manifest() -> &'static str {
         "    \"media-aspects-4x1-16x9-1x1-3x4-1x4\",\n",
         "    \"media-context-image-caption-short-long\",\n",
         "    \"media-pairs-2-3-5-9\", \"captioned-peers-outside-gallery\", \"jpeg-exif-orientation-6-8\",\n",
-        "    \"licensed-research-multipanel-landscape-portrait\", \"mixed-long-academic-heading\", \"measured-column-results\"\n",
+        "    \"licensed-research-multipanel-landscape-portrait\", \"mixed-long-academic-heading\", \"measured-column-results\",\n",
+        "    \"canonical-list-image\", \"canonical-image-list\", \"adaptive-two-eight-columns-continuations\"\n",
         "  ],\n  \"invariants\": [\n",
         "    \"exact-source-coverage\", \"no-overlap\", \"readable-type\",\n",
         "    \"balanced-flow\", \"no-singleton-final-orphan\", \"bounded-media\",\n",
@@ -511,6 +512,7 @@ fn deck_spec() -> DeckSpec {
     });
     slides.extend(media_quality_slides(&quality_resources, &exif_resources));
     slides.extend(academic_research_slides(&research_resources));
+    slides.extend(expanded_academic_slides(&quality_resources[1]));
     let mut resources = vec![
         DeckResource {
             id: square,
@@ -715,6 +717,105 @@ fn academic_research_slides(resources: &[MediaFixture; 2]) -> Vec<LogicalSlide> 
         ],
         media_text_relations: Vec::new(),
     });
+    slides
+}
+
+fn expanded_academic_slides(resource: &MediaFixture) -> Vec<LogicalSlide> {
+    let mut slides = Vec::new();
+    for (ordinal, (case, count)) in [
+        ("canonical-list-image", 2),
+        ("canonical-image-list", 2),
+        ("adaptive-two", 2),
+        ("adaptive-eight", 8),
+        ("adaptive-two-columns", 20),
+        ("adaptive-nearfull-columns", 28),
+        ("adaptive-continuation-spare", 44),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let slide_id = id(227).derive(b"expanded-academic-slide", ordinal as u32);
+        let source = format!("expanded-academic/{case}.md");
+        let list_start = if case == "canonical-image-list" {
+            30
+        } else {
+            20
+        };
+        let list = SemanticNode {
+            id: slide_id.derive(b"list", 0),
+            source: SourceRange::new(&source, list_start, 900),
+            role: SemanticRole::List,
+            split: SplitPolicy::ListItems,
+            content: SemanticContent::List(ListContent {
+                ordered: false,
+                start: 1,
+                items: (0..count)
+                    .map(|index| {
+                        let range = SourceRange::new(
+                            &source,
+                            list_start + index * 10,
+                            list_start + index * 10 + 9,
+                        );
+                        ListItem {
+                            id: slide_id.derive(b"item", index),
+                            source: range.clone(),
+                            blocks: vec![SemanticNode {
+                                id: slide_id.derive(b"item-text", index),
+                                source: range,
+                                role: SemanticRole::ListItem,
+                                split: SplitPolicy::Never,
+                                content: SemanticContent::Text(plain(&format!(
+                                    "Observation {}",
+                                    index + 1
+                                ))),
+                            }],
+                            children: Vec::new(),
+                        }
+                    })
+                    .collect(),
+            }),
+        };
+        let mut nodes = vec![SemanticNode {
+            id: slide_id.derive(b"title", 0),
+            source: SourceRange::new(&source, 0, 10),
+            role: SemanticRole::Title,
+            split: SplitPolicy::Never,
+            content: SemanticContent::Text(plain("Measured body density")),
+        }];
+        if case == "canonical-image-list" {
+            nodes.push(SemanticNode {
+                id: slide_id.derive(b"image", 0),
+                source: SourceRange::new(&source, 20, 29),
+                role: SemanticRole::Figure,
+                split: SplitPolicy::Never,
+                content: SemanticContent::Image(ImageContent {
+                    resource_id: resource.resource.id,
+                    alt_text: "Complete canonical pair figure".into(),
+                }),
+            });
+        }
+        nodes.push(list);
+        if case == "canonical-list-image" {
+            nodes.push(SemanticNode {
+                id: slide_id.derive(b"image", 0),
+                source: SourceRange::new(&source, 910, 920),
+                role: SemanticRole::Figure,
+                split: SplitPolicy::Never,
+                content: SemanticContent::Image(ImageContent {
+                    resource_id: resource.resource.id,
+                    alt_text: "Complete canonical pair figure".into(),
+                }),
+            });
+        }
+        slides.push(LogicalSlide {
+            id: slide_id,
+            source: SourceRange::new(source, 0, 1000),
+            kind: LogicalSlideKind::Content,
+            hidden: false,
+            nodes,
+            media_text_relations: Vec::new(),
+        });
+    }
     slides
 }
 

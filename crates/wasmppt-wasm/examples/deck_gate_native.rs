@@ -70,6 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let plan = DeckPlan::decode(&first.plan, &DeckLimits::default())?;
     let decoded_spec = DeckSpec::decode(&spec, &DeckLimits::default())?;
     let quality = assert_layout_quality(&template, &decoded_spec, &plan)?;
+    assert_expanded_export(&decoded_spec, &plan, &first.pptx)?;
     let mut plan_samples_ms = vec![first.timings.plan_ms];
     let mut resolve_all_samples_ms = vec![first.timings.resolve_all_ms];
     let mut export_samples_ms = vec![first.timings.export_ms];
@@ -110,6 +111,84 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     )?;
     fs::write(output_directory.join("native-quality.json"), quality)?;
+    Ok(())
+}
+
+fn assert_expanded_export(
+    spec: &DeckSpec,
+    plan: &DeckPlan,
+    pptx: &[u8],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let document = wasmppt_layout::PresentationDocument::open(pptx.to_vec())?;
+    for (index, page) in plan.pages.iter().enumerate() {
+        let logical = spec
+            .logical_slides
+            .iter()
+            .find(|slide| slide.id == page.logical_slide_id)
+            .ok_or("missing logical slide")?;
+        if !logical.source.source.starts_with("expanded-academic/") {
+            continue;
+        }
+        let resolved = document.resolve_slide(index)?;
+        let elements = &resolved.slide.elements;
+        let source_title = logical.nodes.first().ok_or("missing title")?;
+        let SemanticContent::Text(text) = &source_title.content else {
+            return Err("missing title text".into());
+        };
+        let heading = elements
+            .iter()
+            .find(|element| element.id == 2 && element.source == wasmppt_layout::SourceLevel::Slide)
+            .ok_or("missing exported title")?;
+        if heading.text != page.continuation.heading_text(text).plain_text() {
+            return Err("exported continuation title differs from accepted label".into());
+        }
+        let offset = 2 + u32::from(page.continuation.ordinal > 1);
+        for (shape_index, shape) in wasmppt_deck_compose::planned_shapes(page, spec)
+            .iter()
+            .enumerate()
+        {
+            let Some(fragment) = shape.fragments.first() else {
+                continue;
+            };
+            if fragment.type_choice.font_size == 0 {
+                continue;
+            }
+            let element = elements
+                .iter()
+                .find(|element| {
+                    element.id == offset + shape_index as u32
+                        && element.source == wasmppt_layout::SourceLevel::Slide
+                })
+                .ok_or("missing exported body")?;
+            let frame = element
+                .text_frame
+                .as_ref()
+                .ok_or("exported body lost editable text")?;
+            if frame
+                .paragraphs
+                .iter()
+                .flat_map(|paragraph| &paragraph.runs)
+                .filter(|run| !run.text.trim().is_empty())
+                .any(|run| run.style.font_size != fragment.type_choice.font_size as i32)
+            {
+                return Err("PPTX body font differs from accepted per-page font".into());
+            }
+            let bounds = element.transform.bounds;
+            if (
+                bounds.origin.x,
+                bounds.origin.y,
+                bounds.size.width,
+                bounds.size.height,
+            ) != (
+                shape.frame.x,
+                shape.frame.y,
+                shape.frame.width,
+                shape.frame.height,
+            ) {
+                return Err("exported adaptive frame drifted".into());
+            }
+        }
+    }
     Ok(())
 }
 
@@ -452,7 +531,7 @@ fn assert_layout_quality(
         .join(",");
     Ok(format!(
         concat!(
-            "{{\"schema\":3,\"corpus\":\"academic-autolayout-v4\",\"counts\":{{",
+            "{{\"schema\":3,\"corpus\":\"academic-autolayout-v5\",\"counts\":{{",
             "\"logicalSlides\":{},\"physicalPages\":{},\"flowPages\":{},",
             "\"galleryPages\":{},\"mediaFragments\":{},\"qualityImages\":{},",
             "\"tableFragments\":{}}},\"images\":[{}],",

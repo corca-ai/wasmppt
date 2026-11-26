@@ -402,12 +402,21 @@ try {
         let minimumChangedPixels = Number.POSITIVE_INFINITY
         const decodedImageSizes = new Map()
         const qualityImageCommands = []
+        const adaptiveOfflinePages = []
+        const measuredTextLayouts = []
         for (const [slideIndex, encoded] of measuredSlides.entries()) {
           const binary = atob(encoded)
           const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
           const scene = decodeDisplayList(bytes)
           const sourceSemantics = scene.semantics.filter((semantic) => semantic.source !== undefined)
           sourceElements += sourceSemantics.length
+          if (sourceSemantics.some(semantic => semantic.source.source === 'expanded-academic/adaptive-continuation-spare.md')) {
+            const metadata = measuredSession.pages[slideIndex]
+            const label = `(${metadata.continuationOrdinal}/${metadata.continuationTotal})`
+            const heading = scene.commands.find(command => command.kind === 'draw-rich-text' && command.frame.paragraphs.some(paragraph => paragraph.runs.map(run => run.text).join('').endsWith(label)))
+            if (!heading) throw new Error('Canvas scene lost the accepted visible continuation title')
+            adaptiveOfflinePages.push({ slideIndex, revision: measuredSession.revision, displayList: bytes, page: metadata })
+          }
           if (sourceSemantics.length === 0) {
             throw new Error(`deck slide ${slideIndex} lost semantic source elements`)
           }
@@ -462,6 +471,16 @@ try {
           const canvas = new OffscreenCanvas(320, 180)
           const context = canvas.getContext('2d', { alpha: false })
           await renderer.render(scene, context, {
+            onTextLayout: (commandIndex, layout) => {
+              const owner = sourceSemantics.find(semantic => commandIndex >= semantic.firstCommand && commandIndex < semantic.firstCommand + semantic.commandCount)
+              if (!owner) return
+              const command = scene.commands[commandIndex]
+              const runs = layout.runs.filter(run => run.text.trim())
+              const baselines = [...new Set(runs.map(run => Math.round(run.baseline * 1000) / 1000))]
+              const availableHeight = (command.bounds.height - command.frame.marginTop - command.frame.marginBottom) / 9525
+              if (owner.source.source.startsWith('expanded-academic/') && layout.contentHeight > availableHeight + 1) throw new Error(`adaptive Canvas wrapping exceeds accepted region ${JSON.stringify({ source: owner.source.source, name: owner.name, contentHeight: layout.contentHeight, availableHeight, bounds: command.bounds, fonts: runs.map(run => run.fontSize), text: runs.map(run => run.text).join(''), rows: baselines })}`)
+              measuredTextLayouts.push({ pageIndex: slideIndex, source: owner.source.source, commandIndex, bounds: command.bounds, fontSizes: [...new Set(runs.map(run => Math.round(run.fontSize * 75)))], rows: baselines.length, authoredParagraphs: command.frame.paragraphs.length, contentHeight: layout.contentHeight, availableHeight })
+            },
             imageCacheKey: async (image, signal) => {
               if (image.partName === undefined) throw new Error('deck image part is missing')
               return client.deckSessionResourceFingerprint(
@@ -571,7 +590,16 @@ try {
           }
           if (!matched) throw new Error('matching Canvas image peers were not exercised')
         }
+        if (!measuredTextLayouts.some(layout => layout.rows > layout.authoredParagraphs)) throw new Error('aggregate did not measure actual wrapped text')
+        if (adaptiveOfflinePages.length !== 2) throw new Error('adaptive continuation must retain exactly two accepted pages')
+        const adaptiveHtml = await serializeOfflineHtmlDocument(adaptiveOfflinePages, async () => { throw new Error('text-only adaptive pages must not load resources') })
+        const adaptiveDocument = new DOMParser().parseFromString(adaptiveHtml.html, 'text/html')
+        if (!adaptiveDocument.body.textContent.includes('Measured body density (1/2)') || !adaptiveDocument.body.textContent.includes('Measured body density (2/2)')) throw new Error('HTML/PDF input lost the accepted continuation labels')
+        const adaptiveFonts = [...adaptiveDocument.querySelectorAll('span')].filter(span => span.textContent.startsWith('Observation')).map(span => Math.round(Number.parseFloat(span.style.fontSize) * 72 / 96 * 100))
+        if (!adaptiveFonts.length || adaptiveFonts.some(font => !Number.isFinite(font) || font < 2000 || font > 2400)) throw new Error('HTML/PDF input changed adaptive body font bounds')
         deckVisualQuality = {
+          measuredTextLayouts,
+          adaptiveContinuationHtml: { pages: adaptiveHtml.pageCount, fonts: [...new Set(adaptiveFonts)], visibleLabels: ['1/2', '2/2'] },
           schema: 2,
           renderedSlides: measuredSlides.length,
           sourceElements,
@@ -1509,9 +1537,9 @@ try {
   )
   assert.equal(result.deckEvidence.cacheable, true)
   // Continuous prose fits one page without changing source coverage or hidden-page handling.
-  assert.equal(result.deckEvidence.topology.slideCount, 70)
+  assert.equal(result.deckEvidence.topology.slideCount, 78)
   assert.equal(result.deckEvidence.topology.presentableSlides.length, result.deckEvidence.topology.slideCount - 1)
-  assert.equal(result.deckEvidence.visualQuality.renderedSlides, 70)
+  assert.equal(result.deckEvidence.visualQuality.renderedSlides, 78)
   assert(result.deckEvidence.visualQuality.sourceElements >= 30)
   assert(result.deckEvidence.topology.pages.some((deckPage) => deckPage.hidden))
   assert(

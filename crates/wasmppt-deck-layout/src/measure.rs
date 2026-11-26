@@ -224,8 +224,19 @@ impl<'a> Measurer<'a> {
                 .max(1)
         };
         let code_font = self.fonts.font(wasmppt_deck::CODE_TYPEFACE);
-        let paragraph_lines = |block: &SemanticNode, slice: FragmentSlice, level: u8| {
-            let width = paragraph_width(level);
+        let paragraph_lines = |block: &SemanticNode,
+                               slice: FragmentSlice,
+                               level: u8,
+                               prefix: Option<&str>| {
+            let (margin, indent) =
+                wasmppt_deck::paragraph_indentation(region.text_levels.first(), level, false);
+            let width = if prefix.is_some() {
+                usable_width
+                    .saturating_sub(margin.saturating_add(indent))
+                    .max(1)
+            } else {
+                paragraph_width(level)
+            };
             match &block.content {
                 SemanticContent::Text(text) => {
                     if region.role == RegionRole::Title
@@ -248,7 +259,15 @@ impl<'a> Measurer<'a> {
                         })
                         .unwrap_or(1)
                     } else {
-                        rich_lines(text, slice, width, exact, code_font, font_size)
+                        rich_lines(
+                            text,
+                            slice,
+                            width,
+                            exact,
+                            code_font,
+                            font_size,
+                            prefix.map(|text| (text, indent.saturating_neg().max(0))),
+                        )
                     }
                 }
                 SemanticContent::Code(code) => {
@@ -259,9 +278,24 @@ impl<'a> Measurer<'a> {
                     wasmppt_deck::logical_code_lines(&code.code)
                         .skip(start)
                         .take(end - start)
-                        .map(|line| {
-                            wrapped_lines(line, width, &|range| {
-                                Some(code_advance(&line[range], code_font, font_size))
+                        .enumerate()
+                        .map(|(index, line)| {
+                            let label = if index == 0 { prefix.unwrap_or("") } else { "" };
+                            let content = format!("{label}{line}");
+                            let extra = if label.is_empty() {
+                                0
+                            } else {
+                                indent
+                                    .saturating_neg()
+                                    .max(0)
+                                    .saturating_sub(code_advance(label, code_font, font_size))
+                                    .max(0)
+                            };
+                            wrapped_lines(&content, width, &|range| {
+                                Some(
+                                    code_advance(&content[range.clone()], code_font, font_size)
+                                        .saturating_add(if range.start == 0 { extra } else { 0 }),
+                                )
                             })
                             .unwrap_or(1)
                         })
@@ -278,10 +312,12 @@ impl<'a> Measurer<'a> {
             list_lines(
                 list.items.get(start..end).unwrap_or(&[]),
                 0,
+                list.ordered,
+                list.start.saturating_add(start as u32),
                 &paragraph_lines,
             )
         } else {
-            paragraph_lines(node, slice, 0)
+            paragraph_lines(node, slice, 0, None)
         };
         let text_height = line_height.saturating_mul(i64::from(lines));
         let block_height = line_height.saturating_mul(i64::from(blocks));
@@ -978,19 +1014,40 @@ fn list_width_demand(
 fn list_lines(
     items: &[wasmppt_deck::ListItem],
     level: u8,
-    lines: &impl Fn(&SemanticNode, FragmentSlice, u8) -> u32,
+    ordered: bool,
+    start: u32,
+    lines: &impl Fn(&SemanticNode, FragmentSlice, u8, Option<&str>) -> u32,
 ) -> u32 {
-    items.iter().fold(0u32, |total, item| {
+    items.iter().enumerate().fold(0u32, |total, (index, item)| {
+        let prefix = if ordered {
+            format!("{}. ", start.saturating_add(index as u32))
+        } else {
+            "• ".to_owned()
+        };
         let paragraphs = item
             .blocks
             .iter()
-            .map(|block| lines(block, FragmentSlice::Whole, level))
+            .enumerate()
+            .map(|(index, block)| {
+                lines(
+                    block,
+                    FragmentSlice::Whole,
+                    level,
+                    (index == 0).then_some(prefix.as_str()),
+                )
+            })
             .fold(0, u32::saturating_add)
             .max(1);
         item.children
             .iter()
             .fold(total.saturating_add(paragraphs), |total, child| {
-                total.saturating_add(list_lines(&child.items, level.saturating_add(1), lines))
+                total.saturating_add(list_lines(
+                    &child.items,
+                    level.saturating_add(1),
+                    child.ordered,
+                    child.start,
+                    lines,
+                ))
             })
     })
 }
@@ -1231,7 +1288,29 @@ fn rich_lines(
     font: Option<&crate::FontFace>,
     code_font: Option<&crate::FontFace>,
     size: u32,
+    prefix: Option<(&str, Emu)>,
 ) -> u32 {
+    let prefixed = prefix.map(|(label, _)| {
+        let mut value = text.clone();
+        value.runs.insert(
+            0,
+            wasmppt_deck::RichTextRun {
+                text: label.to_owned(),
+                marks: text
+                    .runs
+                    .first()
+                    .map_or_else(Default::default, |run| run.marks),
+                hyperlink: None,
+            },
+        );
+        value
+    });
+    let text = prefixed.as_ref().unwrap_or(text);
+    let extra = prefix.map_or(0, |(label, minimum)| {
+        minimum
+            .saturating_sub(rich_advance(text, 0..label.len(), font, code_font, size))
+            .max(0)
+    });
     let plain = text.plain_text();
     let (start, end) = match slice {
         FragmentSlice::Text { start, end } => (start as usize, end as usize),
@@ -1239,13 +1318,16 @@ fn rich_lines(
     };
     let selected = plain.get(start..end).unwrap_or("");
     wrapped_lines(selected, width, &|range| {
-        Some(rich_advance(
-            text,
-            start + range.start..start + range.end,
-            font,
-            code_font,
-            size,
-        ))
+        Some(
+            rich_advance(
+                text,
+                start + range.start..start + range.end,
+                font,
+                code_font,
+                size,
+            )
+            .saturating_add(if range.start == 0 { extra } else { 0 }),
+        )
     })
     .unwrap_or(1)
 }
@@ -1303,6 +1385,43 @@ mod tests {
             bytes: bytes.into(),
             intrinsic_size: hint,
         }
+    }
+
+    #[test]
+    fn narrow_list_measurement_includes_the_visible_bullet_before_its_text() {
+        let mut node = super::super::tests::list_node(4, 2);
+        if let SemanticContent::List(list) = &mut node.content {
+            for item in &mut list.items {
+                if let SemanticContent::Text(text) = &mut item.blocks[0].content {
+                    text.runs[0].text = "Observation 1".into();
+                }
+            }
+        }
+        let spec = super::super::tests::spec(vec![node]);
+        let fonts = crate::FontCatalog::default();
+        let limits = crate::PlannerLimits::default();
+        let mut template = super::super::tests::template(5_000_000);
+        template.regions[1].text_levels[0].margin_left = Some(0);
+        template.regions[1].text_levels[0].indent = Some(0);
+        let region = &template.regions[1];
+        let mut measurer = Measurer::new(&fonts, &spec, &limits);
+        let measured = measurer
+            .measure(
+                &spec.logical_slides[0].nodes[0],
+                FragmentSlice::Whole,
+                region,
+                EmuRect {
+                    width: 1_440_000,
+                    ..region.frame
+                },
+                2000,
+                0,
+            )
+            .unwrap();
+        assert!(
+            measured.height >= text_line_height(2000) * 6,
+            "visible bullet and following words require six actual rows: {measured:?}"
+        );
     }
 
     #[test]
@@ -1421,6 +1540,7 @@ mod tests {
                 None,
                 None,
                 2_000,
+                None,
             ) > 1,
         );
         let latin = "short longestword tiny";
@@ -1438,12 +1558,12 @@ mod tests {
         let em = font_size_to_emu(2_000);
         let mut text = rich("iiiiiiiiiiiiiiiiiiii");
         assert_eq!(
-            rich_lines(&text, FragmentSlice::Whole, em * 6, None, None, 2_000),
+            rich_lines(&text, FragmentSlice::Whole, em * 6, None, None, 2_000, None),
             1
         );
         text.runs[0].marks.inline_code = true;
         assert_eq!(
-            rich_lines(&text, FragmentSlice::Whole, em * 6, None, None, 2_000),
+            rich_lines(&text, FragmentSlice::Whole, em * 6, None, None, 2_000, None),
             2
         );
         assert_eq!(code_advance("iiii", None, 2_000), em * 24 / 10);

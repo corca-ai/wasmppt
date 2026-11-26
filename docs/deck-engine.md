@@ -93,8 +93,9 @@ and shape names are not part of this contract.
 
 `DeckPlan` contains physical pages grouped by logical slide. A page carries its stable ID,
 selected template-layout ID, explicit topology kind and slot count, hidden state, one-based
-continuation ordinal and total, repeated heading identity, optional `n/total` metadata label, and
-planned regions. Templates own any visible page-number chrome. A planned region is either fixed
+continuation ordinal and total, repeated heading identity, optional accepted `n/total` label, and
+planned regions. The label also becomes a measured synthetic suffix on the visible title of every
+continued page. Templates independently own page-number fields. A planned region is either fixed
 template furniture/content or assigned to one indexed
 topology slot. For pictures its frame is the complete allocated slot, while the fragment frame is
 the actual visible picture bounds. Each
@@ -122,7 +123,8 @@ shape, finite chart values, and configured safety limits.
 
 - every renderable semantic source extent is covered exactly once;
 - text slices are contiguous UTF-8 boundaries and list/table slices are contiguous;
-- physical fragment order matches semantic source order;
+- physical fragment order matches semantic source order, including canonical text-left/image-right
+  pairs whose visual slots differ from their original sequence;
 - every page and fragment stays on its logical slide and an accepting template region;
 - topology kinds have a legal slot count and every slotted region references an existing slot;
 - template, planned-region, and fragment geometry is positive and contained;

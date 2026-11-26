@@ -764,6 +764,26 @@ pub struct Continuation {
     pub label: Option<String>,
 }
 
+impl Continuation {
+    /// Project source heading runs plus the accepted synthetic continuation label.
+    /// The label owns no source range and never changes source fragment coverage.
+    #[must_use]
+    pub fn heading_text(&self, source: &RichText) -> RichText {
+        let mut text = source.clone();
+        if let Some(label) = &self.label {
+            text.runs.push(RichTextRun {
+                text: format!(" ({label})"),
+                marks: source
+                    .runs
+                    .last()
+                    .map_or_else(TextMarks::default, |run| run.marks),
+                hyperlink: None,
+            });
+        }
+        text
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlannedRegion {
     pub template_region_id: StableId,

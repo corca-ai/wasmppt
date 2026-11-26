@@ -6,15 +6,15 @@
       "scope": "Entire Node process per 480-case matrix, including startup/template preparation, all SDK replacements, all-page resolution, assets, retained report data and JSON output. OS maximum resident set, not engine-scoped heap, logical admission or sampled RSS."
     },
     "after": {
-      "report": "after-purpose-templates-memory.txt",
-      "maximumResidentBytes": 155680768,
+      "report": "expanded-final-purpose-memory.txt",
+      "maximumResidentBytes": 183894016,
       "scope": "Entire Node process per 480-case matrix, including startup/template preparation, all SDK replacements, all-page resolution, assets, retained report data and JSON output. OS maximum resident set, not engine-scoped heap, logical admission or sampled RSS."
     }
   },
   "schema": 1,
   "corpusHash": "ad928336fd1abf24058b844349f373f807ecf519b9faae8eedafc24fba3ec096",
   "engineBefore": "19287ce00b3d887c43ae8ab97605106aee76377fa6603d0a6cee9caccaf91e49",
-  "engineAfter": "739bdb23b16d6250749dbc8173c41853f025518996471abaa487a004a58815c0",
+  "engineAfter": "8996bff81db0b67a295b9e9faa92929dcdc20bc5162f287738730b2bbcfd1756",
   "measurement": "Single SDK replace sample per case with reused engine/assets; template preparation/startup and all-page resolution excluded. Memory is sampled after each snapshot, not a process high-water measurement. Whitespace and page count are context, not independent success criteria.",
   "limits": {
     "candidateCount": null,
@@ -1524,7 +1524,7 @@
     "rejected": 0,
     "casesWithFindings": 0,
     "failedLogicalSlides": 0,
-    "pageCount": 665,
+    "pageCount": 685,
     "fontSizeRangeHundredthPointByRole": {
       "title": {
         "minimum": 2600,
@@ -1535,12 +1535,12 @@
         "maximum": 2400
       },
       "prose": {
-        "minimum": 1700,
-        "maximum": 2400
+        "minimum": 1800,
+        "maximum": 2600
       },
       "list": {
         "minimum": 1700,
-        "maximum": 2400
+        "maximum": 2650
       },
       "table": {
         "minimum": 1800,
@@ -1689,13 +1689,13 @@
         "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
       }
     ],
-    "medianVisibleImageAreaRatio": 0.08850625,
-    "medianWhitespaceRatio": 0.42847794191090693,
-    "replaceP50Ms": 3.6407500000000255,
-    "replaceP95Ms": 17.84558300000026,
+    "medianVisibleImageAreaRatio": 0.09415626792375267,
+    "medianWhitespaceRatio": 0.44193175989720035,
+    "replaceP50Ms": 4.017415999999912,
+    "replaceP95Ms": 17.783374999999978,
     "findings": [],
     "maxAccountedBytes": 25953136,
-    "sampledProcessRssBytes": 151404544
+    "sampledProcessRssBytes": 158089216
   },
   "matrix": [
     {
@@ -1857,11 +1857,11 @@
           },
           "prose": {
             "minimum": 2300,
-            "maximum": 2400
+            "maximum": 2600
           },
           "list": {
             "minimum": 2300,
-            "maximum": 2400
+            "maximum": 2650
           },
           "table": {
             "minimum": 2400,
@@ -1884,10 +1884,10 @@
             "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
           }
         ],
-        "medianVisibleImageAreaRatio": 0.08850625,
-        "medianWhitespaceRatio": 0.3789514650830228,
-        "replaceP50Ms": 8.865167000000042,
-        "replaceP95Ms": 22.282083999999998,
+        "medianVisibleImageAreaRatio": 0.09415626792375267,
+        "medianWhitespaceRatio": 0.3820021839960601,
+        "replaceP50Ms": 8.967874999999992,
+        "replaceP95Ms": 22.91333400000002,
         "findings": []
       }
     },
@@ -2038,7 +2038,7 @@
         "rejected": 0,
         "casesWithFindings": 0,
         "failedLogicalSlides": 0,
-        "pageCount": 43,
+        "pageCount": 45,
         "fontSizeRangeHundredthPointByRole": {
           "title": {
             "minimum": 2800,
@@ -2050,11 +2050,11 @@
           },
           "prose": {
             "minimum": 1900,
-            "maximum": 2000
+            "maximum": 2200
           },
           "list": {
-            "minimum": 2000,
-            "maximum": 2000
+            "minimum": 1900,
+            "maximum": 2200
           },
           "table": {
             "minimum": 2000,
@@ -2078,9 +2078,9 @@
           }
         ],
         "medianVisibleImageAreaRatio": 0.09415626792375267,
-        "medianWhitespaceRatio": 0.38335001093613297,
-        "replaceP50Ms": 4.470332999999982,
-        "replaceP95Ms": 16.963166,
+        "medianWhitespaceRatio": 0.41212701042578015,
+        "replaceP50Ms": 4.177958000000103,
+        "replaceP95Ms": 18.14975000000004,
         "findings": []
       }
     },
@@ -2231,7 +2231,7 @@
         "rejected": 0,
         "casesWithFindings": 0,
         "failedLogicalSlides": 0,
-        "pageCount": 38,
+        "pageCount": 40,
         "fontSizeRangeHundredthPointByRole": {
           "title": {
             "minimum": 2600,
@@ -2242,12 +2242,12 @@
             "maximum": 1800
           },
           "prose": {
-            "minimum": 1700,
-            "maximum": 1800
+            "minimum": 1800,
+            "maximum": 2050
           },
           "list": {
             "minimum": 1700,
-            "maximum": 1800
+            "maximum": 2050
           },
           "table": {
             "minimum": 1800,
@@ -2271,9 +2271,9 @@
           }
         ],
         "medianVisibleImageAreaRatio": 0.08850625,
-        "medianWhitespaceRatio": 0.4409040099154272,
-        "replaceP50Ms": 1.5807499999999663,
-        "replaceP95Ms": 17.927625000000035,
+        "medianWhitespaceRatio": 0.42754326015237676,
+        "replaceP50Ms": 2.699583999999959,
+        "replaceP95Ms": 18.31820800000014,
         "findings": []
       }
     },
@@ -2436,11 +2436,11 @@
           },
           "prose": {
             "minimum": 2300,
-            "maximum": 2400
+            "maximum": 2600
           },
           "list": {
             "minimum": 2300,
-            "maximum": 2400
+            "maximum": 2650
           },
           "table": {
             "minimum": 2400,
@@ -2463,10 +2463,10 @@
             "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
           }
         ],
-        "medianVisibleImageAreaRatio": 0.08850625,
+        "medianVisibleImageAreaRatio": 0.09415626792375267,
         "medianWhitespaceRatio": 0.42034901027996496,
-        "replaceP50Ms": 8.026875000000018,
-        "replaceP95Ms": 21.730499999999893,
+        "replaceP50Ms": 7.630916999999954,
+        "replaceP95Ms": 22.5802920000001,
         "findings": []
       }
     },
@@ -2617,7 +2617,7 @@
         "rejected": 0,
         "casesWithFindings": 0,
         "failedLogicalSlides": 0,
-        "pageCount": 43,
+        "pageCount": 45,
         "fontSizeRangeHundredthPointByRole": {
           "title": {
             "minimum": 2800,
@@ -2629,11 +2629,11 @@
           },
           "prose": {
             "minimum": 1900,
-            "maximum": 2000
+            "maximum": 2200
           },
           "list": {
-            "minimum": 2000,
-            "maximum": 2000
+            "minimum": 1900,
+            "maximum": 2200
           },
           "table": {
             "minimum": 2000,
@@ -2657,9 +2657,9 @@
           }
         ],
         "medianVisibleImageAreaRatio": 0.09415626792375267,
-        "medianWhitespaceRatio": 0.45323699766695835,
-        "replaceP50Ms": 3.766458000000057,
-        "replaceP95Ms": 17.09762499999988,
+        "medianWhitespaceRatio": 0.4820139971566054,
+        "replaceP50Ms": 4.0835420000000795,
+        "replaceP95Ms": 18.303957999999966,
         "findings": []
       }
     },
@@ -2810,7 +2810,7 @@
         "rejected": 0,
         "casesWithFindings": 0,
         "failedLogicalSlides": 0,
-        "pageCount": 38,
+        "pageCount": 40,
         "fontSizeRangeHundredthPointByRole": {
           "title": {
             "minimum": 2600,
@@ -2821,12 +2821,12 @@
             "maximum": 1800
           },
           "prose": {
-            "minimum": 1700,
-            "maximum": 1800
+            "minimum": 1800,
+            "maximum": 2050
           },
           "list": {
             "minimum": 1700,
-            "maximum": 1800
+            "maximum": 2050
           },
           "table": {
             "minimum": 1800,
@@ -2850,9 +2850,9 @@
           }
         ],
         "medianVisibleImageAreaRatio": 0.08850625,
-        "medianWhitespaceRatio": 0.49146833397127443,
-        "replaceP50Ms": 1.3612499999999272,
-        "replaceP95Ms": 17.86349999999993,
+        "medianWhitespaceRatio": 0.4933192469561096,
+        "replaceP50Ms": 2.7153330000001006,
+        "replaceP95Ms": 17.954499999999825,
         "findings": []
       }
     },
@@ -3015,11 +3015,11 @@
           },
           "prose": {
             "minimum": 2300,
-            "maximum": 2400
+            "maximum": 2600
           },
           "list": {
             "minimum": 2300,
-            "maximum": 2400
+            "maximum": 2650
           },
           "table": {
             "minimum": 2400,
@@ -3042,10 +3042,10 @@
             "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
           }
         ],
-        "medianVisibleImageAreaRatio": 0.08850625,
+        "medianVisibleImageAreaRatio": 0.09415626792375267,
         "medianWhitespaceRatio": 0.42034901027996496,
-        "replaceP50Ms": 8.024249999999938,
-        "replaceP95Ms": 22.814666000000216,
+        "replaceP50Ms": 7.644708000000264,
+        "replaceP95Ms": 21.973124999999982,
         "findings": []
       }
     },
@@ -3196,7 +3196,7 @@
         "rejected": 0,
         "casesWithFindings": 0,
         "failedLogicalSlides": 0,
-        "pageCount": 43,
+        "pageCount": 45,
         "fontSizeRangeHundredthPointByRole": {
           "title": {
             "minimum": 2800,
@@ -3208,11 +3208,11 @@
           },
           "prose": {
             "minimum": 1900,
-            "maximum": 2000
+            "maximum": 2200
           },
           "list": {
-            "minimum": 2000,
-            "maximum": 2000
+            "minimum": 1900,
+            "maximum": 2200
           },
           "table": {
             "minimum": 2000,
@@ -3236,9 +3236,9 @@
           }
         ],
         "medianVisibleImageAreaRatio": 0.09415626792375267,
-        "medianWhitespaceRatio": 0.4527530096967046,
-        "replaceP50Ms": 3.889042000000245,
-        "replaceP95Ms": 16.35799999999972,
+        "medianWhitespaceRatio": 0.4815300091863517,
+        "replaceP50Ms": 3.4462079999998423,
+        "replaceP95Ms": 17.265499999999975,
         "findings": []
       }
     },
@@ -3389,7 +3389,7 @@
         "rejected": 0,
         "casesWithFindings": 0,
         "failedLogicalSlides": 0,
-        "pageCount": 38,
+        "pageCount": 40,
         "fontSizeRangeHundredthPointByRole": {
           "title": {
             "minimum": 2600,
@@ -3400,12 +3400,12 @@
             "maximum": 1800
           },
           "prose": {
-            "minimum": 1700,
-            "maximum": 1800
+            "minimum": 1800,
+            "maximum": 2050
           },
           "list": {
             "minimum": 1700,
-            "maximum": 1800
+            "maximum": 2050
           },
           "table": {
             "minimum": 1800,
@@ -3429,9 +3429,9 @@
           }
         ],
         "medianVisibleImageAreaRatio": 0.08850625,
-        "medianWhitespaceRatio": 0.49146833397127443,
-        "replaceP50Ms": 1.0950840000000426,
-        "replaceP95Ms": 17.650499999999738,
+        "medianWhitespaceRatio": 0.4928352589858559,
+        "replaceP50Ms": 2.678874999999607,
+        "replaceP95Ms": 16.990249999999833,
         "findings": []
       }
     },
@@ -3594,11 +3594,11 @@
           },
           "prose": {
             "minimum": 2300,
-            "maximum": 2400
+            "maximum": 2600
           },
           "list": {
             "minimum": 2300,
-            "maximum": 2400
+            "maximum": 2650
           },
           "table": {
             "minimum": 2400,
@@ -3621,10 +3621,10 @@
             "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
           }
         ],
-        "medianVisibleImageAreaRatio": 0.08850625,
-        "medianWhitespaceRatio": 0.42034901027996496,
-        "replaceP50Ms": 7.696374999999989,
-        "replaceP95Ms": 21.29062500000009,
+        "medianVisibleImageAreaRatio": 0.09415626792375267,
+        "medianWhitespaceRatio": 0.4177101603054827,
+        "replaceP50Ms": 6.691749999999956,
+        "replaceP95Ms": 20.396707999999762,
         "findings": []
       }
     },
@@ -3775,7 +3775,7 @@
         "rejected": 0,
         "casesWithFindings": 0,
         "failedLogicalSlides": 0,
-        "pageCount": 43,
+        "pageCount": 45,
         "fontSizeRangeHundredthPointByRole": {
           "title": {
             "minimum": 2800,
@@ -3787,11 +3787,11 @@
           },
           "prose": {
             "minimum": 1900,
-            "maximum": 2000
+            "maximum": 2200
           },
           "list": {
-            "minimum": 2000,
-            "maximum": 2000
+            "minimum": 1900,
+            "maximum": 2200
           },
           "table": {
             "minimum": 2000,
@@ -3815,9 +3815,9 @@
           }
         ],
         "medianVisibleImageAreaRatio": 0.09415626792375267,
-        "medianWhitespaceRatio": 0.4372374099591718,
-        "replaceP50Ms": 3.8289999999997235,
-        "replaceP95Ms": 16.919459000000188,
+        "medianWhitespaceRatio": 0.4660144094488189,
+        "replaceP50Ms": 3.3029579999997623,
+        "replaceP95Ms": 16.981791000000158,
         "findings": []
       }
     },
@@ -3968,7 +3968,7 @@
         "rejected": 0,
         "casesWithFindings": 0,
         "failedLogicalSlides": 0,
-        "pageCount": 38,
+        "pageCount": 40,
         "fontSizeRangeHundredthPointByRole": {
           "title": {
             "minimum": 2600,
@@ -3979,12 +3979,12 @@
             "maximum": 1800
           },
           "prose": {
-            "minimum": 1700,
-            "maximum": 1800
+            "minimum": 1800,
+            "maximum": 2050
           },
           "list": {
             "minimum": 1700,
-            "maximum": 1800
+            "maximum": 2050
           },
           "table": {
             "minimum": 1800,
@@ -4008,9 +4008,9 @@
           }
         ],
         "medianVisibleImageAreaRatio": 0.08850625,
-        "medianWhitespaceRatio": 0.49068040901137355,
-        "replaceP50Ms": 1.1175829999997404,
-        "replaceP95Ms": 16.335000000000036,
+        "medianWhitespaceRatio": 0.4773196592483231,
+        "replaceP50Ms": 2.2151670000002923,
+        "replaceP95Ms": 16.84154099999978,
         "findings": []
       }
     },
@@ -4173,11 +4173,11 @@
           },
           "prose": {
             "minimum": 2300,
-            "maximum": 2400
+            "maximum": 2600
           },
           "list": {
             "minimum": 2300,
-            "maximum": 2400
+            "maximum": 2650
           },
           "table": {
             "minimum": 2400,
@@ -4200,10 +4200,10 @@
             "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
           }
         ],
-        "medianVisibleImageAreaRatio": 0.08850625,
-        "medianWhitespaceRatio": 0.3789514650830228,
-        "replaceP50Ms": 7.846499999999651,
-        "replaceP95Ms": 20.10333300000002,
+        "medianVisibleImageAreaRatio": 0.09415626792375267,
+        "medianWhitespaceRatio": 0.3820021839960601,
+        "replaceP50Ms": 6.696165999999721,
+        "replaceP95Ms": 19.43220799999972,
         "findings": []
       }
     },
@@ -4354,7 +4354,7 @@
         "rejected": 0,
         "casesWithFindings": 0,
         "failedLogicalSlides": 0,
-        "pageCount": 43,
+        "pageCount": 45,
         "fontSizeRangeHundredthPointByRole": {
           "title": {
             "minimum": 2800,
@@ -4366,11 +4366,11 @@
           },
           "prose": {
             "minimum": 1900,
-            "maximum": 2000
+            "maximum": 2200
           },
           "list": {
-            "minimum": 2000,
-            "maximum": 2000
+            "minimum": 1900,
+            "maximum": 2200
           },
           "table": {
             "minimum": 2000,
@@ -4394,9 +4394,9 @@
           }
         ],
         "medianVisibleImageAreaRatio": 0.09415626792375267,
-        "medianWhitespaceRatio": 0.38335001093613297,
-        "replaceP50Ms": 3.473792000000685,
-        "replaceP95Ms": 17.343916999999237,
+        "medianWhitespaceRatio": 0.41212701042578015,
+        "replaceP50Ms": 3.040584000000308,
+        "replaceP95Ms": 16.74604199999976,
         "findings": []
       }
     },
@@ -4547,7 +4547,7 @@
         "rejected": 0,
         "casesWithFindings": 0,
         "failedLogicalSlides": 0,
-        "pageCount": 38,
+        "pageCount": 40,
         "fontSizeRangeHundredthPointByRole": {
           "title": {
             "minimum": 2600,
@@ -4558,12 +4558,12 @@
             "maximum": 1800
           },
           "prose": {
-            "minimum": 1700,
-            "maximum": 1800
+            "minimum": 1800,
+            "maximum": 2050
           },
           "list": {
             "minimum": 1700,
-            "maximum": 1800
+            "maximum": 2050
           },
           "table": {
             "minimum": 1800,
@@ -4587,9 +4587,9 @@
           }
         ],
         "medianVisibleImageAreaRatio": 0.08850625,
-        "medianWhitespaceRatio": 0.4409040099154272,
-        "replaceP50Ms": 1.2226250000003347,
-        "replaceP95Ms": 16.401625000000422,
+        "medianWhitespaceRatio": 0.42754326015237676,
+        "replaceP50Ms": 2.1761670000005324,
+        "replaceP95Ms": 16.1390420000007,
         "findings": []
       }
     }

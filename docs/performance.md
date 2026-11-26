@@ -279,3 +279,12 @@ the comparison provenance. This process high-water includes startup, assets, res
 report data and JSON output; it must not be relabelled as engine heap or combined with admission
 bytes. The comparison script accepts optional before/after memory report paths after its three
 required arguments to reproduce those separate memory fields in each summary.
+
+The [expanded comparison](../benchmarks/results/academic-layout/expanded-summary.json) compares a
+frozen preceding engine with the accepted engine on identical canonical-pair and text-density
+inputs. Its [provenance](../benchmarks/results/academic-layout/expanded-provenance.json) retains
+engine/input hashes, immutable baseline guards, native work counters, OS memory scope and gate
+reports. Per-page resolved fonts and text distinguish upward recovery on sparse continuations
+from a fixed maximum-font fit. A measured suffix that already fits the accepted title height
+retains body geometry; only increased measured title height requires another bounded pagination
+pass. Candidate and measurement limits remain unchanged.

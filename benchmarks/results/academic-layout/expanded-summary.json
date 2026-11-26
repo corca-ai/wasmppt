@@ -1,0 +1,1102 @@
+{
+  "schema": 1,
+  "corpusHash": "a4f41adff607d57395c9dcb96e08d942ed2fd3da7a540488fa9a81cfc63ed7a1",
+  "engineBefore": "f888d485b238d219e3a8065c605e628a15e9702bbfd9d6fdd0066961318a7f1e",
+  "engineAfter": "8996bff81db0b67a295b9e9faa92929dcdc20bc5162f287738730b2bbcfd1756",
+  "measurement": "Single SDK replace sample per case with reused engine/assets; template preparation/startup and all-page resolution excluded. Memory is sampled after each snapshot, not a process high-water measurement. Whitespace and page count are context, not independent success criteria.",
+  "limits": {
+    "candidateCount": null,
+    "reason": "Public SDK does not expose per-case planner work counters. Actual native aggregate work counters are retained separately in planner-metrics.json; unchanged work bounds remain authoritative."
+  },
+  "before": {
+    "cases": 240,
+    "rejected": 0,
+    "casesWithFindings": 18,
+    "failedLogicalSlides": 0,
+    "pageCount": 307,
+    "fontSizeRangeHundredthPointByRole": {
+      "title": {
+        "minimum": 2000,
+        "maximum": 4000
+      },
+      "subtitle": {
+        "minimum": 1800,
+        "maximum": 2400
+      },
+      "prose": {
+        "minimum": 1700,
+        "maximum": 2400
+      },
+      "list": {
+        "minimum": 1700,
+        "maximum": 2400
+      },
+      "table": {
+        "minimum": 1800,
+        "maximum": 2400
+      },
+      "caption": {
+        "minimum": 1400,
+        "maximum": 1800
+      }
+    },
+    "medianPreferredBodyAreaRatio": 0.7461666666666666,
+    "actualFullWidthTextProbe": [
+      {
+        "actualBodyTop": 1004400,
+        "actualBodySafeAreaRatio": 0.7463608923884515,
+        "bodyReclaimedEmu": 1440,
+        "bodyReclaimOpportunityEmu": 1440,
+        "measuredHeaderHeight": 547200,
+        "preferredHeaderHeight": 548640,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 973920,
+        "actualBodySafeAreaRatio": 0.7504720034995626,
+        "bodyReclaimedEmu": 31920,
+        "bodyReclaimOpportunityEmu": 31920,
+        "measuredHeaderHeight": 516720,
+        "preferredHeaderHeight": 548640,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 943440,
+        "actualBodySafeAreaRatio": 0.7545831146106736,
+        "bodyReclaimedEmu": 62400,
+        "bodyReclaimOpportunityEmu": 62400,
+        "measuredHeaderHeight": 486240,
+        "preferredHeaderHeight": 548640,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1200000,
+        "actualBodySafeAreaRatio": 0.6582633535637442,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 122320,
+        "measuredHeaderHeight": 577680,
+        "preferredHeaderHeight": 700000,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1200000,
+        "actualBodySafeAreaRatio": 0.6582633535637442,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 122320,
+        "measuredHeaderHeight": 577680,
+        "preferredHeaderHeight": 700000,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1200000,
+        "actualBodySafeAreaRatio": 0.6582633535637442,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 122320,
+        "measuredHeaderHeight": 577680,
+        "preferredHeaderHeight": 700000,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      }
+    ],
+    "medianVisibleImageAreaRatio": 0.09059546990066203,
+    "medianWhitespaceRatio": 0.44045094320702527,
+    "replaceP50Ms": 2.1019169999999576,
+    "replaceP95Ms": 15.45595800000001,
+    "findings": [
+      {
+        "case": "canonical-list-image",
+        "errors": [
+          "canonical pair must place complete text left and image right"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "canonical-image-list",
+        "errors": [
+          "canonical pair must place complete text left and image right"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "adaptive-continued-spare",
+        "errors": [
+          "page 1: missing visible accepted title suffix",
+          "page 2: missing visible accepted title suffix"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "canonical-list-image",
+        "errors": [
+          "canonical pair must place complete text left and image right"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "canonical-image-list",
+        "errors": [
+          "canonical pair must place complete text left and image right"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "adaptive-continued-spare",
+        "errors": [
+          "page 1: missing visible accepted title suffix",
+          "page 2: missing visible accepted title suffix"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "canonical-list-image",
+        "errors": [
+          "canonical pair must place complete text left and image right"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "canonical-image-list",
+        "errors": [
+          "canonical pair must place complete text left and image right"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "adaptive-continued-spare",
+        "errors": [
+          "page 1: missing visible accepted title suffix",
+          "page 2: missing visible accepted title suffix"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "canonical-list-image",
+        "errors": [
+          "canonical pair must place complete text left and image right"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "canonical-image-list",
+        "errors": [
+          "canonical pair must place complete text left and image right"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "adaptive-continued-spare",
+        "errors": [
+          "page 1: missing visible accepted title suffix",
+          "page 2: missing visible accepted title suffix"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "canonical-list-image",
+        "errors": [
+          "canonical pair must place complete text left and image right"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "canonical-image-list",
+        "errors": [
+          "canonical pair must place complete text left and image right"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "adaptive-continued-spare",
+        "errors": [
+          "page 1: missing visible accepted title suffix",
+          "page 2: missing visible accepted title suffix"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "canonical-list-image",
+        "errors": [
+          "canonical pair must place complete text left and image right"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "canonical-image-list",
+        "errors": [
+          "canonical pair must place complete text left and image right"
+        ],
+        "diagnostics": []
+      },
+      {
+        "case": "adaptive-continued-spare",
+        "errors": [
+          "page 1: missing visible accepted title suffix",
+          "page 2: missing visible accepted title suffix"
+        ],
+        "diagnostics": []
+      }
+    ],
+    "maxAccountedBytes": 25913535,
+    "sampledProcessRssBytes": 151339008
+  },
+  "after": {
+    "cases": 240,
+    "rejected": 0,
+    "casesWithFindings": 0,
+    "failedLogicalSlides": 0,
+    "pageCount": 311,
+    "fontSizeRangeHundredthPointByRole": {
+      "title": {
+        "minimum": 2000,
+        "maximum": 4000
+      },
+      "subtitle": {
+        "minimum": 1800,
+        "maximum": 2400
+      },
+      "prose": {
+        "minimum": 1700,
+        "maximum": 2600
+      },
+      "list": {
+        "minimum": 1700,
+        "maximum": 2700
+      },
+      "table": {
+        "minimum": 1800,
+        "maximum": 2400
+      },
+      "caption": {
+        "minimum": 1400,
+        "maximum": 1800
+      }
+    },
+    "medianPreferredBodyAreaRatio": 0.7461666666666666,
+    "actualFullWidthTextProbe": [
+      {
+        "actualBodyTop": 1004400,
+        "actualBodySafeAreaRatio": 0.7463608923884515,
+        "bodyReclaimedEmu": 1440,
+        "bodyReclaimOpportunityEmu": 1440,
+        "measuredHeaderHeight": 547200,
+        "preferredHeaderHeight": 548640,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 973920,
+        "actualBodySafeAreaRatio": 0.7504720034995626,
+        "bodyReclaimedEmu": 31920,
+        "bodyReclaimOpportunityEmu": 31920,
+        "measuredHeaderHeight": 516720,
+        "preferredHeaderHeight": 548640,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 943440,
+        "actualBodySafeAreaRatio": 0.7545831146106736,
+        "bodyReclaimedEmu": 62400,
+        "bodyReclaimOpportunityEmu": 62400,
+        "measuredHeaderHeight": 486240,
+        "preferredHeaderHeight": 548640,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1200000,
+        "actualBodySafeAreaRatio": 0.6582633535637442,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 122320,
+        "measuredHeaderHeight": 577680,
+        "preferredHeaderHeight": 700000,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1200000,
+        "actualBodySafeAreaRatio": 0.6582633535637442,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 122320,
+        "measuredHeaderHeight": 577680,
+        "preferredHeaderHeight": 700000,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      },
+      {
+        "actualBodyTop": 1200000,
+        "actualBodySafeAreaRatio": 0.6582633535637442,
+        "bodyReclaimedEmu": 0,
+        "bodyReclaimOpportunityEmu": 122320,
+        "measuredHeaderHeight": 577680,
+        "preferredHeaderHeight": 700000,
+        "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+      }
+    ],
+    "medianVisibleImageAreaRatio": 0.09059546990066203,
+    "medianWhitespaceRatio": 0.44333289588801394,
+    "replaceP50Ms": 2.574000000000069,
+    "replaceP95Ms": 15.33870899999988,
+    "findings": [],
+    "maxAccountedBytes": 25913535,
+    "sampledProcessRssBytes": 156680192
+  },
+  "matrix": [
+    {
+      "key": "starter/conference",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 40,
+        "rejected": 0,
+        "casesWithFindings": 3,
+        "failedLogicalSlides": 0,
+        "pageCount": 61,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3000,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2400,
+            "maximum": 2400
+          },
+          "prose": {
+            "minimum": 2300,
+            "maximum": 2400
+          },
+          "list": {
+            "minimum": 2300,
+            "maximum": 2400
+          },
+          "table": {
+            "minimum": 2400,
+            "maximum": 2400
+          },
+          "caption": {
+            "minimum": 1800,
+            "maximum": 1800
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.7461666666666666,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1004400,
+            "actualBodySafeAreaRatio": 0.7463608923884515,
+            "bodyReclaimedEmu": 1440,
+            "bodyReclaimOpportunityEmu": 1440,
+            "measuredHeaderHeight": 547200,
+            "preferredHeaderHeight": 548640,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.09441667866488665,
+        "medianWhitespaceRatio": 0.3770114829396325,
+        "replaceP50Ms": 5.610707999999988,
+        "replaceP95Ms": 16.227790999999968,
+        "findings": [
+          {
+            "case": "canonical-list-image",
+            "errors": [
+              "canonical pair must place complete text left and image right"
+            ],
+            "diagnostics": []
+          },
+          {
+            "case": "canonical-image-list",
+            "errors": [
+              "canonical pair must place complete text left and image right"
+            ],
+            "diagnostics": []
+          },
+          {
+            "case": "adaptive-continued-spare",
+            "errors": [
+              "page 1: missing visible accepted title suffix",
+              "page 2: missing visible accepted title suffix"
+            ],
+            "diagnostics": []
+          }
+        ]
+      },
+      "after": {
+        "cases": 40,
+        "rejected": 0,
+        "casesWithFindings": 0,
+        "failedLogicalSlides": 0,
+        "pageCount": 61,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 3000,
+            "maximum": 4000
+          },
+          "subtitle": {
+            "minimum": 2400,
+            "maximum": 2400
+          },
+          "prose": {
+            "minimum": 2300,
+            "maximum": 2600
+          },
+          "list": {
+            "minimum": 2300,
+            "maximum": 2700
+          },
+          "table": {
+            "minimum": 2400,
+            "maximum": 2400
+          },
+          "caption": {
+            "minimum": 1800,
+            "maximum": 1800
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.7461666666666666,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1004400,
+            "actualBodySafeAreaRatio": 0.7463608923884515,
+            "bodyReclaimedEmu": 1440,
+            "bodyReclaimOpportunityEmu": 1440,
+            "measuredHeaderHeight": 547200,
+            "preferredHeaderHeight": 548640,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.09441667866488665,
+        "medianWhitespaceRatio": 0.3791415052367142,
+        "replaceP50Ms": 5.199542000000008,
+        "replaceP95Ms": 18.287125000000003,
+        "findings": []
+      }
+    },
+    {
+      "key": "starter/seminar",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 40,
+        "rejected": 0,
+        "casesWithFindings": 3,
+        "failedLogicalSlides": 0,
+        "pageCount": 52,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2800,
+            "maximum": 3600
+          },
+          "subtitle": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "prose": {
+            "minimum": 1900,
+            "maximum": 2000
+          },
+          "list": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 1600,
+            "maximum": 1600
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.7461666666666666,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 973920,
+            "actualBodySafeAreaRatio": 0.7504720034995626,
+            "bodyReclaimedEmu": 31920,
+            "bodyReclaimOpportunityEmu": 31920,
+            "measuredHeaderHeight": 516720,
+            "preferredHeaderHeight": 548640,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.09441667866488665,
+        "medianWhitespaceRatio": 0.3837217847769029,
+        "replaceP50Ms": 2.175875000000019,
+        "replaceP95Ms": 15.416082999999958,
+        "findings": [
+          {
+            "case": "canonical-list-image",
+            "errors": [
+              "canonical pair must place complete text left and image right"
+            ],
+            "diagnostics": []
+          },
+          {
+            "case": "canonical-image-list",
+            "errors": [
+              "canonical pair must place complete text left and image right"
+            ],
+            "diagnostics": []
+          },
+          {
+            "case": "adaptive-continued-spare",
+            "errors": [
+              "page 1: missing visible accepted title suffix",
+              "page 2: missing visible accepted title suffix"
+            ],
+            "diagnostics": []
+          }
+        ]
+      },
+      "after": {
+        "cases": 40,
+        "rejected": 0,
+        "casesWithFindings": 0,
+        "failedLogicalSlides": 0,
+        "pageCount": 54,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2800,
+            "maximum": 3600
+          },
+          "subtitle": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "prose": {
+            "minimum": 1900,
+            "maximum": 2200
+          },
+          "list": {
+            "minimum": 1900,
+            "maximum": 2300
+          },
+          "table": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "caption": {
+            "minimum": 1600,
+            "maximum": 1600
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.7461666666666666,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 973920,
+            "actualBodySafeAreaRatio": 0.7504720034995626,
+            "bodyReclaimedEmu": 31920,
+            "bodyReclaimOpportunityEmu": 31920,
+            "measuredHeaderHeight": 516720,
+            "preferredHeaderHeight": 548640,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.09441667866488665,
+        "medianWhitespaceRatio": 0.4124995625546807,
+        "replaceP50Ms": 2.374458000000004,
+        "replaceP95Ms": 14.811749999999961,
+        "findings": []
+      }
+    },
+    {
+      "key": "starter/handout",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 40,
+        "rejected": 0,
+        "casesWithFindings": 3,
+        "failedLogicalSlides": 0,
+        "pageCount": 47,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2600,
+            "maximum": 3200
+          },
+          "subtitle": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "prose": {
+            "minimum": 1700,
+            "maximum": 1800
+          },
+          "list": {
+            "minimum": 1700,
+            "maximum": 1800
+          },
+          "table": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "caption": {
+            "minimum": 1400,
+            "maximum": 1400
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.7461666666666666,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 943440,
+            "actualBodySafeAreaRatio": 0.7545831146106736,
+            "bodyReclaimedEmu": 62400,
+            "bodyReclaimOpportunityEmu": 62400,
+            "measuredHeaderHeight": 486240,
+            "preferredHeaderHeight": 548640,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.09441667866488665,
+        "medianWhitespaceRatio": 0.44127734033245847,
+        "replaceP50Ms": 0.7900419999999713,
+        "replaceP95Ms": 14.709834,
+        "findings": [
+          {
+            "case": "canonical-list-image",
+            "errors": [
+              "canonical pair must place complete text left and image right"
+            ],
+            "diagnostics": []
+          },
+          {
+            "case": "canonical-image-list",
+            "errors": [
+              "canonical pair must place complete text left and image right"
+            ],
+            "diagnostics": []
+          },
+          {
+            "case": "adaptive-continued-spare",
+            "errors": [
+              "page 1: missing visible accepted title suffix",
+              "page 2: missing visible accepted title suffix"
+            ],
+            "diagnostics": []
+          }
+        ]
+      },
+      "after": {
+        "cases": 40,
+        "rejected": 0,
+        "casesWithFindings": 0,
+        "failedLogicalSlides": 0,
+        "pageCount": 49,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2600,
+            "maximum": 3200
+          },
+          "subtitle": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "prose": {
+            "minimum": 1800,
+            "maximum": 2050
+          },
+          "list": {
+            "minimum": 1800,
+            "maximum": 2100
+          },
+          "table": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "caption": {
+            "minimum": 1400,
+            "maximum": 1400
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.7461666666666666,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 943440,
+            "actualBodySafeAreaRatio": 0.7545831146106736,
+            "bodyReclaimedEmu": 62400,
+            "bodyReclaimOpportunityEmu": 62400,
+            "measuredHeaderHeight": 486240,
+            "preferredHeaderHeight": 548640,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.09441667866488665,
+        "medianWhitespaceRatio": 0.41455511811023626,
+        "replaceP50Ms": 1.0379580000000033,
+        "replaceP95Ms": 14.714582999999948,
+        "findings": []
+      }
+    },
+    {
+      "key": "custom/conference",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 40,
+        "rejected": 0,
+        "casesWithFindings": 3,
+        "failedLogicalSlides": 0,
+        "pageCount": 49,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2000,
+            "maximum": 3200
+          },
+          "subtitle": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "prose": {
+            "minimum": 1700,
+            "maximum": 1800
+          },
+          "list": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "table": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "caption": {
+            "minimum": 1800,
+            "maximum": 1800
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.6582633535637442,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1200000,
+            "actualBodySafeAreaRatio": 0.6582633535637442,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 122320,
+            "measuredHeaderHeight": 577680,
+            "preferredHeaderHeight": 700000,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.08241118912793381,
+        "medianWhitespaceRatio": 0.45215119763572864,
+        "replaceP50Ms": 2.169332999999824,
+        "replaceP95Ms": 15.36633299999994,
+        "findings": [
+          {
+            "case": "canonical-list-image",
+            "errors": [
+              "canonical pair must place complete text left and image right"
+            ],
+            "diagnostics": []
+          },
+          {
+            "case": "canonical-image-list",
+            "errors": [
+              "canonical pair must place complete text left and image right"
+            ],
+            "diagnostics": []
+          },
+          {
+            "case": "adaptive-continued-spare",
+            "errors": [
+              "page 1: missing visible accepted title suffix",
+              "page 2: missing visible accepted title suffix"
+            ],
+            "diagnostics": []
+          }
+        ]
+      },
+      "after": {
+        "cases": 40,
+        "rejected": 0,
+        "casesWithFindings": 0,
+        "failedLogicalSlides": 0,
+        "pageCount": 49,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2000,
+            "maximum": 3200
+          },
+          "subtitle": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "prose": {
+            "minimum": 1700,
+            "maximum": 1800
+          },
+          "list": {
+            "minimum": 1700,
+            "maximum": 1800
+          },
+          "table": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "caption": {
+            "minimum": 1800,
+            "maximum": 1800
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.6582633535637442,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1200000,
+            "actualBodySafeAreaRatio": 0.6582633535637442,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 122320,
+            "measuredHeaderHeight": 577680,
+            "preferredHeaderHeight": 700000,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.08241118912793381,
+        "medianWhitespaceRatio": 0.5177425689004365,
+        "replaceP50Ms": 1.2392500000000837,
+        "replaceP95Ms": 15.085790999999972,
+        "findings": []
+      }
+    },
+    {
+      "key": "custom/seminar",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 40,
+        "rejected": 0,
+        "casesWithFindings": 3,
+        "failedLogicalSlides": 0,
+        "pageCount": 49,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2000,
+            "maximum": 3200
+          },
+          "subtitle": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "prose": {
+            "minimum": 1700,
+            "maximum": 1800
+          },
+          "list": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "table": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "caption": {
+            "minimum": 1800,
+            "maximum": 1800
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.6582633535637442,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1200000,
+            "actualBodySafeAreaRatio": 0.6582633535637442,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 122320,
+            "measuredHeaderHeight": 577680,
+            "preferredHeaderHeight": 700000,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.08241118912793381,
+        "medianWhitespaceRatio": 0.45215119763572864,
+        "replaceP50Ms": 1.1156670000000304,
+        "replaceP95Ms": 14.787499999999909,
+        "findings": [
+          {
+            "case": "canonical-list-image",
+            "errors": [
+              "canonical pair must place complete text left and image right"
+            ],
+            "diagnostics": []
+          },
+          {
+            "case": "canonical-image-list",
+            "errors": [
+              "canonical pair must place complete text left and image right"
+            ],
+            "diagnostics": []
+          },
+          {
+            "case": "adaptive-continued-spare",
+            "errors": [
+              "page 1: missing visible accepted title suffix",
+              "page 2: missing visible accepted title suffix"
+            ],
+            "diagnostics": []
+          }
+        ]
+      },
+      "after": {
+        "cases": 40,
+        "rejected": 0,
+        "casesWithFindings": 0,
+        "failedLogicalSlides": 0,
+        "pageCount": 49,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2000,
+            "maximum": 3200
+          },
+          "subtitle": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "prose": {
+            "minimum": 1700,
+            "maximum": 1800
+          },
+          "list": {
+            "minimum": 1700,
+            "maximum": 1800
+          },
+          "table": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "caption": {
+            "minimum": 1800,
+            "maximum": 1800
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.6582633535637442,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1200000,
+            "actualBodySafeAreaRatio": 0.6582633535637442,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 122320,
+            "measuredHeaderHeight": 577680,
+            "preferredHeaderHeight": 700000,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.08241118912793381,
+        "medianWhitespaceRatio": 0.5177425689004365,
+        "replaceP50Ms": 2.5667080000000624,
+        "replaceP95Ms": 15.33870899999988,
+        "findings": []
+      }
+    },
+    {
+      "key": "custom/handout",
+      "sameTemplateBytes": true,
+      "before": {
+        "cases": 40,
+        "rejected": 0,
+        "casesWithFindings": 3,
+        "failedLogicalSlides": 0,
+        "pageCount": 49,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2000,
+            "maximum": 3200
+          },
+          "subtitle": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "prose": {
+            "minimum": 1700,
+            "maximum": 1800
+          },
+          "list": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "table": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "caption": {
+            "minimum": 1800,
+            "maximum": 1800
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.6582633535637442,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1200000,
+            "actualBodySafeAreaRatio": 0.6582633535637442,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 122320,
+            "measuredHeaderHeight": 577680,
+            "preferredHeaderHeight": 700000,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.08241118912793381,
+        "medianWhitespaceRatio": 0.45215119763572864,
+        "replaceP50Ms": 1.1512920000000122,
+        "replaceP95Ms": 14.891165999999885,
+        "findings": [
+          {
+            "case": "canonical-list-image",
+            "errors": [
+              "canonical pair must place complete text left and image right"
+            ],
+            "diagnostics": []
+          },
+          {
+            "case": "canonical-image-list",
+            "errors": [
+              "canonical pair must place complete text left and image right"
+            ],
+            "diagnostics": []
+          },
+          {
+            "case": "adaptive-continued-spare",
+            "errors": [
+              "page 1: missing visible accepted title suffix",
+              "page 2: missing visible accepted title suffix"
+            ],
+            "diagnostics": []
+          }
+        ]
+      },
+      "after": {
+        "cases": 40,
+        "rejected": 0,
+        "casesWithFindings": 0,
+        "failedLogicalSlides": 0,
+        "pageCount": 49,
+        "fontSizeRangeHundredthPointByRole": {
+          "title": {
+            "minimum": 2000,
+            "maximum": 3200
+          },
+          "subtitle": {
+            "minimum": 2000,
+            "maximum": 2000
+          },
+          "prose": {
+            "minimum": 1700,
+            "maximum": 1800
+          },
+          "list": {
+            "minimum": 1700,
+            "maximum": 1800
+          },
+          "table": {
+            "minimum": 1800,
+            "maximum": 1800
+          },
+          "caption": {
+            "minimum": 1800,
+            "maximum": 1800
+          }
+        },
+        "medianPreferredBodyAreaRatio": 0.6582633535637442,
+        "actualFullWidthTextProbe": [
+          {
+            "actualBodyTop": 1200000,
+            "actualBodySafeAreaRatio": 0.6582633535637442,
+            "bodyReclaimedEmu": 0,
+            "bodyReclaimOpportunityEmu": 122320,
+            "measuredHeaderHeight": 577680,
+            "preferredHeaderHeight": 700000,
+            "basis": "Resolved first full-width prose source shape is the Stack lane top; authored safe bottom and width bound its available body envelope."
+          }
+        ],
+        "medianVisibleImageAreaRatio": 0.08241118912793381,
+        "medianWhitespaceRatio": 0.5177425689004365,
+        "replaceP50Ms": 3.5690420000000813,
+        "replaceP95Ms": 17.881000000000085,
+        "findings": []
+      }
+    }
+  ]
+}

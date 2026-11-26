@@ -53,14 +53,18 @@ aspect without cropping or stretching. Purpose is independent of decorative them
 opt in to purpose typography and dynamic title space through their explicit generation metadata;
 custom regions without that metadata retain their authored styles and frames.
 
-| Purpose | Cover | Content heading | Body | Body floor | Caption |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Conference | 40pt | 30pt | 24pt | 22pt | 18pt |
-| Seminar | 36pt | 28pt | 20pt | 18pt | 16pt |
-| Handout | 32pt | 26pt | 18pt | 16pt | 14pt |
+| Purpose | Cover | Content heading | Body | Body floor | Body cap | Caption |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Conference | 40pt | 30pt | 24pt | 22pt | 28pt | 18pt |
+| Seminar | 36pt | 28pt | 20pt | 18pt | 24pt | 16pt |
+| Handout | 32pt | 26pt | 18pt | 16pt | 22pt | 14pt |
 
 Caption sizes apply only to semantic caption nodes. Ordinary prose, lists and table cells keep
-body typography. Hosts supply purpose and factual semantic roles; the engine owns measured
+body typography. Ordinary body lanes adapt in half-point preferred steps using measured content
+and their final available region after pagination; sparse continuations can recover upward without
+adding pages. See the [layout policy](deck-layout.md#presentation-purpose) for eligibility and bounds.
+A body with one ordinary prose/list node and one figure image places text left and image right in
+either source order. Source ranges and reading order remain unchanged. Hosts supply purpose and factual semantic roles; the engine owns measured
 geometry, candidate selection and page breaks. A host parsing frontmatter reports an invalid
 purpose and supplies the seminar fallback. Invalid SDK enum values reject the edit.
 
@@ -168,7 +172,9 @@ The host owns mounting, visibility, scrolling, pixel width and navigation.
 
 `resolvePage(pageId)` exposes the decoded display scene for advanced consumers. Resources remain
 lazy references; use `CanvasView` for a complete Canvas rendering operation. Physical page IDs are
-stable for a logical key and continuation ordinal. Source metadata participates in scene
+stable for a logical key and continuation ordinal. Multi-page logical slides expose a visible
+upstream title suffix such as `(1/2)` on every page, derived from the accepted total and measured
+before publication. Hosts must not append a second title counter. Source metadata participates in scene
 invalidation, so source-only edits cannot return old navigation ranges. Such edits may still
 replan; the SDK makes no source-only layout-reuse promise.
 

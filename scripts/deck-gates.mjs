@@ -133,8 +133,8 @@ function validateTimings(host, timings) {
 
 function validateQuality(native, browser, topology) {
   assert.equal(native.schema, 3)
-  assert.equal(native.corpus, 'academic-autolayout-v4')
-  assert.equal(native.counts.logicalSlides, 57)
+  assert.equal(native.corpus, 'academic-autolayout-v5')
+  assert.equal(native.counts.logicalSlides, 64)
   assert.equal(native.counts.physicalPages, topology.slideCount)
   assert(native.counts.flowPages >= 1, 'corpus did not produce a flow-column page')
   assert(native.counts.galleryPages >= 1, 'corpus did not produce a gallery page')

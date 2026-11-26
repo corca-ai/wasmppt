@@ -33,6 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut previous = None;
             let mut plan_bytes = Vec::new();
             let mut pages = 0;
+            let mut expanded_pages = String::new();
             for _ in 0..7 {
                 let start = Instant::now();
                 let (plan, metrics) =
@@ -47,12 +48,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 previous = Some(plan_bytes.clone());
                 pages = plan.pages.len();
+                expanded_pages = plan.pages.iter().filter_map(|page| {
+                    let logical = spec.logical_slides.iter().find(|slide| slide.id == page.logical_slide_id)?;
+                    if !logical.source.source.starts_with("expanded-academic/") { return None; }
+                    let fragments = page.regions.iter().flat_map(|region| &region.fragments).map(|fragment| format!(
+                        "{{\"node\":\"{}\",\"fontSize\":{},\"frame\":[{},{},{},{}]}}", fragment.source_node_id, fragment.type_choice.font_size,
+                        fragment.frame.x, fragment.frame.y, fragment.frame.width, fragment.frame.height)).collect::<Vec<_>>();
+                    Some(format!("{{\"case\":{:?},\"ordinal\":{},\"total\":{},\"slots\":{},\"fragments\":[{}]}}", logical.source.source, page.continuation.ordinal, page.continuation.total, page.topology.slot_count, fragments.join(",")))
+                }).collect::<Vec<_>>().join(",");
                 metrics_rows.push(format!(
                     "{{\"candidateAssignments\":{},\"measurements\":{}}}",
                     metrics.candidate_assignments, metrics.measurements
                 ));
             }
-            rows.push(format!("{{\"template\":\"{template_name}\",\"templateSha256\":\"{:x}\",\"purpose\":\"{label}\",\"pages\":{pages},\"planBytes\":{},\"planSha256\":\"{:x}\",\"planMs\":{samples:?},\"work\":[{}]}}", Sha256::digest(&bytes), plan_bytes.len(), Sha256::digest(&plan_bytes), metrics_rows.join(",")));
+            rows.push(format!("{{\"template\":\"{template_name}\",\"templateSha256\":\"{:x}\",\"purpose\":\"{label}\",\"pages\":{pages},\"planBytes\":{},\"planSha256\":\"{:x}\",\"planMs\":{samples:?},\"work\":[{}],\"expandedPages\":[{expanded_pages}]}}", Sha256::digest(&bytes), plan_bytes.len(), Sha256::digest(&plan_bytes), metrics_rows.join(",")));
         }
     }
     if let Some(parent) = output.parent() {

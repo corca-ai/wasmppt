@@ -171,13 +171,13 @@
     ],
     "instrumentationPatch": "baseline-counter-probe.patch",
     "instrumentationPatchSha256": "115f90493dea2e46ab3de747e048b64ba4b80cde8e6b0a366cd115328e062a31",
-    "afterSource": "Frozen second-review accepted source in current worktree; unchanged standalone driver outside repository, public DeckPlanner::plan_with_metrics.",
+    "afterSource": "Accepted third-review source fixes; unchanged standalone driver outside the repository uses public DeckPlanner::plan_with_metrics.",
     "afterSourceCommit": null,
     "afterSourceBaseCommit": "b5e6a7a400dabd5c7b2c5b874fb7434d6579a03f",
     "afterSourceManifestFileCount": 356,
-    "afterSourceManifestSha256": "14e5d3e1d965be7fad56e4dda7f0daf11f4b1a12e0475f1e45d92b0d4cdbf26a",
-    "afterSourceManifestEncoding": "SHA256 of UTF-8 JSON object sorted by relative path, separators comma/colon, mapping each path to SHA256 bytes; /tmp/academic-slide-layout/r2-artifact-source-hashes.json.",
-    "afterEngineWasmSha256": "739bdb23b16d6250749dbc8173c41853f025518996471abaa487a004a58815c0",
+    "afterSourceManifestSha256": "4723873cb5847ad853e7d6704d1db69d3c288e81c7a792f181a593d9906f53f6",
+    "afterSourceManifestEncoding": "SHA256 of UTF-8 JSON object sorted by relative path, separators comma/colon, mapping each path to SHA256 bytes; /tmp/academic-slide-layout/r3-artifact-source-hashes.json.",
+    "afterEngineWasmSha256": "f888d485b238d219e3a8065c605e628a15e9702bbfd9d6fdd0066961318a7f1e",
     "afterEngineBundleSha256": "f081e0d8651b90b4be08a43f2cb851575715851b255cf19c69703aea542fd424",
     "beforeFrozenWasmSha256": "19287ce00b3d887c43ae8ab97605106aee76377fa6603d0a6cee9caccaf91e49",
     "beforeFrozenBundleSha256": "cc4db635f57ed5bca1005d9b964ced40608993a551aa719d8214a9ebf5b55a22",
@@ -368,8 +368,8 @@
         "validPlanAndExactOrderedSourceCoverage": true
       }
     ],
-    "planDirectory": "/tmp/academic-slide-layout/after-counter-plans",
-    "binarySha256": "309e891a6f27c2b1ae135242d6d8e543dbaee94aab503da34f57b9304478f108"
+    "planDirectory": "/tmp/academic-slide-layout/r3-after-counter-plans",
+    "binarySha256": "766d470915503ac69b26147ca29a1758e22cea4e457d9edbdeb5f0593ad7c660"
   },
   "validation": {
     "everyBeforePassByteIdenticalToFrozenNativePlan": true,
@@ -380,12 +380,24 @@
     "exactOrderedSingleSourceCoverageBoth": true,
     "sameOriginalTemplateAndResources": true,
     "baselineInputsAndEntireBaselineNativeAndEngineUnchanged": true,
-    "allPreviouslyTrackedWorkingFilesUnchanged": true,
-    "gitIndexUnchanged": true,
-    "postReview282FileGuardUnchanged": true,
     "baselineArchiveChangesLimitedToTwoInstrumentedFilesPlusAddedProbeExample": true,
-    "checks": "Driver hard assertions plus independent Python byte/hash/manifest/index checks. Broad gates delegated to parent as requested; hooks were already installed at .githooks.",
-    "retainedPatchAppliesToPristineArchiveAndReproducesMeasuredProbeSources": true
+    "checks": "Driver hard assertions and independent byte/hash/source/BEFORE/index-tree guards. Full local gates, host parity, OpenXML and coverage are recorded in provenance.json. Accepted review fixes precede this final source freeze.",
+    "retainedPatchAppliesToPristineArchiveAndReproducesMeasuredProbeSources": true,
+    "acceptedSourceUnchangedDuringFinalMeasurements": true,
+    "gitCandidateTreeUnchangedDuringFinalMeasurements": true,
+    "gitCandidateTree": "2ce04d4ca0a5da9e6b7b4fc375117c7899f9a23c",
+    "sourceGuard": {
+      "report": "/tmp/academic-slide-layout/r3-artifact-source-hashes.json",
+      "sha256": "7c6d3d0639ebc8847c1a8c6ea46ca3792f49cfc7a6ac2ca97c4060a852adfda1",
+      "files": 356,
+      "unchanged": true
+    },
+    "beforeGuard": {
+      "report": "/tmp/academic-slide-layout/r3-artifact-before-hashes.json",
+      "sha256": "301bf2ad4933da52099dc02abb0839446e0914332c5dbffdb2eb1e4172fb58c4",
+      "files": 119,
+      "unchanged": true
+    }
   },
   "reproduction": {
     "baselinePatchCommand": "patch -p1 < /absolute/path/to/benchmarks/results/academic-layout/baseline-counter-probe.patch (only inside isolated archived baseline copy)",

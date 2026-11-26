@@ -50,10 +50,7 @@ fn link_explicit_media_captions(units: &mut [FlowUnit<'_>], relations: &[MediaTe
         };
         let start = media.min(text);
         let end = media.max(text);
-        let group = units[start].group;
-        for unit in &mut units[start..=end] {
-            unit.group = group;
-        }
+        merge_flow_groups(units, start, end + 1);
     }
 }
 
@@ -78,23 +75,37 @@ fn link_adjacent_relations(units: &mut [FlowUnit<'_>]) {
                 | (SemanticRole::Quote, SemanticRole::Credit)
         ) || units[left_start].node.role == SemanticRole::Section;
         if related {
-            let group = units[left_start].group;
             let end = if units[left_start].node.role == SemanticRole::Section {
-                // A heading owns the first continuation unit, not the entire following list.
+                // A heading owns the first existing flow group, across leaf-node boundaries.
+                // Splittable prose/list groups still contribute only their first unit.
                 let first_group = units[right_start].group;
-                units[right_start..right_end]
+                units[right_start..]
                     .iter()
                     .position(|unit| unit.group != first_group)
-                    .map_or(right_end, |offset| right_start + offset)
+                    .map_or(units.len(), |offset| right_start + offset)
             } else {
                 right_end
             };
-            for unit in &mut units[left_start..end] {
-                unit.group = group;
-            }
+            merge_flow_groups(units, left_start, end);
             // A splittable relation is intentionally indivisible once authored as a pair.
             debug_assert!(left_end <= right_start);
         }
+    }
+}
+
+// Relations union existing contiguous groups; a node boundary cannot cut a hard group.
+fn merge_flow_groups(units: &mut [FlowUnit<'_>], mut start: usize, mut end: usize) {
+    let first_group = units[start].group;
+    let last_group = units[end - 1].group;
+    while start > 0 && units[start - 1].group == first_group {
+        start -= 1;
+    }
+    while end < units.len() && units[end].group == last_group {
+        end += 1;
+    }
+    let group = units[start].group;
+    for unit in &mut units[start..end] {
+        unit.group = group;
     }
 }
 

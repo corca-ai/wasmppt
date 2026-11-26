@@ -1330,6 +1330,9 @@ impl DeckPlanner {
         if let Some((node, slice)) = contiguous_table_group(group) {
             return self.fit_table_group(node, slice, lane_frame, initial_size, target, measurer);
         }
+        if let Some(fitted) = self.fit_section_media_prefix(group, target, measurer)? {
+            return Ok(Some(fitted));
+        }
         if let Some(fitted) =
             self.fit_inline_math_group(group, lane_frame, initial_size, target, measurer)?
         {
@@ -7098,6 +7101,96 @@ mod tests {
         assert!(plan.failed_slides.is_empty(), "{:?}", plan.diagnostics);
         assert_eq!(plan.pages.len(), 1);
         assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn section_heading_cannot_cut_an_existing_indivisible_figure_group() {
+        let (mut spec, template, _) = captioned_peer_plan((1_000, 1_000), true);
+        let figure = &mut spec.logical_slides[0].nodes[1];
+        figure.role = SemanticRole::Figure;
+        figure.split = SplitPolicy::Never;
+        let SemanticContent::Children(children) = &mut figure.content else {
+            unreachable!()
+        };
+        for caption in children
+            .iter_mut()
+            .filter(|node| node.role == SemanticRole::Caption)
+        {
+            caption.content = text_node(
+                98,
+                SemanticRole::Caption,
+                SplitPolicy::Never,
+                &"Measurements and uncertainties. ".repeat(25),
+            )
+            .content;
+        }
+        spec.logical_slides[0].nodes.insert(
+            1,
+            text_node(
+                80,
+                SemanticRole::Section,
+                SplitPolicy::Never,
+                "Section heading",
+            ),
+        );
+        let units = build_flow(&spec.logical_slides[0].nodes[1..], &[], 1000).unwrap();
+        assert!(units.iter().all(|unit| unit.group == units[0].group));
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        if plan.failed_slides.is_empty() {
+            assert_eq!(plan.pages.len(), 1);
+        } else {
+            assert!(plan.pages.is_empty());
+        }
+    }
+
+    #[test]
+    fn section_heading_keeps_physically_fitting_hard_caption_cards_available() {
+        let (mut spec, template, _) = captioned_peer_plan((1_600, 900), true);
+        let figure = &mut spec.logical_slides[0].nodes[1];
+        figure.role = SemanticRole::Figure;
+        figure.split = SplitPolicy::Never;
+        spec.logical_slides[0].nodes.insert(
+            1,
+            text_node(
+                80,
+                SemanticRole::Section,
+                SplitPolicy::Never,
+                "Section heading",
+            ),
+        );
+        let plan = DeckPlanner::default()
+            .plan(&spec, &template, &FontCatalog::default(), &limits())
+            .unwrap();
+        assert!(plan.failed_slides.is_empty(), "{:?}", plan.diagnostics);
+        assert_eq!(plan.pages.len(), 1);
+        assert_uniform_media(&plan);
+        assert!(validate_deck_plan(&spec, &template, &plan, &limits()).is_valid());
+    }
+
+    #[test]
+    fn explicit_caption_link_preserves_the_whole_group_at_both_endpoints() {
+        let (mut spec, _, _) = captioned_peer_plan((1_600, 900), true);
+        let figure = &mut spec.logical_slides[0].nodes[1];
+        figure.role = SemanticRole::Figure;
+        figure.split = SplitPolicy::Never;
+        let outer = text_node(
+            80,
+            SemanticRole::Caption,
+            SplitPolicy::Never,
+            "Caption for the whole figure",
+        );
+        spec.logical_slides[0].nodes.insert(1, outer);
+        let relations = [MediaTextRelation {
+            media_node_id: id(11),
+            text_node_id: id(80),
+            proximity: MediaTextProximity::AdjacentBlocks,
+            text_side: MediaTextSide::BeforeMedia,
+            explicit_caption: true,
+        }];
+        let units = build_flow(&spec.logical_slides[0].nodes[1..], &relations, 100).unwrap();
+        assert!(units.iter().all(|unit| unit.group == units[0].group));
     }
 
     fn captioned_peer_plan(

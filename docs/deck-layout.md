@@ -168,6 +168,8 @@ Their original size disparity is a quantized alignment cost ahead of whitespace,
 track cannot win by shrinking its peers. Pictures align at the top of their allocated row;
 caption measurements and source order remain intact. Captioned media outside a gallery also
 exclude lead/supporting candidates, so source position alone cannot promote an image.
+Heading and explicit-caption associations union whole existing flow groups, including across
+leaf-node boundaries. A heading before a multipanel figure retains bounded card fitting.
 Nested galleries retain inherited hard groups. Ordered image/caption pairs inside an indivisible
 figure use bounded card arrangements and either fit as a whole or diagnose atomic overflow.
 

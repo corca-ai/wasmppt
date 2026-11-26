@@ -223,6 +223,52 @@ impl DeckPlanner {
                 .max(floor);
         }
     }
+    /// A section heading can share a hard figure group without removing its card geometry.
+    pub(super) fn fit_section_media_prefix<'a>(
+        &self,
+        group: &FlowGroup<'a>,
+        target: &FitTarget<'_>,
+        measurer: &mut Measurer<'_>,
+    ) -> Result<Option<FittedGroup<'a>>, PlanError> {
+        let count = group
+            .units
+            .iter()
+            .take_while(|unit| unit.node.role == SemanticRole::Section)
+            .count();
+        if count == 0
+            || count == group.units.len()
+            || !group.units[count..].iter().any(|unit| {
+                matches!(
+                    unit.node.content,
+                    SemanticContent::Image(_) | SemanticContent::Svg(_)
+                )
+            })
+        {
+            return Ok(None);
+        }
+        let prefix = FlowGroup {
+            units: group.units[..count].to_vec(),
+        };
+        let tail = FlowGroup {
+            units: group.units[count..].to_vec(),
+        };
+        // The prefix is all sections and the tail starts with a different role.
+        // Both recursive calls terminate at this guard: nesting is one level.
+        let Some(mut heading) = self.fit_group(&prefix, target, measurer)? else {
+            return Ok(None);
+        };
+        let tail_target = FitTarget {
+            y: heading.bottom.saturating_add(self.policy.gap),
+            ..*target
+        };
+        let Some(fitted) = self.fit_group(&tail, &tail_target, measurer)? else {
+            return Ok(None);
+        };
+        heading.placements.extend(fitted.placements);
+        heading.bottom = fitted.bottom;
+        Ok(Some(heading))
+    }
+
     fn fit_caption_cards<'a>(
         &self,
         group: &FlowGroup<'a>,

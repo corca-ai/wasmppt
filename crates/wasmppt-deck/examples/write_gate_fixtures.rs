@@ -805,7 +805,25 @@ fn media_quality_slides(
         &exif_resources[1],
         "caption",
     ));
-    slides.push(media_pair_slide(ordinal + 2, &resources[0], 3, false));
+    let mut peers = media_pair_slide(ordinal + 2, &resources[0], 3, false);
+    let children = peers.nodes.split_off(1);
+    let case = format!("{}-3-captioned-peers", resources[0].label);
+    peers.nodes.push(quality_text_node(
+        peers.id.derive(b"peer-section", 0),
+        &case,
+        60,
+        SemanticRole::Section,
+        "Evidence from one complete multipanel figure",
+        SplitPolicy::Never,
+    ));
+    peers.nodes.push(SemanticNode {
+        id: peers.id.derive(b"peer-figure", 0),
+        source: SourceRange::new(format!("media-quality/{case}.md"), 90, 900),
+        role: SemanticRole::Figure,
+        split: SplitPolicy::Never,
+        content: SemanticContent::Children(children),
+    });
+    slides.push(peers);
     slides
 }
 

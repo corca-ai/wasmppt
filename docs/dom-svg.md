@@ -35,7 +35,9 @@ External links are retained in the scene at that ownership boundary. The browser
 Preset and bounded curved custom geometry, solid/linear/radial/pattern fills, strokes, outer shadows,
 connector line ends, group transforms, rotations, flips, and source-cropped images are projected
 from the display list. DOM text and Canvas use the same rich-text layout planner for mixed runs,
-font resolution, wrapping, margins, alignment, and vertical anchoring. The Canvas and SVG
+font resolution, wrapping, margins, alignment, and vertical anchoring. A semantic shape can own multiple text commands: every table cell and chart label is projected
+in command order under the same keyed semantic owner, with its own text bounds and active group
+transform. Incremental updates replace the owner’s complete text projection. The Canvas and SVG
 integration fixture asserts the same resolved title fill, stroke width, image bounds, and
 transform command range. Features that are not lowered by the shared core have identical
 diagnostic codes in both backends.

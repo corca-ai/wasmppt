@@ -626,6 +626,63 @@ async function updateAccessibleOverlay(
     element.removeAttribute('role')
   }
   element.setAttribute('aria-label', semantic.alternativeText ?? semantic.name)
+  element.removeAttribute('style')
+  const projections = textCommandGroups(commands)
+  if (projections.length <= 1) {
+    await updateTextOverlay(element, semantic, projections[0] ?? commands, scene,
+      fontResolver, richTextLayout, imageResolver, signal)
+  } else {
+    // One source shape can lower to many positioned text commands (table cells
+    // and chart labels). Keep one keyed semantic owner and project every command.
+    const children: HTMLElement[] = []
+    for (const projection of projections) {
+      throwIfAborted(signal)
+      const child = document.createElement('div')
+      await updateTextOverlay(child, semantic, projection, scene, fontResolver,
+        richTextCommand !== undefined && projection.includes(richTextCommand) ? richTextLayout : undefined,
+        imageResolver, signal)
+      children.push(child)
+    }
+    element.replaceChildren(...children)
+    Object.assign(element.style, {
+      position: 'absolute', inset: '0', overflow: 'visible',
+      userSelect: 'text', pointerEvents: 'none',
+    })
+  }
+  state.textLayer.append(element)
+}
+
+/** Retain the active group chain at each text command, including sibling pops. */
+function textCommandGroups(commands: readonly SceneCommand[]): readonly (readonly SceneCommand[])[] {
+  const groups: SceneCommand[] = []
+  const projections: SceneCommand[][] = []
+  for (const command of commands) {
+    if (command.kind === 'push-group') groups.push(command)
+    else if (command.kind === 'pop-group') groups.pop()
+    else if (command.kind === 'draw-text' || command.kind === 'draw-rich-text') {
+      projections.push([...groups, command])
+    }
+  }
+  return projections
+}
+
+async function updateTextOverlay(
+  element: HTMLElement,
+  semantic: SceneSemanticElement,
+  commands: readonly SceneCommand[],
+  scene: DisplayScene,
+  fontResolver: FontResolver | undefined,
+  richTextLayout: Awaited<ReturnType<typeof buildRichTextLayout>> | undefined,
+  imageResolver: DomImageResolver | undefined,
+  signal: AbortSignal,
+): Promise<void> {
+  const textCommand = commands.find(
+    (command): command is Extract<SceneCommand, { readonly kind: 'draw-text' }> => command.kind === 'draw-text',
+  )
+  const richTextCommand = commands.find(
+    (command): command is Extract<SceneCommand, { readonly kind: 'draw-rich-text' }> => command.kind === 'draw-rich-text',
+  )
+  const safeHref = safeHyperlink(semantic.hyperlink)
   if (textCommand !== undefined) element.textContent = required(scene.strings, textCommand.text)
   else if (richTextCommand !== undefined) {
     let plan = richTextLayout
@@ -635,6 +692,7 @@ async function updateAccessibleOverlay(
       if (measureContext === null) throw new Error('Canvas 2D is unavailable for rich text layout')
       plan = await buildRichTextLayout(measureContext, richTextCommand, fontResolver)
     }
+    richTextLayout = plan
     const originX = richTextCommand.bounds.x / EMU_PER_CSS_PIXEL
     const originY = richTextCommand.bounds.y / EMU_PER_CSS_PIXEL
     const layoutX = plan.layoutBounds.x / EMU_PER_CSS_PIXEL
@@ -759,7 +817,6 @@ async function updateAccessibleOverlay(
     userSelect: 'text',
     pointerEvents: safeHref === undefined ? 'none' : 'auto',
   })
-  state.textLayer.append(element)
 }
 
 function domTextFill(run: RichTextLayoutRun): Record<string, string> {

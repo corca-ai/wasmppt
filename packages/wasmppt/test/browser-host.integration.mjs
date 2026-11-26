@@ -1084,7 +1084,8 @@ try {
     }
     const advancedDomHost = document.createElement('div')
     document.body.append(advancedDomHost)
-    const advancedDom = await new DomSvgRenderer().render(advancedScene, advancedDomHost, {
+    const advancedDomRenderer = new DomSvgRenderer()
+    const advancedDom = await advancedDomRenderer.render(advancedScene, advancedDomHost, {
       revision: 1,
       slideIndex: 1,
       imageResolver: async (image, signal) => {
@@ -1100,6 +1101,15 @@ try {
     })
     const advancedFacts = {
       semanticKinds: advancedScene.semantics.map((semantic) => semantic.kind),
+      tableText: advancedScene.semantics.filter((semantic) => semantic.kind === 'table')
+        .flatMap((semantic) => advancedScene.commands.slice(semantic.firstCommand, semantic.firstCommand + semantic.commandCount))
+        .flatMap((command) => command.kind === 'draw-rich-text'
+          ? command.frame.paragraphs.map((paragraph) => paragraph.runs.map((run) => run.text).join(''))
+          : command.kind === 'draw-text' ? [advancedScene.strings[command.text]] : []).join(''),
+      domTableText: [...advancedDomHost.querySelectorAll('[data-semantic-kind="table"]')]
+        .map((element) => element.textContent).join(''),
+      offlineTableText: [...advancedOfflineDocument.querySelectorAll('[data-semantic-kind="table"]')]
+        .map((element) => element.textContent).join(''),
       strings: advancedScene.strings,
       textRuns: advancedScene.commands.flatMap((command) => command.kind === 'draw-rich-text'
         ? command.frame.paragraphs.flatMap((paragraph) => paragraph.runs.map((run) => run.text))
@@ -1121,6 +1131,18 @@ try {
       metafileSvgBytes,
       domDiagnosticCodes: advancedDom.diagnostics.map((diagnostic) => diagnostic.code),
     }
+    const tableSemantic = advancedScene.semantics.find((semantic) => semantic.kind === 'table')
+    const firstCell = advancedScene.commands.findIndex((command, index) => index >= tableSemantic.firstCommand &&
+      index < tableSemantic.firstCommand + tableSemantic.commandCount &&
+      (command.kind === 'draw-rich-text' || command.kind === 'draw-text'))
+    const retainedTable = advancedDomHost.querySelector('.wasmppt-dom-text-layer [data-semantic-kind="table"]')
+    const singleCellScene = { ...advancedScene, semantics: advancedScene.semantics.map((semantic) =>
+      semantic === tableSemantic ? { ...semantic, commandCount: firstCell - semantic.firstCommand + 1 } : semantic) }
+    await advancedDomRenderer.render({ ...singleCellScene, semantics: singleCellScene.semantics.filter((semantic) => semantic.kind === 'table') }, advancedDomHost, { revision: 2 })
+    advancedFacts.singleCellText = advancedDomHost.querySelector('.wasmppt-dom-text-layer [data-semantic-kind="table"]')?.textContent
+    advancedFacts.tableOwnerRetained = advancedDomHost.querySelector('.wasmppt-dom-text-layer [data-semantic-kind="table"]') === retainedTable
+    await advancedDomRenderer.render({ ...advancedScene, semantics: [tableSemantic] }, advancedDomHost, { revision: 3 })
+    advancedFacts.restoredTableText = advancedDomHost.querySelector('.wasmppt-dom-text-layer [data-semantic-kind="table"]')?.textContent
     const fidelityCanvas = document.createElement('canvas')
     fidelityCanvas.id = 'wasmppt-visual-slide-3'
     fidelityCanvas.width = 640
@@ -1527,6 +1549,12 @@ try {
   assert(result.telemetry.fontMeasurementMs >= 0)
   assert(result.telemetry.mediaDecodeMs >= 0)
   assert(result.advancedFacts.semanticKinds.includes('table'))
+  assert(result.advancedFacts.tableText.includes('42'))
+  assert.equal(result.advancedFacts.singleCellText, 'Quarter')
+  assert.equal(result.advancedFacts.tableOwnerRetained, true)
+  assert.equal(result.advancedFacts.restoredTableText.replace(/\s/gu, ''), result.advancedFacts.tableText.replace(/\s/gu, ''))
+  assert.equal(result.advancedFacts.domTableText.replace(/\s/gu, ''), result.advancedFacts.tableText.replace(/\s/gu, ''))
+  assert.equal(result.advancedFacts.offlineTableText.replace(/\s/gu, ''), result.advancedFacts.tableText.replace(/\s/gu, ''))
   assert(result.advancedFacts.semanticKinds.includes('chart'))
   assert(result.advancedFacts.semanticKinds.includes('image'))
   assert(result.advancedFacts.textRuns.includes('Quarter'))
